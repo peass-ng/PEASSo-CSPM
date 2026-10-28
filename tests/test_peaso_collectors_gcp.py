@@ -609,7 +609,7 @@ def test_native_service_coverage_and_configuration_fixture():
     # Content-only inventories require a separately named, opted-in request.
     from peaso.collectors.gcp_network_catalog import PRIVATE_SERVICES
     organization_network_types = {kind for kind, plan in PRIVATE_SERVICES.items() if plan.get('scope_kind') == 'organizations'}
-    kinds = sorted(gcp.SUPPORTED_TYPES - CONTENT_ONLY_TYPES - gcp.CONTENT_ONLY_TYPES - organization_network_types - {"project", "organization", "folder", "workforce_pool", "workforce_provider", "kms_key", "kms_key_ring", "activity", "principal_access_boundary_policy", "firewall_policy_association", "service_perimeter", "audit_log", "scc_finding", "scc_notification_config", "provider_access_event", "asset_previous", "asset_audit_log", "deployed_image", "effective_firewall", "folder_policy_grant_constraints", "organization_policy_grant_constraints", "service_catalog_version", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_httproute", "gke_exposure_endpointslice"})
+    kinds = sorted(gcp.SUPPORTED_TYPES - CONTENT_ONLY_TYPES - gcp.CONTENT_ONLY_TYPES - organization_network_types - {"project", "organization", "folder", "workforce_pool", "workforce_provider", "kms_key", "kms_key_ring", "activity", "principal_access_boundary_policy", "firewall_policy_association", "service_perimeter", "audit_log", "scc_finding", "scc_notification_config", "provider_access_event", "asset_previous", "asset_audit_log", "deployed_image", "effective_firewall", "folder_policy_grant_constraints", "organization_policy_grant_constraints", "service_catalog_version", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_httproute", "gke_exposure_endpointslice", "gke_exposure_multiclusteringress"})
     transport = NativeDataFixtureTransport(resolve)
     result = gcp.GCPCollector(connector(kinds, scopes=["projects/p-one01"], cloud_identity_customers=["Cfixture"], regions=["r"],
         sw51_policy={'scope': 'projects/p-one01', 'status': 'collected', 'approved_asset_types': ['compute.googleapis.com/Instance']}),
@@ -1066,6 +1066,21 @@ def test_gke_exposure_ingress_job_runs_after_cluster_inventory(monkeypatch):
     assert len(rows) == 2
     assert any(row.get("inventoryStatus") == "collected" and row["ingressCount"] == 1 for row in rows)
     assert any(row.get("ingressClassName") == "gce" for row in rows)
+
+
+def test_gke_exposure_multicluster_ingress_job_runs_after_cluster_inventory(monkeypatch):
+    from peaso.collectors import gcp_gke_exposure_services as services
+    monkeypatch.setattr(services, "cluster_binding", lambda _, scope, selection: {
+        "selection": selection, "endpoint": "34.1.2.3", "ca_sha256": "abc"})
+    monkeypatch.setattr(services.MultiClusterIngressReader, "pages", lambda self: iter([([{
+        "name": self.binding["selection"] + "/namespaces/default/multiclusteringresses/web",
+        "cluster": self.binding["selection"], "VIP": "34.1.2.3"}], "mci-request")]))
+    result, _ = snapshot(["gke_exposure_multiclusteringress"], lambda r: {
+        "clusters": [{"name": "c1", "location": "r1"}]} if r["url"].endswith("/locations/-/clusters") else {"items": []})
+    rows = collection(result, "gke_exposure_multiclusteringress")["items"]
+    assert len(rows) == 2
+    assert any(row.get("inventoryStatus") == "collected" and row["multiclusteringressCount"] == 1 for row in rows)
+    assert any(row.get("VIP") == "34.1.2.3" for row in rows)
 
 
 def test_gke_exposure_pod_job_runs_after_cluster_inventory(monkeypatch):
@@ -1726,6 +1741,65 @@ def test_public_bucket_custom_role_is_hydrated_once_for_permission_review():
     roles = collection(result, "iam_role")["items"]
     assert len(roles) == 1 and roles[0]["includedPermissions"] == ["storage.objects.get"]
     assert sum(request["url"] == role_url for request in transport.requests) == 1
+
+
+def test_service_account_custom_credential_role_is_hydrated_once():
+    role = "projects/p-one/roles/customToken"
+    account = "projects/p-one/serviceAccounts/target@p-one.iam.gserviceaccount.com"
+    role_url = "https://iam.googleapis.com/v1/" + role
+    def resolve(request):
+        url = request["url"]
+        if url.endswith("/serviceAccounts"):
+            return {"accounts": [{"name": account, "email": "target@p-one.iam.gserviceaccount.com"}]}
+        if url.endswith("/serviceAccounts/target@p-one.iam.gserviceaccount.com:getIamPolicy"):
+            return {"bindings": [{"role": role, "members": ["serviceAccount:actor@other.iam.gserviceaccount.com"]}]}
+        if url == role_url:
+            return {"name": role, "includedPermissions": ["iam.serviceAccounts.getAccessToken"]}
+        raise AssertionError(url)
+    result, transport = snapshot(["service_account", "iam_role"], resolve, service_account_activity=False)
+    rows = collection(result, "iam_role")["items"]
+    assert len(rows) == 1 and rows[0]["includedPermissions"] == ["iam.serviceAccounts.getAccessToken"]
+    assert sum(request["url"] == role_url for request in transport.requests) == 1
+
+
+def test_referenced_external_owner_role_is_read_once_for_scanned_service_accounts():
+    role = "projects/role-owner/roles/customToken"
+    role_url = "https://iam.googleapis.com/v1/" + role
+    denied = [False]
+    def resolve(request):
+        url = request["url"]
+        if url.startswith("https://cloudresourcemanager.googleapis.com/v3/projects/"):
+            project = request["scope"].split("/", 1)[1]
+            return {"name": request["scope"], "projectId": project}
+        if url.endswith("/roles"):
+            return {"roles": []}
+        if url.endswith("/serviceAccounts"):
+            project = request["scope"].split("/", 1)[1]
+            return {"accounts": [{"name": f"projects/{project}/serviceAccounts/target@{project}.iam.gserviceaccount.com",
+                                  "email": f"target@{project}.iam.gserviceaccount.com"}]}
+        if url.endswith(":getIamPolicy") and "/serviceAccounts/" in url:
+            return {"bindings": [{"role": role,
+                                  "members": ["serviceAccount:actor@foreign.iam.gserviceaccount.com"]}]}
+        if url == role_url:
+            assert request["method"] == "GET"
+            if denied[0]:
+                raise gcp.ReadError("denied", "api_error", http_status=403)
+            return {"name": role, "includedPermissions": ["iam.serviceAccounts.getAccessToken"]}
+        raise AssertionError(url)
+    result, transport = snapshot(["service_account", "iam_role"], resolve,
+                                 scopes=["projects/p-one", "projects/p-two"], service_account_activity=False)
+    assert sum(request["url"] == role_url for request in transport.requests) == 1
+    rows = [row for collection_row in result["collections"] if collection_row["type"] == "iam_role"
+            for row in collection_row["items"] if row.get("name") == role]
+    assert len(rows) == 1 and rows[0]["includedPermissions"] == ["iam.serviceAccounts.getAccessToken"]
+    from peaso.snapshot import resources
+    from peaso.analysis.internet_exposure import gcp_service_account_impersonation_findings
+    assert all(row["status"] == "FAIL" for row in gcp_service_account_impersonation_findings(result, resources(result)))
+    denied[0] = True
+    unresolved, _ = snapshot(["service_account", "iam_role"], resolve,
+                             scopes=["projects/p-one", "projects/p-two"], service_account_activity=False)
+    assert all(row["status"] == "UNKNOWN" for row in gcp_service_account_impersonation_findings(
+        unresolved, resources(unresolved)))
 
 
 def test_storage_effective_public_grants_use_collected_custom_role_permissions():

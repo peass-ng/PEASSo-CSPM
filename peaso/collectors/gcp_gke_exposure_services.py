@@ -26,6 +26,7 @@ GATEWAY_KIND = "gke_exposure_gateway"
 GATEWAYCLASS_KIND = "gke_exposure_gatewayclass"
 HTTPROUTE_KIND = "gke_exposure_httproute"
 ENDPOINTSLICE_KIND = "gke_exposure_endpointslice"
+MULTICLUSTERINGRESS_KIND = "gke_exposure_multiclusteringress"
 MAX_SECONDS = 120
 MAX_SERVICES = 10000
 ANNOTATIONS = frozenset({
@@ -233,6 +234,35 @@ class ServiceReader:
                 raise ValueError("GKE Service annotations")
             selected_annotations = {key: value for key, value in annotations.items()
                                     if key in ANNOTATIONS and isinstance(value, str) and len(value) <= 4096}
+            neg_status = None
+            neg_unresolved = False
+            raw_neg = annotations.get("cloud.google.com/neg-status")
+            if raw_neg is not None:
+                try:
+                    if not isinstance(raw_neg, str) or len(raw_neg.encode()) > 4096:
+                        raise ValueError("NEG status bound")
+                    def pairs(values):
+                        result = {}
+                        for key, value in values:
+                            if key in result:
+                                raise ValueError("duplicate NEG status key")
+                            result[key] = value
+                        return result
+                    parsed = json.loads(raw_neg, object_pairs_hook=pairs)
+                    groups = parsed.get("network_endpoint_groups", parsed.get("network-endpoint-groups"))
+                    zones = parsed.get("zones")
+                    if (not isinstance(groups, dict) or not 0 < len(groups) <= 100
+                            or any(not isinstance(port, str) or not re.fullmatch(r"[1-9][0-9]{0,4}", port)
+                                   or int(port) > 65535 or not isinstance(group, str)
+                                   or not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", group)
+                                   for port, group in groups.items())
+                            or not isinstance(zones, list) or not 0 < len(zones) <= 100
+                            or any(not isinstance(zone, str) or not re.fullmatch(r"[a-z0-9-]{1,63}", zone)
+                                   for zone in zones)):
+                        raise ValueError("NEG status shape")
+                    neg_status = {"networkEndpointGroups": groups, "zones": zones}
+                except (ValueError, TypeError, AttributeError):
+                    neg_unresolved = True
             status = service.get("status", {})
             if not isinstance(status, dict):
                 raise ValueError("GKE Service status")
@@ -259,6 +289,8 @@ class ServiceReader:
                 "uid": uid, "resourceVersion": meta.get("resourceVersion"),
                 "spec": safe_spec, "status": {"loadBalancer": {"ingress": ingress}},
                 "annotations": selected_annotations, "clusterEndpoint": self.binding["endpoint"],
+                "negConfigured": "cloud.google.com/neg" in annotations,
+                "negStatus": neg_status, "negStatusUnresolved": neg_unresolved,
                 "clusterCaSha256": self.binding["ca_sha256"],
                 "endpointTrust": self.binding.get("endpointTrust", "cluster_ca")})
         return {"items": rows, "continue": token, "resourceVersion": version}
@@ -350,6 +382,67 @@ class IngressReader(ServiceReader):
                 "clusterCaSha256": self.binding["ca_sha256"],
                 "endpointTrust": self.binding.get("endpointTrust", "cluster_ca")})
         return {"items": rows, "continue": token, "resourceVersion": version}
+
+
+class MultiClusterIngressReader(ServiceReader):
+    PATH = "/apis/networking.gke.io/v1/multiclusteringresses"
+    OPERATION = "gke-exposure-multiclusteringresses-list"
+
+    def project_list(self, data, path):
+        api_version = "networking.gke.io/v1beta1" if path == LegacyMultiClusterIngressReader.PATH else "networking.gke.io/v1"
+        if (not isinstance(data, dict) or data.get("apiVersion") != api_version
+                or data.get("kind") != "MultiClusterIngressList" or not isinstance(data.get("items"), list)
+                or len(data["items"]) > PAGE_SIZE or not isinstance(data.get("metadata"), dict)):
+            raise ValueError("GKE MultiClusterIngress list shape")
+        version = data["metadata"].get("resourceVersion")
+        token = data["metadata"].get("continue", "")
+        if (not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", version)
+                or not isinstance(token, str) or len(token.encode()) > 4096):
+            raise ValueError("GKE MultiClusterIngress list continuity")
+        rows = []
+        for ingress in data["items"]:
+            if (not isinstance(ingress, dict) or ingress.get("apiVersion") != api_version
+                    or ingress.get("kind") != "MultiClusterIngress"):
+                raise ValueError("GKE MultiClusterIngress resource shape")
+            meta, status = ingress.get("metadata"), ingress.get("status", {})
+            if not isinstance(meta, dict) or not isinstance(status, dict):
+                raise ValueError("GKE MultiClusterIngress metadata/status")
+            namespace, name, uid = meta.get("namespace"), meta.get("name"), meta.get("uid")
+            if (not isinstance(namespace, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", namespace)
+                    or not isinstance(name, str) or not DNS_NAME.fullmatch(name)
+                    or not isinstance(uid, str) or not 1 <= len(uid) <= 128):
+                raise ValueError("GKE MultiClusterIngress identity")
+            self.budget["resources"] += 1
+            if self.budget["resources"] > MAX_SERVICES:
+                raise ValueError("GKE MultiClusterIngress count bound")
+            cloud = status.get("cloudResources", {})
+            if not isinstance(cloud, dict):
+                raise ValueError("GKE MultiClusterIngress cloud resources")
+            safe_cloud = {}
+            for key in ("forwardingRules", "targetProxies", "urlMap", "backendServices"):
+                value = cloud.get(key)
+                if value is None:
+                    continue
+                values = value if isinstance(value, list) else [value]
+                if (len(values) > 128 or any(not isinstance(item, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", item)
+                                              for item in values)):
+                    raise ValueError("GKE MultiClusterIngress cloud resource names")
+                safe_cloud[key] = values
+            vip = status.get("VIP")
+            if vip is not None and (not isinstance(vip, str) or len(vip) > 45):
+                raise ValueError("GKE MultiClusterIngress VIP")
+            rows.append({"name": f"{self.binding['selection']}/namespaces/{namespace}/multiclusteringresses/{name}",
+                "cluster": self.binding["selection"], "namespace": namespace, "kubernetesName": name,
+                "uid": uid, "VIP": vip, "cloudResources": safe_cloud,
+                "clusterEndpoint": self.binding["endpoint"],
+                "clusterCaSha256": self.binding["ca_sha256"],
+                "endpointTrust": self.binding.get("endpointTrust", "cluster_ca")})
+        return {"items": rows, "continue": token, "resourceVersion": version}
+
+
+class LegacyMultiClusterIngressReader(MultiClusterIngressReader):
+    PATH = "/apis/networking.gke.io/v1beta1/multiclusteringresses"
+    OPERATION = "gke-exposure-multiclusteringresses-v1beta1-list"
 
 
 class PodReader(ServiceReader):
@@ -638,8 +731,11 @@ class HTTPRouteReader(ServiceReader):
             for parent in parents:
                 if not isinstance(parent, dict) or not isinstance(parent.get("name"), str) or not DNS_NAME.fullmatch(parent["name"]):
                     raise ValueError("GKE HTTPRoute parent")
+                if "port" in parent and (type(parent["port"]) is not int or not 1 <= parent["port"] <= 65535):
+                    raise ValueError("GKE HTTPRoute parent port")
                 safe_parents.append({key: value for key in ("group", "kind", "namespace", "name", "sectionName")
-                                     if isinstance(value := parent.get(key), str) and len(value) <= 253})
+                                     if isinstance(value := parent.get(key), str) and len(value) <= 253} |
+                                    ({"port": parent["port"]} if "port" in parent else {}))
             safe_backends = []
             for rule in rules:
                 if not isinstance(rule, dict) or not isinstance(rule.get("backendRefs", []), list) or len(rule.get("backendRefs", [])) > 128:
@@ -661,6 +757,8 @@ class HTTPRouteReader(ServiceReader):
                 ref = parent["parentRef"]
                 if not isinstance(ref.get("name"), str) or not DNS_NAME.fullmatch(ref["name"]):
                     raise ValueError("GKE HTTPRoute status parent identity")
+                if "port" in ref and (type(ref["port"]) is not int or not 1 <= ref["port"] <= 65535):
+                    raise ValueError("GKE HTTPRoute status parent port")
                 conditions = parent.get("conditions", [])
                 if not isinstance(conditions, list) or len(conditions) > 16:
                     raise ValueError("GKE HTTPRoute status conditions")
@@ -680,7 +778,8 @@ class HTTPRouteReader(ServiceReader):
                     raise ValueError("GKE HTTPRoute status controller")
                 safe_status.append({"controllerName": controller_name,
                                     "parentRef": {key: value for key in ("group", "kind", "namespace", "name", "sectionName")
-                                                  if isinstance(value := ref.get(key), str) and len(value) <= 253},
+                                                  if isinstance(value := ref.get(key), str) and len(value) <= 253} |
+                                                 ({"port": ref["port"]} if "port" in ref else {}),
                                     "conditions": safe_conditions})
             rows.append({"name": f"{self.binding['selection']}/namespaces/{namespace}/httproutes/{name}",
                 "cluster": self.binding["selection"], "namespace": namespace, "kubernetesName": name,
@@ -773,15 +872,16 @@ class EndpointSliceReader(ServiceReader):
 def dependent_jobs(collector, kind=KIND):
     if kind not in collector.needed:
         return []
-    if kind not in (KIND, INGRESS_KIND, POD_KIND, NODE_KIND, GATEWAY_KIND, GATEWAYCLASS_KIND, HTTPROUTE_KIND, ENDPOINTSLICE_KIND):
+    if kind not in (KIND, INGRESS_KIND, POD_KIND, NODE_KIND, GATEWAY_KIND, GATEWAYCLASS_KIND, HTTPROUTE_KIND, ENDPOINTSLICE_KIND, MULTICLUSTERINGRESS_KIND):
         return []
     reader_type = {KIND: ServiceReader, INGRESS_KIND: IngressReader, POD_KIND: PodReader,
                    NODE_KIND: NodeReader, GATEWAY_KIND: GatewayReader, GATEWAYCLASS_KIND: GatewayClassReader,
                    HTTPROUTE_KIND: HTTPRouteReader,
-                   ENDPOINTSLICE_KIND: EndpointSliceReader}[kind]
+                   ENDPOINTSLICE_KIND: EndpointSliceReader,
+                   MULTICLUSTERINGRESS_KIND: MultiClusterIngressReader}[kind]
     resource_label = {KIND: "service", INGRESS_KIND: "ingress", POD_KIND: "pod", NODE_KIND: "node",
                       GATEWAY_KIND: "gateway", GATEWAYCLASS_KIND: "gatewayclass", HTTPROUTE_KIND: "httproute",
-                      ENDPOINTSLICE_KIND: "endpointslice"}[kind]
+                      ENDPOINTSLICE_KIND: "endpointslice", MULTICLUSTERINGRESS_KIND: "multiclusteringress"}[kind]
     jobs = []
     for scope in collector.scopes:
         if not isinstance(scope, str) or not re.fullmatch(r"projects/" + PROJECT, scope):
@@ -818,7 +918,14 @@ def dependent_jobs(collector, kind=KIND):
                         binding = bind(collector, scope, selection)
                         # Publish only a complete endpoint read. A failed second page
                         # cannot leave first-page rows masquerading as live inventory.
-                        pages = list(reader_type(collector, binding, None, budget).pages())
+                        readers = (reader_type, LegacyMultiClusterIngressReader) if kind == MULTICLUSTERINGRESS_KIND else (reader_type,)
+                        for reader in readers:
+                            try:
+                                pages = list(reader(collector, binding, None, budget).pages())
+                                break
+                            except ReadError:
+                                if reader is readers[-1]:
+                                    raise
                         count = sum(len(rows) for rows, _ in pages)
                         for rows, request_id in pages:
                             last_request = request_id

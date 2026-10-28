@@ -984,9 +984,9 @@ SUPPORTED_TYPES = SUPPORTED_TYPES | {'artifact_image', 'sbom_occurrence', 'deplo
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'app_engine_version_secret', 'workflow_source'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'clouddeploy_release_source', 'cloudbuild_artifact_source', 'gcs_selected_archive', 'composer_dag_source', 'cloudbuild_log_source', 'appengine_deployment_source'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'artifact_selected_file', 'function_source_archive', 'gke_workload_literal', 'dataform_selected_file', 'dataflow_job', 'batch_job', 'dataproc_job'}
-SUPPORTED_TYPES = SUPPORTED_TYPES | {'gke_exposure_service', 'gke_exposure_ingress', 'gke_exposure_pod', 'gke_exposure_node', 'gke_exposure_gateway', 'gke_exposure_gatewayclass', 'gke_exposure_httproute', 'gke_exposure_endpointslice'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'gke_exposure_service', 'gke_exposure_ingress', 'gke_exposure_pod', 'gke_exposure_node', 'gke_exposure_gateway', 'gke_exposure_gatewayclass', 'gke_exposure_httproute', 'gke_exposure_endpointslice', 'gke_exposure_multiclusteringress'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'dataflow_privesc_job', 'dataflow_privesc_pipeline'}
-SUPPORTED_TYPES = SUPPORTED_TYPES | {'bucket_acl', 'object_acl', 'bucket_effective_iam', 'os_patch_deployment', 'os_vulnerability_report', 'kms_effective_use'}
+SUPPORTED_TYPES = SUPPORTED_TYPES | {'bucket_acl', 'object_acl', 'default_object_acl', 'bucket_effective_iam', 'os_patch_deployment', 'os_vulnerability_report', 'kms_effective_use'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'osconfig_guest_policy', 'osconfig_project_feature_settings', 'osconfig_os_policy_assignment', 'osconfig_policy_orchestrator', 'ca_pool', 'service_catalog_version'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'dataform_privesc_location'}
 SUPPORTED_TYPES = SUPPORTED_TYPES | {'datafusion_privesc_instance'}
@@ -1098,6 +1098,7 @@ DEPENDENCIES['gke_exposure_gateway'] = {'gke_cluster'}
 DEPENDENCIES['gke_exposure_gatewayclass'] = {'gke_cluster'}
 DEPENDENCIES['gke_exposure_httproute'] = {'gke_cluster'}
 DEPENDENCIES['gke_exposure_endpointslice'] = {'gke_cluster'}
+DEPENDENCIES['gke_exposure_multiclusteringress'] = {'gke_cluster'}
 DEPENDENCIES['function_source_archive'] = {'function', 'project', 'bucket'}
 DEPENDENCIES['artifact_selected_file'] = {'project', 'artifact_repository'}
 for _literal_job_kind in ('dataflow_job', 'batch_job', 'dataproc_job'):
@@ -1130,6 +1131,7 @@ DEPENDENCIES["bucket_acl"] = {"bucket"}
 DEPENDENCIES["managed_folder"] = {"bucket"}
 DEPENDENCIES["composer_image_version"] = {"project", "bucket"}
 DEPENDENCIES["object_acl"] = {"bucket"}
+DEPENDENCIES["default_object_acl"] = {"bucket"}
 DEPENDENCIES["bucket_effective_iam"] = {"bucket", "iam_policy", "project"}
 DEPENDENCIES["os_patch_deployment"] = {"instance"}
 DEPENDENCIES["os_vulnerability_report"] = {"instance", "project"}
@@ -3914,12 +3916,13 @@ class GCPCollector:
                 for scope in self.scopes if scope.startswith('projects/')])
         from .gcp_gke_literal_secret_indicators import dependent_jobs as gke_literal_jobs
         self.run_jobs(gke_literal_jobs(self))
-        from .gcp_gke_exposure_services import dependent_jobs as gke_exposure_jobs, INGRESS_KIND, POD_KIND, NODE_KIND, GATEWAY_KIND, GATEWAYCLASS_KIND, HTTPROUTE_KIND, ENDPOINTSLICE_KIND
+        from .gcp_gke_exposure_services import dependent_jobs as gke_exposure_jobs, INGRESS_KIND, POD_KIND, NODE_KIND, GATEWAY_KIND, GATEWAYCLASS_KIND, HTTPROUTE_KIND, ENDPOINTSLICE_KIND, MULTICLUSTERINGRESS_KIND
         self.run_jobs(gke_exposure_jobs(self) + gke_exposure_jobs(self, INGRESS_KIND)
                       + gke_exposure_jobs(self, POD_KIND) + gke_exposure_jobs(self, NODE_KIND)
                       + gke_exposure_jobs(self, GATEWAY_KIND) + gke_exposure_jobs(self, GATEWAYCLASS_KIND)
                       + gke_exposure_jobs(self, HTTPROUTE_KIND)
-                      + gke_exposure_jobs(self, ENDPOINTSLICE_KIND))
+                      + gke_exposure_jobs(self, ENDPOINTSLICE_KIND)
+                      + gke_exposure_jobs(self, MULTICLUSTERINGRESS_KIND))
         if self.needed & {'appengine_flex_selected_version_image_secrets', 'appengine_flex_selected_version_image_vulnerabilities'}:
             from .gcp_appengine_flex_image_runtime_20261021 import collect as collect_flex_images
             collect_flex_images(self)
@@ -4570,7 +4573,7 @@ class GCPCollector:
                     role = binding.get("role")
                     if isinstance(role, str) and re.fullmatch(r"(?:roles/[\w.]+|(?:projects|organizations)/[\w.-]+/roles/[\w.]+)", role):
                         role_scopes.setdefault(role, set()).add(scope)
-            for kind in ("bucket", "bigquery_table", "bigquery_routine_metadata", "secret", "pubsub_topic", "pubsub_subscription", "kms_key_ring", "kms_key",
+            for kind in ("bucket", "bigquery_table", "bigquery_routine_metadata", "secret", "pubsub_topic", "pubsub_subscription", "kms_key_ring", "kms_key", "service_account",
                          "integration_connection", "contact_center_authorized_view"):
                 for scope, resource in self.items(kind):
                     if ((resource.get("_coverage") or {}).get("iamPolicy") or {}).get("status") != "collected":
@@ -4592,23 +4595,16 @@ class GCPCollector:
             known = {(scope, item.get("name")) for scope, item in self.items("iam_role")}
             from .gcp_unused_directory_20261021 import known_role_aliases
             known.update(known_role_aliases(self, role_scopes, known))
-            selected_projects = set(self.scopes)
-            for _, project in self.items("project"):
-                if isinstance(project.get("name"), str):
-                    selected_projects.add(project["name"])
-                if isinstance(project.get("projectId"), str):
-                    selected_projects.add("projects/" + project["projectId"])
+            known_role_names = {name for _, name in known}
             jobs = []
+            requested_roles = set()
             for role, scope in sorted((role, scope) for role, scopes in role_scopes.items() for scope in scopes
                                       if (scope, role) not in known):
-                # Cross-project custom roles stay references unless their owning
-                # project was selected; project restrictions apply to reads too.
-                if role.startswith("projects/") and "/".join(role.split("/")[:2]) not in selected_projects:
-                    self.scope_errors.append({"scope": scope, "role": role, "status": "unavailable", "code": "role_owner_not_selected"})
+                # A policy's exact role reference can be read without listing
+                # its owner project/organization. Deduplicate cross-scope reads.
+                if role in known_role_names or role in requested_roles:
                     continue
-                if role.startswith("organizations/") and "/".join(role.split("/")[:2]) not in set(self.scopes) | set(getattr(self, "inherited_scopes", [])):
-                    self.scope_errors.append({"scope": scope, "role": role, "status": "unavailable", "code": "role_owner_not_selected"})
-                    continue
+                requested_roles.add(role)
                 jobs.append(("iam_role", scope, "iam", lambda role=role, scope=scope: self.pages(
                     f"https://iam.googleapis.com/v1/{role}", scope, single=True)))
             self.run_jobs(jobs)
@@ -5258,7 +5254,7 @@ class GCPCollector:
                     "coverage_status": collection.get("coverage_status"), "resource_count": len(collection["items"]),
                     "error": collection.get("error"), "source_requests": collection.get("source_requests", [])})
                 continue
-            if (key[0] in self.wanted or key[0] == "gke_cluster" and self.wanted & {"gke_workload_literal", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_gatewayclass", "gke_exposure_httproute", "gke_exposure_endpointslice"} or key[0] == "project" and
+            if (key[0] in self.wanted or key[0] == "gke_cluster" and self.wanted & {"gke_workload_literal", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_gatewayclass", "gke_exposure_httproute", "gke_exposure_endpointslice", "gke_exposure_multiclusteringress"} or key[0] == "project" and
                     (self.options.get("all_projects") or key[1] in getattr(self, "proven_project_alias_scopes", set())
                      or key[1] in getattr(self, "proven_api_key_alias_scopes", set()))):
                 collection["items"].sort(key=lambda item: item["_resource_id"])
@@ -5441,7 +5437,7 @@ class GCPCollector:
             if self.transport is None:
                 from .gcp_gke_literal_secret_indicators import auth_requested
                 credentials = Credentials(self.auth, timeout=bound(self.options, "timeout", 20, 1, 120),
-                    gke_content=auth_requested(self) or bool({"gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_gatewayclass", "gke_exposure_httproute", "gke_exposure_endpointslice"} & self.needed))
+                    gke_content=auth_requested(self) or bool({"gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_gatewayclass", "gke_exposure_httproute", "gke_exposure_endpointslice", "gke_exposure_multiclusteringress"} & self.needed))
                 self.transport = Transport(credentials, self.options)
             self.discover()
             self.progress("collecting")

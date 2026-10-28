@@ -502,13 +502,13 @@ def _principals(resource):
                 if isinstance(value, str) and value:
                     identity = f"{prefix}:{value}" if prefix else value
                     yield identity, f"access[{i}].{field}", access, "member"
-    if resource["provider"] == "gcp" and resource["type"] in ("bucket_acl", "object_acl"):
+    if resource["provider"] == "gcp" and resource["type"] in ("bucket_acl", "object_acl", "default_object_acl"):
         # The collector retains only a hash of a private ACL identity. A
         # separately projected kind/domain is enough to establish a foreign
         # trust boundary without restoring the user or group address.
         kind, domain = data.get("principalKind"), data.get("principalDomain")
         if (isinstance(data.get("entity"), str) and data["entity"].startswith("sha256:")
-                and data.get("role") in (("READER", "OWNER") if resource["type"] == "object_acl"
+                and data.get("role") in (("READER", "OWNER") if resource["type"] in ("object_acl", "default_object_acl")
                                          else ("READER", "OWNER", "WRITER"))):
             project, team = data.get("principalProject"), data.get("principalTeam")
             if (kind == "project" and team in ("owners", "editors", "viewers")

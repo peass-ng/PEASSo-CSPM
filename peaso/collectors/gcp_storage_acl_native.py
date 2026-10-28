@@ -8,7 +8,7 @@ from hashlib import sha256
 import re
 from urllib.parse import quote
 
-NATIVE_TYPES=frozenset({'bucket_acl','object_acl','bucket_effective_iam'})
+NATIVE_TYPES=frozenset({'bucket_acl','object_acl','default_object_acl','bucket_effective_iam'})
 READ_ROLES={'roles/storage.objectViewer','roles/storage.legacyBucketReader','roles/storage.legacyObjectReader','roles/viewer'}
 WRITE_ROLES={'roles/storage.objectCreator','roles/storage.objectUser','roles/storage.objectAdmin','roles/storage.admin','roles/owner','roles/editor','roles/storage.legacyBucketWriter','roles/storage.legacyBucketOwner','roles/storage.legacyObjectOwner'}
 PUBLIC={'allUsers','allAuthenticatedUsers'}
@@ -91,6 +91,34 @@ def _bucket_acl(collector,scope):
             yield values,request
         with collector.lock:
             collector._storage_acl_proof[('bucket_acl',scope)][name]={
+                'all_pages':True,'page_count':pages,'source_requests':requests}
+
+
+def _default_object_acl(collector,scope):
+    parent=_parents(collector,scope)
+    for request in parent['source_requests']:yield [],request
+    for bucket in parent['items']:
+        if _uniform(bucket):continue
+        name=bucket['name'];seen=set();requests=[];pages=0
+        url='https://storage.googleapis.com/storage/v1/b/'+quote(name,safe='')+'/defaultObjectAcl'
+        for page,request in collector.pages(url,scope,page_size_key=None):
+            requests.append(request);pages+=1;values=[]
+            for raw in page:
+                if not isinstance(raw,dict) or raw.get('bucket',name)!=name:
+                    raise _error('storage_default_object_acl_owner_mismatch')
+                entity,role=raw.get('entity'),raw.get('role')
+                if not isinstance(entity,str) or not entity or role not in ('READER','OWNER'):
+                    raise _error('storage_default_object_acl_entry_malformed')
+                row_name=name+'/defaultObjectAcl/'+_hash(entity)
+                if row_name in seen:raise _error('storage_duplicate_default_object_acl_entry')
+                seen.add(row_name)
+                values.append({'name':row_name,'bucket':name,
+                               'entity':entity if entity in PUBLIC else 'sha256:'+_hash(entity),
+                               'role':role,
+                               **(_principal_hint(entity) if entity not in PUBLIC else {})})
+            yield values,request
+        with collector.lock:
+            collector._storage_acl_proof[('default_object_acl',scope)][name]={
                 'all_pages':True,'page_count':pages,'source_requests':requests}
 
 
@@ -245,7 +273,8 @@ def collect(collector):
     jobs=[]
     for scope in collector.scopes:
         if not scope.startswith('projects/'):continue
-        for kind,fetch in (('bucket_acl',_bucket_acl),('object_acl',_object_acl),('bucket_effective_iam',_effective)):
+        for kind,fetch in (('bucket_acl',_bucket_acl),('object_acl',_object_acl),
+                           ('default_object_acl',_default_object_acl),('bucket_effective_iam',_effective)):
             if kind in collector.needed:jobs.append((kind,scope,'storage',lambda fetch=fetch,scope=scope:fetch(collector,scope)))
     collector.run_jobs(jobs)
     for (kind,scope),collection in collector.collections.items():
@@ -259,7 +288,7 @@ def collect(collector):
                     if _uniform(b):disabled.append(b['name'])
                 except ReadError:continue
             collection['acl_disabled_parent_ids']=disabled
-            if kind in ('bucket_acl','object_acl'):
+            if kind in ('bucket_acl','object_acl','default_object_acl'):
                 collection['per_parent_coverage']=collector._storage_acl_proof.get((kind,scope),{})
     for scope in collector.scopes:
         if scope.startswith('projects/'):

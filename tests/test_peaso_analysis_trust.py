@@ -343,19 +343,54 @@ def test_gcp_workload_identity_provider_condition():
 def test_gcp_wif_joins_exact_pool_service_account_impersonation_binding():
     from peaso.analysis.trust import gcp_wif_provider
     name = "projects/1/locations/global/workloadIdentityPools/p/providers/gh"
-    provider = {"type": "workload_identity_provider", "data": {"name": name,
+    provider = {"type": "workload_identity_provider", "data": {"name": name, "state": "ACTIVE",
                 "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"}}}
     member = "principalSet://iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/*"
     account = {"name": "projects/p1/serviceAccounts/sa@p1.iam.gserviceaccount.com",
                "iamPolicy": {"collection_status": "collected", "bindings": [{
                    "role": "roles/iam.workloadIdentityUser", "members": [member]}]}}
-    snapshot = {"collections": [{"type": "service_account", "status": "collected", "items": [account]}]}
+    snapshot = {"collections": [{"type": "service_account", "status": "collected", "items": [account]},
+                                {"type": "workload_identity_pool", "status": "collected", "items": [
+                                    {"name": name.rsplit("/providers/", 1)[0], "state": "ACTIVE"}]}]}
     status, _, evidence = gcp_wif_provider(snapshot, provider)
     assert status == "FAIL" and evidence["service_account_bindings"][0]["members"] == [member]
+    provider["data"]["oidc"]["issuerUri"] = "https://oidc.circleci.com/org/12345678-1234-1234-1234-123456789abc"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["oidc"]["issuerUri"] = "https://oidc.circleci.com"
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    provider["data"]["oidc"]["issuerUri"] = "https://vstoken.dev.azure.com/12345678-1234-1234-1234-123456789abc"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["oidc"]["issuerUri"] = "https://vstoken.dev.azure.com"
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    provider["data"]["oidc"]["issuerUri"] = "https://vstoken.dev.azure.com/not-an-org-id"
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    provider["data"]["oidc"]["issuerUri"] = "https://api.bitbucket.org/2.0/workspaces/acme/pipelines-config/identity/oidc"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["oidc"]["issuerUri"] = "https://api.bitbucket.org"
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    provider["data"]["oidc"]["issuerUri"] = "https://api.bitbucket.org/2.0/workspaces/acme"
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    provider["data"]["oidc"]["issuerUri"] = "https://agent.buildkite.com"
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    provider["data"]["oidc"]["issuerUri"] = "https://token.actions.githubusercontent.com"
+    account["iamPolicy"]["bindings"][0]["condition"] = {"title": "always", "expression": "true"}
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
     account["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
     account["iamPolicy"]["bindings"][0]["condition"] = {}
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    account["iamPolicy"]["bindings"][0].pop("condition")
+    account["iamPolicy"]["bindings"][0]["role"] = "roles/iam.serviceAccountUser"
+    status, _, evidence = gcp_wif_provider(snapshot, provider)
+    assert status == "MANUAL" and not evidence["service_account_bindings"]
+    assert evidence["unresolved_service_account_bindings"][0]["reason"] == "actAs requires a deployment path"
+    account["iamPolicy"]["bindings"][0]["role"] = "roles/iam.serviceAccountOpenIdTokenCreator"
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    account["iamPolicy"]["bindings"][0]["role"] = "projects/1/roles/customToken"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    snapshot["collections"].append({"type": "iam_role", "status": "collected", "items": [{
+        "name": "projects/1/roles/customToken", "includedPermissions": ["iam.serviceAccounts.getAccessToken"]}]})
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
     account["iamPolicy"]["bindings"][0]["members"] = [member.replace("/p/*", "/another/*")]
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
 
@@ -363,11 +398,13 @@ def test_gcp_wif_joins_exact_pool_service_account_impersonation_binding():
 def test_gcp_wif_direct_resource_grant_and_scoped_identity():
     from peaso.analysis.trust import gcp_wif_provider
     pool = "projects/1/locations/global/workloadIdentityPools/p"
-    provider = {"data": {"name": pool + "/providers/gh",
+    provider = {"data": {"name": pool + "/providers/gh", "state": "ACTIVE",
                          "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"}}}
     member = "principalSet://iam.googleapis.com/" + pool + "/*"
     policy = {"name": "projects/p1", "bindings": [{"role": "roles/storage.objectViewer", "members": [member]}]}
-    snapshot = {"collections": [{"type": "iam_policy", "status": "collected", "items": [policy]}]}
+    snapshot = {"collections": [{"type": "iam_policy", "status": "collected", "items": [policy]},
+                                {"type": "workload_identity_pool", "status": "collected", "items": [
+                                    {"name": pool, "state": "ACTIVE"}]}]}
     status, _, evidence = gcp_wif_provider(snapshot, provider)
     assert status == "FAIL"
     assert evidence["direct_resource_bindings"][0]["resource"] == "projects/p1"
@@ -389,7 +426,7 @@ def test_gcp_wif_direct_resource_grant_and_scoped_identity():
 def test_gcp_wif_joins_verified_inherited_project_policy():
     from peaso.analysis.trust import gcp_wif_provider
     pool = "projects/1/locations/global/workloadIdentityPools/p"
-    provider = {"data": {"name": pool + "/providers/gh",
+    provider = {"data": {"name": pool + "/providers/gh", "state": "ACTIVE",
                          "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"}}}
     member = "principalSet://iam.googleapis.com/" + pool + "/*"
     ancestor = {"name": "folders/42", "ancestor": "folders/42", "collection_status": "collected",
@@ -397,10 +434,20 @@ def test_gcp_wif_joins_verified_inherited_project_policy():
     project = {"name": "projects/p1", "_inherited_iam_policies": [ancestor],
                "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
     snapshot = {"collections": [{"type": "project", "scope": "projects/p1", "status": "collected",
-                                 "items": [project]}]}
+                                 "items": [project]},
+                                {"type": "workload_identity_pool", "status": "collected", "items": [
+                                    {"name": pool, "state": "ACTIVE"}]}]}
     status, _, evidence = gcp_wif_provider(snapshot, provider)
     assert status == "FAIL"
     assert evidence["direct_resource_bindings"][0]["inherited_from"] == "folders/42"
+    project["name"] = "projects/123"
+    project["projectId"] = "p1"
+    project["projectNumber"] = "123"
+    status, _, evidence = gcp_wif_provider(snapshot, provider)
+    assert status == "FAIL" and evidence["direct_resource_bindings"][0]["resource"] == "projects/p1"
+    project["projectId"] = "other"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    project["projectId"] = "p1"
     project["_coverage"]["_inherited_iam_policies"]["status"] = "partial"
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
     project["_coverage"]["_inherited_iam_policies"]["status"] = "collected"
@@ -417,7 +464,7 @@ def test_gcp_wif_joins_verified_inherited_project_policy():
 def test_gcp_wif_provider_and_pool_disabled_existing_token_semantics():
     from peaso.analysis.trust import gcp_wif_provider
     pool_name = "projects/1/locations/global/workloadIdentityPools/p"
-    provider = {"data": {"name": pool_name + "/providers/gh", "disabled": True,
+    provider = {"data": {"name": pool_name + "/providers/gh", "state": "ACTIVE", "disabled": True,
                          "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"}}}
     member = "principalSet://iam.googleapis.com/" + pool_name + "/*"
     policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": [member]}]}
@@ -437,14 +484,25 @@ def test_gcp_wif_provider_and_pool_disabled_existing_token_semantics():
 def test_gcp_wif_external_aws_provider_with_pool_wide_grant():
     from peaso.analysis.trust import gcp_wif_provider
     pool = "projects/1/locations/global/workloadIdentityPools/p"
-    provider = {"data": {"name": pool + "/providers/aws", "aws": {"accountId": "999988887777"}}}
+    provider = {"data": {"name": pool + "/providers/aws", "state": "ACTIVE", "aws": {"accountId": "999988887777"}}}
     member = "principalSet://iam.googleapis.com/" + pool + "/*"
     policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": [member]}]}
     snapshot = {"provider": "gcp", "metadata": {}, "collections": [
-        {"type": "iam_policy", "status": "collected", "items": [policy]}]}
+        {"type": "iam_policy", "status": "collected", "items": [policy]},
+        {"type": "workload_identity_pool", "status": "collected", "items": [
+            {"name": pool, "state": "ACTIVE"}]}]}
     status, _, evidence = gcp_wif_provider(snapshot, provider)
     assert status == "FAIL" and evidence["provider_type"] == "aws"
     assert evidence["aws_account"] == "999988887777"
+    provider["data"]["attributeCondition"] = "true"
+    policy["bindings"][0]["condition"] = {"title": "always", "expression": "true"}
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    provider["data"]["attributeCondition"] = "false"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"].pop("attributeCondition")
+    policy["bindings"][0]["condition"]["expression"] = "false"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0].pop("condition")
     snapshot["metadata"]["trusted_scope_ids"] = ["999988887777"]
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
     snapshot["metadata"].clear()
@@ -453,11 +511,84 @@ def test_gcp_wif_external_aws_provider_with_pool_wide_grant():
     policy["bindings"][0]["condition"] = {}
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
     policy["bindings"][0].pop("condition")
-    policy["bindings"][0]["members"] = [member.replace("/*", "/subject/pinned")]
-    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    policy["bindings"][0]["members"] = [member.replace("principalSet://", "principal://").replace("/*", "/subject/pinned")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
     policy["bindings"][0]["members"] = [member.replace("/*", "/attribute.team/pinned")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0]["members"] = [member.replace("principalSet://", "principal://").replace(
+        "/*", "/subject/arn:aws:sts::999988887777:assumed-role/known/session")]
     assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    policy["bindings"][0]["members"] = [member.replace("principalSet://", "principal://").replace(
+        "/*", "/subject/arn:aws:sts::111122223333:assumed-role/known/session")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0]["members"] = [member.replace(
+        "/*", "/attribute.aws_role/arn:aws:sts::999988887777:assumed-role/known")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    policy["bindings"][0]["members"] = [member.replace(
+        "/*", "/attribute.aws_role/arn:aws:sts::111122223333:assumed-role/known")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0]["members"] = [member.replace(
+        "/*", "/attribute.aws_role/arn:aws:sts::999988887777:assumed-role/known/session")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["attributeMapping"] = {"google.subject": "assertion.arn",
+                                              "attribute.account": "assertion.account"}
+    policy["bindings"][0]["members"] = [member.replace(
+        "/*", "/attribute.aws_role/arn:aws:sts::999988887777:assumed-role/known")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    policy["bindings"][0]["members"] = [member.replace("/*", "/attribute.account/999988887777")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    policy["bindings"][0]["members"] = [member.replace("/*", "/attribute.account/111122223333")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["attributeMapping"]["attribute.account"] = "assertion.userid"
+    policy["bindings"][0]["members"] = [member.replace("/*", "/attribute.account/999988887777")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["attributeMapping"] = {
+        "google.subject": "assertion.arn",
+        "attribute.aws_role": "assertion.arn.extract('assumed-role/{role_name}/')",
+    }
+    policy["bindings"][0]["members"] = [member.replace("/*", "/attribute.aws_role/build-role")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    policy["bindings"][0]["members"] = [member.replace("/*", "/attribute.aws_role/build-role/session")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["attributeMapping"]["attribute.aws_role"] = "assertion.userid"
+    policy["bindings"][0]["members"] = [member.replace("/*", "/attribute.aws_role/build-role")]
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"].pop("attributeMapping")
+    for malformed in (member.replace("principalSet://", "principal://"),
+                      member.replace("/*", "/attribute.team/"),
+                      member.replace("/*", "/unknown/pinned")):
+        policy["bindings"][0]["members"] = [malformed]
+        assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
     policy["bindings"].clear()
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+
+
+def test_gcp_wif_requires_verified_active_pool_for_definite_grant():
+    from peaso.analysis.trust import gcp_wif_provider
+    pool = "projects/1/locations/global/workloadIdentityPools/p"
+    provider = {"data": {"name": pool + "/providers/gh", "state": "ACTIVE",
+                         "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"}}}
+    member = "principalSet://iam.googleapis.com/" + pool + "/*"
+    policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": [member]}]}
+    pool_row = {"name": pool, "state": "ACTIVE"}
+    pool_collection = {"type": "workload_identity_pool", "status": "collected", "items": [pool_row]}
+    snapshot = {"collections": [{"type": "iam_policy", "status": "collected", "items": [policy]}]}
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    snapshot["collections"].append(pool_collection)
+    assert gcp_wif_provider(snapshot, provider)[0] == "FAIL"
+    provider["data"]["state"] = "STATE_UNSPECIFIED"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    provider["data"]["state"] = "ACTIVE"
+    pool_collection["status"] = "partial"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    pool_collection["status"] = "collected"
+    pool_row["state"] = "STATE_UNSPECIFIED"
+    assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
+    pool_row["state"] = "ACTIVE"
+    pool_row["disabled"] = True
+    assert gcp_wif_provider(snapshot, provider)[0] == "PASS"
+    pool_row.pop("disabled")
+    pool_collection["items"].append({"name": pool, "state": "ACTIVE"})
     assert gcp_wif_provider(snapshot, provider)[0] == "MANUAL"
 
 
@@ -521,6 +652,20 @@ def test_gcp_conditional_public_and_external_grants_need_review():
     assert result["status"] == "MANUAL"
     assert {row["reason"] for row in result["evidence"]["principals"]} == {
         "public_conditional", "external_conditional"}
+    policy["bindings"][0]["condition"] = {"expression": " true "}
+    snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")],
+                             created_at="2026-10-10T00:00:00+00:00")
+    result = principal(snapshot)
+    assert result["status"] == "FAIL"
+    assert {row["reason"] for row in result["evidence"]["principals"]} == {"public", "external"}
+    policy["bindings"][0]["condition"] = {"expression": "false"}
+    snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")],
+                             created_at="2026-10-10T00:00:00+00:00")
+    assert principal(snapshot)["status"] == "MANUAL"
+    policy["bindings"][0]["condition"] = {}
+    snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")],
+                             created_at="2026-10-10T00:00:00+00:00")
+    assert principal(snapshot)["status"] == "MANUAL"
     policy["bindings"][0].pop("condition")
     snapshot = make_snapshot("gcp", ["projects/p1"], [coll("iam_policy", [policy], scope="projects/p1")],
                              created_at="2026-10-10T00:00:00+00:00")

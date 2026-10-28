@@ -2711,8 +2711,11 @@ def test_gcp_firewall_priority_deny_and_target_tags():
     assert result["status"] == "PASS"
     assert one(gcp(gcoll("firewall", [], status="denied"), gcp_instance()), "instance")["status"] == "UNKNOWN"
     public_subset = [fw("allow-public-subset", 1000, "allowed", ["443"], sources=("8.8.8.0/24",))]
-    assert one(gcp(gcoll("firewall", public_subset), gcoll("firewall_policy", [], status="empty"),
-                   gcp_instance()), "instance")["status"] == "FAIL"
+    result = one(gcp(gcoll("firewall", public_subset), gcoll("firewall_policy", [], status="empty"),
+                     gcp_instance()), "instance")
+    assert result["status"] == "FAIL"
+    assert next(step for step in result["evidence"]["path"] if step["layer"] == "firewall")[
+        "matched_rules"][0]["source_ranges"] == ["8.8.8.0/24"]
 
 
 def test_gcp_firewall_policy_requires_effective_attachment_decision():
@@ -3348,6 +3351,8 @@ def test_gcp_bigtable_direct_cross_project_reader_grant():
     table["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert findings()[0]["status"] == "UNKNOWN"
     assert_gcp_observed_style(findings()[0], table["name"])
+    table["iamPolicy"]["bindings"][0]["condition"] = {}
+    assert findings()[0]["status"] == "UNKNOWN"
     table["iamPolicy"]["bindings"][0].pop("condition")
     table["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:reader@p1.iam.gserviceaccount.com"]
     assert findings() == []
@@ -3405,6 +3410,8 @@ def test_gcp_source_repository_direct_cross_project_reader_grant():
     repo["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert findings()[0]["status"] == "UNKNOWN"
     assert_gcp_observed_style(findings()[0], repo["name"])
+    repo["iamPolicy"]["bindings"][0]["condition"] = {}
+    assert findings()[0]["status"] == "UNKNOWN"
     repo["iamPolicy"]["bindings"][0].pop("condition")
     repo["iamPolicy"]["bindings"][0]["members"] = ["serviceAccount:builder@p1.iam.gserviceaccount.com"]
     assert findings() == []
@@ -3760,6 +3767,11 @@ def test_gcp_authorized_view_with_public_reader_exposes_source_dataset():
     target["access"] = []
     view["iamPolicy"]["bindings"] = [{"role": "roles/bigquery.dataViewer", "members": ["allUsers"]}]
     assert assessment().verdict() == "FAIL"
+    view["iamPolicy"]["bindings"][0]["role"] = "roles/bigquery.dataEditor"
+    assert assessment().verdict() == "FAIL"
+    view["iamPolicy"]["bindings"][0]["role"] = "roles/bigquery.metadataViewer"
+    assert assessment().verdict() == "UNKNOWN"
+    view["iamPolicy"]["bindings"][0]["role"] = "roles/bigquery.dataViewer"
     view["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert assessment().verdict() == "UNKNOWN"
     assert assessment(None).verdict() == "UNKNOWN"
@@ -3778,6 +3790,10 @@ def test_gcp_dataset_access_conditions_do_not_prove_public_or_delegated_read():
     result = assessment()
     assert result.verdict() == "UNKNOWN"
     assert result.path[-1]["conditional_public"][0]["member"] == "allUsers"
+    source["access"][0]["condition"] = {"title": "always", "expression": "true"}
+    assert assessment().verdict() == "FAIL"
+    source["access"][0]["condition"]["expression"] = "false"
+    assert assessment().verdict() == "UNKNOWN"
     source["access"][0].pop("condition")
     assert assessment().verdict() == "FAIL"
     source["access"] = [{"view": {"projectId": "outside", "datasetId": "shared", "tableId": "v"},
@@ -3811,6 +3827,8 @@ def test_gcp_dataset_project_special_groups_join_project_and_ancestor_roles():
     assert result.path[-1]["grants"][0]["iam_role"] == "roles/viewer"
     policy["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert assessment().verdict() == "UNKNOWN"
+    policy["bindings"][0]["condition"] = {"title": "always", "expression": "true"}
+    assert assessment().verdict() == "FAIL"
     policy["bindings"][0].pop("condition")
     policy["bindings"][0]["role"] = "roles/editor"
     assert assessment() is None
@@ -3881,6 +3899,8 @@ def test_gcp_authorized_view_conditional_destination_dataset_acl_is_unknown():
         items = resources(snap)
         current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
         return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
+    assert assessment().verdict() == "FAIL"
+    destination["access"][0]["condition"]["expression"] = "false"
     assert assessment().verdict() == "UNKNOWN"
     destination["access"][0].pop("condition")
     assert assessment().verdict() == "FAIL"
@@ -3906,7 +3926,219 @@ def test_gcp_authorized_dataset_public_view_joins_scheduled_table_inventory():
     assert result.verdict() == "FAIL"
     assert any(step["layer"] == "authorized_view" and step["public_views"][0]["authorization"] == "authorized_dataset"
                for step in result.path)
+    source["access"][0]["dataset"]["target_types"] = ["ROUTINES", "VIEWS"]
+    assert assessment().verdict() == "FAIL"
+    source["access"][0]["dataset"]["target_types"] = ["ROUTINES"]
+    assert assessment().verdict() == "UNKNOWN"
+    source["access"][0]["dataset"]["target_types"] = ["VIEWS"]
     assert assessment(None).verdict() == "UNKNOWN"
+
+
+def test_gcp_public_authorized_dataset_future_view_configuration():
+    source = {"name": "projects/p1/datasets/source", "access": [{"dataset": {
+        "dataset": {"project_id": "p1", "dataset_id": "views"}, "target_types": ["VIEWS"]}}]}
+    destination = {"name": "projects/p1/datasets/views", "access": [
+        {"role": "READER", "iamMember": "allUsers"}]}
+    def findings(status="collected"):
+        snap = gcp(gcoll("bigquery_dataset", [source, destination], status=status, service="bigquery"))
+        return [row for row in analyze(snap)["findings"]
+                if row["check_id"] == "analysis.gcp_authorized_dataset_future_views"]
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert rows[0]["evidence"]["risk_state"] == "observed_configuration"
+    assert rows[0]["evidence"]["authorized_datasets"][0]["public_readers"] == ["allUsers"]
+    destination["access"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert not findings()
+    destination["access"][0]["condition"] = {"expression": "true"}
+    assert len(findings()) == 1
+    destination["access"][0].pop("condition")
+    source["access"][0]["dataset"]["target_types"] = ["ROUTINES"]
+    assert not findings()
+    source["access"][0]["dataset"]["target_types"] = ["VIEWS"]
+    assert not findings("partial")
+    source["access"][0]["dataset"]["dataset"]["project_id"] = "outside"
+    assert not findings()
+
+
+def test_gcp_public_authorized_dataset_future_view_cross_project_alias():
+    source = {"name": "projects/p1/datasets/source", "access": [{"dataset": {
+        "dataset": {"projectId": "p2", "datasetId": "views"}, "targetTypes": ["VIEWS"]}}]}
+    destination = {"name": "projects/p2/datasets/views", "access": [
+        {"role": "READER", "iamMember": "allUsers"}]}
+    project = {"name": "projects/222", "projectId": "p2", "projectNumber": "222"}
+    def findings(with_project=True):
+        collections = [coll("bigquery_dataset", [source], scope="projects/p1", service="bigquery"),
+                       coll("bigquery_dataset", [destination], scope="projects/p2", service="bigquery")]
+        if with_project:
+            collections.append(coll("project", [project], scope="projects/p2", service="cloudresourcemanager"))
+        snap = make_snapshot("gcp", ["projects/p1", "projects/p2"], collections,
+                             created_at="2026-10-10T00:00:00+00:00")
+        return [row for row in analyze(snap)["findings"]
+                if row["check_id"] == "analysis.gcp_authorized_dataset_future_views"]
+    assert len(findings(False)) == 1
+    source["access"][0]["dataset"]["dataset"]["projectId"] = "222"
+    assert len(findings()) == 1
+    assert not findings(False)
+    project["projectId"] = "other"
+    assert not findings()
+
+
+def test_gcp_public_authorized_dataset_future_view_project_iam_reader():
+    source = {"name": "projects/p1/datasets/source", "access": [{"dataset": {
+        "dataset": {"projectId": "p2", "datasetId": "views"}, "targetTypes": ["VIEWS"]}}]}
+    destination = {"name": "projects/p2/datasets/views", "access": []}
+    role = {"name": "projects/p2/roles/readViews", "includedPermissions": ["bigquery.tables.getData"]}
+    policy = {"name": "projects/p2", "bindings": [{"role": role["name"], "members": ["allUsers"]}]}
+    ancestor = {"name": "folders/42", "ancestor": "folders/42", "collection_status": "collected",
+                "bindings": [{"role": role["name"], "members": ["allUsers"]}]}
+    project = {"name": "projects/222", "projectId": "p2", "projectNumber": "222",
+               "_coverage": {"_inherited_iam_policies": {"status": "collected"}},
+               "_inherited_iam_policies": []}
+    def findings():
+        snap = make_snapshot("gcp", ["projects/p1", "projects/p2"], [
+            coll("bigquery_dataset", [source], scope="projects/p1", service="bigquery"),
+            coll("bigquery_dataset", [destination], scope="projects/p2", service="bigquery"),
+            coll("iam_policy", [policy], scope="projects/p2", service="cloudresourcemanager"),
+            coll("iam_role", [role], scope="projects/p2", service="iam"),
+            coll("project", [project], scope="projects/p2", service="cloudresourcemanager")],
+            created_at="2026-10-10T00:00:00+00:00")
+        return [row for row in analyze(snap)["findings"]
+                if row["check_id"] == "analysis.gcp_authorized_dataset_future_views"]
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert rows[0]["evidence"]["authorized_datasets"][0]["public_project_iam"][0]["scope"] == "projects/p2"
+    policy["bindings"][0]["condition"] = {}
+    assert not findings()
+    policy["bindings"].clear()
+    project["_inherited_iam_policies"] = [ancestor]
+    rows = findings()
+    assert len(rows) == 1
+    assert rows[0]["evidence"]["authorized_datasets"][0]["public_project_iam"][0]["scope"] == "folders/42"
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "partial"
+    assert not findings()
+
+
+def test_gcp_public_authorized_dataset_future_view_builtin_project_reader():
+    source = {"name": "projects/p1/datasets/source", "access": [{"dataset": {
+        "dataset": {"projectId": "p2", "datasetId": "views"}, "targetTypes": ["VIEWS"]}}]}
+    destination = {"name": "projects/p2/datasets/views", "access": []}
+    policy = {"name": "projects/p2", "bindings": [{
+        "role": "roles/bigquery.dataViewer", "members": ["allUsers"]}]}
+    def findings():
+        snap = make_snapshot("gcp", ["projects/p1", "projects/p2"], [
+            coll("bigquery_dataset", [source], scope="projects/p1", service="bigquery"),
+            coll("bigquery_dataset", [destination], scope="projects/p2", service="bigquery"),
+            coll("iam_policy", [policy], scope="projects/p2", service="cloudresourcemanager")],
+            created_at="2026-10-10T00:00:00+00:00")
+        return [row for row in analyze(snap)["findings"]
+                if row["check_id"] == "analysis.gcp_authorized_dataset_future_views"]
+    assert len(findings()) == 1
+    policy["bindings"][0]["role"] = "roles/bigquery.dataEditor"
+    assert len(findings()) == 1
+    policy["bindings"][0]["role"] = "roles/bigquery.metadataViewer"
+    assert not findings()
+
+
+def test_gcp_public_authorized_dataset_future_view_legacy_project_group():
+    source = {"name": "projects/p1/datasets/source", "access": [{"dataset": {
+        "dataset": {"projectId": "p2", "datasetId": "views"}, "targetTypes": ["VIEWS"]}}]}
+    destination = {"name": "projects/p2/datasets/views", "access": [
+        {"role": "READER", "specialGroup": "projectReaders"}]}
+    policy = {"name": "projects/p2", "bindings": [{"role": "roles/viewer", "members": ["allUsers"]}]}
+    ancestor = {"name": "folders/42", "ancestor": "folders/42", "collection_status": "collected",
+                "bindings": [{"role": "roles/viewer", "members": ["allUsers"]}]}
+    project = {"name": "projects/222", "projectId": "p2", "projectNumber": "222",
+               "_coverage": {"_inherited_iam_policies": {"status": "collected"}},
+               "_inherited_iam_policies": []}
+    def findings():
+        snap = make_snapshot("gcp", ["projects/p1", "projects/p2"], [
+            coll("bigquery_dataset", [source], scope="projects/p1", service="bigquery"),
+            coll("bigquery_dataset", [destination], scope="projects/p2", service="bigquery"),
+            coll("iam_policy", [policy], scope="projects/p2", service="cloudresourcemanager"),
+            coll("project", [project], scope="projects/p2", service="cloudresourcemanager")],
+            created_at="2026-10-10T00:00:00+00:00")
+        return [row for row in analyze(snap)["findings"]
+                if row["check_id"] == "analysis.gcp_authorized_dataset_future_views"]
+    rows = findings()
+    assert len(rows) == 1
+    assert rows[0]["evidence"]["authorized_datasets"][0]["public_project_iam"][0]["via_special_groups"] == ["projectReaders"]
+    policy["bindings"][0]["condition"] = {"expression": "false"}
+    assert not findings()
+    policy["bindings"].clear()
+    project["_inherited_iam_policies"] = [ancestor]
+    assert len(findings()) == 1
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "partial"
+    assert not findings()
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "collected"
+    destination["access"][0]["specialGroup"] = "projectWriters"
+    assert not findings()
+    ancestor["bindings"][0]["role"] = "roles/editor"
+    assert len(findings()) == 1
+
+
+def test_gcp_foreign_authorized_dataset_future_view_direct_acl():
+    source = {"name": "projects/p1/datasets/source", "access": [{"dataset": {
+        "dataset": {"projectId": "p1", "datasetId": "views"}, "targetTypes": ["VIEWS"]}}]}
+    destination = {"name": "projects/p1/datasets/views", "access": [
+        {"role": "READER", "userByEmail": "reader@foreign.example"}]}
+    def findings(status="collected"):
+        snap = make_snapshot("gcp", ["projects/p1"], [
+            coll("bigquery_dataset", [source, destination], scope="projects/p1",
+                 status=status, service="bigquery")],
+            created_at="2026-10-10T00:00:00+00:00",
+            metadata={"trusted_domains": ["owned.example"]})
+        return [row for row in analyze(snap)["findings"]
+                if row["check_id"] == "analysis.gcp_authorized_dataset_future_views_external"]
+    rows = findings()
+    assert len(rows) == 1 and rows[0]["status"] == "FAIL"
+    assert rows[0]["evidence"]["risk_state"] == "observed_configuration"
+    assert rows[0]["evidence"]["authorized_datasets"][0]["foreign_readers"] == [
+        {"principal_kind": "userByEmail", "role": "READER", "external_scope_id": None}]
+    assert "reader@foreign.example" not in str(rows[0]["evidence"])
+    destination["access"][0]["condition"] = {"expression": "false"}
+    assert not findings()
+    destination["access"][0].pop("condition")
+    destination["access"][0]["userByEmail"] = "reader@owned.example"
+    assert not findings()
+    destination["access"][0] = {"role": "READER", "iamMember":
+        "serviceAccount:reader@foreign-project.iam.gserviceaccount.com"}
+    rows = findings()
+    assert rows[0]["evidence"]["authorized_datasets"][0]["foreign_readers"][0]["external_scope_id"] == "foreign-project"
+    assert not findings("partial")
+
+
+def test_gcp_foreign_authorized_dataset_future_view_project_iam():
+    source = {"name": "projects/p1/datasets/source", "access": [{"dataset": {
+        "dataset": {"projectId": "p2", "datasetId": "views"}, "targetTypes": ["VIEWS"]}}]}
+    destination = {"name": "projects/p2/datasets/views", "access": []}
+    member = "serviceAccount:reader@foreign-project.iam.gserviceaccount.com"
+    policy = {"name": "projects/p2", "bindings": [{"role": "roles/bigquery.dataViewer", "members": [member]}]}
+    ancestor = {"name": "folders/42", "ancestor": "folders/42", "collection_status": "collected",
+                "bindings": [{"role": "roles/viewer", "members": [member]}]}
+    project = {"name": "projects/222", "projectId": "p2", "projectNumber": "222",
+               "_coverage": {"_inherited_iam_policies": {"status": "collected"}},
+               "_inherited_iam_policies": []}
+    def findings():
+        snap = make_snapshot("gcp", ["projects/p1", "projects/p2"], [
+            coll("bigquery_dataset", [source], scope="projects/p1", service="bigquery"),
+            coll("bigquery_dataset", [destination], scope="projects/p2", service="bigquery"),
+            coll("iam_policy", [policy], scope="projects/p2", service="cloudresourcemanager"),
+            coll("project", [project], scope="projects/p2", service="cloudresourcemanager")],
+            created_at="2026-10-10T00:00:00+00:00")
+        return [row for row in analyze(snap)["findings"]
+                if row["check_id"] == "analysis.gcp_authorized_dataset_future_views_external"]
+    rows = findings()
+    assert len(rows) == 1
+    assert rows[0]["evidence"]["authorized_datasets"][0]["foreign_project_iam"][0]["external_scope_id"] == "foreign-project"
+    assert member not in str(rows[0]["evidence"])
+    policy["bindings"][0]["condition"] = {"expression": "false"}
+    assert not findings()
+    policy["bindings"].clear()
+    destination["access"] = [{"role": "READER", "specialGroup": "projectReaders"}]
+    project["_inherited_iam_policies"] = [ancestor]
+    assert len(findings()) == 1
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "partial"
+    assert not findings()
 
 
 def test_gcp_authorized_routine_public_invocation_joins_cached_iam():
@@ -3928,6 +4160,9 @@ def test_gcp_authorized_routine_public_invocation_joins_cached_iam():
     assert result.verdict() == "FAIL"
     assert any(step["layer"] == "authorized_routine" and step["public_routines"][0]["routine_type"] == "PROCEDURE"
                for step in result.path)
+    routine["iamPolicy"]["bindings"][0]["role"] = "roles/bigquery.metadataViewer"
+    assert assessment().verdict() == "FAIL"
+    routine["iamPolicy"]["bindings"][0]["role"] = "roles/bigquery.routineDataViewer"
     routine["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert assessment().verdict() == "UNKNOWN"
     target["access"] = [{"role": "READER", "iamMember": "allUsers"}]
@@ -3988,21 +4223,33 @@ def test_gcp_authorized_view_joins_verified_ancestor_public_readers():
     project = {"name": "projects/p1", "_inherited_iam_policies": [ancestor],
                "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
     role = {"name": "roles/bigquery.dataViewer", "includedPermissions": ["bigquery.tables.getData"]}
-    def assessment():
+    def assessment(with_role=True):
         snap = gcp(gcoll("bigquery_dataset", [source, destination], service="bigquery"),
                    gcoll("bigquery_table", [view], service="bigquery"),
                    gcoll("project", [project], service="cloudresourcemanager"),
-                   gcoll("iam_role", [role], service="iam"))
+                   gcoll("iam_role", [role] if with_role else [], service="iam"))
         items = resources(snap)
         current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
         return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
     result = assessment()
     assert result.verdict() == "FAIL"
     assert result.path[-1]["public_views"][0]["inherited_public"][0]["scope"] == "folders/42"
+    assert assessment(with_role=False).verdict() == "FAIL"
+    ancestor["bindings"][0]["role"] = "roles/bigquery.metadataViewer"
+    assert assessment(with_role=False).verdict() == "UNKNOWN"
+    ancestor["bindings"][0]["role"] = "roles/bigquery.dataViewer"
     project["_coverage"]["_inherited_iam_policies"]["status"] = "partial"
     assert assessment().verdict() == "UNKNOWN"
     project["_coverage"]["_inherited_iam_policies"]["status"] = "collected"
     ancestor["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
+    assert assessment().verdict() == "UNKNOWN"
+    ancestor["bindings"][0].pop("condition")
+    project["name"] = "projects/unrelated"
+    assert assessment().verdict() == "UNKNOWN"
+    project["name"] = "projects/123"
+    project["projectId"] = "p1"
+    assert assessment().verdict() == "FAIL"
+    project["projectId"] = "unrelated"
     assert assessment().verdict() == "UNKNOWN"
 
 
@@ -4019,11 +4266,11 @@ def test_gcp_authorized_routine_joins_verified_ancestor_public_invocation():
             {"role": "roles/bigquery.routineDataViewer", "members": ["allAuthenticatedUsers"]}]}],
         "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
     role = {"name": "roles/bigquery.routineDataViewer", "includedPermissions": ["bigquery.routines.get"]}
-    def assessment():
+    def assessment(with_role=True):
         snap = gcp(gcoll("bigquery_dataset", [source, destination], service="bigquery"),
                    gcoll("bigquery_routine_metadata", [routine], service="bigquery"),
                    gcoll("project", [project], service="cloudresourcemanager"),
-                   gcoll("iam_role", [role], service="iam"))
+                   gcoll("iam_role", [role] if with_role else [], service="iam"))
         items = resources(snap)
         current = next(row for row in items if row["type"] == "bigquery_dataset" and row["data"]["name"] == source["name"])
         return _gcp_bigquery_dataset(snap, Inventory(snap, items), current)
@@ -4031,6 +4278,9 @@ def test_gcp_authorized_routine_joins_verified_ancestor_public_invocation():
     assert result.verdict() == "FAIL"
     assert result.path[-1]["public_routines"][0]["inherited_public"][0]["scope"] == "organizations/9"
     assert result.path[-1]["public_routines"][0]["mutation_possible"] is True
+    project["_inherited_iam_policies"][0]["bindings"][0]["role"] = "roles/bigquery.metadataViewer"
+    assert assessment(with_role=False).verdict() == "FAIL"
+    project["_inherited_iam_policies"][0]["bindings"][0]["role"] = "roles/bigquery.routineDataViewer"
     source["access"][0]["role"] = "roles/bigquery.routineMetadataViewer"
     assert assessment().verdict() == "UNKNOWN"
     source["access"][0]["role"] = "roles/bigquery.routineDataViewer"
@@ -4558,6 +4808,15 @@ def test_gcp_public_resource_iam_is_reported_with_conditions_and_read_status():
     conditional["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     rows = analyze(gcp(gcoll("secret", [conditional], service="secretmanager")))["findings"]
     assert next(row for row in rows if row["check_id"] == "analysis.gcp_public_iam")["status"] == "UNKNOWN"
+    conditional["iamPolicy"]["bindings"][0]["condition"] = {"expression": " true "}
+    rows = analyze(gcp(gcoll("secret", [conditional], service="secretmanager")))["findings"]
+    assert next(row for row in rows if row["check_id"] == "analysis.gcp_public_iam")["status"] == "FAIL"
+    conditional["iamPolicy"]["bindings"][0]["condition"] = {"expression": "false"}
+    rows = analyze(gcp(gcoll("secret", [conditional], service="secretmanager")))["findings"]
+    assert next(row for row in rows if row["check_id"] == "analysis.gcp_public_iam")["status"] == "UNKNOWN"
+    conditional["iamPolicy"]["bindings"][0]["condition"] = {}
+    rows = analyze(gcp(gcoll("secret", [conditional], service="secretmanager")))["findings"]
+    assert next(row for row in rows if row["check_id"] == "analysis.gcp_public_iam")["status"] == "UNKNOWN"
     denied = copy.deepcopy(secret)
     denied["_coverage"]["iamPolicy"]["status"] = "denied"
     rows = analyze(gcp(gcoll("secret", [denied], service="secretmanager")))["findings"]
@@ -4565,6 +4824,190 @@ def test_gcp_public_resource_iam_is_reported_with_conditions_and_read_status():
     project_policy = {"name": "projects/p1", "bindings": [{"role": "roles/viewer", "members": ["allAuthenticatedUsers"]}]}
     rows = analyze(gcp(gcoll("iam_policy", [project_policy], service="cloudasset")))["findings"]
     assert any(row["check_id"] == "analysis.gcp_public_iam" and row["status"] == "FAIL" for row in rows)
+
+
+@pytest.mark.parametrize("kind,service,role,check_id,member", [
+    ("bigtable_table", "bigtableadmin", "roles/bigtable.reader", "analysis.gcp_bigtable_external_reader",
+     "serviceAccount:reader@foreign-project.iam.gserviceaccount.com"),
+    ("source_repository", "sourcerepo", "roles/source.reader", "analysis.gcp_source_repository_external_reader",
+     "serviceAccount:reader@foreign-project.iam.gserviceaccount.com"),
+    ("cloudtasks_queue", "cloudtasks", "roles/cloudtasks.enqueuer", "analysis.gcp_cloud_tasks_external_enqueuer",
+     "serviceAccount:reader@foreign-project.iam.gserviceaccount.com"),
+    ("artifact_repository", "artifactregistry", "roles/artifactregistry.reader", "analysis.gcp_artifact_public_reader",
+     "allUsers"),
+    ("pubsub_topic", "pubsub", "roles/pubsub.publisher", "analysis.gcp_pubsub_public_grant", "allUsers"),
+    ("secret", "secretmanager", "roles/secretmanager.secretAccessor", "analysis.gcp_secret_external_accessor",
+     "serviceAccount:reader@foreign-project.iam.gserviceaccount.com"),
+    ("kms_key", "cloudkms", "roles/cloudkms.cryptoKeyDecrypter", "analysis.gcp_kms_external_decrypter",
+     "serviceAccount:reader@foreign-project.iam.gserviceaccount.com"),
+])
+def test_gcp_permission_specific_grants_resolve_constant_true(kind, service, role, check_id, member):
+    item = {"name": f"projects/p1/{kind}/r", "iamPolicy": {"bindings": [{
+        "role": role, "members": [member], "condition": {"expression": "true"}}]},
+        "_coverage": {"iamPolicy": {"status": "collected"}}}
+    def status():
+        rows = analyze(gcp(gcoll(kind, [item], service=service)))["findings"]
+        return next(row["status"] for row in rows if row["check_id"] == check_id)
+    assert status() == "FAIL"
+    item["iamPolicy"]["bindings"][0]["condition"] = {"expression": "false"}
+    assert status() == "UNKNOWN"
+    item["iamPolicy"]["bindings"][0]["condition"] = {}
+    assert status() == "UNKNOWN"
+
+
+def test_gcp_direct_third_party_service_account_credential_grants():
+    from peaso.engine import plan_collection
+    assert "service_account" in plan_collection({"connector": {"provider": "gcp"},
+                                                 "categories": ["exposure"]})
+    role = "roles/iam.serviceAccountTokenCreator"
+    binding = {"role": role, "members": ["serviceAccount:actor@other-project.iam.gserviceaccount.com"]}
+    account = {"name": "projects/p1/serviceAccounts/target@p1.iam.gserviceaccount.com",
+               "iamPolicy": {"bindings": [binding]},
+               "_coverage": {"iamPolicy": {"status": "collected"}}}
+    custom = {"name": "projects/p1/roles/customImpersonator",
+              "includedPermissions": ["iam.serviceAccounts.getAccessToken"]}
+    def result(with_role=True):
+        collections = [gcoll("service_account", [account], service="iam")]
+        if with_role:
+            collections.append(gcoll("iam_role", [custom], service="iam"))
+        findings = analyze(gcp(*collections))["findings"]
+        matches = [row for row in findings if row["check_id"] == "analysis.gcp_service_account_impersonation"]
+        assert len(matches) == 1
+        return matches[0]
+    assert result()["status"] == "FAIL"
+    assert "iam.serviceAccounts.getAccessToken" in result()["evidence"]["grants"][0]["credential_permissions"]
+    binding["condition"] = {}
+    assert result()["status"] == "UNKNOWN"
+    binding["condition"] = {"title": "always", "expression": "true"}
+    assert result()["status"] == "FAIL"
+    binding["condition"]["expression"] = "false"
+    assert result()["status"] == "UNKNOWN"
+    binding.pop("condition")
+    binding["role"] = "roles/iam.serviceAccountKeyAdmin"
+    assert result()["status"] == "FAIL"
+    binding["role"] = "roles/iam.serviceAccountOpenIdTokenCreator"
+    assert result()["status"] == "FAIL"
+    binding["role"] = "roles/iam.serviceAccountUser"
+    assert result()["status"] == "UNKNOWN"
+    binding["role"] = custom["name"]
+    assert result()["status"] == "FAIL"
+    assert result(False)["status"] == "UNKNOWN"
+    binding["members"] = ["serviceAccount:actor@p1.iam.gserviceaccount.com"]
+    assert not [row for row in analyze(gcp(gcoll("service_account", [account], service="iam")))["findings"]
+                if row["check_id"] == "analysis.gcp_service_account_impersonation"]
+    binding["members"] = ["serviceAccount:actor@other-project.iam.gserviceaccount.com"]
+    account["_coverage"]["iamPolicy"]["status"] = "denied"
+    assert not [row for row in analyze(gcp(gcoll("service_account", [account], service="iam")))["findings"]
+                if row["check_id"] == "analysis.gcp_service_account_impersonation"]
+
+
+def test_gcp_project_and_ancestor_service_account_credential_grants():
+    member = "serviceAccount:actor@other-project.iam.gserviceaccount.com"
+    account = {"name": "projects/p1/serviceAccounts/target@p1.iam.gserviceaccount.com",
+               "iamPolicy": {"bindings": []}, "_coverage": {"iamPolicy": {"status": "collected"}}}
+    policy = {"name": "projects/p1", "bindings": [{"role": "roles/iam.serviceAccountTokenCreator",
+                                            "members": [member]}]}
+    ancestor = {"name": "folders/42", "ancestor": "folders/42", "collection_status": "collected",
+                "bindings": [{"role": "roles/iam.serviceAccountTokenCreator", "members": [member]}]}
+    project = {"name": "projects/123", "projectId": "p1", "projectNumber": "123",
+               "_inherited_iam_policies": [ancestor],
+               "_coverage": {"_inherited_iam_policies": {"status": "collected"}}}
+    def findings():
+        snap = gcp(gcoll("service_account", [account], service="iam"),
+                   gcoll("iam_policy", [policy], service="cloudresourcemanager"),
+                   gcoll("project", [project], service="cloudresourcemanager"))
+        return [row for row in analyze(snap)["findings"]
+                if row["check_id"] == "analysis.gcp_service_account_impersonation"]
+    assert findings()[0]["status"] == "FAIL"
+    assert {grant["policy_scope"] for grant in findings()[0]["evidence"]["grants"]} == {"projects/p1", "folders/42"}
+    policy["bindings"][0]["role"] = "roles/editor"
+    assert any("iam.serviceAccountKeys.create" in grant["credential_permissions"]
+               for grant in findings()[0]["evidence"]["grants"])
+    policy["bindings"][0]["role"] = "roles/owner"
+    assert any("iam.serviceAccountKeys.create" in grant["credential_permissions"]
+               for grant in findings()[0]["evidence"]["grants"])
+    policy["bindings"].clear()
+    assert findings()[0]["evidence"]["grants"][0]["policy_scope"] == "folders/42"
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "partial"
+    assert findings() == []
+    project["_coverage"]["_inherited_iam_policies"]["status"] = "collected"
+    project["projectId"] = "other"
+    assert findings() == []
+
+
+def test_gcp_third_party_act_as_joins_enabled_cloud_run_create_path():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    assert "service_usage" in GCP_TYPES
+    assert "service_usage" in plan_collection({"connector": {"provider": "gcp"}, "categories": ["exposure"]})
+    member = "serviceAccount:actor@other-project.iam.gserviceaccount.com"
+    account = {"name": "projects/p1/serviceAccounts/target@p1.iam.gserviceaccount.com",
+               "iamPolicy": {"bindings": [{"role": "roles/iam.serviceAccountUser", "members": [member]}]},
+               "_coverage": {"iamPolicy": {"status": "collected"}}}
+    policy = {"name": "projects/p1", "bindings": [{"role": "roles/run.developer", "members": [member]}]}
+    role = {"name": "roles/run.developer", "includedPermissions": ["run.services.create"]}
+    enabled = {"name": "projects/123/services/run.googleapis.com", "state": "ENABLED"}
+    def result(service_status="collected", include_role=True):
+        snap = gcp(gcoll("service_account", [account], service="iam"),
+                   gcoll("iam_policy", [policy], service="cloudresourcemanager"),
+                   gcoll("iam_role", [role] if include_role else [], service="iam"),
+                   gcoll("service_usage", [enabled], status=service_status, service="serviceusage"))
+        matches = [row for row in analyze(snap)["findings"]
+                   if row["check_id"] == "analysis.gcp_service_account_impersonation"]
+        assert len(matches) == 1
+        return matches[0]
+    assert result()["status"] == "FAIL"
+    assert result()["evidence"]["deployment_paths"][0]["permissions"] == ["run.services.create"]
+    role["includedPermissions"] = ["run.workerpools.create"]
+    assert result()["status"] == "FAIL"
+    assert result()["evidence"]["deployment_paths"][0]["path_type"] == "cloud_run_worker_pool"
+    role["includedPermissions"] = ["run.services.create"]
+    assert result(include_role=False)["status"] == "FAIL"
+    policy["bindings"][0]["role"] = "roles/run.admin"
+    assert result(include_role=False)["status"] == "FAIL"
+    policy["bindings"][0]["role"] = "roles/run.editor"
+    assert result(include_role=False)["status"] == "FAIL"
+    policy["bindings"][0]["role"] = "roles/owner"
+    assert result(include_role=False)["status"] == "FAIL"
+    policy["bindings"][0]["role"] = "roles/custom.unknown"
+    assert result(include_role=False)["status"] == "UNKNOWN"
+    policy["bindings"][0]["role"] = "roles/run.developer"
+    policy["bindings"][0]["condition"] = {}
+    assert result()["status"] == "UNKNOWN"
+    policy["bindings"][0]["condition"] = {"title": "always", "expression": "true"}
+    assert result()["status"] == "FAIL"
+    policy["bindings"][0].pop("condition")
+    policy["bindings"][0]["members"] = ["serviceAccount:other@other-project.iam.gserviceaccount.com"]
+    assert result()["status"] == "UNKNOWN"
+    policy["bindings"][0]["members"] = [member]
+    enabled["state"] = "DISABLED"
+    assert result()["status"] == "UNKNOWN"
+    enabled["state"] = "ENABLED"
+    assert result("partial")["status"] == "UNKNOWN"
+    role["includedPermissions"] = ["run.services.get"]
+    assert result()["status"] == "UNKNOWN"
+    role["includedPermissions"] = ["run.jobs.create"]
+    assert result()["status"] == "UNKNOWN"
+    role["includedPermissions"].append("run.jobs.run")
+    assert result()["status"] == "FAIL"
+    assert result()["evidence"]["deployment_paths"][0]["path_type"] == "cloud_run_job"
+    role["includedPermissions"] = ["run.jobs.create"]
+    policy["bindings"].append({"role": "roles/run.jobsExecutor", "members": [member]})
+    assert result()["status"] == "FAIL"
+    assert result()["evidence"]["deployment_paths"][0]["path_type"] == "cloud_run_job"
+    executor = {"name": "roles/run.jobsExecutor", "includedPermissions": ["run.jobs.run"]}
+    snap = gcp(gcoll("service_account", [account], service="iam"),
+               gcoll("iam_policy", [policy], service="cloudresourcemanager"),
+               gcoll("iam_role", [role, executor], service="iam"),
+               gcoll("service_usage", [enabled], service="serviceusage"))
+    matches = [row for row in analyze(snap)["findings"]
+               if row["check_id"] == "analysis.gcp_service_account_impersonation"]
+    assert len(matches) == 1 and matches[0]["status"] == "FAIL"
+    assert len(matches[0]["evidence"]["deployment_paths"][0]["deploy_grants"]) == 2
+    policy["bindings"][0]["role"] = "roles/run.editor"
+    policy["bindings"][1]["role"] = "roles/run.invoker"
+    assert result(include_role=False)["status"] == "FAIL"
+    assert any(path["path_type"] == "cloud_run_job" for path in result(include_role=False)["evidence"]["deployment_paths"])
 
 
 def test_gcp_bigquery_legacy_acl_enters_principal_exposure_review():
@@ -4703,8 +5146,49 @@ def test_gcp_loadbalancer_service_joins_controller_backend_cloud_edge(monkeypatc
         return _gcp_gke_exposure_service(snap, Inventory(snap, items), current)
     assert assessment().verdict() == "FAIL"
     assert describe(assessment().ports) == ["tcp/8080"]
+    service["spec"]["loadBalancerSourceRanges"] = ["10.0.0.0/8"]
+    assert assessment().verdict() == "UNKNOWN"
+    service["spec"]["loadBalancerSourceRanges"] = ["8.8.8.8/32"]
+    assert assessment().verdict() == "UNKNOWN"
+    terminal = {"layer": "effective_firewall", "decision": "allow",
+                "basis": "terminal hierarchical ingress rule", "source_ranges": ["0.0.0.0/0"]}
+    monkeypatch.setattr(exposure_module, "_gcp_forwarding_rule", lambda *args:
+                        SimpleNamespace(verdict=lambda: "FAIL", ports=pset("tcp", 8080, 8080), path=[terminal]))
+    assert assessment().verdict() == "FAIL"
+    service["spec"]["loadBalancerSourceRanges"] = ["10.0.0.0/8"]
+    assert assessment().verdict() == "UNKNOWN"
+    terminal["source_ranges"] = ["::/0"]
+    service["spec"]["loadBalancerSourceRanges"] = ["8.8.8.8/32"]
+    assert assessment().verdict() == "UNKNOWN"
+    vpc = {"layer": "firewall", "decision": "allow", "matched_rules": [
+        {"action": "allow", "source_ranges": ["0.0.0.0/0"], "ports": ["tcp/8080"]}]}
+    monkeypatch.setattr(exposure_module, "_gcp_forwarding_rule", lambda *args:
+                        SimpleNamespace(verdict=lambda: "FAIL", ports=pset("tcp", 8080, 8080), path=[vpc]))
+    assert assessment().verdict() == "FAIL"
+    vpc["matched_rules"][0]["ports"] = ["tcp/22"]
+    assert assessment().verdict() == "UNKNOWN"
+    vpc["matched_rules"][0]["ports"] = ["tcp/8080"]
+    vpc["matched_rules"][0]["source_ranges"] = ["8.8.8.0/24"]
+    assert assessment().verdict() == "FAIL"
+    vpc["matched_rules"][0]["source_ranges"] = ["0.0.0.0/0"]
+    service["spec"]["loadBalancerSourceRanges"] = ["0.0.0.0/1"]
+    assert assessment().verdict() == "FAIL"
+    service["spec"]["loadBalancerSourceRanges"] = ["192.0.0.0/8"]
+    assert assessment().verdict() == "FAIL"
+    service["spec"]["loadBalancerSourceRanges"] = ["203.0.113.0/24"]
+    assert assessment().verdict() == "UNKNOWN"
+    service["spec"]["loadBalancerSourceRanges"] = ["8.8.8.8/32"]
+    vpc["matched_rules"][0]["source_ranges"] = ["9.9.9.0/24"]
+    assert assessment().verdict() == "UNKNOWN"
+    monkeypatch.setattr(exposure_module, "_gcp_forwarding_rule", lambda *args:
+                        SimpleNamespace(verdict=lambda: "FAIL", ports=pset("tcp", 8080, 8080), path=[]))
+    service["spec"]["loadBalancerSourceRanges"] = ["0.0.0.0/0"]
+    assert assessment().verdict() == "FAIL"
     monkeypatch.setattr(exposure_module, "_gcp_gke_nodeport_direct_node", lambda *args:
                         pset("tcp", 30080, 30080))
+    service["spec"]["loadBalancerSourceRanges"] = ["10.0.0.0/8"]
+    assert describe(assessment().ports) == ["tcp/30080"]
+    service["spec"]["loadBalancerSourceRanges"] = ["0.0.0.0/0"]
     assert describe(assessment().ports) == ["tcp/8080", "tcp/30080"]
     monkeypatch.setattr(exposure_module, "_gcp_gke_nodeport_direct_node", lambda *args: None)
     forwarding["IPAddress"] = "34.1.2.4"
@@ -4847,12 +5331,129 @@ def test_gcp_live_gke_host_bound_pod_candidate_and_gap():
            "nodeName": "node-a", "hostIP": "34.1.2.3", "phase": "Running"}
     result = one(gcp(gcoll("gke_exposure_pod", [pod], service="kubernetes")), "gke_exposure_pod")
     assert result["status"] == "UNKNOWN" and "8080" in str(result["evidence"])
+    pod["hostPorts"] = []
+    result = one(gcp(gcoll("gke_exposure_pod", [pod], service="kubernetes")), "gke_exposure_pod")
+    assert result["status"] == "UNKNOWN" and "runtime_socket" in str(result["evidence"])
+    pod["hostPorts"] = [{"hostPort": 8080, "protocol": "TCP"}]
     pod["phase"] = "Succeeded"
     assert not exposure(gcp(gcoll("gke_exposure_pod", [pod], service="kubernetes")))
     marker = {"name": cluster + "/podInventory", "cluster": cluster,
               "inventoryStatus": "unavailable", "reason": "gke_exposure_services_read_unavailable"}
     assert one(gcp(gcoll("gke_exposure_pod", [marker], service="kubernetes")),
                "gke_exposure_pod")["status"] == "UNKNOWN"
+
+
+def test_gcp_standalone_neg_service_is_native_candidate():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    assert "network_endpoint_group" in GCP_TYPES
+    assert "network_endpoint_group" in plan_collection({"connector": {"provider": "gcp"},
+                                                          "categories": ["exposure"]})
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    service = {"name": cluster + "/namespaces/default/services/web", "cluster": cluster,
+               "spec": {"type": "ClusterIP", "ports": [{"port": 8080, "protocol": "TCP"}]},
+               "negConfigured": True, "negStatus": {"networkEndpointGroups": {"8080": "k8s1-neg-web"},
+                                                   "zones": ["us-central1-a"]}}
+    result = one(gcp(gcoll("gke_exposure_service", [service], service="kubernetes")), "gke_exposure_service")
+    assert result["status"] == "UNKNOWN" and "k8s1-neg-web" in str(result["evidence"])
+
+
+def test_gcp_standalone_neg_service_joins_public_backend_path():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_gke_exposure_service
+    from peaso.snapshot import resources
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    base = "https://compute.googleapis.com/compute/v1/projects/p1"
+    neg_ref = base + "/zones/us-central1-a/networkEndpointGroups/k8s1-neg-web"
+    backend_ref = base + "/global/backendServices/neg-web"
+    proxy_ref = base + "/global/targetHttpProxies/web"
+    map_ref = base + "/global/urlMaps/web"
+    service = {"name": cluster + "/namespaces/default/services/web", "cluster": cluster,
+               "spec": {"type": "ClusterIP", "ports": [{"port": 8080, "protocol": "TCP"}]},
+               "negConfigured": True, "negStatus": {"networkEndpointGroups": {"8080": "k8s1-neg-web"},
+                                                   "zones": ["us-central1-a"]}}
+    marker = {"name": cluster + "/serviceInventory", "cluster": cluster,
+              "inventoryStatus": "collected", "serviceCount": 1}
+    neg = {"name": "k8s1-neg-web", "selfLink": neg_ref, "networkEndpointType": "GCE_VM_IP_PORT"}
+    backend = {"name": "neg-web", "selfLink": backend_ref, "backends": [{"group": neg_ref}]}
+    url_map = {"name": "web", "selfLink": map_ref, "defaultService": backend_ref}
+    proxy = {"name": "web", "selfLink": proxy_ref, "urlMap": map_ref}
+    forwarding = {"name": "web", "loadBalancingScheme": "EXTERNAL_MANAGED",
+                  "IPAddress": "34.1.2.3", "IPProtocol": "TCP", "portRange": "80-80",
+                  "target": proxy_ref}
+    def assessment():
+        snap = gcp(gcoll("gke_exposure_service", [service, marker], service="kubernetes"),
+                   gcoll("network_endpoint_group", [neg]), gcoll("backend_service", [backend]),
+                   gcoll("url_map", [url_map]), gcoll("target_proxy", [proxy]),
+                   gcoll("forwarding_rule", [forwarding]))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "gke_exposure_service"
+                       and row["data"]["name"] == service["name"])
+        return _gcp_gke_exposure_service(snap, Inventory(snap, items), current)
+    assert assessment().verdict() == "FAIL" and describe(assessment().ports) == ["tcp/80"]
+    assert assessment().addresses == ["34.1.2.3"]
+    backend["backends"][0]["group"] = neg_ref.replace("k8s1-neg-web", "unrelated")
+    assert assessment().verdict() == "UNKNOWN"
+    backend["backends"][0]["group"] = neg_ref
+    marker["inventoryStatus"] = "unavailable"
+    assert assessment().verdict() == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    url_map["defaultService"] = backend_ref.replace("neg-web", "other")
+    assert assessment().verdict() == "UNKNOWN"
+
+
+def test_gcp_multicluster_ingress_status_is_native_candidate():
+    from peaso.analysis.internet_exposure import GCP_TYPES
+    from peaso.engine import plan_collection
+    kind = "gke_exposure_multiclusteringress"
+    assert kind in GCP_TYPES
+    assert kind in plan_collection({"connector": {"provider": "gcp"}, "categories": ["exposure"]})
+    cluster = "projects/p1/locations/r1/clusters/c1"
+    row = {"name": cluster + "/namespaces/default/multiclusteringresses/web", "cluster": cluster,
+           "VIP": "34.1.2.3", "cloudResources": {"forwardingRules": ["mci-forward"]}}
+    result = one(gcp(gcoll(kind, [row], service="kubernetes")), kind)
+    assert result["status"] == "UNKNOWN" and "mci-forward" in str(result["evidence"])
+    marker = {"name": cluster + "/multiclusteringressInventory", "cluster": cluster,
+              "inventoryStatus": "unavailable"}
+    assert one(gcp(gcoll(kind, [marker], service="kubernetes")), kind)["status"] == "UNKNOWN"
+
+
+def test_gcp_multicluster_ingress_joins_exact_controller_cloud_edge():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_gke_exposure_multiclusteringress
+    from peaso.snapshot import resources
+    cluster = "projects/p1/locations/us-central1/clusters/c1"
+    base = "https://compute.googleapis.com/compute/v1/projects/p1/global"
+    proxy_ref = base + "/targetHttpProxies/mci-proxy"
+    map_ref = base + "/urlMaps/mci-map"
+    backend_ref = base + "/backendServices/mci-backend"
+    ingress = {"name": cluster + "/namespaces/default/multiclusteringresses/web", "cluster": cluster,
+               "VIP": "34.1.2.3", "cloudResources": {"forwardingRules": ["mci-forward"],
+                   "targetProxies": ["mci-proxy"], "urlMap": ["mci-map"],
+                   "backendServices": ["mci-backend"]}}
+    marker = {"name": cluster + "/multiclusteringressInventory", "cluster": cluster,
+              "inventoryStatus": "collected", "multiclusteringressCount": 1}
+    forwarding = {"name": "mci-forward", "loadBalancingScheme": "EXTERNAL_MANAGED",
+                  "IPAddress": "34.1.2.3", "IPProtocol": "TCP", "portRange": "80-80",
+                  "target": proxy_ref}
+    proxy = {"name": "mci-proxy", "selfLink": proxy_ref, "urlMap": map_ref}
+    url_map = {"name": "mci-map", "selfLink": map_ref, "defaultService": backend_ref}
+    backend = {"name": "mci-backend", "selfLink": backend_ref}
+    def assessment():
+        snap = gcp(gcoll("gke_exposure_multiclusteringress", [ingress, marker], service="kubernetes"),
+                   gcoll("forwarding_rule", [forwarding]), gcoll("target_proxy", [proxy]),
+                   gcoll("url_map", [url_map]), gcoll("backend_service", [backend]))
+        items = resources(snap)
+        current = next(row for row in items if row["type"] == "gke_exposure_multiclusteringress"
+                       and row["data"]["name"] == ingress["name"])
+        return _gcp_gke_exposure_multiclusteringress(snap, Inventory(snap, items), current)
+    assert assessment().verdict() == "FAIL" and describe(assessment().ports) == ["tcp/80"]
+    ingress["cloudResources"]["urlMap"] = ["other-map"]
+    assert assessment().verdict() == "UNKNOWN"
+    ingress["cloudResources"]["urlMap"] = ["mci-map"]
+    marker["inventoryStatus"] = "unavailable"
+    assert assessment().verdict() == "UNKNOWN"
+    marker["inventoryStatus"] = "collected"
+    forwarding["loadBalancingScheme"] = "INTERNAL_MANAGED"
+    assert assessment().verdict() == "UNKNOWN"
 
 
 def test_gcp_live_gke_node_inventory_is_supporting_evidence():
@@ -4893,6 +5494,27 @@ def test_gcp_hostport_joins_exact_live_node_vm_and_effective_firewall():
                        gcoll("instance_effective_firewall", [effective]),
                        gcoll("firewall", [], status="denied")), "gke_exposure_pod")
     assert result()["status"] == "FAIL" and result()["evidence"]["exposed_ports"] == ["tcp/8080"]
+    pod["hostIP"] = "fd20::1"
+    node["addresses"] = [{"type": "InternalIP", "address": "fd20::1"},
+                         {"type": "ExternalIP", "address": "2600:1900::1"}]
+    interface = vm["items"][0]["networkInterfaces"][0]
+    ipv4_access = interface.pop("accessConfigs")
+    interface["ipv6AccessConfigs"] = [{"externalIpv6": "2600:1900::1"}]
+    effective["firewalls"] = [fw("allow-hostport-v6", 1000, "allowed", ["8080"], ["web"], ("::/0",))]
+    assert result()["status"] == "UNKNOWN"
+    pod["hostPorts"][0]["bindIP"] = "::"
+    assert result()["status"] == "FAIL"
+    pod["hostPorts"][0]["bindIP"] = "2600:1900::1"
+    assert result()["status"] == "FAIL"
+    pod["hostPorts"][0]["bindIP"] = "2600:1900::2"
+    assert result()["status"] == "UNKNOWN"
+    pod["hostPorts"][0].pop("bindIP")
+    interface.pop("ipv6AccessConfigs")
+    interface["accessConfigs"] = ipv4_access
+    effective["firewalls"] = [fw("allow-hostport", 1000, "allowed", ["8080"], ["web"])]
+    pod["hostIP"] = "10.1.2.3"
+    node["addresses"] = [{"type": "InternalIP", "address": "10.1.2.3"},
+                         {"type": "ExternalIP", "address": "34.1.1.1"}]
     pod["hostPorts"][0]["bindIP"] = "127.0.0.1"
     assert result()["status"] == "UNKNOWN"
     pod["hostPorts"][0]["bindIP"] = "10.1.2.3"
@@ -4956,6 +5578,23 @@ def test_gcp_nodeport_joins_ready_backend_node_vm_and_effective_firewall():
         return next(row for row in report["findings"] if row["check_id"] == CHECK
                     and row["resource_id"] == resource_id)
     assert result()["status"] == "FAIL" and result()["evidence"]["exposed_ports"] == ["tcp/30080"]
+    node["addresses"][0]["address"] = "2600:1900::1"
+    slice_row["addressType"] = "IPv6"
+    interface = vm["items"][0]["networkInterfaces"][0]
+    ipv4_access = interface.pop("accessConfigs")
+    interface["ipv6AccessConfigs"] = [{"externalIpv6": "2600:1900::1"}]
+    effective["firewalls"] = [fw("allow-nodeport-v6", 1000, "allowed", ["30080"], ["web"], ("::/0",))]
+    ipv6_result = result()
+    assert ipv6_result["status"] == "FAIL"
+    assert next(step for step in ipv6_result["evidence"]["path"]
+                if step["layer"] == "gke_node_compute")["public_ips"] == ["2600:1900::1"]
+    interface["ipv6AccessConfigs"][0]["externalIpv6"] = "2600:1900::2"
+    assert result()["status"] == "UNKNOWN"
+    interface.pop("ipv6AccessConfigs")
+    interface["accessConfigs"] = ipv4_access
+    effective["firewalls"] = [fw("allow-nodeport", 1000, "allowed", ["30080"], ["web"])]
+    slice_row["addressType"] = "IPv4"
+    node["addresses"][0]["address"] = "34.1.1.1"
     service["spec"]["type"] = "LoadBalancer"
     service["spec"]["allocateLoadBalancerNodePorts"] = False
     assert result()["status"] == "FAIL" and result()["evidence"]["exposed_ports"] == ["tcp/30080"]
@@ -5086,6 +5725,30 @@ def test_gcp_gateway_joins_exact_controller_cloud_edge():
         {"type": "ResolvedRefs", "status": "False", "observedGeneration": 3})
     assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
     route["parentStatus"][0]["conditions"].pop()
+    route["parentRefs"][0].pop("sectionName")
+    route["parentStatus"][0]["parentRef"].pop("sectionName")
+    assert assessment("gke_exposure_httproute").verdict() == "FAIL"
+    route["parentRefs"][0]["port"] = 80
+    route["parentStatus"][0]["parentRef"]["port"] = 80
+    assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
+    route["parentRefs"][0]["port"] = 443
+    route["parentStatus"][0]["parentRef"]["port"] = 443
+    assert assessment("gke_exposure_httproute").verdict() == "FAIL"
+    route["parentRefs"][0].pop("port")
+    route["parentStatus"][0]["parentRef"].pop("port")
+    gateway["listeners"].append({"name": "other", "port": 80, "protocol": "HTTP"})
+    assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
+    route["parentRefs"][0]["port"] = 443
+    route["parentStatus"][0]["parentRef"]["port"] = 443
+    assert assessment("gke_exposure_httproute").verdict() == "FAIL"
+    gateway["listeners"].append({"name": "also-https", "port": 443, "protocol": "HTTPS"})
+    assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
+    gateway["listeners"].pop()
+    route["parentRefs"][0].pop("port")
+    route["parentStatus"][0]["parentRef"].pop("port")
+    gateway["listeners"].pop()
+    route["parentRefs"][0]["sectionName"] = "https"
+    route["parentStatus"][0]["parentRef"]["sectionName"] = "https"
     route["parentStatus"][0]["controllerName"] = "unrelated.example/controller"
     assert assessment("gke_exposure_httproute").verdict() == "UNKNOWN"
 
@@ -5233,6 +5896,10 @@ def test_gcp_public_managed_folder_joins_cached_folder_policy():
     assert result.path[-1]["managed_folder_grants"][0]["folder"] == "public/"
     folder["iamPolicy"]["bindings"][0]["condition"] = {"expression": "request.time < timestamp('2030-01-01T00:00:00Z')"}
     assert assessment().verdict() == "UNKNOWN"
+    folder["iamPolicy"]["bindings"][0]["condition"] = {"title": "always", "expression": "true"}
+    assert assessment().verdict() == "FAIL"
+    folder["iamPolicy"]["bindings"][0]["condition"]["expression"] = "false"
+    assert assessment().verdict() == "UNKNOWN"
     folder["iamPolicy"]["bindings"][0]["condition"] = {}
     assert assessment().verdict() == "UNKNOWN"
     folder["iamPolicy"]["bindings"][0].pop("condition")
@@ -5264,6 +5931,25 @@ def test_gcp_managed_folder_parent_prefix_and_incomplete_inventory():
     assert incomplete.path[-1]["managed_folder_unresolved"] == [
         {"reason": "managed folder inventory incomplete"}]
     assert assessment([], status="empty").verdict() == "UNKNOWN"  # Ancestor IAM remains uncollected.
+
+
+def test_gcp_public_bucket_constant_true_iam_condition():
+    from peaso.analysis.internet_exposure import Inventory, _gcp_bucket
+    from peaso.snapshot import resources
+    binding = {"role": "roles/storage.objectViewer", "members": ["allUsers"],
+               "condition": {"title": "always", "expression": "true"}}
+    bucket = {"name": "sample-bucket", "iamPolicy": {"bindings": [binding]},
+              "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True},
+                                   "publicAccessPrevention": "not_enforced"}}
+    def assessment():
+        snap = gcp(gcoll("bucket", [bucket], service="storage"))
+        items = resources(snap)
+        return _gcp_bucket(snap, Inventory(snap, items), next(row for row in items if row["type"] == "bucket"))
+    assert assessment().verdict() == "FAIL"
+    binding["condition"]["expression"] = "false"
+    assert assessment().verdict() == "UNKNOWN"
+    binding["condition"] = {}
+    assert assessment().verdict() == "UNKNOWN"
 
 
 @pytest.mark.parametrize("kind,record,expected", [

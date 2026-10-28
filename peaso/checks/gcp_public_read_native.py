@@ -4,10 +4,10 @@ from .facts import Unavailable, complete_items, get, list_of_objects
 from .gcp_ports_iam import project_roots
 
 READ_ROLES = frozenset({'roles/owner', 'roles/editor', 'roles/viewer',
-    'roles/storage.objectViewer', 'roles/storage.objectAdmin', 'roles/storage.admin',
+    'roles/storage.objectViewer', 'roles/storage.objectUser', 'roles/storage.objectAdmin', 'roles/storage.admin',
     'roles/storage.legacyObjectReader', 'roles/storage.legacyObjectOwner'})
 NONREAD_ROLES = frozenset({'roles/storage.objectCreator', 'roles/storage.legacyBucketReader',
-                          'roles/storage.legacyBucketWriter'})
+                          'roles/storage.legacyBucketWriter', 'roles/storage.legacyBucketOwner'})
 PUBLIC = frozenset({'allUsers', 'allAuthenticatedUsers'})
 
 

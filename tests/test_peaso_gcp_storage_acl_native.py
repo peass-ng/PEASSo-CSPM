@@ -12,7 +12,7 @@ class API:
  def request(self,method,url,**kw):
   with self.lock:self.calls+=1;rid='request-'+str(self.calls);self.requests.append((method,url,copy.deepcopy(kw)))
   path=urlsplit(url).path;params=kw.get('params',{})
-  mode=self.mode;nonuniform=mode.startswith('acl_') or mode in ('object_partial','missing_object_acl','duplicate_object','foreign_acl','multi_bucket','unknown_acl_bucket','metadata_private','embedded_acl_parents_omitted','object_writer_invalid','object_second_page_public','object_page_limit','empty_objects')
+  mode=self.mode;nonuniform=mode.startswith('acl_') or mode in ('object_partial','missing_object_acl','duplicate_object','foreign_acl','multi_bucket','unknown_acl_bucket','metadata_private','embedded_acl_parents_omitted','object_writer_invalid','object_second_page_public','object_page_limit','empty_objects','default_acl_public','default_acl_private')
   if path=='/storage/v1/b':
    bucket={'name':BUCKET,'iamConfiguration':{'uniformBucketLevelAccess':{'enabled':not nonuniform},'publicAccessPrevention':'enforced' if mode.startswith('pap_') else 'inherited'}}
    if mode in ('hns','hns_managed_public'):bucket['hierarchicalNamespace']={'enabled':True}
@@ -48,6 +48,8 @@ class API:
   elif path.endswith('/managedFolders'):
    if mode=='denied_managed':raise gcp.ReadError('denied','forbidden')
    data={'items':[{'name':'managed/','bucket':BUCKET}] if mode in ('managed','managed_public','hns_managed_public') else []}
+  elif path.endswith('/defaultObjectAcl'):
+   data={'items':[{'bucket':BUCKET,'entity':'allUsers' if mode=='default_acl_public' else 'user-private-marker@example.com','role':'READER'}]}
   elif path.endswith('/acl'):
    if mode=='acl_denied':raise gcp.ReadError('denied','forbidden')
    bucket=path.split('/')[4]
@@ -174,3 +176,48 @@ def test_effective_bucket_iam_reuses_complete_managed_folder_inventory(mode,publ
     assert (row['name'],row['resolutionComplete'],row['publicAccess'],row['publicWrite'])==(
         BUCKET,True,public,False)
     assert sum(urlsplit(url).path.endswith('/managedFolders') for _,url,_ in api.requests)==1
+
+
+@pytest.mark.parametrize('role,status',[
+    ('roles/storage.objectUser','FAIL'),
+    ('roles/storage.legacyBucketOwner','PASS'),
+])
+def test_inherited_object_read_grant_role_permissions(role,status,monkeypatch):
+    from peaso.checks import gcp_public_read_native as public_read
+    monkeypatch.setattr(public_read,'project_roots',lambda item,index:[
+        {'name':SCOPE,'bindings':[{'role':role,'members':['allUsers']}]}])
+    monkeypatch.setattr(public_read,'complete_items',lambda index,kind:[
+        {'name':BUCKET,'resolutionComplete':True,'policyScopes':[SCOPE]}])
+    actual,evidence=public_read.inherited_read({'name':BUCKET},object())
+    assert actual==status
+    if status=='FAIL':
+        assert evidence['inherited_public_read_grants']==[{'scope':SCOPE,'role':role}]
+
+
+@pytest.mark.parametrize('mode,public',[('default_acl_public',True),('default_acl_private',False)])
+def test_default_object_acl_future_upload_public_grant(mode,public,monkeypatch):
+    from peaso.analysis import analyze
+    from peaso.engine import plan_collection as exposure_plan
+    assert 'default_object_acl' in exposure_plan({'connector':{'provider':'gcp'},'categories':['exposure']})
+    api=API(mode)
+    monkeypatch.setattr(gcp,'Credentials',lambda *a,**kw:None)
+    monkeypatch.setattr(gcp,'Transport',lambda *a,**kw:api)
+    snap=collect_live({'provider':'gcp','scopes':[SCOPE],
+                       'options':{'inventories':['bucket','default_object_acl'],'concurrency':1}})
+    rows=collection(snap,'default_object_acl',SCOPE)
+    assert rows['coverage_status']=='collected' and len(rows['items'])==1
+    assert 'private-marker' not in json.dumps(snap)
+    if not public:
+        snap['metadata']['trusted_domains']=['owned.example']
+        snap.pop('snapshot_id',None)
+    report=analyze(snap)
+    findings=[f for f in report['findings'] if f['check_id']=='analysis.gcp_public_default_object_acl']
+    assert (len(findings)==1)==public
+    if public:
+        assert findings[0]['status']=='FAIL'
+        assert findings[0]['evidence']['semantics'].startswith('Future object ACL template')
+    else:
+        third_party=[f for f in report['findings'] if f['check_id']=='analysis.principal_exposure'
+                     and f['status']=='FAIL']
+        assert third_party and any(entry['classification']=='external'
+            for finding in third_party for entry in finding['evidence']['principals'])

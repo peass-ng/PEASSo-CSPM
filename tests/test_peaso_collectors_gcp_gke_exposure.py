@@ -18,6 +18,8 @@ def test_service_projection_keeps_network_fields_without_arbitrary_annotations()
     service = {"apiVersion": "v1", "kind": "Service", "metadata": {
         "name": "web", "namespace": "default", "uid": "service-uid", "resourceVersion": "10",
         "annotations": {"cloud.google.com/load-balancer-type": "External", "private.example/token": "secret",
+                        "cloud.google.com/neg": '{"exposed_ports":{"443":{}}}',
+                        "cloud.google.com/neg-status": '{"network_endpoint_groups":{"443":"k8s1-neg-web"},"zones":["us-central1-a"]}',
                         "service.kubernetes.io/backend-service": "k8s-be-web",
                         "service.kubernetes.io/tcp-forwarding-rule": "k8s-fw-web",
                         "service.kubernetes.io/l3-forwarding-rule": "k8s-fw-mixed"}},
@@ -32,7 +34,13 @@ def test_service_projection_keeps_network_fields_without_arbitrary_annotations()
     assert row["annotations"]["service.kubernetes.io/backend-service"] == "k8s-be-web"
     assert row["annotations"]["service.kubernetes.io/tcp-forwarding-rule"] == "k8s-fw-web"
     assert row["annotations"]["service.kubernetes.io/l3-forwarding-rule"] == "k8s-fw-mixed"
+    assert row["negConfigured"] is True and row["negStatus"] == {
+        "networkEndpointGroups": {"443": "k8s1-neg-web"}, "zones": ["us-central1-a"]}
     assert "selector" not in str(row) and "secret" not in str(row)
+    assert "cloud.google.com/neg-status" not in str(row)
+    service["metadata"]["annotations"]["cloud.google.com/neg-status"] = "{invalid"
+    assert reader.project_list({"apiVersion": "v1", "kind": "ServiceList",
+        "metadata": {"resourceVersion": "10"}, "items": [service]}, "/api/v1/services")["items"][0]["negStatusUnresolved"] is True
     service["spec"]["loadBalancerSourceRanges"] = "not-a-list"
     with pytest.raises(ValueError, match="address/range"):
         reader.project_list({"apiVersion": "v1", "kind": "ServiceList",
@@ -243,6 +251,49 @@ def test_ingress_projection_and_inventory_marker(monkeypatch):
     assert rows[-1]["ingressCount"] == 1
 
 
+def test_multicluster_ingress_projection_and_inventory_marker(monkeypatch):
+    scope = "projects/p1"
+    selection = scope + "/locations/r1/clusters/c1"
+    binding = {"selection": selection, "endpoint": "abc.r1.gke.goog",
+               "ca_sha256": None, "endpointTrust": "public_ca"}
+    reader = services.MultiClusterIngressReader(SimpleNamespace(transport=None), binding, None, {"resources": 0})
+    ingress = {"apiVersion": "networking.gke.io/v1", "kind": "MultiClusterIngress",
+        "metadata": {"name": "web", "namespace": "default", "uid": "mci-uid",
+                     "annotations": {"private.example/token": "secret"}},
+        "spec": {"template": {"spec": {"backend": {"serviceName": "private-backend"}}}},
+        "status": {"VIP": "34.1.2.3", "cloudResources": {
+            "forwardingRules": ["mci-forward"], "targetProxies": ["mci-proxy"],
+            "urlMap": "mci-map", "backendServices": ["mci-backend"]}}}
+    data = {"apiVersion": "networking.gke.io/v1", "kind": "MultiClusterIngressList",
+        "metadata": {"resourceVersion": "12"}, "items": [ingress]}
+    row = reader.project_list(data, reader.PATH)["items"][0]
+    assert row["VIP"] == "34.1.2.3" and row["cloudResources"]["urlMap"] == ["mci-map"]
+    assert "secret" not in str(row) and "private-backend" not in str(row)
+    legacy = services.LegacyMultiClusterIngressReader(SimpleNamespace(transport=None), binding, None, {"resources": 0})
+    data["apiVersion"] = ingress["apiVersion"] = "networking.gke.io/v1beta1"
+    assert legacy.project_list(data, legacy.PATH)["items"][0]["VIP"] == "34.1.2.3"
+    data["apiVersion"] = ingress["apiVersion"] = "networking.gke.io/v1"
+    ingress["status"]["cloudResources"]["forwardingRules"] = ["bad/name"]
+    with pytest.raises(ValueError, match="cloud resource names"):
+        reader.project_list(data, reader.PATH)
+    ingress["status"]["cloudResources"]["forwardingRules"] = ["mci-forward"]
+    collector = SimpleNamespace(needed={services.MULTICLUSTERINGRESS_KIND}, scopes=[scope], transport=None,
+        collections={("gke_cluster", scope): {"status": "collected", "coverage_status": "collected",
+            "items": [{"name": "c1", "location": "r1"}], "source_requests": ["cluster-request"]}})
+    monkeypatch.setattr(services, "cluster_binding", lambda *_: binding)
+    monkeypatch.setattr(services.MultiClusterIngressReader, "pages", lambda self: iter([([row], "mci-request")]))
+    rows = [item for page, _ in services.dependent_jobs(collector, services.MULTICLUSTERINGRESS_KIND)[0][3]() for item in page]
+    assert len(rows) == 2 and rows[-1]["inventoryStatus"] == "collected"
+    assert rows[-1]["multiclusteringressCount"] == 1
+    def unavailable(_):
+        raise ReadError("unavailable", "v1_unavailable")
+    monkeypatch.setattr(services.MultiClusterIngressReader, "pages", unavailable)
+    monkeypatch.setattr(services.LegacyMultiClusterIngressReader, "pages",
+                        lambda self: iter([([row], "legacy-mci-request")]))
+    rows = [item for page, _ in services.dependent_jobs(collector, services.MULTICLUSTERINGRESS_KIND)[0][3]() for item in page]
+    assert len(rows) == 2 and rows[-1]["inventoryStatus"] == "collected"
+
+
 def test_pod_projection_keeps_only_host_network_facts():
     binding = {"selection": "projects/p1/locations/r1/clusters/c1", "endpoint": "34.1.2.3",
                "ca_sha256": "abc"}
@@ -351,6 +402,13 @@ def test_gateway_and_httproute_project_only_network_routing_facts():
         {"type": "Accepted", "status": "True", "observedGeneration": 3},
         {"type": "Reconciled", "status": "True", "observedGeneration": 3}]
     assert "/private-token" not in str(projected) and "private" not in str(projected)
+    route["spec"]["parentRefs"][0]["port"] = 443
+    route["status"]["parents"][0]["parentRef"]["port"] = 443
+    projected_port = route_reader.project_list({"apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "HTTPRouteList", "metadata": {"resourceVersion": "12"}, "items": [route]},
+        route_reader.PATH)["items"][0]
+    assert projected_port["parentRefs"][0]["port"] == 443
+    assert projected_port["parentStatus"][0]["parentRef"]["port"] == 443
     class_reader = services.GatewayClassReader(SimpleNamespace(transport=None), binding, None,
                                                {"resources": 0})
     gateway_class = {"apiVersion": "gateway.networking.k8s.io/v1", "kind": "GatewayClass",

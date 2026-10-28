@@ -43,7 +43,7 @@ def _aws_network_bound_policy(resource):
     return isinstance(arn, str) and re.match(r"^arn:[^:]+:ec2:[^:]+:[0-9]{12}:vpc-endpoint(?:-service)?/[^/]+$", arn) is not None
 MULTI_TENANT_ISSUERS = ("token.actions.githubusercontent.com", "gitlab.com", "app.terraform.io", "api.bitbucket.org",
                         "oidc.circleci.com", "accounts.google.com", "cognito-identity.amazonaws.com", "vstoken.dev.azure.com",
-                        "token.buildkite.com", "oidc.codefresh.io")
+                        "token.buildkite.com", "agent.buildkite.com", "oidc.codefresh.io")
 
 
 def _cache(snapshot, key, compute):
@@ -392,15 +392,20 @@ def principal_verdict(snapshot, entry, statement, path):
     """Decide FAIL / MANUAL / UNKNOWN / None for one declared principal entry."""
     classification, kind = entry["classification"], entry.get("principal_kind")
     condition = statement.get("Condition", statement.get("condition")) if isinstance(statement, dict) else None
+    gcp_unconditional = (condition is None or isinstance(condition, dict)
+                         and isinstance(condition.get("expression"), str)
+                         and condition["expression"].strip() == "true")
     if classification == "public":
-        if snapshot["provider"] in {"gcp", "k8s"} and condition is not None:
+        if snapshot["provider"] == "gcp" and not gcp_unconditional:
+            return "MANUAL", "public_conditional"
+        if snapshot["provider"] == "k8s" and condition is not None:
             return "MANUAL", "public_conditional"
         restrictive = restrictive_conditions(condition) if snapshot["provider"] == "aws" else []
         entry["restrictive_conditions"] = restrictive
         return ("MANUAL", "public_conditional") if restrictive else ("FAIL", "public")
     if classification == "external":
         entry["external_id_condition"] = has_external_id(condition)
-        if snapshot["provider"] == "gcp" and condition is not None:
+        if snapshot["provider"] == "gcp" and not gcp_unconditional:
             return "MANUAL", "external_conditional"
         if kind in ("VaultAccessPolicy", "GroupMember") and isinstance(statement, dict) and statement.get("keyVaultAccessPolicy") and statement.get("applicationId"):
             return "MANUAL", "application_and_principal_required"
@@ -700,6 +705,11 @@ def gcp_wif_provider(snapshot, resource):
     data = resource["data"]
     issuer = str(data.get("oidc", {}).get("issuerUri", "")) if isinstance(data.get("oidc"), dict) else ""
     condition = data.get("attributeCondition")
+    def grant_unconditional(binding):
+        value = binding["condition"]
+        return value is None or (isinstance(value, dict)
+                                 and isinstance(value.get("expression"), str)
+                                 and value["expression"].strip() == "true")
     host = urlsplit(issuer).hostname or ""
     evidence = {"issuer": issuer or None, "aws_account": data.get("aws", {}).get("accountId") if isinstance(data.get("aws"), dict) else None,
                 "provider_type": next((kind for kind in ("oidc", "aws", "saml", "x509") if isinstance(data.get(kind), dict)), None),
@@ -709,29 +719,68 @@ def gcp_wif_provider(snapshot, resource):
     pool = name.rsplit("/providers/", 1)[0] if isinstance(name, str) and "/providers/" in name else None
     bindings = []
     direct_bindings = []
+    unresolved_service_account_bindings = []
     if pool:
-        prefixes = (f"principal://iam.googleapis.com/{pool}/", f"principalSet://iam.googleapis.com/{pool}/")
+        individual = f"principal://iam.googleapis.com/{pool}/subject/"
+        principal_set = f"principalSet://iam.googleapis.com/{pool}/"
         pool_wide = f"principalSet://iam.googleapis.com/{pool}/*"
+        def pool_member(member):
+            if not isinstance(member, str):
+                return False
+            if member == pool_wide:
+                return True
+            if member.startswith(individual):
+                return bool(member[len(individual):])
+            if not member.startswith(principal_set):
+                return False
+            selector = member[len(principal_set):]
+            if selector.startswith("group/"):
+                return bool(selector[len("group/"):])
+            if selector.startswith("attribute."):
+                attribute, separator, value = selector.partition("/")
+                return bool(separator and value and len(attribute) > len("attribute."))
+            return False
         def matching(policy, target, output):
             if not isinstance(policy, dict) or policy.get("collection_status", "collected") != "collected":
                 return
             for binding in as_list(policy.get("bindings")):
                 if not isinstance(binding, dict) or not isinstance(binding.get("role"), str) or not binding["role"]:
                     continue
-                members = [member for member in as_list(binding.get("members"))
-                           if isinstance(member, str) and member.startswith(prefixes)]
+                members = [member for member in as_list(binding.get("members")) if pool_member(member)]
                 if members:
                     output.append({"resource": target, "role": binding.get("role"), "members": members,
                                    "pool_wide": pool_wide in members,
                                    "condition": copy.deepcopy(binding.get("condition"))})
+        credential_permissions = {"iam.serviceAccounts.getAccessToken", "iam.serviceAccounts.getOpenIdToken",
+                                  "iam.serviceAccounts.signBlob", "iam.serviceAccounts.signJwt",
+                                  "iam.serviceAccountKeys.create"}
+        known_service_account_roles = {
+            "roles/iam.workloadIdentityUser": {"iam.serviceAccounts.getAccessToken", "iam.serviceAccounts.getOpenIdToken"},
+            "roles/iam.serviceAccountTokenCreator": credential_permissions - {"iam.serviceAccountKeys.create"},
+            "roles/iam.serviceAccountOpenIdTokenCreator": {"iam.serviceAccounts.getOpenIdToken"},
+            "roles/iam.serviceAccountKeyAdmin": {"iam.serviceAccountKeys.create"},
+            "roles/iam.serviceAccountUser": {"iam.serviceAccounts.actAs"},
+        }
+        role_rows = {}
+        for role_row in _items(snapshot, "iam_role"):
+            role_rows.setdefault(role_row.get("name"), []).append(role_row)
         for account in _items(snapshot, "service_account"):
             found = []
             matching(account.get("iamPolicy"), account.get("name") or account.get("email"), found)
             for binding in found:
-                if binding["role"] in ("roles/iam.workloadIdentityUser", "roles/iam.serviceAccountTokenCreator"):
-                    bindings.append({**binding, "service_account": binding["resource"]})
+                role = binding["role"]
+                matches = role_rows.get(role, [])
+                resolved = matches[0].get("includedPermissions") if len(matches) == 1 else None
+                permissions = (set(resolved) if isinstance(resolved, list) and all(
+                    isinstance(permission, str) for permission in resolved) else known_service_account_roles.get(role))
+                if permissions and permissions & credential_permissions:
+                    bindings.append({**binding, "service_account": binding["resource"],
+                                     "credential_permissions": sorted(permissions & credential_permissions)})
                 else:
-                    direct_bindings.append(binding)
+                    unresolved_service_account_bindings.append({**binding, "service_account": binding["resource"],
+                        "reason": "actAs requires a deployment path" if permissions and "iam.serviceAccounts.actAs" in permissions
+                                  else "service-account role permissions unresolved" if permissions is None
+                                  else "role does not grant credential creation"})
         for collection in snapshot.get("collections", []):
             if collection.get("status") not in ("collected", "partial") or collection.get("type") == "service_account":
                 continue
@@ -742,7 +791,12 @@ def gcp_wif_provider(snapshot, resource):
                 matching(policy, item.get("name") or item.get("id"), direct_bindings)
                 inherited_coverage = ((item.get("_coverage") or {}).get("_inherited_iam_policies")
                                       if isinstance(item.get("_coverage"), dict) else None)
-                if (collection.get("type") == "project" and item.get("name") == collection.get("scope")
+                project_scope = collection.get("scope")
+                project_alias = project_scope.removeprefix("projects/") if isinstance(project_scope, str) else ""
+                project_identity = project_alias and project_alias in {
+                    str(item.get("projectId")), str(item.get("projectNumber")),
+                    str(item.get("name", "")).removeprefix("projects/")}
+                if (collection.get("type") == "project" and project_identity
                         and isinstance(inherited_coverage, dict) and inherited_coverage.get("status") == "collected"
                         and isinstance(item.get("_inherited_iam_policies"), list)):
                     for inherited in item["_inherited_iam_policies"]:
@@ -753,12 +807,16 @@ def gcp_wif_provider(snapshot, resource):
                                 or inherited.get("name") != ancestor):
                             continue
                         found = []
-                        matching(inherited, item["name"], found)
+                        matching(inherited, project_scope, found)
                         direct_bindings.extend({**binding, "inherited_from": ancestor} for binding in found)
     evidence["service_account_bindings"] = bindings
+    evidence["unresolved_service_account_bindings"] = unresolved_service_account_bindings
     evidence["direct_resource_bindings"] = direct_bindings
     grants = bindings + direct_bindings
-    pools = [item for item in _items(snapshot, "workload_identity_pool") if item.get("name") == pool]
+    pools = [item for collection in snapshot.get("collections", [])
+             if collection.get("type") == "workload_identity_pool" and collection.get("status") == "collected"
+             for item in collection.get("items", [])
+             if isinstance(item, dict) and item.get("name") == pool]
     if len(pools) == 1:
         evidence["pool_state"] = pools[0].get("state")
         evidence["pool_disabled"] = pools[0].get("disabled")
@@ -766,17 +824,61 @@ def gcp_wif_provider(snapshot, resource):
             return "PASS", "info", {**evidence, "semantics": "A disabled or deleted pool blocks both token exchange and existing token access at snapshot time."}
     if data.get("state") == "DELETED" or data.get("disabled") is True:
         return "MANUAL", "medium", {**evidence, "problem": "Provider is disabled or deleted, but previously issued tokens can retain resource access until expiry."}
-    if condition:
+    if data.get("state") != "ACTIVE":
+        return "MANUAL", "medium", {**evidence, "problem": "Provider ACTIVE state was not verified; existing issued tokens cannot be inferred."}
+    if len(pools) != 1 or pools[0].get("state") != "ACTIVE":
+        return "MANUAL", "medium", {**evidence, "problem": "Exact active workload identity pool was not verified in a complete inventory."}
+    if condition is not None and condition != "" and (not isinstance(condition, str) or condition.strip() != "true"):
         return "MANUAL", "medium", {
             **evidence, "semantics": "Provider attribute condition needs CEL evaluation with a concrete token; uncollected resource grants may exist."}
     aws_account = evidence["aws_account"]
     if isinstance(aws_account, str) and re.fullmatch(r"[0-9]{12}", aws_account):
         allowlisted = explicit_allowlist(snapshot) if snapshot.get("provider") == "gcp" else set()
-        if aws_account not in allowlisted and any(binding["condition"] is None for binding in grants):
+        mapping = data.get("attributeMapping")
+        def aws_selector_reachable(member):
+            if member == pool_wide:
+                return True
+            if not isinstance(member, str):
+                return False
+            if (member == f"{principal_set}attribute.account/{aws_account}"
+                    and isinstance(mapping, dict)
+                    and mapping.get("attribute.account") == "assertion.account"
+                    and isinstance(mapping.get("google.subject"), str)):
+                return True
+            if not mapping and member.startswith(f"{principal_set}attribute.aws_role/"):
+                role = member[len(f"{principal_set}attribute.aws_role/"):]
+                # The AWS default mapping strips the session from an STS assumed-role ARN.
+                return bool(re.fullmatch(
+                    rf"arn:aws:sts::{aws_account}:assumed-role/[A-Za-z0-9+=,.@_-]+", role))
+            if (isinstance(mapping, dict)
+                    and mapping.get("google.subject") == "assertion.arn"
+                    and mapping.get("attribute.aws_role") == "assertion.arn.extract('assumed-role/{role_name}/')"
+                    and member.startswith(f"{principal_set}attribute.aws_role/")):
+                role = member[len(f"{principal_set}attribute.aws_role/"):]
+                return bool(re.fullmatch(r"[A-Za-z0-9+=,.@_-]+", role))
+            if member.startswith(individual) and not mapping:
+                subject = member[len(individual):]
+                return bool(re.fullmatch(rf"arn:aws:(?:iam|sts)::{aws_account}:.+", subject))
+            return False
+        reachable_grants = [binding for binding in grants if grant_unconditional(binding)
+                            and any(aws_selector_reachable(member) for member in binding["members"])]
+        evidence["aws_reachable_grants"] = reachable_grants
+        if aws_account not in allowlisted and reachable_grants:
             return "FAIL", "critical", {**evidence, "problem": "External AWS account can exchange tokens for an unconditional IAM grant to this pool"}
-        return "MANUAL", "medium", {**evidence, "problem": "AWS provider account and scoped or uncollected IAM grants require trust review"}
-    if host in MULTI_TENANT_ISSUERS:
-        if any(binding["pool_wide"] and binding["condition"] is None for binding in grants):
+        return "MANUAL", "medium", {**evidence, "problem": "AWS provider account and scoped or uncollected IAM grants require claim-mapping review"}
+    # These issuer paths identify one CI organization or Bitbucket workspace.
+    # A host-only issuer can still mint tokens across organizations.
+    issuer_path = urlsplit(issuer).path or ""
+    org_uuid = r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
+    org_scoped_issuer = ((host == "oidc.circleci.com" and
+                          re.fullmatch(rf"/org/{org_uuid}/?", issuer_path) is not None)
+                         or (host == "vstoken.dev.azure.com" and
+                             re.fullmatch(rf"/{org_uuid}/?", issuer_path) is not None)
+                         or (host == "api.bitbucket.org" and
+                             re.fullmatch(r"/2\.0/workspaces/[A-Za-z0-9_-]+/pipelines-config/identity/oidc/?",
+                                          issuer_path) is not None))
+    if host in MULTI_TENANT_ISSUERS and not org_scoped_issuer:
+        if any(binding["pool_wide"] and grant_unconditional(binding) for binding in grants):
             return "FAIL", "critical", {**evidence, "problem": "Unrestricted multi-tenant issuer has an unconditional pool-wide IAM grant"}
         return "MANUAL", "medium", {**evidence, "problem": "Unrestricted multi-tenant issuer; effective access through conditional or uncollected grants is unresolved"}
     return "MANUAL", "medium", {**evidence, "problem": "No attributeCondition; every identity of the issuer can exchange tokens"}
