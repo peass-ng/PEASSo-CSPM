@@ -207,6 +207,16 @@ def test_compute_gallery_community_and_direct_sharing_policy():
         "groups": [{"type": "AADTenants", "ids": ["outside-tenant"]}]}})
     assert direct.verdict() == "UNKNOWN"
     assert len(_observed(direct, "UNKNOWN").splitlines()) == 3
+    other_subscription = decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
+        "groups": [{"type": "Subscriptions", "ids": ["test", "outside-subscription"]}]}})
+    assert other_subscription.verdict() == "FAIL"
+    assert other_subscription.external_ids == ["outside-subscription"]
+    assert "published image versions" in other_subscription.notes[0]
+    own_subscription = decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
+        "groups": [{"type": "Subscriptions", "ids": ["test"]}]}})
+    assert own_subscription.verdict() == "PASS"
+    assert decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
+        "groups": [{"type": "Subscriptions", "ids": "outside-subscription"}]}}).verdict() == "UNKNOWN"
     missing = decision("compute_gallery", {})
     assert missing.verdict() == "UNKNOWN"
     assert _observed(missing, "UNKNOWN").splitlines()[0] == (
