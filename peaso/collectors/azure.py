@@ -47,6 +47,7 @@ from . import azure_foundry_project_native
 from . import azure_foundry_agent_native
 from . import azure_foundry_connection_native
 from . import azure_newrelic_native
+from . import azure_partner_network_native
 from . import azure_service_fabric_native
 from . import azure_powerbi_public_share_native
 from . import azure_security_correlation_native
@@ -1525,7 +1526,7 @@ TYPES = tuple(ENDPOINTS) + tuple(AUTHORIZATION) + tuple(DIRECTORY) + tuple(DIREC
     "managed_instance_database", "managed_instance_tde", "sql_database_inventory", "sql_tde_inventory",
     azure_identity_enforcement_review_20261020.KIND, "guest_configuration_report", "azure_sw18_evidence", "mysql_postgresql_sql_server", *azure_conditional_access_native.NATIVE_TYPES,
     "devops_project", *azure_devops_pipeline_native.NATIVE_TYPES, *azure_access_reviews_native.NATIVE_TYPES, *azure_arm_metadata_native.NATIVE_TYPES, *azure_monitor_inventory_native.NATIVE_TYPES, *azure_aks_workloads_native.NATIVE_TYPES, azure_fabric_workspace_native.KIND, azure_fabric_workspace_native.ITEM_KIND, azure_fabric_workspace_native.SHARE_KIND, *azure_powerbi_public_share_native.KINDS, "azure_detection_telemetry", "entra_diagnostic_setting", *azure_storage_backup_native.NATIVE_TYPES,
-    *azure_defender_network_native.NATIVE_TYPES, *azure_adaptive_network_native.NATIVE_TYPES, *azure_entra_user_native.NATIVE_TYPES, "directory_user_group_membership", "sql_managed_instance_administrator", "intune_diagnostic_setting", azure_foundry_project_native.KIND, azure_foundry_agent_native.KIND, azure_foundry_connection_native.KIND, *azure_newrelic_native.TYPES, *azure_service_fabric_native.KINDS,
+    *azure_defender_network_native.NATIVE_TYPES, *azure_adaptive_network_native.NATIVE_TYPES, *azure_entra_user_native.NATIVE_TYPES, "directory_user_group_membership", "sql_managed_instance_administrator", "intune_diagnostic_setting", azure_foundry_project_native.KIND, azure_foundry_agent_native.KIND, azure_foundry_connection_native.KIND, *azure_newrelic_native.TYPES, *azure_partner_network_native.KINDS, *azure_service_fabric_native.KINDS,
     "storage_local_user", "sql_backup_short_term_policy", "eventgrid_subscription",
     *azure_vault_key_versions_native.NATIVE_TYPES, *azure_iot_policy_native.NATIVE_TYPES, *azure_function_limits_native.NATIVE_TYPES, *azure_functions_runtime_native.NATIVE_TYPES, *azure_secret_versions_native.NATIVE_TYPES, *azure_storage_recovery_metadata_native.NATIVE_TYPES, "sentinel_workspace", azure_sentinel_automation_exposure.KIND, azure_sentinel_source_control_exposure.KIND, *azure_incident_inventory_native.NATIVE_TYPES, *azure_security_correlation_native.NATIVE_TYPES, *azure_apim_diagnostic_evidence_native.NATIVE_TYPES, *azure_storage_blob_keys_native.NATIVE_TYPES, *azure_audit_storage_native.NATIVE_TYPES, "assessment_metadata",
     azure_app_settings_secret_indicators.KIND, azure_acr_image_secret_indicators.KIND, azure_acr_image_vulnerabilities_20261021.KIND, azure_selected_aks_image_20261021.KIND, azure_selected_aks_image_20261021.VULN_KIND, azure_selected_configuration_secret_indicators.KIND,
@@ -4293,6 +4294,7 @@ def collect(connector, requirements=None, *, transport=None):
         azure_foundry_agent_native.collect(reader, request, transport, wanted)
         azure_foundry_connection_native.collect(reader, request, transport, wanted)
         azure_newrelic_native.collect(reader, request, scopes, wanted, ARM)
+        azure_partner_network_native.collect(reader, request, scopes, wanted, ARM)
         azure_service_fabric_native.collect(reader, request, scopes, wanted, ARM)
         azure_easm_connections_native.collect(reader, request, wanted)
         azure_purview_metadata_policy_native.collect(reader, request, transport, wanted)
