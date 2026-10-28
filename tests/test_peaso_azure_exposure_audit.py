@@ -1775,11 +1775,15 @@ def test_api_management_distinct_external_regions_all_block_public_https():
                     f"/virtualNetworks/{name}/subnets/gateway"}}
                for name in ("west", "east")]
 
-    def check(*, east_subnet=True, east_access="Deny", east_destination="*"):
+    def check(*, east_subnet=True, west_subnet=True, east_access="Deny",
+              east_destination="*", east_route=False):
         subnets = [{"id": region["virtualNetworkConfiguration"]["subnetResourceId"],
                     "properties": {"networkSecurityGroup": {"id": base +
-                        f"/networkSecurityGroups/{region['location']}"}}}
-                   for region in regions if east_subnet or region["location"] != "east"]
+                        f"/networkSecurityGroups/{region['location']}"},
+                        **({"routeTable": {"id": base + "/routeTables/east"}}
+                           if east_route and region["location"] == "east" else {})}}
+                   for region in regions if ((east_subnet or region["location"] != "east") and
+                                             (west_subnet or region["location"] != "west"))]
         nsgs = []
         for region in regions:
             name = region["location"]
@@ -1808,7 +1812,14 @@ def test_api_management_distinct_external_regions_all_block_public_https():
         "https://west.azure-api.net", "https://east.azure-api.net"]
     assert "Each regional gateway's collected External VNet subnet NSG blocks" in _observed(blocked, "PASS")
     assert len(_observed(blocked, "PASS").splitlines()) == 3
+    open_region = check(east_access="Allow")
+    assert open_region.verdict() == "FAIL"
+    assert open_region.path[-1]["regional_gateway_url"] == "https://east.azure-api.net"
+    assert open_region.addresses[0] == "https://east.azure-api.net"
+    assert "regional gateway at https://east.azure-api.net" in _observed(open_region, "FAIL")
+    assert check(west_subnet=False, east_access="Allow").verdict() == "FAIL"
     assert check(east_subnet=False).verdict() == "UNKNOWN"
+    assert check(east_access="Allow", east_route=True).verdict() == "UNKNOWN"
     assert check(east_access="Allow", east_destination="10.0.0.4/32").verdict() == "UNKNOWN"
 
 

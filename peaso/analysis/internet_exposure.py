@@ -6194,41 +6194,55 @@ def _azure_public_edge(snapshot, inventory, resource):
     return a
 
 
-def _azure_apim_external_region_blocked(inventory, resource, location):
-    """Prove one classic regional gateway's subnet blocks public HTTPS ingress."""
+def _azure_apim_external_region_path(inventory, resource, location):
+    """Resolve one classic regional gateway's public HTTPS subnet path."""
     sku = location.get("sku") or resource["data"].get("sku") or {}
     if not isinstance(sku, dict) or sku.get("name") != "Premium":
-        return False
+        return None
     network_config = location.get("virtualNetworkConfiguration")
     subnet_id = network_config.get("subnetResourceId") if isinstance(network_config, dict) else None
     subnet, _ = _azure_subnet(inventory, subnet_id)
     if subnet is None:
-        return False
+        return None
     nsg_ref = _props(subnet).get("networkSecurityGroup") or {}
     if not isinstance(nsg_ref, dict):
-        return False
+        return None
     nsg_id = nsg_ref.get("id")
+    if nsg_ref and (not isinstance(nsg_id, str) or not nsg_id):
+        return None
     nsg = inventory.get("nsg", nsg_id) if nsg_id else None
     # The gateway private DIP is not returned. A specific-destination allow
     # could match it even if a broad-source evaluation finds no open port.
     if nsg:
         rules = _props(nsg).get("securityRules")
         if not isinstance(rules, list):
-            return False
+            return None
         for rule in rules:
             props = rule.get("properties") if isinstance(rule, dict) else None
             if not isinstance(props, dict):
-                return False
+                return None
             if props.get("access") == "Allow" and (
                     props.get("destinationApplicationSecurityGroups") or any(
                         value not in ("*", "Any", "VirtualNetwork", "0.0.0.0/0", "::/0")
                         for value in as_list(props.get("destinationAddressPrefixes")) +
                                      as_list(props.get("destinationAddressPrefix")))):
-                return False
+                return None
     evidence = Assessment(resource, "api_gateway")
     ports = _azure_nsg_path(inventory, evidence, None, subnet_id, pset("tcp", 443, 443),
                             sku="standard", where="API Management regional gateway subnet")
-    return empty(ports) and evidence.blocked_by is not None and not evidence.unresolved
+    if evidence.unresolved:
+        return None
+    if empty(ports) and evidence.blocked_by is not None:
+        return "block"
+    route_ref = _props(subnet).get("routeTable") or {}
+    if not isinstance(route_ref, dict):
+        return None
+    if route_ref and (not isinstance(route_ref.get("id"), str) or not route_ref["id"]):
+        return None
+    if (not empty(ports) and evidence.blocked_by is None and
+            not route_ref.get("id")):
+        return "allow"
+    return None
 
 
 def _azure_api_management(snapshot, inventory, resource):
@@ -6286,14 +6300,27 @@ def _azure_api_management(snapshot, inventory, resource):
         regional_subnets = [config.get("subnetResourceId") if isinstance(config, dict) else None
                             for location in regional
                             for config in [location.get("virtualNetworkConfiguration")]]
-        if (not primary_enabled and len(regional) > 1 and not a.unresolved and
-                len({str(subnet).casefold() for subnet in regional_subnets}) == len(regional) and
-                all(_azure_apim_external_region_blocked(inventory, resource, location)
-                    for location in regional)):
-            a.step("nsg", "block", reason="every enabled regional External VNet gateway subnet blocks public HTTPS ingress",
-                   regional_gateway_urls=list(a.addresses))
-            a.ports = {}
-            return a
+        if (not primary_enabled and len(regional) > 1 and
+                len({str(subnet).casefold() for subnet in regional_subnets}) == len(regional)):
+            region_paths = [_azure_apim_external_region_path(inventory, resource, location)
+                            for location in regional]
+            if not a.unresolved and all(path == "block" for path in region_paths):
+                a.step("nsg", "block", reason="every enabled regional External VNet gateway subnet blocks public HTTPS ingress",
+                       regional_gateway_urls=list(a.addresses))
+                a.ports = {}
+                return a
+            for location, path in zip(regional, region_paths):
+                endpoint = location.get("gatewayRegionalUrl")
+                if path == "allow" and isinstance(endpoint, str) and endpoint.startswith("https://"):
+                    a.step("nsg", "allow", reason="recorded regional External VNet subnet admits public HTTPS ingress",
+                           regional_gateway_url=endpoint,
+                           subnet_id=location["virtualNetworkConfiguration"]["subnetResourceId"])
+                    a.addresses = [endpoint] + [url for url in a.addresses if url != endpoint]
+                    a.ports = ports
+                    a.explicit = "FAIL"
+                    if any(other is None for other in region_paths):
+                        a.notes.append("Other enabled regional gateway paths remain unresolved")
+                    return a
         if regional and not regional_only:
             a.gap("nsg", "External VNet regional gateway subnet NSG paths are not resolved")
         if not primary_enabled and not regional_only:
