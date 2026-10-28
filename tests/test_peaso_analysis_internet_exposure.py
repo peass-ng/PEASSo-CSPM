@@ -76,6 +76,20 @@ def aws(*collections, metadata=None):
     return make_snapshot("aws", [SCOPE], list(collections), created_at="2026-10-10T00:00:00+00:00", metadata=metadata)
 
 
+def deployed_rest(api, *, stage="prod", authorization=None, api_key_required=None):
+    methods = api.get("Methods") or []
+    row = methods[0] if methods else {}
+    stage_row = next((s for s in (api.get("Stages") or {}).get("items", []) if s.get("stageName") == stage), {})
+    if not stage_row.get("deploymentId"):
+        return coll("rest_api_method", [], service="apigateway")
+    return coll("rest_api_method", [{"id": f"deployed/{api['id']}/{stage}/GET", "restApiId": api["id"],
+        "stageArn": f"arn:aws:apigateway:us-east-1::/restapis/{api['id']}/stages/{stage}",
+        "deploymentId": stage_row["deploymentId"], "resourcePath": "/", "httpMethod": row.get("httpMethod", "GET"),
+        "authorizationType": row.get("authorizationType") if authorization is None else authorization,
+        "apiKeyRequired": row.get("apiKeyRequired") if api_key_required is None else api_key_required,
+        "_provenance": {"stage_deployment_join_verified": True}}], service="apigateway")
+
+
 @pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [
     (["es:DescribeDomain"], "/*", False, True),
     (["es:ESHttpGet"], "/other/*", False, True),
@@ -527,12 +541,42 @@ def test_rest_api_collected_method_authorization():
     api = {"id": "a1b2", "endpointConfiguration": {"types": ["REGIONAL"]},
            "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}],
            "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]}}
-    assert one(aws(coll("rest_api", [api], service="apigateway")), "rest_api")["status"] == "FAIL"
+    assert one(aws(coll("rest_api", [api], service="apigateway"), deployed_rest(api)), "rest_api")["status"] == "FAIL"
     api["Methods"][0]["authorizationType"] = "AWS_IAM"
-    result = one(aws(coll("rest_api", [api], service="apigateway")), "rest_api")
+    result = one(aws(coll("rest_api", [api], service="apigateway"), deployed_rest(api)), "rest_api")
     assert result["status"] == "PASS" and result["evidence"]["authenticated_endpoint"] is True
     api["Methods"][0].pop("apiKeyRequired")
-    assert one(aws(coll("rest_api", [api], service="apigateway")), "rest_api")["status"] == "UNKNOWN"
+    assert one(aws(coll("rest_api", [api], service="apigateway"), deployed_rest(api)), "rest_api")["status"] == "UNKNOWN"
+
+
+def test_rest_api_uses_deployed_method_authorization_not_live_method_edits():
+    api = {"id": "a1b2", "endpointConfiguration": {"types": ["REGIONAL"]},
+           "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}],
+           "Stages": {"collection_status": "collected", "items": [{"stageName": "prod", "deploymentId": "dep-1"}]}}
+    def row(methods):
+        return one(aws(coll("rest_api", [api], service="apigateway"), methods), "rest_api")
+    assert row(deployed_rest(api, authorization="AWS_IAM"))["status"] == "PASS"
+    api["Methods"][0]["authorizationType"] = "AWS_IAM"
+    assert row(deployed_rest(api, authorization="NONE"))["status"] == "FAIL"
+    assert row(coll("rest_api_method", [], status="denied", service="apigateway"))["status"] == "UNKNOWN"
+    assert row(deployed_rest(api, authorization="NONE", api_key_required=True))["status"] == "PASS"
+
+
+def test_rest_api_custom_domain_uses_only_the_mapped_deployment():
+    api = {"id": "rest1", "disableExecuteApiEndpoint": True, "endpointConfiguration": {"types": ["REGIONAL"]},
+           "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}],
+           "Stages": {"collection_status": "collected", "items": [
+               {"stageName": "prod", "deploymentId": "dep-1"}, {"stageName": "dev", "deploymentId": "dep-2"}]}}
+    domain = {"domainName": "rest.example.com", "endpointConfiguration": {"types": ["REGIONAL"]},
+              "BasePathMappings": {"collection_status": "collected", "items": [{"restApiId": "rest1", "stage": "prod"}]}}
+    methods = deployed_rest(api, stage="prod", authorization="AWS_IAM")["items"] + deployed_rest(api, stage="dev")["items"]
+    def row():
+        return one(aws(coll("rest_api", [api], service="apigateway"),
+                       coll("apigateway_domain_name", [domain], service="apigateway"),
+                       coll("rest_api_method", methods, service="apigateway")), "rest_api")
+    assert row()["status"] == "PASS"
+    domain["BasePathMappings"]["items"][0]["stage"] = "dev"
+    assert row()["status"] == "FAIL"
 
 
 def test_api_gateway_requires_collected_deployed_stage():
@@ -540,7 +584,7 @@ def test_api_gateway_requires_collected_deployed_stage():
             "Methods": [{"httpMethod": "GET", "authorizationType": "NONE", "apiKeyRequired": False}],
             "Stages": {"collection_status": "empty", "items": []}}
     def rest_row():
-        return one(aws(coll("rest_api", [rest], service="apigateway")), "rest_api")
+        return one(aws(coll("rest_api", [rest], service="apigateway"), deployed_rest(rest)), "rest_api")
     assert rest_row()["status"] == "PASS"
     rest["Stages"] = {"collection_status": "denied"}
     assert rest_row()["status"] == "UNKNOWN"
@@ -566,7 +610,7 @@ def test_rest_api_custom_domain_routing_rule_reaches_deployed_stage():
                    "Actions": [{"InvokeApi": {"ApiId": "rest1", "Stage": "prod"}}]}]}}
     def row():
         return one(aws(coll("rest_api", [api], service="apigateway"),
-                       coll("apigateway_domain_name", [domain], service="apigateway")), "rest_api")
+                       coll("apigateway_domain_name", [domain], service="apigateway"), deployed_rest(api)), "rest_api")
     result = row()
     assert result["status"] == "FAIL"
     assert result["evidence"]["public_addresses"] == ["https://api.example.com"]
@@ -596,7 +640,7 @@ def test_api_gateway_custom_mapping_requires_its_own_active_stage():
                    "BasePathMappings": {"collection_status": "collected", "items": [{"restApiId": "rest1", "stage": "dev"}]}}
     def rest_row():
         return one(aws(coll("rest_api", [rest], service="apigateway"),
-                       coll("apigateway_domain_name", [rest_domain], service="apigateway")), "rest_api")
+                       coll("apigateway_domain_name", [rest_domain], service="apigateway"), deployed_rest(rest)), "rest_api")
     assert rest_row()["status"] == "PASS"
     rest_domain["BasePathMappings"]["items"][0]["stage"] = "prod"
     assert rest_row()["status"] == "FAIL"

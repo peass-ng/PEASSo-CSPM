@@ -1092,6 +1092,7 @@ def _aws_rest_api(snapshot, inventory, resource):
     active_stage_names = ({s.get("stageName") for s in as_list(stage_read.get("items")) if isinstance(s, dict)
                            and isinstance(s.get("deploymentId"), str) and s.get("deploymentId")}
                           if isinstance(stage_read, dict) and stage_read.get("collection_status") in ("collected", "empty") else None)
+    reachable_stage_names = set(active_stage_names or ()) if data.get("disableExecuteApiEndpoint") is not True else set()
     types = as_list((data.get("endpointConfiguration") or {}).get("types"))
     if "PRIVATE" in types:
         a.step("route", "block", endpoint_types=types, disable_execute_api_endpoint=data.get("disableExecuteApiEndpoint"))
@@ -1137,6 +1138,7 @@ def _aws_rest_api(snapshot, inventory, resource):
                         elif index == 0 and rule["ConditionCount"] == 0:
                             if invoke["Stage"] in active_stage_names:
                                 domains.append(str(domain["data"].get("domainName") or native_id(domain)))
+                                reachable_stage_names.add(invoke["Stage"])
                         elif invoke["Stage"] in active_stage_names:
                             # Header/path conditions and earlier rules require a
                             # request witness before this target can be claimed.
@@ -1155,6 +1157,7 @@ def _aws_rest_api(snapshot, inventory, resource):
                 continue
             if active_stage_names is not None and mapping.get("stage") in active_stage_names:
                 domains.append(str(domain["data"].get("domainName") or native_id(domain)))
+                reachable_stage_names.add(mapping["stage"])
             elif active_stage_names is None or not isinstance(mapping.get("stage"), str):
                 unresolved_domains.append(domain["data"].get("domainName") or native_id(domain))
     if data.get("disableExecuteApiEndpoint") is True and not domains:
@@ -1208,24 +1211,43 @@ def _aws_rest_api(snapshot, inventory, resource):
                semantics="Caller source restrictions apply; configured custom domain may still have a public edge")
         a.authenticated = True
     a.ports = pset("tcp", 443, 443)
-    methods = data.get("Methods", data.get("resources"))
-    if isinstance(methods, list):
-        if not methods:
-            a.step("authorization", "block", reason="no methods configured")
-            a.ports = {}
+    method_state = inventory.state("rest_api_method", resource["scope"])
+    stages = {s.get("stageName"): s.get("deploymentId") for s in as_list(stage_read.get("items"))
+              if isinstance(s, dict) and s.get("stageName") in reachable_stage_names}
+    methods, seen = [], set()
+    for item in inventory.items("rest_api_method"):
+        if item["scope"] != resource["scope"] or item["data"].get("restApiId") != native_id(resource):
+            continue
+        row = item["data"]
+        stage_arn = row.get("stageArn")
+        match = re.fullmatch(r"arn:[^:]+:apigateway:([^:]+)::/restapis/([^/]+)/stages/([^/]+)", stage_arn) if isinstance(stage_arn, str) else None
+        if not match or match.group(1) != resource["scope"].rsplit("/", 1)[-1] or match.group(2) != native_id(resource):
+            a.gap("authorization", "deployed method stage identity malformed", "apigateway:GetDeployment")
             return a
-        if not all(isinstance(m, dict) and isinstance(m.get("authorizationType"), str)
-                   and type(m.get("apiKeyRequired")) is bool for m in methods):
-            a.gap("authorization", "method authorization or API-key fields malformed", "apigateway:GetResources")
+        stage_name = match.group(3)
+        if stage_name not in reachable_stage_names:
+            continue
+        identity = (stage_name, row.get("resourcePath"), row.get("httpMethod"))
+        if (row.get("deploymentId") != stages.get(stage_name)
+                or (row.get("_provenance") or {}).get("stage_deployment_join_verified") is not True
+                or not isinstance(row.get("resourcePath"), str) or not row["resourcePath"].startswith("/")
+                or row.get("httpMethod") not in ("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "ANY")
+                or row.get("authorizationType") not in ("NONE", "AWS_IAM", "CUSTOM", "COGNITO_USER_POOLS")
+                or type(row.get("apiKeyRequired")) is not bool or identity in seen):
+            a.gap("authorization", "deployed method authorization, API key or stage join unresolved", "apigateway:GetDeployment")
             return a
-        open_methods = [m.get("httpMethod") for m in methods if m["authorizationType"] == "NONE" and not m["apiKeyRequired"]]
-        a.step("authorization", "allow" if open_methods else "block", unauthenticated_methods=open_methods,
-               authentication_required=not bool(open_methods))
-        if not open_methods:
-            a.authenticated = True
-            a.ports = {}
+        seen.add(identity)
+        methods.append(row)
+    open_methods = [f"{m['httpMethod']} {m['resourcePath']}@{m['stageArn'].rsplit('/', 1)[-1]}"
+                    for m in methods if m["authorizationType"] == "NONE" and not m["apiKeyRequired"]]
+    if open_methods:
+        a.step("authorization", "allow", unauthenticated_methods=sorted(open_methods), source="deployed MethodSnapshot")
+    elif method_state not in ("collected", "empty") or not methods:
+        a.gap("authorization", "deployed REST method snapshot unavailable or incomplete", "apigateway:GetDeployment")
     else:
-        a.gap("authorization", "method authorizationType/apiKeyRequired not collected", "apigateway:GetResources")
+        a.step("authorization", "block", authentication_required=True, source="deployed MethodSnapshot")
+        a.authenticated = True
+        a.ports = {}
     return a
 
 

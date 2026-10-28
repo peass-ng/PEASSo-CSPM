@@ -76,6 +76,8 @@ def deployed_methods(requests, session, region, account):
                 rows.append({'id': stage['id'] + '/deployed-method/' + quote(path + '/' + method, safe=''),
                     'stageArn': stage['id'], 'restApiId': api, 'deploymentId': deployment,
                     'resourcePath': path, 'httpMethod': method, 'methodSettingKey': path + '/' + method,
+                    'authorizationType': declaration.get('authorizationType'),
+                    'apiKeyRequired': declaration.get('apiKeyRequired'),
                     '_provenance': {'source_operation': 'GetDeployment', 'read_only': True,
                         'embed': 'apisummary', 'stage_deployment_join_verified': True}})
     return _result(rows)

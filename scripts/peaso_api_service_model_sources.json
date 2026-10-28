@@ -1,6 +1,7 @@
 {
   "aws_alias_function_url_review": "AWS Exposure alias-qualified Lambda Function URL: one read-only GetFunctionUrlConfig and GetPolicy per collected alias through the existing per-scan single-flight cache; collected alias ARN and URL FunctionArn are checked. Internet exposure adds lambda_alias handling with no new direct API SDK client call; 30 direct client sites and 15 reviewed API service names remain unchanged.",
   "aws_api_routing_review": "AWS Exposure REST custom-domain routing rules now retain priority and condition count from the existing cached read. The analyzer sorts rules, proves only an initial unconditional target with an active stage, and accounts for catch-all rule precedence over mappings. Conditional target satisfiability remains unknown. No new SDK call, service, credential source, or direct client site; 30 direct sites and 15 reviewed services remain.",
+  "aws_deployed_rest_method_review": "AWS Exposure REST method authorization now uses the already cached read-only GetDeployment embed=apisummary inventory bound to a stage deployment. The collector retains only MethodSnapshot authorizationType and apiKeyRequired. Native analysis ignores mutable GetResources authorization for the public verdict and requires a reachable stage, matching deployment, and proven source join. No new SDK operation, service, direct client site, or credential source; 30 direct client sites in 15 reviewed services.",
   "aws_global_accelerator_review": "AWS Exposure Global Accelerator static IP and listener assessment uses already cached ListAccelerators and ListListeners inventory. It adds no SDK operation, direct client site, service, or credential source. The reviewed direct API client closure remains 30 sites in 15 services. Backend endpoint health and delivery are outside this public frontend finding.",
   "aws_nlb_alb_host_review": "AWS Exposure NLB static IPv6 and ALB exact public-host NACL positive witnesses use already cached ELBv2, security-group and network-ACL facts only; no new API SDK call, service or credential source. The reviewed direct API client closure remains 30 sites within the same 15 services.",
   "azure_refresh_capture_closure_review": "Azure refresh includes both ACR images/leaks only when both were selected originally, preserving shared capture authority without provenance relabeling; no new SDK clients/services.",
@@ -1009,7 +1010,7 @@
     "peaso/collectors/aws_ai_recheck_facts_20261020.py": "49a6d5cb87e978cd2757bcc225acac09a24fcb1ead27a30c786006ea9ed4525c",
     "peaso/collectors/aws_alb_waf_association_metadata.py": "cee98829ccbafd1400d3ba73fc590cfd97cd8fd175937d9592003c08f461bf46",
     "peaso/collectors/aws_all_policies.py": "4be1797ead0658962fe64ddd17ac4437df49b3612e0d8746cf7315734e4a9886",
-    "peaso/collectors/aws_apigateway_native.py": "bf5c20ba91a679dcd303579b89ef6f9fd3b96e4664254716b5c98e4367e854a5",
+    "peaso/collectors/aws_apigateway_native.py": "2fb01a470554d9fffcacedba9b5fe85c120b69fb945ce4286b26a0bc59676a60",
     "peaso/collectors/aws_attached_tag_policy_native.py": "66f244b0da7fbb3343b9062f6103b22ade5f9b8ee2397c6df5a0ae2b0db7e794",
     "peaso/collectors/aws_b_services.py": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3",
     "peaso/collectors/aws_beanstalk_runtime_metadata.py": "1a3f2a1405ac65d9aaf831704171485dd9f686aa6f1a1454a0b283adb798c7f3",

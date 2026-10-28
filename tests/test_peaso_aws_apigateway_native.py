@@ -60,7 +60,7 @@ def test_deployed_methods_are_bound_to_stage_deployment(sdk, mode):
         if mode == 'denied':
             stub.add_client_error('get_deployment', 'AccessDeniedException', expected_params=args)
         else:
-            summary = {'/' if mode == 'root' else '/pets': {'ANY' if mode == 'any' else 'GET': {'authorizationType': 'NONE'}}}
+            summary = {'/' if mode == 'root' else '/pets': {'ANY' if mode == 'any' else 'GET': {'authorizationType': 'NONE', 'apiKeyRequired': False}}}
             response = {'id': 'foreign' if mode == 'wrong_id' else DEPLOYMENT,
                         'description': 'never-export-private-text', 'apiSummary': {} if mode == 'empty' else summary}
             if mode == 'missing':
@@ -70,6 +70,8 @@ def test_deployed_methods_are_bound_to_stage_deployment(sdk, mode):
     if mode in ('complete', 'root', 'any'):
         assert read.status == 'collected' and len(read.items) == 1
         assert read.items[0]['deploymentId'] == DEPLOYMENT
+        assert read.items[0]['authorizationType'] == 'NONE'
+        assert read.items[0]['apiKeyRequired'] is False
         assert read.items[0]['_provenance']['stage_deployment_join_verified'] is True
         assert 'never-export-private-text' not in json.dumps(read.items)
         assert decision(read, row) == 'PASS'
