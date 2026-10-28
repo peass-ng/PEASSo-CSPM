@@ -5583,6 +5583,13 @@ def _k8s_public_source(value):
     return network is not None and network.is_global
 
 
+def _k8s_source_range_decision(ranges):
+    """Do not treat an unparseable controller annotation as a private range."""
+    if any(_cidr(value) is None and not _internet(value) for value in ranges):
+        return "unknown"
+    return "public" if any(_k8s_public_source(value) for value in ranges) else "private"
+
+
 def _k8s_ports(spec, field="port"):
     ports = {}
     for port in as_list(spec.get("ports")):
@@ -5673,7 +5680,13 @@ def _k8s_service(snapshot, inventory, resource):
             a.ports = {}
             return external_path()
         ranges = k8s_source_ranges(spec, meta)
-        if ranges and not any(_k8s_public_source(r) for r in ranges):
+        range_decision = _k8s_source_range_decision(ranges) if ranges else "public"
+        if range_decision == "unknown":
+            a.step("source_ranges", "unknown", invalid_source_ranges=[r for r in ranges if _cidr(r) is None and not _internet(r)])
+            a.ports = _k8s_ports(spec)
+            a.gap("inventory", "controller treatment of invalid source range is not observed")
+            return external_path()
+        if range_decision == "private":
             a.step("source_ranges", "block", load_balancer_source_ranges=ranges)
             a.ports = {}
             return external_path()
@@ -5718,7 +5731,13 @@ def _k8s_ingress(snapshot, inventory, resource):
     ports = pset("tcp", 80, 80)
     if spec.get("tls"):
         ports = union(ports, pset("tcp", 443, 443))
-    if ranges and not any(_k8s_public_source(r) for r in ranges):
+    range_decision = _k8s_source_range_decision(ranges) if ranges else "public"
+    if range_decision == "unknown":
+        a.step("source_ranges", "unknown", invalid_source_ranges=[r for r in ranges if _cidr(r) is None and not _internet(r)])
+        a.ports = ports
+        a.gap("inventory", "controller treatment of invalid source range is not observed")
+        return a
+    if range_decision == "private":
         a.step("source_ranges", "block", source_ranges=ranges)
         a.ports = {}
         return a
@@ -6196,6 +6215,15 @@ def _title(assessment, status):
 
 def _observed(assessment, status):
     """A short observation, with uncertainty retained when a path is incomplete."""
+    invalid_ranges = next((step.get("invalid_source_ranges") for step in assessment.path
+                           if step.get("layer") == "source_ranges" and step.get("decision") == "unknown"), None)
+    if assessment.resource["provider"] == "k8s" and assessment.kind in {"service", "ingress"} and invalid_ranges:
+        noun = "Service" if assessment.kind == "service" else "Ingress"
+        value = ", ".join(str(item) for item in invalid_ranges[:2])
+        return (f"The {noun} has source range {value}, which is not a valid IP range.\n"
+                "The controller's treatment of that value is not recorded, so its public source rule is unclear.\n"
+                "The source rule may admit public requests if the controller ignores that range.\n"
+                f"That could expose data served through this {noun}.")
     terminal = next((step for step in assessment.path
                      if step.get("layer") == "effective_firewall"
                      and step.get("basis") == "terminal hierarchical ingress rule"), None)
