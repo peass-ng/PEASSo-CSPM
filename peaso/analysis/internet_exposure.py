@@ -1737,6 +1737,57 @@ def _aws_vpc_endpoint_service(snapshot, inventory, resource):
     return a
 
 
+def _aws_ecr_registry_replication(snapshot, inventory, resource):
+    """Identify configured ECR image replication to a foreign registry."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_share")
+    replication = data.get("Replication")
+    if not isinstance(replication, dict) or replication.get("collection_status") != "collected":
+        a.gap("inventory", "ECR registry replication configuration is not completely collected", "ecr:DescribeRegistry")
+        return a
+    rules = replication.get("rules")
+    if not isinstance(rules, list):
+        a.gap("inventory", "ECR registry replication rules are malformed")
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    external = []
+    malformed = False
+    for rule in rules:
+        if not isinstance(rule, dict) or not isinstance(rule.get("destinations"), list):
+            malformed = True
+            continue
+        filters = rule.get("repositoryFilters", [])
+        if not isinstance(filters, list) or any(not isinstance(f, dict) or f.get("filterType") != "PREFIX_MATCH"
+                                                or not isinstance(f.get("filter"), str) for f in filters):
+            malformed = True
+            continue
+        for destination in rule["destinations"]:
+            if not isinstance(destination, dict):
+                malformed = True
+                continue
+            account = destination.get("registryId")
+            region = destination.get("region")
+            if not isinstance(account, str) or not re.fullmatch(r"[0-9]{12}", account) or not isinstance(region, str) or not region:
+                malformed = True
+                continue
+            if account not in trusted:
+                external.append({"account": account, "region": region,
+                                 "repository_prefixes": sorted(f["filter"] for f in filters)})
+    if malformed:
+        a.gap("inventory", "Some ECR replication destinations or filters are malformed")
+    if external:
+        a.external_ids = sorted({row["account"] for row in external})
+        a.explicit = "FAIL"
+        a.step("replication", "allow", external_destinations=external)
+        a.notes.append("Destination registry permission is required; the source account cannot prove completed replication")
+    elif not malformed:
+        a.ports = {}
+        a.step("replication", "block", rule_count=len(rules))
+    return a
+
+
 def _aws_cloudfront(snapshot, inventory, resource):
     data = resource["data"]
     config = data.get("Config")
@@ -6705,7 +6756,7 @@ def _k8s_custom_route(snapshot, inventory, resource):
 AWS_TYPES = ["vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpn_connection", "client_vpn_endpoint", "vpc_endpoint_service",
              "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster",
              "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block",
-             "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
+             "organization_account", "ec2_image", "ebs_snapshot", "ram_resource_share", "ecr_registry", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app"]
 GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_effective_firewall", "forwarding_rule", "target_proxy", "url_map", "backend_service", "backend_bucket", "security_policy",
              "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bucket_acl", "object_acl", "managed_folder", "bucket_effective_iam", "org_policy_effective", "bigquery_dataset", "bigquery_table", "bigquery_routine_metadata", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
              "project", "iam_policy", "iam_role", "group", "group_membership", "workload_identity_provider",
@@ -6724,7 +6775,7 @@ K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoi
 EXPOSURE_TYPES = {"aws": AWS_TYPES, "gcp": GCP_TYPES, "azure": AZURE_TYPES, "k8s": K8S_TYPES}
 EVALUATED = {"aws": {"instance", "network_interface", "load_balancer", "classic_load_balancer", "rds_instance", "redshift_cluster",
                      "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "rest_api", "http_api", "rds_snapshot", "rds_cluster_snapshot", "bucket",
-                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app", "vpc_endpoint_service"},
+                     "ec2_image", "ebs_snapshot", "ram_resource_share", "vpn_connection", "client_vpn_endpoint", "cloudfront_distribution", "globalaccelerator_accelerator", "app_runner_service", "amplify_app", "vpc_endpoint_service", "ecr_registry"},
              "gcp": {"instance", "forwarding_rule", "cloudrun_service", "function", "sql_instance", "alloydb_instance", "gke_cluster", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "bucket", "bigquery_dataset", "firebase_rules_release", "firebase_database_rules", "vpn_gateway",
                      "cloud_ftp_server", "looker_instance", "blockchain_node", "data_fusion_instance", "vertex_index_endpoint",
                      "vertex_feature_online_store", "app_engine_application", "api_gateway", "composer_environment", "firebase_apphosting_endpoint",
@@ -6769,6 +6820,7 @@ def assess(snapshot, resources):
                 "ram_resource_share": _aws_ram_share, "vpn_connection": _aws_vpn_connection,
                 "client_vpn_endpoint": _aws_client_vpn_endpoint,
                 "vpc_endpoint_service": _aws_vpc_endpoint_service,
+                "ecr_registry": _aws_ecr_registry_replication,
                 "cloudfront_distribution": _aws_cloudfront, "globalaccelerator_accelerator": _aws_global_accelerator,
                 "app_runner_service": _aws_app_runner, "amplify_app": _aws_amplify},
         "gcp": {"instance": _gcp_instance, "forwarding_rule": _gcp_forwarding_rule, "cloudrun_service": _gcp_serverless, "function": _gcp_serverless,

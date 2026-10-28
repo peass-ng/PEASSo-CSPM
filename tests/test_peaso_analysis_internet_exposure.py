@@ -174,6 +174,29 @@ def test_aws_privatelink_external_connection_survives_removed_permission():
     assert one(aws(coll("vpc_endpoint_service", [malformed])), "vpc_endpoint_service")["status"] == "UNKNOWN"
 
 
+def test_aws_ecr_registry_cross_account_image_replication():
+    registry = {"id": f"ecr-registry/{ACCOUNT}/us-east-1", "registryId": ACCOUNT,
+                "Replication": {"collection_status": "collected", "rules": [{
+                    "destinations": [{"registryId": "999988887777", "region": "eu-west-1"}],
+                    "repositoryFilters": [{"filterType": "PREFIX_MATCH", "filter": "prod/"}]}]}}
+    result = one(aws(coll("ecr_registry", [registry], service="ecr")), "ecr_registry")
+    assert result["status"] == "FAIL"
+    assert result["evidence"]["path"][0]["external_destinations"] == [
+        {"account": "999988887777", "region": "eu-west-1", "repository_prefixes": ["prod/"]}]
+
+    internal = copy.deepcopy(registry)
+    internal["Replication"]["rules"][0]["destinations"][0]["registryId"] = ACCOUNT
+    assert one(aws(coll("ecr_registry", [internal], service="ecr")), "ecr_registry")["status"] == "PASS"
+
+    incomplete = copy.deepcopy(registry)
+    incomplete["Replication"]["collection_status"] = "denied"
+    assert one(aws(coll("ecr_registry", [incomplete], service="ecr")), "ecr_registry")["status"] == "UNKNOWN"
+
+    malformed = copy.deepcopy(registry)
+    malformed["Replication"]["rules"][0]["destinations"][0]["registryId"] = "unknown"
+    assert one(aws(coll("ecr_registry", [malformed], service="ecr")), "ecr_registry")["status"] == "UNKNOWN"
+
+
 @pytest.mark.parametrize("actions,resource_suffix,deny,expected_authenticated", [
     (["es:DescribeDomain"], "/*", False, True),
     (["es:ESHttpGet"], "/other/*", False, False),
