@@ -4058,8 +4058,8 @@ def _aws_backup_plan_foreign_copy(snapshot, inventory, resource):
     return None
 
 
-def _aws_ram_share(snapshot, inventory, resource):
-    """Assess effective RAM associations, not the allowExternalPrincipals capability flag."""
+def _aws_lambda_layer_share(snapshot, inventory, resource):
+    """A version-scoped Lambda layer policy granting cross-account code access."""
     from .trust import trusted_scopes
     from .iam import document
     from fnmatch import fnmatchcase
@@ -4137,6 +4137,76 @@ def _aws_ram_share(snapshot, inventory, resource):
         a.gap("policy", "Lambda layer policy conditions or Deny applicability are unresolved")
         return a
     return None
+
+
+def _aws_ram_share(snapshot, inventory, resource):
+    """Assess effective RAM associations, not the allowExternalPrincipals capability flag."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    if data.get("status") in ("DELETING", "DELETED", "FAILED"):
+        return None
+    a = Assessment(resource, "external_share")
+    if data.get("status") != "ACTIVE":
+        a.gap("share", "RAM share status unresolved", "ram:GetResourceShares")
+        return a
+    associations = {}
+    for field in ("ResourceAssociations", "PrincipalAssociations"):
+        part = data.get(field)
+        if not isinstance(part, dict) or part.get("collection_status") != "collected":
+            a.gap("associations", f"RAM {field} not completely collected", "ram:GetResourceShareAssociations")
+            return a
+        rows = part.get("resourceShareAssociations")
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            a.gap("associations", f"RAM {field} malformed", "ram:GetResourceShareAssociations")
+            return a
+        if any(row.get("status") not in ("ASSOCIATED", "FAILED", "DISASSOCIATED") for row in rows):
+            a.gap("associations", f"RAM {field} has a pending association", "ram:GetResourceShareAssociations")
+            return a
+        associations[field] = sorted({row["associatedEntity"] for row in rows
+                                      if row.get("status") == "ASSOCIATED" and isinstance(row.get("associatedEntity"), str)})
+        if any(row.get("status") == "ASSOCIATED" and not isinstance(row.get("associatedEntity"), str) for row in rows):
+            a.gap("associations", f"RAM {field} identity missing", "ram:GetResourceShareAssociations")
+            return a
+    resources = associations["ResourceAssociations"]
+    if not resources:
+        a.step("associations", "block", reason="no associated resources")
+        a.ports = {}
+        return a
+    trusted = trusted_scopes(snapshot)["ids"]
+    principals = data["PrincipalAssociations"]["resourceShareAssociations"]
+    foreign = []
+    unresolved = []
+    for row in principals:
+        if row.get("status") != "ASSOCIATED":
+            continue
+        principal = row["associatedEntity"]
+        if row.get("external") is True:
+            foreign.append(principal)
+            continue
+        if row.get("external") is False:
+            continue
+        if principal in trusted:
+            continue
+        if re.fullmatch(r"[0-9]{12}", principal):
+            foreign.append(principal)
+            continue
+        match = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):(?:role|user)/.+", principal)
+        if match:
+            if match.group(1) not in trusted:
+                foreign.append(principal)
+            continue
+        unresolved.append(principal)
+    if foreign:
+        a.step("associations", "allow", resources=resources, external_principals=sorted(set(foreign)))
+        a.external_ids = sorted(set(foreign))
+        a.explicit = "FAIL"
+    elif unresolved:
+        a.gap("associations", "RAM principal scope unresolved", "ram:GetResourceShareAssociations")
+    else:
+        a.step("associations", "block", resources=resources, principal_count=len(associations["PrincipalAssociations"]))
+        a.ports = {}
+    return a
 
 def _aws_cloud9_environment_share(snapshot, inventory, resource):
     """Cloud9 environment membership granted to a principal in another account."""
@@ -30528,6 +30598,63 @@ def _aws_ssm_document_share(snapshot, inventory, resource):
     return a
 
 
+def _aws_cloudformation_stack_instance(snapshot, inventory, resource):
+    """StackSet template deployment into a foreign account."""
+    from .trust import trusted_scopes
+
+    data = resource["data"]
+    a = Assessment(resource, "external_deployment")
+    account, _, region = str(resource.get("scope", "")).partition("/")
+    partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
+    target, target_region, stack_id = data.get("Account"), data.get("Region"), data.get("StackId")
+    name, stack_set = data.get("StackSetName"), data.get("StackSetId")
+    if (not isinstance(name, str) or not name or not isinstance(stack_set, str) or not stack_set.startswith(name + ":") or
+            not isinstance(target, str) or not re.fullmatch(r"[0-9]{12}", target) or
+            not isinstance(target_region, str) or not target_region or
+            not isinstance(stack_id, str) or not re.fullmatch(r"arn:" + partition + r":cloudformation:" +
+                                                       re.escape(target_region) + r":" + re.escape(target) +
+                                                       r":stack/[^/]+/[^/]+", stack_id)):
+        a.gap("inventory", "CloudFormation StackSet instance target identity is unresolved")
+        return a
+    if data.get("Status") == "INOPERABLE":
+        a.gap("delivery", "CloudFormation StackSet instance is inoperable; deployed resource state is unresolved")
+        return a
+    if data.get("Status") not in ("CURRENT", "OUTDATED"):
+        a.gap("delivery", "CloudFormation StackSet instance status is unresolved")
+        return a
+    if target in trusted_scopes(snapshot)["ids"]:
+        return None
+    a.external_ids = [target]
+    a.explicit = "FAIL"
+    a.step("stackset_target", "allow_declaration", target_account=target, target_region=target_region,
+           stack_set_id=stack_set, stack_id=stack_id,
+           semantics="StackSet instance exists in target account; template contents and resulting resources are assessed separately")
+    return a
+
+
+def _gcp_managed_kafka(snapshot, inventory, resource):
+    data = resource["data"]
+    access = (data.get("gcpConfig") or {}).get("accessConfig") or {}
+    public = access.get("publicClusterConfig")
+    if not isinstance(public, dict):
+        return None
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    a.addresses = [value for value in [data.get("bootstrapAddress"),
+                   *((data.get("publicClusterDetails") or {}).get("externalIpAddresses") or [])]
+                   if isinstance(value, str) and value]
+    ranges = public.get("allowedSourceIpRanges")
+    if not isinstance(ranges, list) or not ranges or not all(isinstance(value, str) for value in ranges):
+        a.gap("public_allowlist", "Public Kafka cluster is configured but source ranges are unavailable")
+        return a
+    if data.get("state") != "ACTIVE":
+        a.gap("cluster_state", "Public Kafka cluster is not confirmed active")
+        return a
+    a.step("public_allowlist", "allow", ranges=ranges)
+    a.ports = union(pset("tcp", 9092, 9092), pset("tcp", 9094, 9094))
+    return a
+
+
 # --------------------------------------------------------------- dispatcher
 
 AWS_TYPES = ["iam_role", "vpc", "subnet", "route_table", "network_acl", "security_group", "network_interface", "instance", "internet_gateway", "vpc_peering", "transit_gateway_attachment", "transit_gateway_route_table", "vpn_connection", "client_vpn_endpoint", "client_vpn_routing", "vpc_endpoint_service", "load_balancer", "classic_load_balancer", "rds_instance", "rds_snapshot", "rds_cluster_snapshot", "redshift_cluster", "opensearch_domain", "eks_cluster", "lambda_function", "lambda_alias", "lambda_version", "rest_api", "apigateway_domain_name", "http_api", "apigatewayv2_domain_name", "bucket", "s3_account_public_access_block", "organization_account", "aws_account_configuration", "ec2_image", "ebs_snapshot", "ram_resource_share", "kms_key", "kms_grant", "secret", "sqs_queue", "sns_topic", "sns_topic_subscription", "ecr_registry", "ecr_repository", "ecr_public_repository", "log_subscription_filter", "log_account_subscription_policy", "log_destination", "cloudfront_distribution", "globalaccelerator_accelerator", "globalaccelerator_listener", "app_runner_service", "amplify_app", "rds_cluster", "rds_cluster_endpoint", "redshiftserverless_workgroup"]
@@ -30590,7 +30717,7 @@ EVALUATED["aws"].update(['workspace_web_portal', 'quicksight_dashboard_share', '
 
 EVALUATED["aws"].add("ssm_document_metadata")
 
-def assess(snapshot, resources):
+def assess(snapshot, resources, *, related_snapshots=()):
     """Return [Assessment] for every asset with a public address/endpoint (cached per snapshot)."""
     context = _CONTEXT.get()
     key = ("snapshot", "internet_exposure", tuple(r.get("snapshot_id") for r in related_snapshots))
@@ -30610,7 +30737,7 @@ def assess(snapshot, resources):
             rules.setdefault(parent, []).append(rule)
         extra["rules"] = rules
     handlers = {
-        "aws": {"ssm_document_metadata": _aws_ssm_document_share, "mwaa_environment": _aws_mwaa_webserver, "pcs_cluster": _aws_pcs_public_endpoint, "mediapackage_origin_endpoint": _aws_mediapackage_v1_origin, "mediatailor_playback_configuration": _aws_mediatailor_playback, "workspace_web_portal": _aws_workspace_web_portal, "quicksight_dashboard_share": _aws_quicksight_dashboard_share, "mediaconnect_flow": _aws_mediaconnect_flow, "medialive_input": _aws_medialive_input, 'aoss_collection': _aws_aoss_collection, 'aoss_network_policy': _aws_aoss_network_policy, 'influxdb_cluster': _aws_influxdb, 'influxdb_instance': _aws_influxdb, 'lattice_vpc_association': _aws_lattice_foreign_vpc_association, 'machinelearning_model': _aws_machinelearning_endpoint, 'mailmanager_ingress_point': _aws_mailmanager_ingress, 'mailmanager_rule_route': _aws_mailmanager_rule_route, 'marketplace_entity': _aws_marketplace_entity, 'mediapackage_origin_endpoint': _aws_mediapackage_v1_origin, 'mediapackagev2_channel_listener': _aws_mediapackagev2_listener, 'mediapackagev2_harvest_job': _aws_mediapackagev2_harvest_job, 'mediatailor_playback_configuration': _aws_mediatailor_playback, 'mq_broker': _aws_mq_public_broker, 'msk_cluster': _aws_msk_public_brokers, 'mwaa_environment': _aws_mwaa_webserver, 'neptune_graph': _aws_neptune_graph, 'neptune_instance': _aws_neptune_instance, 'opensearch_connection': _aws_opensearch_connection, 'opensearch_ui_application': _aws_opensearch_ui_application, 'opensearch_vpc_endpoint_access': _aws_opensearch_vpc_endpoint_access, 'osis_endpoint_connection': _aws_osis_endpoint_connection, 'osis_pipeline': _aws_osis_pipeline, 'osis_pipeline_endpoint': _aws_osis_pipeline_endpoint, 'pcs_cluster': _aws_pcs_public_endpoint, 'redshift_endpoint_authorization': _aws_redshift_endpoint_authorization, 'refactor_application': _aws_refactor_application, 'refactor_service': _aws_refactor_service, 's3tables_lf_grant': _aws_s3tables_lf_grant, 'security_ir_recipient_route': _aws_security_ir_recipient_route, 'securitylake_exception_notification': _aws_securitylake_exception_notification, 'securitylake_subscriber': _aws_securitylake_subscriber, 'transfer_server': _aws_transfer_server, 'transfer_web_app': _aws_transfer_web_app, 'wellarchitected_share': _aws_wellarchitected_share,  'auditmanager_report_destination': _aws_auditmanager_report_destination, 'cleanrooms_collaboration_exposure': _aws_cleanrooms_collaboration, 'glue_dev_endpoint': _aws_glue_dev_endpoint,'appstream_image': _aws_appstream_image_share, 'backup_copy_job': _aws_backup_copy_job, 'backup_plan': _aws_backup_plan_foreign_copy, 'backup_vault': _aws_backup_vault_foreign_copy, 'cloud9_environment_share': _aws_cloud9_environment_share, 'eks_access_entry': _aws_eks_foreign_access_entry, 'imagebuilder_distribution': _aws_imagebuilder_distribution, 'omics_resource_share': _aws_omics_resource_share, 'redshift_datashare': _aws_redshift_datashare, 'servicecatalog_portfolio': _aws_servicecatalog_portfolio_share, 'transit_gateway_peering_attachment': _aws_tgw_foreign_attachment, 'wellarchitected_lens_share': _aws_wellarchitected_lens_share, 'wellarchitected_profile_share': _aws_wellarchitected_profile_share, 'wellarchitected_template_share': _aws_wellarchitected_template_share, 'wellarchitected_workload_share': _aws_wellarchitected_workload_share, 'workspaces_image': _aws_workspaces_image_share, "iam_role": _aws_role_foreign_assumption, "instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
+        "aws": {"ssm_document_metadata": _aws_ssm_document_share, "mwaa_environment": _aws_mwaa_webserver, "pcs_cluster": _aws_pcs_public_endpoint, "mediapackage_origin_endpoint": _aws_mediapackage_v1_origin, "mediatailor_playback_configuration": _aws_mediatailor_playback, "workspace_web_portal": _aws_workspace_web_portal, "quicksight_dashboard_share": _aws_quicksight_dashboard_share, "mediaconnect_flow": _aws_mediaconnect_flow, "medialive_input": _aws_medialive_input, 'aoss_collection': _aws_aoss_collection, 'aoss_network_policy': _aws_aoss_network_policy, 'influxdb_cluster': _aws_influxdb, 'influxdb_instance': _aws_influxdb, 'lattice_vpc_association': _aws_lattice_foreign_vpc_association, 'machinelearning_model': _aws_machinelearning_endpoint, 'mailmanager_ingress_point': _aws_mailmanager_ingress, 'mailmanager_rule_route': _aws_mailmanager_rule_route, 'marketplace_entity': _aws_marketplace_entity, 'mediapackage_origin_endpoint': _aws_mediapackage_v1_origin, 'mediapackagev2_channel_listener': _aws_mediapackagev2_listener, 'mediapackagev2_harvest_job': _aws_mediapackagev2_harvest_job, 'mediatailor_playback_configuration': _aws_mediatailor_playback, 'mq_broker': _aws_mq_public_broker, 'msk_cluster': _aws_msk_public_brokers, 'mwaa_environment': _aws_mwaa_webserver, 'neptune_graph': _aws_neptune_graph, 'neptune_instance': _aws_neptune_instance, 'opensearch_connection': _aws_opensearch_connection, 'opensearch_ui_application': _aws_opensearch_ui_application, 'opensearch_vpc_endpoint_access': _aws_opensearch_vpc_endpoint_access, 'osis_endpoint_connection': _aws_osis_endpoint_connection, 'osis_pipeline': _aws_osis_pipeline, 'osis_pipeline_endpoint': _aws_osis_pipeline_endpoint, 'pcs_cluster': _aws_pcs_public_endpoint, 'redshift_endpoint_authorization': _aws_redshift_endpoint_authorization, 'refactor_application': _aws_refactor_application, 'refactor_service': _aws_refactor_service, 's3tables_lf_grant': _aws_s3tables_lf_grant, 'security_ir_recipient_route': _aws_security_ir_recipient_route, 'securitylake_exception_notification': _aws_securitylake_exception_notification, 'securitylake_subscriber': _aws_securitylake_subscriber, 'transfer_server': _aws_transfer_server, 'transfer_web_app': _aws_transfer_web_app, 'wellarchitected_share': _aws_wellarchitected_share,  'auditmanager_report_destination': _aws_auditmanager_report_destination, 'cleanrooms_collaboration_exposure': _aws_cleanrooms_collaboration, 'glue_dev_endpoint': _aws_glue_dev_endpoint,'appstream_image': _aws_appstream_image_share, 'backup_copy_job': _aws_backup_copy_job, 'cloud9_environment_share': _aws_cloud9_environment_share, 'eks_access_entry': _aws_eks_foreign_access_entry, 'imagebuilder_distribution': _aws_imagebuilder_distribution, 'omics_resource_share': _aws_omics_resource_share, 'redshift_datashare': _aws_redshift_datashare, 'servicecatalog_portfolio': _aws_servicecatalog_portfolio_share, 'transit_gateway_peering_attachment': _aws_tgw_foreign_attachment, 'wellarchitected_lens_share': _aws_wellarchitected_lens_share, 'wellarchitected_profile_share': _aws_wellarchitected_profile_share, 'wellarchitected_template_share': _aws_wellarchitected_template_share, 'wellarchitected_workload_share': _aws_wellarchitected_workload_share, 'workspaces_image': _aws_workspaces_image_share, "iam_role": _aws_role_foreign_assumption, "instance": _aws_instance, "network_interface": _aws_eni, "load_balancer": _aws_elbv2, "classic_load_balancer": _aws_classic,
                 "lightsail_instance": _aws_lightsail_public_endpoint, "lightsail_database": _aws_lightsail_public_endpoint, "lightsail_load_balancer": _aws_lightsail_public_endpoint, "lightsail_container_service": _aws_lightsail_public_endpoint, "lightsail_bucket": _aws_lightsail_public_endpoint, "lightsail_distribution": _aws_lightsail_public_endpoint, "gamelift_ec2_compute": _aws_gamelift_fleet_public_ports,
                 "rds_instance": _aws_rds, "rds_cluster": _aws_rds_cluster_writer, "rds_cluster_endpoint": _aws_rds_cluster_endpoint,
                 "redshiftserverless_workgroup": _aws_redshift_serverless, "redshift_cluster": _aws_redshift, "opensearch_domain": _aws_opensearch, "eks_cluster": _aws_eks,
@@ -30786,6 +30913,14 @@ def assess(snapshot, resources):
             current.gap("inventory", f"malformed native fact: {type(exc).__name__}")
         if current is not None:
             output.append(current)
+        if provider == "aws" and resource["type"] == "backup_plan":
+            foreign_copy = _aws_backup_plan_foreign_copy(snapshot, inventory, resource)
+            if foreign_copy is not None:
+                output.append(foreign_copy)
+        if provider == "aws" and resource["type"] == "backup_vault":
+            foreign_copy = _aws_backup_vault_foreign_copy(snapshot, inventory, resource)
+            if foreign_copy is not None:
+                output.append(foreign_copy)
         if provider == "aws" and resource["type"] == "mq_broker":
             shared = _aws_mq_shared_resource(snapshot, inventory, resource)
             if shared is not None:
