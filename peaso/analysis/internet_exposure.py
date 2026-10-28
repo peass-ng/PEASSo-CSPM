@@ -30,6 +30,7 @@ TITLE = "Asset reachable from the internet"
 PROTOCOLS = ("tcp", "udp", "icmp")
 FULL = {"tcp": ((0, 65535),), "udp": ((0, 65535),), "icmp": ((0, 0),)}
 EMPTY = {}
+IPV6_GUA = ipaddress.IPv6Network("2000::/3")
 ADMIN_PORTS = {22, 23, 3389, 5985, 5986, 2375, 2376, 6443, 10250, 2379, 5900}
 DATA_PORTS = {1433, 1521, 3306, 5432, 6379, 9200, 9300, 11211, 27017, 5984, 8086, 9042, 7000, 50070, 5601, 9092, 2181, 8020, 8888}
 AVAILABLE = ("collected", "empty", "partial")
@@ -187,7 +188,12 @@ def _public_source(value):
     if _internet(value):
         return True
     network = _cidr(value)
-    return network is not None and network.network_address.is_global
+    if network is None:
+        return False
+    # A CIDR can start at a reserved address yet contain global clients.
+    # IANA currently assigns IPv6 global unicast from 2000::/3.
+    return (network.is_global if network.version == 4 else
+            network.is_global and network.overlaps(IPV6_GUA))
 
 
 # ---------------------------------------------------------------- inventory
@@ -341,8 +347,13 @@ def _status(snapshot, inventory, resource, path):
 def _aws_sg_ports(inventory, group_ids, assessment, where, family=4, narrow_public=False):
     """Union of 0.0.0.0/0 and ::/0 ingress over the attached security groups."""
     if not group_ids:
-        assessment.step("security_group", "block", reason="no security groups attached", at=where)
-        return {}
+        fact = {"instance": "ec2:DescribeInstances", "network_interface": "ec2:DescribeNetworkInterfaces",
+                "rds_instance": "rds:DescribeDBInstances", "redshift_cluster": "redshift:DescribeClusters",
+                "load_balancer": "elasticloadbalancing:DescribeLoadBalancers",
+                "classic_load_balancer": "elasticloadbalancing:DescribeLoadBalancers"}.get(assessment.resource["type"])
+        assessment.gap("security_group", "attached security group IDs not collected for VPC asset",
+                       fact)
+        return dict(FULL)
     allowed, seen = {}, []
     for group_id in group_ids:
         group = inventory.get("security_group", group_id)
@@ -455,7 +466,10 @@ def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_h
             acl = next((a for a in inventory.items("network_acl")
                         if a["data"].get("IsDefault") and a["data"].get("VpcId") == vpc), None)
     if acl is None:
-        assessment.gap("network_acl", f"no NACL association for {subnet_id} ({inventory.state('network_acl')})", "ec2 describe_network_acls")
+        assessment.gap("inventory", f"no NACL association for {subnet_id} ({inventory.state('network_acl')})", "ec2:DescribeNetworkAcls")
+        return ports
+    if not isinstance(acl["data"].get("Entries"), list):
+        assessment.gap("inventory", f"NACL entries not collected for {subnet_id}", "ec2:DescribeNetworkAcls")
         return ports
 
     def evaluate(egress):
@@ -488,25 +502,29 @@ def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_h
         entries = sorted((e for e in as_list(acl["data"].get("Entries")) if isinstance(e, dict)),
                          key=lambda e: int(e.get("RuleNumber", 32767)))
         field = "Ipv6CidrBlock" if family == 6 else "CidrBlock"
-        networks = [_cidr(entry.get(field)) for entry in entries]
-        networks += [network for network, _ in source_rules or ()]
-        hosts = set()
-        maximum = (1 << (32 if family == 4 else 128)) - 1
-        boundaries = {0, maximum + 1}
-        for network in networks:
-            if network is None or network.version != family:
-                continue
-            low, high = int(network.network_address), int(network.broadcast_address)
-            boundaries.update((low, high + 1))
-        ordered = sorted(boundaries)
-        for low, end in zip(ordered, ordered[1:]):
-            high = end - 1
-            # Every CIDR membership is constant inside this interval. Sampling
-            # its edges and middle covers a segment left by an earlier Deny.
-            for value in {low if low == high else low + 1, (low + high) // 2, high}:
-                address = ipaddress.IPv4Address(value) if family == 4 else ipaddress.IPv6Address(value)
-                if address.is_global:
-                    hosts.add(str(address))
+        host_key = ("aws_acl_host_candidates", acl["id"], family,
+                    tuple(sorted({str(network) for network, _ in source_rules or ()})))
+        if host_key not in inventory.network_cache:
+            networks = [_cidr(entry.get(field)) for entry in entries]
+            networks += [network for network, _ in source_rules or ()]
+            hosts = set()
+            maximum = (1 << (32 if family == 4 else 128)) - 1
+            boundaries = {0, maximum + 1}
+            for network in networks:
+                if network is None or network.version != family:
+                    continue
+                low, high = int(network.network_address), int(network.broadcast_address)
+                boundaries.update((low, high + 1))
+            ordered = sorted(boundaries)
+            for low, end in zip(ordered, ordered[1:]):
+                high = end - 1
+                # Every CIDR membership is constant inside this interval. Sampling
+                # its edges and middle covers a segment left by an earlier Deny.
+                for value in {low if low == high else low + 1, (low + high) // 2, high}:
+                    address = ipaddress.IPv4Address(value) if family == 4 else ipaddress.IPv6Address(value)
+                    if address.is_global:
+                        hosts.add(str(address))
+            inventory.network_cache[host_key] = tuple(sorted(hosts, key=ipaddress.ip_address))
 
         def host_rules(host, egress):
             address = ipaddress.ip_address(host)
@@ -528,7 +546,7 @@ def _aws_nacl(inventory, subnet_id, ports, assessment, where, family=4, public_h
             return allowed
 
         witnesses = []
-        for host in sorted(hosts, key=ipaddress.ip_address):
+        for host in inventory.network_cache[host_key]:
             admitted = intersect(public_host_ports, host_rules(host, False))
             if source_rules is not None:
                 address = ipaddress.ip_address(host)
@@ -570,7 +588,7 @@ def _aws_route(inventory, subnet_id, vpc_id, assessment, where, ipv6=False):
             table = next((t for t in tables if t["data"].get("VpcId") == vpc_id and any(
                 isinstance(a, dict) and a.get("Main") for a in as_list(t["data"].get("Associations")))), None)
     if table is None:
-        assessment.gap("route", f"no route table for {subnet_id} ({inventory.state('route_table')})", "ec2 describe_route_tables")
+        assessment.gap("inventory", f"no route table for {subnet_id} ({inventory.state('route_table')})", "ec2:DescribeRouteTables")
         return None
     cache_key = ("aws_internet_routes", table["id"])
     if cache_key not in inventory.network_cache:
@@ -581,14 +599,26 @@ def _aws_route(inventory, subnet_id, vpc_id, assessment, where, ipv6=False):
     if routes:
         gateway_id = routes[0]["GatewayId"]
         gateway = inventory.get("internet_gateway", gateway_id)
+        attachment_unresolved = False
         if gateway is not None:
-            attachments = as_list(gateway["data"].get("Attachments"))
-            if not any(isinstance(x, dict) and x.get("VpcId") == vpc_id and x.get("State") in (None, "available") for x in attachments):
+            attachments = gateway["data"].get("Attachments")
+            if not isinstance(attachments, list):
+                assessment.gap("inventory", "internet gateway attachments not collected", "ec2:DescribeInternetGateways")
+                attachment_unresolved = True
+            elif any(isinstance(x, dict) and x.get("VpcId") == vpc_id and x.get("State") == "available" for x in attachments):
+                pass
+            elif any(isinstance(x, dict) and x.get("VpcId") == vpc_id and x.get("State") != "available" for x in attachments):
+                assessment.gap("inventory", "internet gateway attachment state not available", "ec2:DescribeInternetGateways")
+                attachment_unresolved = True
+            else:
                 assessment.step("internet_gateway", "block", reason="route target is not attached to the VPC", at=where)
                 return False
         else:
-            assessment.gap("route", "internet gateway attachment not collected", "ec2:DescribeInternetGateways")
-        assessment.step("route", "allow", route_table=native_id(table), internet_gateway=routes[0]["GatewayId"], subnet=subnet_id, address_family=6 if ipv6 else 4, at=where)
+            assessment.gap("inventory", "internet gateway attachment not collected", "ec2:DescribeInternetGateways")
+            attachment_unresolved = True
+        assessment.step("route", "unknown" if attachment_unresolved else "allow",
+                        route_table=native_id(table), internet_gateway=routes[0]["GatewayId"],
+                        subnet=subnet_id, address_family=6 if ipv6 else 4, at=where)
         return True
     assessment.step("route", "block", route_table=native_id(table), subnet=subnet_id, address_family=6 if ipv6 else 4, reason="no active default route to an internet gateway", at=where)
     return False
@@ -599,20 +629,20 @@ def _aws_vpc_bpa(inventory, subnet_id, vpc_id, assessment, where):
     scope = assessment.resource["scope"]
     options = [r for r in inventory.items("vpc_block_public_access_options") if r["scope"] == scope]
     if len(options) != 1:
-        assessment.gap("route", "VPC Block Public Access options not collected", "ec2:DescribeVpcBlockPublicAccessOptions")
+        assessment.gap("inventory", "VPC Block Public Access options not collected", "ec2:DescribeVpcBlockPublicAccessOptions")
         return None
     data = options[0]["data"].get("VpcBlockPublicAccessOptions")
     if not isinstance(data, dict) or data.get("State") not in ("default-state", "update-complete"):
-        assessment.gap("route", "VPC Block Public Access state unresolved", "ec2:DescribeVpcBlockPublicAccessOptions")
+        assessment.gap("inventory", "VPC Block Public Access state unresolved", "ec2:DescribeVpcBlockPublicAccessOptions")
         return None
     mode = data.get("InternetGatewayBlockMode")
     if mode == "off":
         return True
     if mode not in ("block-ingress", "block-bidirectional"):
-        assessment.gap("route", "VPC Block Public Access mode unknown", "ec2:DescribeVpcBlockPublicAccessOptions")
+        assessment.gap("inventory", "VPC Block Public Access mode unknown", "ec2:DescribeVpcBlockPublicAccessOptions")
         return None
     if inventory.state("vpc_block_public_access_exclusion", scope) not in ("collected", "empty"):
-        assessment.gap("route", "VPC Block Public Access exclusions not completely collected", "ec2:DescribeVpcBlockPublicAccessExclusions")
+        assessment.gap("inventory", "VPC Block Public Access exclusions not completely collected", "ec2:DescribeVpcBlockPublicAccessExclusions")
         return None
     exclusions = [r["data"] for r in inventory.items("vpc_block_public_access_exclusion") if r["scope"] == scope
                   and (r["data"].get("VpcId") == vpc_id or r["data"].get("SubnetId") == subnet_id)
@@ -633,8 +663,13 @@ def _aws_vpc_path(inventory, assessment, subnet_ids, group_ids, ports, where, ro
         ports = intersect(ports, _aws_sg_ports(inventory, group_ids, assessment, where, family, narrow_public))
     if empty(ports):
         return ports
+    subnet_ids = [subnet_id for subnet_id in (subnet_ids or []) if isinstance(subnet_id, str) and subnet_id]
     if not subnet_ids:
-        assessment.gap("network_acl", "subnets not collected for this asset")
+        fact = {"instance": "ec2:DescribeInstances", "network_interface": "ec2:DescribeNetworkInterfaces",
+                "rds_instance": "rds:DescribeDBInstances", "redshift_cluster": "redshift:DescribeClusterSubnetGroups",
+                "load_balancer": "elasticloadbalancing:DescribeLoadBalancers",
+                "classic_load_balancer": "elasticloadbalancing:DescribeLoadBalancers"}.get(assessment.resource["type"])
+        assessment.gap("inventory", "asset subnet IDs not collected; route and NACL association unresolved", fact)
         return ports
     reachable = {}
     for subnet_id in subnet_ids:
@@ -665,10 +700,62 @@ def _aws_eip_addresses(inventory, scope, eni_id):
             data = eip["data"]
             interface = data.get("NetworkInterfaceId")
             public = data.get("PublicIp")
-            if data.get("AssociationId") and isinstance(interface, str) and _public_ip(public):
+            if (data.get("AssociationId") and not data.get("ServiceManaged")
+                    and isinstance(interface, str) and _public_ip(public)):
                 addresses.setdefault((eip["scope"], interface), set()).add(public)
         inventory.network_cache[key] = addresses
     return sorted(inventory.network_cache[key].get((scope, eni_id), set()))
+
+
+def _aws_public_ipv6_in_subnet(inventory, subnet_id, address, assessment):
+    """Use the subnet CIDR's observed AWS advertisement attribute for an ENI IPv6 address."""
+    if not _public_ip(address):
+        return False
+    subnet = inventory.get("subnet", subnet_id) if isinstance(subnet_id, str) else None
+    associations = subnet["data"].get("Ipv6CidrBlockAssociationSet") if subnet else None
+    if not isinstance(associations, list):
+        assessment.gap("inventory", "subnet IPv6 CIDR advertisement attribute not collected", "ec2:DescribeSubnets")
+        return None
+    address_ip = ipaddress.ip_address(address)
+    matches = [row for row in associations if isinstance(row, dict) and
+               (network := _cidr(row.get("Ipv6CidrBlock"))) is not None and address_ip in network]
+    if len(matches) != 1:
+        assessment.gap("inventory", "ENI IPv6 address has no unique collected subnet CIDR", "ec2:DescribeSubnets")
+        return None
+    row = matches[0]
+    state = row.get("Ipv6CidrBlockState")
+    if not isinstance(state, dict) or state.get("State") != "associated":
+        assessment.gap("inventory", "subnet IPv6 CIDR association state unresolved", "ec2:DescribeSubnets")
+        return None
+    attribute = row.get("Ipv6AddressAttribute")
+    if attribute == "public":
+        return True
+    if attribute == "private":
+        return False
+    source = row.get("IpSource")
+    if source in ("amazon", "byoip"):
+        return True
+    if source == "none":
+        return False
+    assessment.gap("inventory", "subnet IPv6 public/private address attribute unresolved", "ec2:DescribeSubnets")
+    return None
+
+
+def _aws_ipv6_igw_allowed(inventory, scope, eni_id, assessment, detail=None):
+    """Use the ENI-only IGW denial flag; DescribeInstances omits it."""
+    if detail is None:
+        row = inventory.get("network_interface", eni_id) if isinstance(eni_id, str) else None
+        detail = row["data"] if row and row["scope"] == scope else None
+    if not isinstance(detail, dict) or detail.get("NetworkInterfaceId") != eni_id:
+        assessment.gap("inventory", "ENI IPv6 internet-gateway denial flag not collected", "ec2:DescribeNetworkInterfaces")
+        return None
+    denied = detail.get("DenyAllIgwTraffic")
+    if denied is True:
+        return False
+    if denied is False:
+        return True
+    assessment.gap("inventory", "ENI IPv6 internet-gateway denial flag unresolved", "ec2:DescribeNetworkInterfaces")
+    return None
 
 
 def _aws_instance(snapshot, inventory, resource):
@@ -682,15 +769,23 @@ def _aws_instance(snapshot, inventory, resource):
                           if isinstance(x, dict)]
         public = sorted(set(([declared] if declared else []) + [x for x in private_public if isinstance(x, str) and x] +
                             _aws_eip_addresses(inventory, resource["scope"], interface.get("NetworkInterfaceId"))))
-        v6 = [x.get("Ipv6Address") for x in as_list(interface.get("Ipv6Addresses")) if isinstance(x, dict) and x.get("Ipv6Address")]
+        subnet_id = interface.get("SubnetId") or data.get("SubnetId")
+        v6 = [x["Ipv6Address"] for x in as_list(interface.get("Ipv6Addresses")) if isinstance(x, dict)
+              and isinstance(x.get("Ipv6Address"), str) and _public_ip(x["Ipv6Address"])
+              and _aws_ipv6_igw_allowed(inventory, resource["scope"], interface.get("NetworkInterfaceId"), a) is True
+              and _aws_public_ipv6_in_subnet(inventory, subnet_id, x["Ipv6Address"], a) is True]
         if public or v6:
             addresses.append((interface, public, v6))
     if not interfaces and data.get("PublicIpAddress"):
         addresses.append(({"SubnetId": data.get("SubnetId"), "Groups": data.get("SecurityGroups", [])}, [data["PublicIpAddress"]], []))
     if not addresses:
-        return None
+        return a if a.unresolved else None
     a.addresses = [ip for _, v4, v6 in addresses for ip in v4 + v6]
-    state = (data.get("State") or {}).get("Name")
+    state_data = data.get("State") if isinstance(data.get("State"), dict) else {}
+    state = state_data.get("Name")
+    if state not in ("pending", "running", "shutting-down", "terminated", "stopping", "stopped"):
+        a.gap("inventory", "EC2 instance state not collected or malformed", "ec2:DescribeInstances.State.Name")
+        return a
     total = {}
     for interface, v4, v6 in addresses:
         groups = [g.get("GroupId") for g in as_list(interface.get("Groups")) if isinstance(g, dict)]
@@ -698,7 +793,8 @@ def _aws_instance(snapshot, inventory, resource):
         for family, addresses in ((4, v4), (6, v6)):
             if addresses:
                 total = union(total, _aws_vpc_path(inventory, a, [interface.get("SubnetId") or data.get("SubnetId")], groups,
-                                                   dict(FULL), where, vpc_id=interface.get("VpcId") or data.get("VpcId"), family=family))
+                                                   dict(FULL), where, vpc_id=interface.get("VpcId") or data.get("VpcId"),
+                                                   family=family, narrow_public=True, public_host_witness=True))
     a.ports = total
     if not empty(total):
         a.blocked_by = None
@@ -732,25 +828,34 @@ def _aws_instance(snapshot, inventory, resource):
 def _aws_eni(snapshot, inventory, resource):
     data = resource["data"]
     attachment = data.get("Attachment") if isinstance(data.get("Attachment"), dict) else {}
-    if attachment.get("InstanceId") or str(data.get("Description", "")).startswith("ELB ") or data.get("InterfaceType") in (
-            "nat_gateway", "network_load_balancer", "gateway_load_balancer", "gateway_load_balancer_endpoint", "vpc_endpoint", "load_balancer"):
+    service_types = {"api_gateway_managed", "aws_codestar_connections_managed", "ec2_instance_connect_endpoint",
+                     "efs", "evs", "gateway_load_balancer", "gateway_load_balancer_endpoint",
+                     "global_accelerator_managed", "iot_rules_managed", "lambda", "load_balancer",
+                     "nat_gateway", "network_load_balancer", "quicksight", "transit_gateway", "vpc_endpoint"}
+    operator = data.get("Operator") if isinstance(data.get("Operator"), dict) else {}
+    if (attachment.get("InstanceId") or data.get("RequesterManaged") is True or operator.get("Managed") is True
+            or str(data.get("Description", "")).startswith("ELB ") or data.get("InterfaceType") in service_types):
         return None
     declared = (data.get("Association") or {}).get("PublicIp")
     private_public = [(x.get("Association") or {}).get("PublicIp") for x in as_list(data.get("PrivateIpAddresses"))
                       if isinstance(x, dict)]
     public = sorted(set(([declared] if declared else []) + [x for x in private_public if isinstance(x, str) and x] +
                         _aws_eip_addresses(inventory, resource["scope"], data.get("NetworkInterfaceId"))))
-    v6 = [x.get("Ipv6Address") for x in as_list(data.get("Ipv6Addresses")) if isinstance(x, dict) and x.get("Ipv6Address")]
-    if not public and not v6:
-        return None
     a = Assessment(resource, "public_ip")
+    v6 = [x["Ipv6Address"] for x in as_list(data.get("Ipv6Addresses")) if isinstance(x, dict)
+          and isinstance(x.get("Ipv6Address"), str) and _public_ip(x["Ipv6Address"])
+          and _aws_ipv6_igw_allowed(inventory, resource["scope"], data.get("NetworkInterfaceId"), a, data) is True
+          and _aws_public_ipv6_in_subnet(inventory, data.get("SubnetId"), x["Ipv6Address"], a) is True]
+    if not public and not v6:
+        return a if a.unresolved else None
     a.addresses = public + v6
     groups = [g.get("GroupId") for g in as_list(data.get("Groups")) if isinstance(g, dict)]
     a.ports = {}
     for family, addresses in ((4, public), (6, v6)):
         if addresses:
             a.ports = union(a.ports, _aws_vpc_path(inventory, a, [data.get("SubnetId")], groups,
-                                                  dict(FULL), native_id(resource), vpc_id=data.get("VpcId"), family=family))
+                                                  dict(FULL), native_id(resource), vpc_id=data.get("VpcId"),
+                                                  family=family, narrow_public=True, public_host_witness=True))
     if not empty(a.ports):
         a.blocked_by = None
     if data.get("Description"):
@@ -760,7 +865,7 @@ def _aws_eni(snapshot, inventory, resource):
 
 def _listener_ports(protocol, port):
     proto = str(protocol or "TCP").upper()
-    kind = "udp" if proto == "UDP" else "all" if proto == "TCP_UDP" else "tcp"
+    kind = "udp" if proto in ("UDP", "QUIC") else "all" if proto in ("TCP_UDP", "TCP_QUIC") else "tcp"
     if kind == "all":
         return union(pset("tcp", port, port), pset("udp", port, port))
     return pset(kind, port, port)
@@ -773,6 +878,19 @@ def _aws_elbv2(snapshot, inventory, resource):
     a = Assessment(resource, "load_balancer")
     a.endpoint = data.get("DNSName")
     a.addresses = [data.get("DNSName")] if data.get("DNSName") else []
+    state = data.get("State") if isinstance(data.get("State"), dict) else {}
+    code = state.get("Code")
+    if code == "failed":
+        a.step("load_balancer_state", "block", code=code)
+        a.ports = {}
+        return a
+    if code not in ("active", "active_impaired"):
+        a.gap("inventory", f"ELBv2 load balancer state {code or 'not collected'}",
+              "elbv2:DescribeLoadBalancers.State.Code")
+        return a
+    a.step("load_balancer_state", "allow", code=code)
+    if code == "active_impaired":
+        a.notes.append("Load balancer routes traffic but has impaired scaling capacity")
     static_ipv6 = []
     if data.get("Type") == "network":
         static = []
@@ -790,15 +908,41 @@ def _aws_elbv2(snapshot, inventory, resource):
         if static_ipv6:
             a.addresses.extend(sorted(set(static_ipv6)))
             a.step("public_address", "allow", static_ipv6=sorted(set(static_ipv6)))
+    if not a.addresses:
+        a.gap("inventory", "ELBv2 public DNS name or static NLB address not collected",
+              "elbv2:DescribeLoadBalancers.DNSName")
+        return a
+    address_type = data.get("IpAddressType")
+    valid_address_types = ({"ipv4", "dualstack", "dualstack-without-public-ipv4"}
+                           if data.get("Type") == "application" else {"ipv4", "dualstack"})
+    if address_type not in valid_address_types:
+        a.gap("inventory", "ELBv2 public address family not collected or unsupported",
+              "elbv2:DescribeLoadBalancers.IpAddressType")
+        return a
     listeners = data.get("Listeners") if isinstance(data.get("Listeners"), dict) else {}
     ports = {}
     if listeners.get("collection_status") in ("collected", "empty"):
+        rows = listeners.get("items")
+        protocols = ({"HTTP", "HTTPS"} if data.get("Type") == "application" else
+                     {"TCP", "TLS", "UDP", "TCP_UDP", "QUIC", "TCP_QUIC"} if data.get("Type") == "network" else None)
+        if not isinstance(rows, list) or protocols is None:
+            a.gap("listener", "ELBv2 listener list or load balancer type unresolved", "elbv2:DescribeListeners")
+            return a
         auth = []
-        for listener in as_list(listeners.get("items")):
-            if isinstance(listener, dict) and isinstance(listener.get("Port"), int):
-                ports = union(ports, _listener_ports(listener.get("Protocol"), listener["Port"]))
-                if any(isinstance(x, dict) and str(x.get("Type", "")).startswith("authenticate-") for x in as_list(listener.get("DefaultActions"))):
-                    auth.append(listener["Port"])
+        malformed = False
+        for listener in rows:
+            if (not isinstance(listener, dict) or type(listener.get("Port")) is not int
+                    or not 1 <= listener["Port"] <= 65535 or listener.get("Protocol") not in protocols):
+                malformed = True
+                continue
+            ports = union(ports, _listener_ports(listener["Protocol"], listener["Port"]))
+            if any(isinstance(x, dict) and str(x.get("Type", "")).startswith("authenticate-") for x in as_list(listener.get("DefaultActions"))):
+                auth.append(listener["Port"])
+        if malformed and empty(ports):
+            a.gap("listener", "ELBv2 listener protocol or port malformed", "elbv2:DescribeListeners")
+            return a
+        if malformed:
+            a.notes.append("Other ELBv2 listener protocol or port records were malformed")
         a.step("listener", "allow" if not empty(ports) else "block", listeners=describe(ports), authenticated_default_actions=auth)
         a.authenticated = bool(auth) and set(auth) >= {p for _, p in ports_of(ports)}
     else:
@@ -806,10 +950,11 @@ def _aws_elbv2(snapshot, inventory, resource):
         ports = dict(FULL)
     groups = data.get("SecurityGroups")
     subnets = [z.get("SubnetId") for z in as_list(data.get("AvailabilityZones")) if isinstance(z, dict) and z.get("SubnetId")]
-    a.ports = _aws_vpc_path(inventory, a, subnets, groups if data.get("Type") == "application" or groups else None, ports,
-                            native_id(resource), route=False, vpc_id=data.get("VpcId"), narrow_public=True,
-                            public_host_witness=data.get("Type") in ("application", "network"))
-    if static_ipv6:
+    a.ports = ({} if address_type == "dualstack-without-public-ipv4" else
+               _aws_vpc_path(inventory, a, subnets, groups if data.get("Type") == "application" or groups else None, ports,
+                             native_id(resource), route=False, vpc_id=data.get("VpcId"), narrow_public=True,
+                             public_host_witness=data.get("Type") in ("application", "network")))
+    if address_type in ("dualstack", "dualstack-without-public-ipv4"):
         a.ports = union(a.ports, _aws_vpc_path(inventory, a, subnets, groups if groups else None, ports,
                                              native_id(resource), route=False, vpc_id=data.get("VpcId"),
                                              family=6, narrow_public=True, public_host_witness=True))
@@ -826,11 +971,29 @@ def _aws_classic(snapshot, inventory, resource):
         return None
     a = Assessment(resource, "load_balancer")
     a.addresses = [data.get("DNSName")] if data.get("DNSName") else []
+    if not a.addresses:
+        a.gap("inventory", "Classic ELB public DNS name not collected",
+              "elasticloadbalancing:DescribeLoadBalancers.DNSName")
+        return a
+    descriptions = data.get("ListenerDescriptions")
+    if not isinstance(descriptions, list):
+        a.gap("listener", "Classic ELB listener descriptions not collected", "elasticloadbalancing:DescribeLoadBalancers")
+        return a
     ports = {}
-    for item in as_list(data.get("ListenerDescriptions")):
+    malformed = False
+    for item in descriptions:
         listener = item.get("Listener") if isinstance(item, dict) else None
-        if isinstance(listener, dict) and isinstance(listener.get("LoadBalancerPort"), int):
+        if (isinstance(listener, dict) and type(listener.get("LoadBalancerPort")) is int
+                and 1 <= listener["LoadBalancerPort"] <= 65535
+                and listener.get("Protocol") in ("HTTP", "HTTPS", "TCP", "SSL")):
             ports = union(ports, pset("tcp", listener["LoadBalancerPort"], listener["LoadBalancerPort"]))
+        else:
+            malformed = True
+    if malformed and empty(ports):
+        a.gap("listener", "Classic ELB listener details malformed", "elasticloadbalancing:DescribeLoadBalancers")
+        return a
+    if malformed:
+        a.notes.append("Other Classic ELB listener details were malformed")
     a.step("listener", "allow" if not empty(ports) else "block", listeners=describe(ports))
     a.ports = _aws_vpc_path(inventory, a, as_list(data.get("Subnets")), as_list(data.get("SecurityGroups")) if data.get("VPCId") else None,
                             ports, native_id(resource), route=False, vpc_id=data.get("VPCId"), narrow_public=True,
@@ -840,33 +1003,50 @@ def _aws_classic(snapshot, inventory, resource):
 
 def _aws_rds(snapshot, inventory, resource):
     data = resource["data"]
-    if data.get("PubliclyAccessible") is not True:
+    if data.get("PubliclyAccessible") is False:
         return None
     a = Assessment(resource, "database")
+    if data.get("PubliclyAccessible") is not True:
+        a.gap("inventory", "RDS PubliclyAccessible flag not collected", "rds:DescribeDBInstances.PubliclyAccessible")
+        return a
     endpoint = data.get("Endpoint") if isinstance(data.get("Endpoint"), dict) else {}
     a.addresses = [endpoint.get("Address")] if endpoint.get("Address") else []
-    port = endpoint.get("Port", data.get("DbInstancePort"))
-    ports = pset("tcp", port, port) if isinstance(port, int) else None
-    if ports is None:
-        a.gap("listener", "database endpoint port not collected")
-        ports = dict(FULL)
+    if not a.addresses:
+        a.gap("inventory", "RDS public endpoint address not collected", "rds:DescribeDBInstances")
+        return a
+    port = endpoint.get("Port")
+    if type(port) is not int or not 1 <= port <= 65535:
+        a.gap("listener", "RDS endpoint listener port not collected or malformed", "rds:DescribeDBInstances.Endpoint.Port")
+        return a
+    ports = pset("tcp", port, port)
     a.step("listener", "allow", port=port, engine=data.get("Engine"))
     groups = [g.get("VpcSecurityGroupId") for g in as_list(data.get("VpcSecurityGroups")) if isinstance(g, dict) and g.get("Status", "active") == "active"]
     group = data.get("DBSubnetGroup") if isinstance(data.get("DBSubnetGroup"), dict) else {}
     subnets = [s.get("SubnetIdentifier") for s in as_list(group.get("Subnets")) if isinstance(s, dict)]
-    a.ports = _aws_vpc_path(inventory, a, subnets, groups, ports, native_id(resource), vpc_id=group.get("VpcId"))
-    if data.get("DBInstanceStatus") not in (None, "available"):
-        a.notes.append(f"DB instance status {data.get('DBInstanceStatus')}")
+    a.ports = _aws_vpc_path(inventory, a, subnets, groups, ports, native_id(resource), vpc_id=group.get("VpcId"),
+                            narrow_public=True, public_host_witness=True)
+    state = data.get("DBInstanceStatus")
+    if state == "stopped":
+        a.dormant = True
+        a.notes.append("DB instance is stopped; retained endpoint configuration applies after restart")
+    elif state not in (None, "available"):
+        a.notes.append(f"DB instance status {state}")
     return a
 
 
 def _aws_redshift(snapshot, inventory, resource):
     data = resource["data"]
-    if data.get("PubliclyAccessible") is not True:
+    if data.get("PubliclyAccessible") is False:
         return None
     a = Assessment(resource, "database")
+    if data.get("PubliclyAccessible") is not True:
+        a.gap("inventory", "Redshift PubliclyAccessible flag not collected", "redshift:DescribeClusters.PubliclyAccessible")
+        return a
     endpoint = data.get("Endpoint") if isinstance(data.get("Endpoint"), dict) else {}
     a.addresses = [endpoint.get("Address")] if endpoint.get("Address") else []
+    if not a.addresses:
+        a.gap("inventory", "Redshift public endpoint address not collected", "redshift:DescribeClusters")
+        return a
     port = endpoint.get("Port")
     if type(port) is not int or not 1 <= port <= 65535:
         a.gap("listener", "Redshift endpoint port not collected", "redshift:DescribeClusters")
@@ -884,7 +1064,11 @@ def _aws_redshift(snapshot, inventory, resource):
     if not subnets:
         a.gap("inventory", "Redshift subnet group has no collected subnets", "redshift:DescribeClusterSubnetGroups")
         return a
-    a.ports = _aws_vpc_path(inventory, a, subnets, groups, pset("tcp", port, port), native_id(resource), vpc_id=group.get("VpcId"))
+    a.ports = _aws_vpc_path(inventory, a, subnets, groups, pset("tcp", port, port), native_id(resource),
+                            vpc_id=group.get("VpcId"), narrow_public=True, public_host_witness=True)
+    if data.get("ClusterStatus") == "paused":
+        a.dormant = True
+        a.notes.append("Redshift cluster is paused; retained endpoint configuration applies after resume")
     return a
 
 
@@ -965,9 +1149,14 @@ def _aws_opensearch(snapshot, inventory, resource):
     if not isinstance(status, dict):
         return None
     a = Assessment(resource, "managed_endpoint")
-    if status.get("VPCOptions") and status["VPCOptions"].get("VPCId"):
+    if isinstance(status.get("VPCOptions"), dict):
         return None
-    a.addresses = [status.get("Endpoint")] if status.get("Endpoint") else []
+    a.addresses = [host for host in (status.get("Endpoint"), status.get("EndpointV2")
+                   if status.get("IPAddressType") == "dualstack" else None)
+                   if isinstance(host, str) and host]
+    if not a.addresses:
+        a.gap("inventory", "OpenSearch public domain endpoint host not collected", "opensearch:DescribeDomain")
+        return a
     a.step("route", "allow", reason="public (non-VPC) domain endpoint")
     public, restricted, uncertain, narrow = _opensearch_http_policy(status.get("AccessPolicies"), status.get("ARN"))
     ports = pset("tcp", 443, 443)
@@ -1003,13 +1192,22 @@ def _aws_opensearch(snapshot, inventory, resource):
 def _aws_eks(snapshot, inventory, resource):
     cluster = resource["data"].get("Cluster")
     config = cluster.get("cluster", {}).get("resourcesVpcConfig") if isinstance(cluster, dict) else None
-    if not isinstance(config, dict):
-        return None
     a = Assessment(resource, "control_plane")
-    a.authenticated = True
-    if config.get("endpointPublicAccess") is not True:
+    if not isinstance(config, dict):
+        a.gap("inventory", "EKS cluster VPC endpoint configuration not collected",
+              "eks:DescribeCluster.resourcesVpcConfig")
+        return a
+    a.notes.append("Kubernetes may authorize anonymous API paths; effective anonymous RBAC bindings are not collected by AWS DescribeCluster")
+    if config.get("endpointPublicAccess") is False:
         return None
+    if config.get("endpointPublicAccess") is not True:
+        a.gap("inventory", "EKS public endpoint flag not collected",
+              "eks:DescribeCluster.resourcesVpcConfig.endpointPublicAccess")
+        return a
     a.addresses = [cluster["cluster"].get("endpoint")] if cluster["cluster"].get("endpoint") else []
+    if not a.addresses:
+        a.gap("inventory", "EKS public API server endpoint host not collected", "eks:DescribeCluster")
+        return a
     cidrs = as_list(config.get("publicAccessCidrs"))
     defaulted = not cidrs
     if defaulted:
@@ -1054,8 +1252,64 @@ def _aws_lambda_url(snapshot, inventory, resource):
     if url.get("AuthType") == "AWS_IAM":
         a.step("authorization", "allow", auth_type=url.get("AuthType"))
         a.authenticated = True
-        a.explicit = "PASS"
-        a.notes.append("Function URL requires SigV4 (AWS_IAM); not anonymously invocable")
+        policy = data.get("Policy")
+        if not isinstance(policy, dict) or not (policy.get("absent") is True or policy.get("collection_status") == "collected" and "Policy" in policy):
+            a.gap("policy", "AWS_IAM Function URL resource policy not collected", "lambda:GetPolicy")
+            a.explicit = "UNKNOWN"
+            return a
+        if policy.get("collection_status") == "collected":
+            from .iam import document
+            from fnmatch import fnmatchcase
+            statements = as_list((document(policy["Policy"]) or {}).get("Statement"))
+            function_arn = url.get("FunctionArn") or data.get("FunctionArn") or data.get("AliasArn")
+            account = resource["scope"].split("/", 1)[0]
+            grants = {}
+            if not any(isinstance(statement, dict) and statement.get("Effect") == "Deny" for statement in statements):
+                for statement in statements:
+                    if (not isinstance(statement, dict) or statement.get("Effect") != "Allow"
+                            or any(key in statement for key in ("NotPrincipal", "NotAction", "NotResource"))
+                            or not isinstance(function_arn, str) or function_arn not in as_list(statement.get("Resource"))):
+                        continue
+                    conditions = statement.get("Condition") or {}
+                    if not isinstance(conditions, dict):
+                        continue
+                    applicable = True
+                    for operator, terms in conditions.items():
+                        if not isinstance(terms, dict) or operator not in ("StringEquals", "Bool"):
+                            applicable = False
+                            break
+                        for key, value in terms.items():
+                            if isinstance(value, list):
+                                value = value[0] if len(value) == 1 else None
+                            expected = ("AWS_IAM" if operator == "StringEquals" and isinstance(key, str)
+                                        and key.casefold() == "lambda:functionurlauthtype" else
+                                        "true" if operator == "Bool" and isinstance(key, str)
+                                        and key.casefold() == "lambda:invokedviafunctionurl" else None)
+                            if expected is None or not isinstance(value, (str, bool)) or str(value).casefold() != expected.casefold():
+                                applicable = False
+                                break
+                        if not applicable:
+                            break
+                    if not applicable:
+                        continue
+                    principal = statement.get("Principal")
+                    principals = [principal] if isinstance(principal, str) else as_list(principal.get("AWS")) if isinstance(principal, dict) else []
+                    actions = [value.casefold() for value in as_list(statement.get("Action")) if isinstance(value, str)]
+                    matched = {action for action in ("lambda:invokefunctionurl", "lambda:invokefunction")
+                               if any(fnmatchcase(action, pattern) for pattern in actions)}
+                    for value in principals:
+                        identity = re.fullmatch(r"arn:[^:]+:iam::([0-9]{12}):(?:root|role/.+|user/.+)", value) if isinstance(value, str) else None
+                        if value == "*" or identity and identity.group(1) != account:
+                            grants.setdefault(value, set()).update(matched)
+            for principal, actions in sorted(grants.items()):
+                if {"lambda:invokefunctionurl", "lambda:invokefunction"} <= actions:
+                    a.step("policy", "allow_declaration", principal=principal, actions=sorted(actions),
+                           function_arn=function_arn,
+                           semantics="Collected resource policy grants URL invocation to an external AWS principal; SigV4 and caller identity policy are still required, and no invocation was observed")
+                    a.explicit = "UNKNOWN"
+        a.notes.append("Function URL requires SigV4 (AWS_IAM); external caller identity permissions are not collected")
+        if a.explicit is None:
+            a.explicit = "PASS"
         return a
     a.step("authorization", "allow", auth_type="NONE")
     policy = data.get("Policy") if isinstance(data.get("Policy"), dict) else {}
@@ -1433,19 +1687,9 @@ def _aws_http_api(snapshot, inventory, resource):
     routes = data.get("Routes")
     if isinstance(routes, dict) and routes.get("collection_status") == "collected":
         routes = routes.get("items")
-    if isinstance(routes, list):
-        if not routes:
-            a.step("authorization", "block", reason="no routes configured")
-            a.ports = {}
-            return a
-        open_routes = [r.get("RouteKey") for r in routes if isinstance(r, dict) and r.get("AuthorizationType", "NONE") == "NONE" and not r.get("ApiKeyRequired")]
-        a.step("authorization", "allow" if open_routes else "block", unauthenticated_routes=open_routes,
-               authentication_required=not bool(open_routes))
-        if not open_routes:
-            a.authenticated = True
-            a.ports = {}
-    else:
-        a.gap("authorization", "route AuthorizationType not collected", "apigatewayv2:GetRoutes")
+    a.step("authorization", "unknown", live_route_count=len(routes) if isinstance(routes, list) else None,
+           semantics="GetRoutes describes current API configuration, not the route snapshot deployed to an active stage")
+    a.gap("authorization", "stage-bound HTTP API route authorization not collected", "apigatewayv2:ExportApi")
     return a
 
 
@@ -2049,9 +2293,24 @@ def _aws_cloudfront(snapshot, inventory, resource):
         a = Assessment(resource, "cdn_endpoint")
         a.gap("inventory", "CloudFront distribution config malformed", "cloudfront:GetDistributionConfig")
         return a
-    if distribution.get("Enabled") is not True:
+    if data.get("Status") != "Deployed":
+        a = Assessment(resource, "cdn_endpoint")
+        if isinstance(data.get("DomainName"), str) and data["DomainName"]:
+            a.addresses = [data["DomainName"]]
+        a.gap("inventory", "CloudFront distribution configuration is not observed fully deployed",
+              "cloudfront:ListDistributions")
+        return a
+    if distribution.get("Staging") is True or data.get("Staging") is True:
+        a = Assessment(resource, "cdn_endpoint")
+        a.gap("inventory", "CloudFront staging distribution is not directly viewer-addressable; primary traffic policy unresolved",
+              "cloudfront:GetContinuousDeploymentPolicy")
+        return a
+    if distribution.get("Enabled") is False:
         return None
     a = Assessment(resource, "cdn_endpoint")
+    if distribution.get("Enabled") is not True:
+        a.gap("inventory", "CloudFront distribution enabled state missing", "cloudfront:GetDistributionConfig")
+        return a
     domain = data.get("DomainName")
     if isinstance(domain, str) and domain:
         a.addresses = [domain]
@@ -2102,6 +2361,24 @@ def _aws_cloudfront(snapshot, inventory, resource):
     origin_config = distribution.get("Origins")
     origins = origin_config.get("Items") if isinstance(origin_config, dict) else None
     targets = {behavior.get("TargetOriginId") for behavior in behaviors if isinstance(behavior.get("TargetOriginId"), str)}
+    if not isinstance(origins, list) or not origins:
+        a.gap("origin", "CloudFront distribution origin inventory not collected", "cloudfront:GetDistributionConfig.Origins")
+    elif type(origin_config.get("Quantity")) is not int or origin_config["Quantity"] != len(origins):
+        a.gap("origin", "CloudFront origin quantity and items disagree", "cloudfront:GetDistributionConfig.Origins")
+    if not targets:
+        a.gap("origin", "CloudFront cache behavior target origin ID not collected", "cloudfront:GetDistributionConfig.TargetOriginId")
+    if isinstance(origins, list) and targets:
+        origin_ids = [origin.get("Id") for origin in origins if isinstance(origin, dict) and isinstance(origin.get("Id"), str)]
+        missing_targets = sorted(targets - set(origin_ids))
+        if missing_targets:
+            a.gap("origin", "CloudFront cache behavior target origin ID has no matching origin", "cloudfront:GetDistributionConfig.Origins")
+        seen_ids, duplicate_ids = set(), set()
+        for origin_id in origin_ids:
+            if origin_id in seen_ids:
+                duplicate_ids.add(origin_id)
+            seen_ids.add(origin_id)
+        if duplicate_ids:
+            a.gap("origin", "CloudFront origin IDs are not unique", "cloudfront:GetDistributionConfig.Origins")
     if isinstance(origins, list) and targets:
         from .iam import document
         from fnmatch import fnmatchcase
@@ -2117,7 +2394,36 @@ def _aws_cloudfront(snapshot, inventory, resource):
             key, value = next(iter(terms.items()))
             return isinstance(key, str) and key.casefold() == "aws:sourcearn" and value == distribution_arn
         for origin in origins:
-            if not isinstance(origin, dict) or origin.get("Id") not in targets:
+            if not isinstance(origin, dict) or origin.get("Id") not in targets or origin.get("Id") in duplicate_ids:
+                continue
+            vpc_config = origin.get("VpcOriginConfig")
+            if isinstance(vpc_config, dict):
+                vpc_id = vpc_config.get("VpcOriginId")
+                account = resource["scope"].split("/", 1)[0]
+                cache_key = ("cloudfront_vpc_origins", account)
+                if cache_key not in inventory.network_cache:
+                    inventory.network_cache[cache_key] = {item["data"]["Id"]: item["data"]
+                        for item in inventory.items("cloudfront_vpc_origin")
+                        if item["scope"].split("/", 1)[0] == account
+                        and isinstance(item["data"].get("Id"), str)}
+                listed = inventory.network_cache[cache_key].get(vpc_id) if isinstance(vpc_id, str) else None
+                detail = listed.get("VpcOrigin") if isinstance(listed, dict) else None
+                endpoint = detail.get("VpcOriginEndpointConfig") if isinstance(detail, dict) else None
+                endpoint_arn = endpoint.get("Arn") if isinstance(endpoint, dict) else None
+                if (isinstance(listed, dict) and listed.get("Id") == vpc_id and listed.get("Status") == "Deployed"
+                        and isinstance(detail, dict) and detail.get("Id") == vpc_id and detail.get("Status") == "Deployed"
+                        and isinstance(endpoint_arn, str) and endpoint_arn.startswith("arn:")):
+                    a.step("origin", "allow_declaration", origin_id=origin["Id"], vpc_origin_id=vpc_id,
+                           origin_endpoint_arn=endpoint_arn, vpc_origin_status="Deployed",
+                           semantics="Collected distribution names this deployed VPC origin and endpoint; backend security group, return NACL, listener, target and response are not established")
+                elif not isinstance(vpc_id, str) or not vpc_id:
+                    a.gap("origin", "CloudFront VPC origin ID missing", "cloudfront:GetDistributionConfig")
+                elif not isinstance(listed, dict):
+                    a.gap("origin", "Referenced CloudFront VPC origin not present in inventory", "cloudfront:ListVpcOrigins")
+                elif listed.get("Status") != "Deployed":
+                    a.gap("origin", "CloudFront VPC origin is not observed deployed", "cloudfront:ListVpcOrigins")
+                else:
+                    a.gap("origin", "CloudFront VPC origin detail or endpoint unresolved", "cloudfront:GetVpcOrigin")
                 continue
             s3_config = origin.get("S3OriginConfig")
             identity = s3_config.get("OriginAccessIdentity") if isinstance(s3_config, dict) else None
@@ -2217,20 +2523,25 @@ def _aws_cloudfront(snapshot, inventory, resource):
             if not match or oac_id:
                 continue
             principal = f"arn:{partition}:iam::cloudfront:user/CloudFront Origin Access Identity {match.group(1)}"
+            oai = data.get("OriginAccessIdentities", {}).get(match.group(1)) if isinstance(data.get("OriginAccessIdentities"), dict) else None
+            canonical = oai.get("S3CanonicalUserId") if isinstance(oai, dict) and oai.get("collection_status") == "collected" and oai.get("Id") == match.group(1) else None
             object_arn = f"arn:{partition}:s3:::{bucket_name}/*"
             for statement in statements:
                 if not isinstance(statement, dict) or statement.get("Effect") != "Allow" or statement.get("Condition") or any(
                         key in statement for key in ("NotPrincipal", "NotAction", "NotResource")):
                     continue
                 aws_principal = statement.get("Principal", {}).get("AWS") if isinstance(statement.get("Principal"), dict) else None
-                if principal not in as_list(aws_principal):
+                canonical_principal = statement.get("Principal", {}).get("CanonicalUser") if isinstance(statement.get("Principal"), dict) else None
+                matched_principal = (principal if principal in as_list(aws_principal)
+                                     else canonical if isinstance(canonical, str) and canonical in as_list(canonical_principal) else None)
+                if matched_principal is None:
                     continue
                 if not any(isinstance(action, str) and fnmatchcase("s3:GetObject", action) for action in as_list(statement.get("Action"))):
                     continue
                 if object_arn not in as_list(statement.get("Resource")):
                     continue
                 a.step("origin_policy", "allow_declaration", origin_id=origin["Id"], bucket=bucket_name,
-                       principal=principal, action="s3:GetObject", resource=object_arn,
+                       principal=matched_principal, action="s3:GetObject", resource=object_arn,
                        semantics="Collected bucket policy grants the configured OAI object read; object existence, ACL, KMS and response are not established")
                 break
     a.notes.append("CloudFront viewer reachability does not establish origin reachability or authorization")
@@ -8455,7 +8766,10 @@ def _observed(assessment, status):
         return "Public access to the stored data is allowed."
     sentence = f"{_title(assessment, status)} is allowed."
     if assessment.dormant:
-        return sentence.replace("Internet access", "Configured internet access", 1) + " The instance is stopped or deallocated."
+        inactive = {"rds_instance": "The DB instance is stopped.",
+                    "redshift_cluster": "The Redshift cluster is paused."}.get(
+                        assessment.resource["type"], "The instance is stopped or deallocated.")
+        return sentence.replace("Internet access", "Configured internet access", 1) + " " + inactive
     if assessment.unresolved:
         return sentence + " Some path layers remain unresolved."
     return sentence

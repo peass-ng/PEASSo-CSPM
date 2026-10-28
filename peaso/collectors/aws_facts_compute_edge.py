@@ -60,6 +60,7 @@ READ_ACTIONS.update({
     ("appsync", "get_api_cache"), ("eks", "describe_addon"), ("lambda", "get_function_configuration"),
     ("elbv2", "describe_rules"), ("logs", "describe_delivery_sources"), ("logs", "describe_deliveries"),
     ("ec2", "get_managed_prefix_list_entries"), ("ec2", "describe_image_attribute"),
+    ("cloudfront", "get_cloud_front_origin_access_identity"),
     ("rds", "describe_db_cluster_snapshot_attributes"),
     ("wafv2", "get_web_acl"), ("wafv2", "get_rule_group"), ("wafv2", "get_logging_configuration"), ("wafv2", "list_resources_for_web_acl"),
     ("cloudfront", "list_distributions_by_web_acl_id"),
@@ -658,6 +659,7 @@ def _cloudfront_log_deliveries(requests, session, region, items):
     deliveries = requests.pages(session, "logs", home, "describe_deliveries", "deliveries")
     output = []
     oac_reads = {}
+    oai_reads = {}
     for item in items:
         item = copy.deepcopy(item)
         config = item.get("Config")
@@ -683,6 +685,29 @@ def _cloudfront_log_deliveries(requests, session, region, items):
                     oac_reads[oac_id] = {"collection_status": "malformed" if read.get("collection_status") == "collected" else read.get("collection_status"),
                                          "error": read.get("error", {})}
             item["OriginAccessControls"][oac_id] = oac_reads[oac_id]
+        oai_ids = set()
+        for origin in origin_items or []:
+            s3_config = origin.get("S3OriginConfig") if isinstance(origin, dict) else None
+            identity = s3_config.get("OriginAccessIdentity") if isinstance(s3_config, dict) else None
+            match = re.fullmatch(r"origin-access-identity/cloudfront/([A-Z0-9]+)", identity) if isinstance(identity, str) else None
+            if match:
+                oai_ids.add(match.group(1))
+        item["OriginAccessIdentities"] = {}
+        for oai_id in sorted(oai_ids):
+            if oai_id not in oai_reads:
+                read = requests.detail(session, "cloudfront", home, "get_cloud_front_origin_access_identity",
+                                       Id=oai_id, absent=("NoSuchCloudFrontOriginAccessIdentity",))
+                identity = read.get("CloudFrontOriginAccessIdentity") if isinstance(read, dict) else None
+                canonical = identity.get("S3CanonicalUserId") if isinstance(identity, dict) else None
+                if (read.get("collection_status") == "collected" and isinstance(identity, dict)
+                        and identity.get("Id") == oai_id and isinstance(canonical, str)
+                        and re.fullmatch(r"[0-9a-fA-F]{64}", canonical)):
+                    oai_reads[oai_id] = {"collection_status": "collected", "Id": oai_id,
+                                         "S3CanonicalUserId": canonical}
+                else:
+                    oai_reads[oai_id] = {"collection_status": "malformed" if read.get("collection_status") == "collected" else read.get("collection_status"),
+                                         "error": read.get("error", {})}
+            item["OriginAccessIdentities"][oai_id] = oai_reads[oai_id]
         failed = next((read for read in (sources, deliveries) if not _usable(read)), None)
         if failed:
             item["LogDeliveries"] = {"collection_status": failed.status, "error": failed.error or {}}

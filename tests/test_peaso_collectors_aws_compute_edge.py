@@ -475,6 +475,26 @@ def test_cloudfront_oac_configuration_cached_and_projected(sdk):
         "SigningProtocol": "sigv4", "OriginAccessControlOriginType": "s3"}
 
 
+def test_cloudfront_oai_canonical_user_cached_and_projected(sdk):
+    session, add = sdk
+    logs = add("logs")
+    logs.add_response("describe_delivery_sources", {"deliverySources": []}, {})
+    logs.add_response("describe_deliveries", {"deliveries": []}, {})
+    cloudfront = add("cloudfront")
+    canonical = "a" * 64
+    cloudfront.add_response("get_cloud_front_origin_access_identity", {
+        "CloudFrontOriginAccessIdentity": {"Id": "E123ABC", "S3CanonicalUserId": canonical,
+            "CloudFrontOriginAccessIdentityConfig": {"Comment": "not needed", "CallerReference": "not needed"}}},
+        {"Id": "E123ABC"})
+    rows = [{"Id": name, "Config": {"DistributionConfig": {"Origins": {"Items": [
+        {"Id": "s3", "S3OriginConfig": {"OriginAccessIdentity": "origin-access-identity/cloudfront/E123ABC"}}]}}}}
+        for name in ("D1", "D2")]
+    result = edge.ENRICHERS["cloudfront_distribution"](aws.Requests({}), session, REGION, rows)
+    assert result[0]["OriginAccessIdentities"] == result[1]["OriginAccessIdentities"]
+    assert result[0]["OriginAccessIdentities"]["E123ABC"] == {
+        "collection_status": "collected", "Id": "E123ABC", "S3CanonicalUserId": canonical}
+
+
 def test_beanstalk_configuration_keeps_only_named_options(sdk):
     session, add = sdk
     stub = add("elasticbeanstalk")
