@@ -13274,6 +13274,179 @@ def _azure_private_dns_zone(snapshot, inventory, resource):
     return a
 
 
+def _azure_devops_project(snapshot, inventory, resource):
+    """Public DevOps projects grant anonymous access to project contents."""
+    a = Assessment(resource, "external_share")
+    a.ports = {}
+    visibility = resource["data"].get("visibility")
+    if visibility == "public":
+        a.data_exposure = True
+        a.authenticated = False
+        a.step("project_visibility", "allow", visibility=visibility)
+    elif visibility == "private":
+        a.step("project_visibility", "block", visibility=visibility)
+    else:
+        a.gap("inventory", "DevOps project visibility is unavailable or inconsistent")
+    return a
+
+
+def _azure_eventgrid_publisher(snapshot, inventory, resource):
+    """Assess the topic or domain event-publishing endpoint and IP gate."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    props = _props(resource)
+    access = props.get("publicNetworkAccess", "Enabled")
+    if access == "Disabled":
+        a.step("public_network", "block", public_network_access=access)
+        a.ports = {}
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "Event Grid public network access is unrecognized")
+        return a
+    endpoint = props.get("endpoint")
+    parsed = urlsplit(endpoint) if isinstance(endpoint, str) else None
+    if parsed is None or parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        a.gap("inventory", "Event Grid publishing endpoint is unavailable or malformed")
+        return a
+    a.addresses = [parsed.hostname]
+    a.endpoint = "https://" + parsed.hostname
+    rules = props.get("inboundIpRules", [])
+    if not isinstance(rules, list):
+        a.gap("inventory", "Event Grid inbound IP rules are unavailable")
+        return a
+    if not rules:
+        a.step("public_network", "allow", reason="public access has no inbound IP restrictions")
+        a.ports = pset("tcp", 443, 443)
+        return a
+    public = []
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("action") != "Allow" or not isinstance(rule.get("ipMask"), str) or _cidr(rule["ipMask"]) is None:
+            a.gap("inventory", "Event Grid inbound IP rule is malformed")
+            return a
+        if _public_source(rule["ipMask"]):
+            public.append(rule["ipMask"])
+    if public:
+        a.step("public_network", "allow", public_sources=public)
+        a.ports = pset("tcp", 443, 443)
+    else:
+        a.step("public_network", "block", reason="inbound IP rules contain no public source")
+        a.ports = {}
+    return a
+
+
+def _azure_automation_account(snapshot, inventory, resource):
+    """Enabled, unexpired webhooks have a public bearer URL for runbook invocation."""
+    a = Assessment(resource, "external_share")
+    a.ports = {}
+    data = resource["data"]
+    coverage = (data.get("_coverage") or {}).get("webhooks") or {}
+    if coverage.get("status") not in ("collected", "empty"):
+        a.gap("inventory", "Automation webhook inventory is unavailable")
+        return a
+    try:
+        observed = datetime.fromisoformat(str(snapshot["created_at"]).replace("Z", "+00:00"))
+        if observed.tzinfo is None:
+            raise ValueError("naive timestamp")
+    except (KeyError, TypeError, ValueError):
+        a.gap("inventory", "Automation webhook assessment time is unavailable")
+        return a
+    active = []
+    for hook in data.get("webhooks", []):
+        props = hook.get("properties") if isinstance(hook, dict) else None
+        if not isinstance(props, dict) or type(props.get("isEnabled")) is not bool:
+            a.gap("inventory", "Automation webhook enabled state is unavailable")
+            continue
+        if not props["isEnabled"]:
+            continue
+        try:
+            expiry = datetime.fromisoformat(str(props["expiryTime"]).replace("Z", "+00:00"))
+            if expiry.tzinfo is None:
+                raise ValueError("naive timestamp")
+        except (KeyError, TypeError, ValueError):
+            a.gap("inventory", "Automation webhook expiration is unavailable")
+            continue
+        if expiry > observed:
+            active.append(str(hook.get("name") or hook.get("id")))
+    if active:
+        a.data_exposure = True
+        a.authenticated = False
+        a.step("webhook", "allow", active_webhooks=sorted(active),
+               reason="bearer URL permits runbook invocation without additional authentication")
+        for gap in a.unresolved:
+            gap["decisive"] = False
+    elif not a.unresolved:
+        a.step("webhook", "block", reason="no enabled unexpired webhooks")
+    return a
+
+
+def _azure_iot_hub(snapshot, inventory, resource):
+    """Assess the public IoT device and service protocol listener gate."""
+    a = Assessment(resource, "managed_endpoint")
+    a.authenticated = True
+    props = _props(resource)
+    access = props.get("publicNetworkAccess")
+    if access == "Disabled":
+        a.step("public_network", "block", public_network_access=access)
+        a.ports = {}
+        return a
+    if access != "Enabled":
+        a.gap("inventory", "IoT Hub public network access is unavailable")
+        return a
+    host = props.get("hostName")
+    if not isinstance(host, str) or re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", host) is None:
+        a.gap("inventory", "IoT Hub hostname is unavailable or malformed")
+        return a
+    a.addresses = [host.lower()]
+    rules = props.get("networkRuleSets")
+    if not isinstance(rules, dict) or not isinstance(rules.get("ipRules"), list):
+        a.gap("inventory", "IoT Hub network rules are unavailable")
+        return a
+    default = rules.get("defaultAction")
+    if default == "Allow":
+        a.step("public_network", "allow", default_action=default)
+    elif default == "Deny":
+        public = []
+        for rule in rules["ipRules"]:
+            if not isinstance(rule, dict) or rule.get("action") != "Allow" or not isinstance(rule.get("ipMask"), str) or _cidr(rule["ipMask"]) is None:
+                a.gap("inventory", "IoT Hub IP rule is malformed")
+                return a
+            if _public_source(rule["ipMask"]):
+                public.append(rule["ipMask"])
+        if not public:
+            a.step("public_network", "block", reason="no public source in IoT Hub IP rules")
+            a.ports = {}
+            return a
+        a.step("public_network", "allow", public_sources=public)
+    else:
+        a.gap("inventory", "IoT Hub network default action is unavailable")
+        return a
+    a.ports = union(union(pset("tcp", 443, 443), pset("tcp", 5671, 5671)), pset("tcp", 8883, 8883))
+    return a
+
+
+def _azure_sql_managed_instance(snapshot, inventory, resource):
+    """SQL Managed Instance public TDS requires the instance gate and subnet NSG."""
+    a = Assessment(resource, "database")
+    a.authenticated = True
+    props = _props(resource)
+    enabled = props.get("publicDataEndpointEnabled")
+    if enabled is False:
+        a.step("public_endpoint", "block", enabled=False)
+        a.ports = {}
+        return a
+    if enabled is not True:
+        a.gap("inventory", "Managed Instance public endpoint setting is unavailable")
+        return a
+    a.step("public_endpoint", "allow", enabled=True)
+    subnet = props.get("subnetId")
+    if not isinstance(subnet, str) or not subnet:
+        a.gap("inventory", "Managed Instance subnet is unavailable")
+        return a
+    a.ports = _azure_nsg_path(inventory, a, None, subnet, pset("tcp", 3342, 3342),
+                              where="managed_instance_public_endpoint")
+    return a
+
+
 def _azure_vpn_gateway(snapshot, inventory, resource):
     """Assess configured VPN tunnel listeners on observed gateway public IPs."""
     a = Assessment(resource, "vpn_gateway")
@@ -18669,7 +18842,7 @@ EVALUATED = {"aws": {"iam_role", "instance", "network_interface", "load_balancer
                      "media_cdn_service",
                      "workstation", "beyondcorp_connection", "contact_center", "oracle_goldengate_deployment", "vertex_agent_sandbox", "tpu_node",
                      "vmware_external_address"},
-             "azure": {'nic', 'vnet_peering', 'network_connection', 'hub_vpn_connection', 'load_balancer', 'application_gateway', 'app_service', 'app_service_slot', 'aks_cluster', 'storage_account', 'storage_container', 'sql_server', 'container_group', 'container_app', 'azure_firewall', 'frontdoor_and_cdn_endpoint', 'api_management', 'redis_cache', 'redis_enterprise_cluster', 'redis_enterprise_database', 'signalr_service', 'web_pubsub', 'synapse_workspace', 'disk', 'snapshot', 'kusto_cluster', 'batch_account', 'ml_workspace', 'databricks_workspace', 'compute_gallery', 'data_share_invitation', 'data_share_provider_subscription', 'lighthouse_assignment', 'managed_application', 'managed_grafana', 'acat_report', 'acat_webhook', 'cost_export', 'app_configuration_private_connection', 'app_configuration_event_subscription', 'analysis_server', 'virtual_network_gateway', 'attestation_provider', 'dns_zone', 'private_dns_zone', 'private_link_service', 'bastion_host', 'vm_scale_set', 'stream_analytics_job', 'managed_application_definition', 'entra_domain_service', 'security_contact', 'defender_automation', 'external_id_auth_extension', 'external_id_cross_tenant_default', 'external_id_cross_tenant_partner', 'directory_app_role_assignment', 'easm_workspace', 'easm_data_connection', 'action_group', 'diagnostic_setting', 'subscription_diagnostic_setting', 'monitor_log_profile', 'monitor_workspace', 'purview_account', 'purview_metadata_policy', 'purview_unified_policy', 'purview_ediscovery_case_member', 'sentinel_automation_rule', 'sentinel_source_control', 'management_group', 'subscription', 'powerbi_capacity', 'fabric_workspace', 'fabric_item', 'fabric_external_data_share', 'powerbi_published_item', 'powerbi_org_link', 'traffic_manager_profile', 'notification_hub_namespace', 'private_dns_link', 'relay_namespace', 'mongo_cluster', 'lighthouse_delegation', 'nginx_deployment', 'openshift_cluster', 'openshift_hcp_cluster', 'netapp_volume', 'playwright_workspace', 'foundry_project', 'foundry_agent', 'foundry_connection', 'newrelic_monitor', 'newrelic_monitored_resource', *_AZURE_MANAGED_ENDPOINTS},
+             "azure": {'nic', 'vnet_peering', 'network_connection', 'hub_vpn_connection', 'load_balancer', 'application_gateway', 'app_service', 'app_service_slot', 'aks_cluster', 'storage_account', 'storage_container', 'sql_server', 'container_group', 'container_app', 'azure_firewall', 'frontdoor_and_cdn_endpoint', 'api_management', 'redis_cache', 'redis_enterprise_cluster', 'redis_enterprise_database', 'signalr_service', 'web_pubsub', 'synapse_workspace', 'disk', 'snapshot', 'kusto_cluster', 'batch_account', 'ml_workspace', 'databricks_workspace', 'compute_gallery', 'data_share_invitation', 'data_share_provider_subscription', 'lighthouse_assignment', 'managed_application', 'managed_grafana', 'acat_report', 'acat_webhook', 'cost_export', 'app_configuration_private_connection', 'app_configuration_event_subscription', 'analysis_server', 'virtual_network_gateway', 'attestation_provider', 'dns_zone', 'private_dns_zone', 'private_link_service', 'bastion_host', 'vm_scale_set', 'stream_analytics_job', 'managed_application_definition', 'entra_domain_service', 'security_contact', 'defender_automation', 'external_id_auth_extension', 'external_id_cross_tenant_default', 'external_id_cross_tenant_partner', 'directory_app_role_assignment', 'easm_workspace', 'easm_data_connection', 'action_group', 'diagnostic_setting', 'subscription_diagnostic_setting', 'monitor_log_profile', 'monitor_workspace', 'purview_account', 'purview_metadata_policy', 'purview_unified_policy', 'purview_ediscovery_case_member', 'sentinel_automation_rule', 'sentinel_source_control', 'management_group', 'subscription', 'powerbi_capacity', 'fabric_workspace', 'fabric_item', 'fabric_external_data_share', 'powerbi_published_item', 'powerbi_org_link', 'traffic_manager_profile', 'notification_hub_namespace', 'private_dns_link', 'relay_namespace', 'mongo_cluster', 'lighthouse_delegation', 'nginx_deployment', 'openshift_cluster', 'openshift_hcp_cluster', 'netapp_volume', 'playwright_workspace', 'foundry_project', 'foundry_agent', 'foundry_connection', 'newrelic_monitor', 'newrelic_monitored_resource', 'devops_project', 'eventgrid_topic', 'eventgrid_domain', 'automation_account', 'iot_hub', 'mssql_managed_instance', *_AZURE_MANAGED_ENDPOINTS},
              "k8s": {"service", "ingress", "pod", "node", "gateway", "endpoint", "endpoints", "endpointslice",
                      "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
                      "persistentvolume", *K8S_ROUTE_TYPES}}
@@ -18774,6 +18947,12 @@ def assess(snapshot, resources):
                   "attestation_provider": _azure_attestation_provider,
                   "dns_zone": _azure_dns_zone,
                   "private_dns_zone": _azure_private_dns_zone,
+                  "devops_project": _azure_devops_project,
+                  "eventgrid_topic": _azure_eventgrid_publisher,
+                  "eventgrid_domain": _azure_eventgrid_publisher,
+                  "automation_account": _azure_automation_account,
+                  "iot_hub": _azure_iot_hub,
+                  "mssql_managed_instance": _azure_sql_managed_instance,
                   "frontdoor_and_cdn_endpoint": _azure_public_edge,
                   "traffic_manager_profile": _azure_traffic_manager,
                   "notification_hub_namespace": _azure_notification_hub,
