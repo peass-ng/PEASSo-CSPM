@@ -883,6 +883,35 @@ def test_container_app_requires_public_environment_and_effective_ingress():
     assert tcp.verdict() == "FAIL" and tcp.ports == {"tcp": ((8443, 8443), (9000, 9000))}
 
 
+def test_container_app_recorded_stopped_runtime_blocks_external_ingress():
+    app_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/containerApps/app"
+    env_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/env"
+
+    def app_decision(status, *, replicas=0):
+        snap = make_snapshot("azure", [SCOPE], [
+            {"type": "container_app_environment", "scope": SCOPE, "service": "app", "status": "collected",
+             "items": [{"id": env_id, "properties": {"publicNetworkAccess": "Enabled",
+                 "vnetConfiguration": {"internal": False}}}]},
+            {"type": "container_app", "scope": SCOPE, "service": "app", "status": "collected",
+             "items": [{"id": app_id, "properties": {"managedEnvironmentId": env_id,
+                 "configuration": {"ingress": {"external": True, "transport": "http",
+                     "fqdn": "app.example.azurecontainerapps.io"}}, "provisioningState": "Succeeded"}}]},
+            {"type": "container_app_runtime", "scope": SCOPE, "service": "app", "status": "collected",
+             "items": [{"id": app_id, "properties": {"runningStatus": status},
+                 "revisions": [{"id": app_id + "/revisions/current", "properties": {
+                     "active": True, "runningState": "Running", "replicas": replicas}}]}]},
+        ])
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "container_app")
+
+    stopped = app_decision("Stopped")
+    assert stopped.verdict() == "PASS" and stopped.path[0]["running_status"] == "Stopped"
+    assert len(_observed(stopped, "PASS").splitlines()) == 3
+    assert app_decision("Running", replicas=0).verdict() == "FAIL"  # Scale to zero can resume.
+    progressing = app_decision("Progressing")
+    assert progressing.verdict() == "UNKNOWN"
+    assert "public request path is unresolved" in _observed(progressing, "UNKNOWN")
+
+
 def test_firewall_dnat_frontend_is_detected_with_unresolved_backend():
     ip_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/publicIPAddresses/fw"
     firewall_id = f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Network/azureFirewalls/fw"

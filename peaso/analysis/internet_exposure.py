@@ -4977,6 +4977,15 @@ def _azure_container_app(snapshot, inventory, resource):
     if ingress.get("external") is not True:
         return None
     a = Assessment(resource, "container")
+    runtime = inventory.get("container_app_runtime", resource["data"].get("id"))
+    runtime_status = _props(runtime).get("runningStatus") if runtime is not None else props.get("runningStatus")
+    if runtime_status == "Stopped":
+        a.step("app_state", "block", running_status="Stopped")
+        a.ports = {}
+        return a
+    if runtime_status in ("Progressing", "Suspended"):
+        a.gap("inventory", "Container App running status is transitional or suspended")
+        a.step("app_state", "unknown", running_status=runtime_status)
     env_id = props.get("environmentId") or props.get("managedEnvironmentId")
     environment = inventory.get("container_app_environment", env_id)
     if environment is None:
@@ -6447,7 +6456,7 @@ GCP_TYPES = ["network", "firewall", "firewall_policy", "instance", "instance_eff
              "vmware_external_address", "vmware_external_access_rule", "vmware_network_policy", "vmware_private_cloud"]
 AZURE_TYPES = ["vnet", "subnet", "nsg", "service_tag", "nic", "vm", "public_ip", "load_balancer", "application_gateway", "app_service", "app_service_slot", "app_service_plan", "app_service_environment",
                "app_service_config", "aks_cluster", "storage_account", "storage_container", "sql_server", "sql_firewall_rule", "managed_identity_federated_credential",
-               "container_group", "container_app", "container_app_environment", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
+               "container_group", "container_app", "container_app_environment", "container_app_runtime", "azure_firewall", "firewall_policy", "ip_group", "frontdoor_and_cdn_endpoint", "api_management", "redis_cache", "signalr_service", "web_pubsub", "synapse_workspace", "disk", "snapshot", "kusto_cluster", "batch_account", "ml_workspace", "databricks_workspace", "compute_gallery", *_AZURE_MANAGED_ENDPOINTS]
 K8S_TYPES = ["service", "ingress", "node", "pod", "gateway", "endpoint", "endpoints", "endpointslice",
              "istio_service_entry", "istio_workload_entry", "admission_configuration", "configsync_rootsync",
              "persistentvolume", "kcc_iampolicy", "kcc_iampartialpolicy", "securitycontextconstraint",
@@ -6634,6 +6643,18 @@ def _observed(assessment, status):
         return (f"The Composer environment {name} has no complete recorded {missing} for its Airflow web UI.\n"
                 "Its public access setting remains unclear.\n"
                 "An open path could expose workflow settings or data if IAM also grants access.")
+    if assessment.resource["type"] == "container_app":
+        name = assessment.resource["data"].get("name", native_id(assessment.resource))
+        state = next((step.get("running_status") for step in assessment.path
+                      if step.get("layer") == "app_state"), None)
+        if status == "PASS" and state == "Stopped":
+            return (f"The Container App {name} has external ingress configured and recorded runningStatus Stopped.\n"
+                    "That stopped state blocks current requests through its public endpoint.\n"
+                    "Starting the app could reopen the declared ingress path.")
+        if status == "UNKNOWN" and state is not None:
+            return (f"The Container App {name} has external ingress configured and recorded runningStatus {state}.\n"
+                    "Its current public request path is unresolved while this state changes.\n"
+                    "The endpoint could expose app responses if an active revision serves requests.")
     if assessment.kind == "web_app":
         restriction = next((step for step in assessment.path if step["layer"] == "access_restrictions"), {})
         network = next((step for step in assessment.path if step["layer"] == "public_network_access"), {})
