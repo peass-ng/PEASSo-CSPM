@@ -65,3 +65,20 @@ spans. The AI span contains Hardening and Exposure as well as Network and
 Priorities; the existing runtime event does not split their walls. The local
 replay's 241.25 s evaluation plus one publication does not include hosted
 uploads or an exact reconstruction of the production request.
+
+## Markdown JSON preparation
+
+The streaming Markdown writer previously traversed every small JSON block to
+enforce its 64 KB/1,024-node bound, then traversed it again to prepare sorted
+keys for the native pretty encoder. The two traversals now share one bounded
+walk. Large or unusual JSON values still use the original disk-backed stdlib
+streaming path, preserving its memory limit and serialization behavior.
+
+On the saved snapshot, one prepared report was rendered through both writers
+in the same process. The complete 861,313,699-byte Markdown export had the
+same SHA-256 before and after:
+`64b4d3c1d563c64352a842892c5ed77804592dd48cf67031b7c1b984281db9ac`.
+Rendering fell from 54.08 to 37.32 s wall and 39.94 to 33.54 s CPU. A paired
+10,000-resource sample fell from 1.58 to 1.49 s median wall, with identical
+44,845,156-byte output. The focused Markdown suite passed 105/105; the
+1,717-file API source gate passed. Production benefit is not yet measured.

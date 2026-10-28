@@ -58,14 +58,13 @@ def test_streamed_json_preserves_legacy_format_and_fences(value, monkeypatch):
     assert stream.getvalue() == expected.encode("utf-8")
 
 
-def test_small_bounded_json_uses_the_existing_fast_encoder(monkeypatch):
+def test_small_bounded_json_preserves_legacy_bytes():
     value = {"id": "synthetic", "data": {"enabled": True, "label": "é"}}
-    real = reports._pretty_json
-    calls = []
-    monkeypatch.setattr(reports, "_pretty_json", lambda item: calls.append(item) or real(item))
     stream = io.BytesIO()
-    reports._MarkdownStream(stream).json(value)
-    assert calls == [value]
+    sink = reports._MarkdownStream(stream)
+    sink.json(value)
+    sink.finish()
+    assert stream.getvalue() == ("\n".join(reports._json_block(value)).rstrip() + "\n").encode("utf-8")
     assert reports._small_json(value)
     assert not reports._small_json({"oversized": "x" * reports._SMALL_JSON_BYTES})
     assert not reports._small_json(list(range(2000)))

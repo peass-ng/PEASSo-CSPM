@@ -103,7 +103,10 @@ def _pretty_json(value):
 
 
 def _json_block(value):
-    text = _pretty_json(value)
+    return _json_block_text(_pretty_json(value))
+
+
+def _json_block_text(text):
     # Most blocks contain no backtick; a substring test avoids a regex scan.
     longest = max((len(m.group()) for m in re.finditer(r"`+", text)), default=0) if "`" in text else 0
     fence = "`" * max(3, longest + 1)
@@ -149,6 +152,54 @@ def _small_json(value):
             return all(visit(child, depth + 1) for child in item)
         finally:
             active.remove(id(item))
+
+    return visit(value, 0)
+
+
+class _NotSmallJson(ValueError):
+    pass
+
+
+def _small_pretty_tree(value):
+    """Apply the streaming budget while preparing one sorted native JSON tree."""
+    remaining = [_SMALL_JSON_BYTES, 1024]
+    active = set()
+
+    def visit(item, depth):
+        remaining[0] -= 16 + 4 * depth
+        remaining[1] -= 1
+        if remaining[0] < 0 or remaining[1] < 0 or depth > 32:
+            raise _NotSmallJson
+        kind = type(item)
+        if kind is str:
+            remaining[0] -= 6 * len(item)
+            if remaining[0] < 0:
+                raise _NotSmallJson
+            item.encode('utf-8')
+            return item
+        if item is None or kind is bool:
+            return item
+        if kind is int:
+            remaining[0] -= 20
+            if remaining[0] < 0 or not -(1 << 63) <= item < (1 << 64):
+                raise _NotSmallJson
+            return item
+        if kind not in (dict, list, _JSONFrozenDict, _JSONFrozenList):
+            raise _NotSmallJson
+        identity = id(item)
+        if len(item) > remaining[1] or identity in active:
+            raise _NotSmallJson
+        active.add(identity)
+        try:
+            if kind in (dict, _JSONFrozenDict):
+                keys = list(item)
+                if any(type(key) is not str for key in keys):
+                    raise _NotSmallJson
+                return {visit(key, depth + 1): visit(item[key], depth + 1)
+                        for key in sorted(keys)}
+            return [visit(child, depth + 1) for child in item]
+        finally:
+            active.remove(identity)
 
     return visit(value, 0)
 
@@ -205,7 +256,24 @@ class _MarkdownStream:
             self.append(value)
 
     def json(self, value):
-        if _small_json(value):
+        if _core_pretty_json is not None:
+            try:
+                prepared = _small_pretty_tree(value)
+            except _NotSmallJson:
+                pass
+            except (UnicodeError, RecursionError):
+                if _small_json(value):
+                    self.extend(_json_block(value))
+                    return
+            else:
+                try:
+                    text = _core_pretty_json(prepared, indent=2, ensure_ascii=False).decode('utf-8')
+                except (TypeError, ValueError, UnicodeError, OverflowError, RecursionError):
+                    self.extend(_json_block(value))
+                else:
+                    self.extend(_json_block_text(text))
+                return
+        elif _small_json(value):
             self.extend(_json_block(value))
             return
         # iterencode preserves stdlib key ordering, escaping, floats, exception
