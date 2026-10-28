@@ -112,6 +112,24 @@ def test_opensearch_anonymous_policy_joins_http_action_domain_resource_and_deny(
     assert result["evidence"]["authenticated_endpoint"] is expected_authenticated
 
 
+def test_opensearch_fine_grained_auth_honors_anonymous_migration_setting():
+    arn = f"arn:aws:es:us-east-1:{ACCOUNT}:domain/search"
+    status = {"DomainName": "search", "ARN": arn, "Endpoint": "search.example.com",
+              "AccessPolicies": {"Statement": [{"Effect": "Allow", "Principal": "*",
+                  "Action": "es:ESHttpGet", "Resource": arn + "/*"}]},
+              "AdvancedSecurityOptions": {"Enabled": True, "AnonymousAuthEnabled": True}}
+    item = {"DomainName": "search", "Domain": {"collection_status": "collected", "DomainStatus": status}}
+    def finding():
+        return one(aws(coll("opensearch_domain", [item], service="opensearch")), "opensearch_domain")
+    migration = finding()
+    assert migration["status"] == "FAIL" and migration["evidence"]["authenticated_endpoint"] is False
+    assert next(step for step in migration["evidence"]["path"] if step["layer"] == "fine_grained_access")["anonymous_auth_enabled"] is True
+    status["AdvancedSecurityOptions"]["AnonymousAuthEnabled"] = False
+    assert finding()["evidence"]["authenticated_endpoint"] is True
+    del status["AdvancedSecurityOptions"]["AnonymousAuthEnabled"]
+    assert finding()["evidence"]["authenticated_endpoint"] is False
+
+
 def test_aws_instance_open_ssh_fails_with_path_evidence():
     result = one(aws(*aws_network(), instance()), "instance")
     assert result["status"] == "FAIL" and result["severity"] == "high"

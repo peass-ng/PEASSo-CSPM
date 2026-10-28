@@ -975,9 +975,15 @@ def _aws_opensearch(snapshot, inventory, resource):
         a.step("policy", "allow", reason="access policy requires signed or condition-restricted access", restrictive_conditions=restricted)
         a.authenticated = True
     fine = status.get("AdvancedSecurityOptions", {})
-    if isinstance(fine, dict) and fine.get("Enabled"):
-        a.authenticated = True
-        a.notes.append("fine-grained access control enabled")
+    if isinstance(fine, dict) and fine.get("Enabled") is True:
+        migration = fine.get("AnonymousAuthEnabled")
+        a.step("fine_grained_access", "requires_auth" if migration is False else "anonymous_migration" if migration is True else "unresolved",
+               enabled=True, anonymous_auth_enabled=migration,
+               semantics="OpenSearch migration can admit unsigned requests despite fine-grained access control")
+        if migration is False:
+            a.authenticated = True
+        elif type(migration) is not bool:
+            a.gap("fine_grained_access", "anonymous-auth migration setting not collected", "opensearch:DescribeDomain")
     a.ports = ports
     return a
 
