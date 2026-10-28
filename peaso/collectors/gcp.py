@@ -908,6 +908,13 @@ class Transport:
                     data = project_response(data, method=method, url=url, params=params, body=body,
                         scope=scope, enabled=active, selected_kinds=self.options.get('_content_secret_scan_kinds', []),
                         check_cancelled=self.check_cancelled, budget=self.notebook_airflow_secret_budget)
+                # Dataplex list responses name this location failure field
+                # unreachableLocations. pages() already preserves items before
+                # checking unreachables, so bind the recorded field to that
+                # existing incomplete-response path without changing pages().
+                if (parsed.hostname == 'dataplex.googleapis.com' and isinstance(data, dict)
+                        and data.get('unreachableLocations') and 'unreachables' not in data):
+                    data = {**data, 'unreachables': data['unreachableLocations']}
                 cached["data"] = sanitize(data)
                 # A top-level pagination cursor is protocol state, not an OAuth
                 # credential. Keep it inside the transport cache so real REST
@@ -1827,7 +1834,7 @@ class GCPCollector:
             yield items, request_id
             if incomplete:
                 raise ReadError("unavailable", "partial_api_warning")
-            if data.get("unreachables") or data.get("unreachable") or data.get("unreachableLocations") or data.get("missingZones") or data.get("failedLocations") or data.get("failedLocation"):
+            if data.get("unreachables") or data.get("unreachable") or data.get("missingZones") or data.get("failedLocations") or data.get("failedLocation"):
                 raise ReadError("unavailable", "unreachable_locations")
             token = data.get("nextPageToken")
             if token is not None and not isinstance(token, str):

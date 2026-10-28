@@ -1,4 +1,5 @@
 """Dataplex native masks retain the API's actual incomplete-location field."""
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -22,14 +23,20 @@ def test_field_masks_match_native_list_response(kind, key, coverage):
 
 
 @pytest.mark.parametrize('items', [[], [{'name': 'observed'}]])
-def test_unreachable_locations_preserve_items_then_fail_completeness(items):
+def test_unreachable_locations_preserve_items_then_fail_completeness(items, monkeypatch):
+    payload = {'entryTypes': items, 'unreachableLocations': ['us-central1']}
+    response = SimpleNamespace(status_code=200, headers={}, content=json.dumps(payload).encode(), json=lambda: payload)
+    session = SimpleNamespace(request=lambda *a, **kw: response, close=lambda: None)
+    transport = gcp.Transport(SimpleNamespace(headers=lambda: {}, close=lambda: None), {'retries': 0})
+    monkeypatch.setattr(transport, '_session', lambda: session)
     value = SimpleNamespace(page_size=100, max_pages=None,
-        read=lambda *a, **kw: ({'entryTypes': items, 'unreachableLocations': ['us-central1']}, 'native-1'))
+        read=lambda url, scope, **kw: transport.request('GET', url, scope=scope, params=kw['params']))
     pages = gcp.GCPCollector.pages(value, 'https://dataplex.googleapis.com/v1/projects/p/locations/us/entryTypes',
                                     'projects/p', key='entryTypes')
-    assert next(pages) == (items, 'native-1')
+    assert next(pages) == (items, transport.evidence[0]['id'])
     with pytest.raises(gcp.ReadError, match='unreachable_locations'):
         next(pages)
+    assert transport.evidence[0]['http_attempts'] == 1
 
 
 def test_complete_paginated_list_keeps_every_page():
