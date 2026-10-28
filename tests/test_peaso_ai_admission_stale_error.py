@@ -103,3 +103,18 @@ def test_new_error_during_validation_cannot_be_erased(admission, monkeypatch):
     assert dispatcher.dispatch('alice', {'id': 'queued', 'ai_enabled': True}) is False
     assert not store.admitted and not client.started
     assert cipher.decrypt(store.ai_state('alice', providers.ERROR_KEY))['message'] == 'New concurrent failure.'
+
+
+def test_new_error_after_initially_clean_state_blocks_dispatch(admission, monkeypatch):
+    store, cipher, previous_error, dispatcher, client = admission
+    assert store.set_ai_state('alice', providers.ERROR_KEY, None, previous_error)
+
+    def concurrent(access):
+        store.set_ai_state('alice', providers.ERROR_KEY,
+                           cipher.encrypt({'message': 'New concurrent failure.', 'at': 2}), None)
+        return access
+
+    monkeypatch.setattr(providers, 'validate_access', concurrent)
+    assert dispatcher.dispatch('alice', {'id': 'queued', 'ai_enabled': True}) is False
+    assert not store.admitted and not client.started
+    assert cipher.decrypt(store.ai_state('alice', providers.ERROR_KEY))['message'] == 'New concurrent failure.'

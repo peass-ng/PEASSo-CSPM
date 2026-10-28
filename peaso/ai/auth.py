@@ -130,7 +130,7 @@ def require_local_codex(settings, store, user):
         prior_error = store.ai_state(user, ERROR_KEY) if user else None
         resolve_access(store, AICipher(settings.identity_dir), user,
                        auth_mode=settings.auth_mode, ignore_recorded_error=True)
-        if prior_error and not store.set_ai_state(user, ERROR_KEY, None, prior_error):
+        if user and not store.set_ai_state(user, ERROR_KEY, None, prior_error):
             raise RuntimeError('AI configuration changed during admission')
     except Exception:
         raise HTTPException(409, 'AI checks require a valid AI configuration. Configure a provider, model and thinking effort in Settings, or disable AI for this scan.')
