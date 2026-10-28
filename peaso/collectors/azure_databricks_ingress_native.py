@@ -15,7 +15,7 @@ _POLICY = re.compile(r'/api/2\.0/accounts/(' + UUID + r')/network-policies/([A-Z
 
 
 def _public_rule(rule, target, *, deny=False):
-    """Project a public UI or SQL API rule applying to every human user."""
+    """Project a public UI or SQL API rule with an exact broad identity type."""
     if not isinstance(rule, dict) or set(rule) - {'origin', 'destination', 'authentication', 'label'}:
         return None
     destination = rule.get('destination')
@@ -39,13 +39,21 @@ def _public_rule(rule, target, *, deny=False):
     else:
         raise ValueError('unsupported Databricks ingress target')
     authentication = rule.get('authentication')
-    if authentication is not None and authentication != {'identity_type': 'IDENTITY_TYPE_ALL_USERS'}:
+    identities = {None: 'both',
+                  'IDENTITY_TYPE_ALL_USERS': 'users',
+                  'IDENTITY_TYPE_ALL_SERVICE_PRINCIPALS': 'service_principals'}
+    identity_type = authentication.get('identity_type') if isinstance(authentication, dict) else None
+    if authentication is not None and (not isinstance(authentication, dict)
+                                       or set(authentication) != {'identity_type'}
+                                       or identity_type is None
+                                       or identity_type not in identities):
         return None
+    identity = identities[identity_type]
     origin = rule.get('origin')
     if not isinstance(origin, dict):
         return None
     if origin == {'all_ip_ranges': True}:
-        result = {'origin': 'all', 'ranges': []}
+        result = {'origin': 'all', 'ranges': [], 'identity': identity}
         return {**result, 'scope': scope} if target == 'api' else result
     if len(origin) != 1 or next(iter(origin)) not in ('included_ip_ranges', 'excluded_ip_ranges'):
         return None
@@ -63,7 +71,8 @@ def _public_rule(rule, target, *, deny=False):
         if network.version != 4:
             return None
         ranges.append(str(network))
-    result = {'origin': 'include' if kind == 'included_ip_ranges' else 'exclude', 'ranges': ranges}
+    result = {'origin': 'include' if kind == 'included_ip_ranges' else 'exclude',
+              'ranges': ranges, 'identity': identity}
     return {**result, 'scope': scope} if target == 'api' else result
 
 
@@ -77,8 +86,10 @@ def _other_destination(rule, target):
 
 
 def _valid_projected_rule(rule, *, api=False):
-    if (not isinstance(rule, dict) or set(rule) != ({'origin', 'ranges', 'scope'} if api else {'origin', 'ranges'})
+    if (not isinstance(rule, dict) or set(rule) != ({'origin', 'ranges', 'scope', 'identity'}
+                                                  if api else {'origin', 'ranges', 'identity'})
             or rule['origin'] not in ('all', 'include', 'exclude')
+            or rule['identity'] not in ('both', 'users', 'service_principals')
             or not isinstance(rule['ranges'], list) or len(rule['ranges']) > 1000
             or rule['origin'] == 'all' and rule['ranges']
             or rule['origin'] != 'all' and not rule['ranges']

@@ -5597,12 +5597,18 @@ def _azure_databricks_workspace(snapshot, inventory, resource):
                         or restricted_rules.get('deny_rule_count') != len(denies) + ignored):
                     continue
                 for rule in rules:
-                    witness = _databricks_public_witness([rule], *ip_policy, denies)
-                    if witness:
-                        detail = {'api_scope': rule['scope']} if target == 'workspace_api' else {}
-                        a.step('workspace_context_ingress', 'allow', restriction_mode='RESTRICTED_ACCESS',
-                               destination=target, public_source_ip=witness, **detail)
-                        found = True
+                    for principal in (('users', 'service_principals') if target == 'workspace_api' else ('users',)):
+                        if rule.get('identity') not in ('both', principal):
+                            continue
+                        applicable = [deny for deny in denies if deny.get('identity') in ('both', principal)]
+                        witness = _databricks_public_witness([rule], *ip_policy, applicable)
+                        if witness:
+                            detail = {'api_scope': rule['scope']} if target == 'workspace_api' else {}
+                            a.step('workspace_context_ingress', 'allow', restriction_mode='RESTRICTED_ACCESS',
+                                   destination=target, public_source_ip=witness, principal_type=principal, **detail)
+                            found = True
+                            break
+                    if found:
                         break
                 if found:
                     break

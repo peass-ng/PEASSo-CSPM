@@ -150,7 +150,7 @@ def test_project_public_ui_allow_without_retaining_label():
     value = {'account_id': ACCOUNT, 'network_policy_id': 'default-policy', 'ingress': {'public_access': {
         'restriction_mode': 'RESTRICTED_ACCESS', 'allow_rules': [rule], 'deny_rules': []}}}
     projected = native.project(value, POLICY)
-    assert projected['public_ui_rules'] == [{'origin': 'all', 'ranges': []}]
+    assert projected['public_ui_rules'] == [{'origin': 'all', 'ranges': [], 'identity': 'both'}]
     assert TOKEN not in json.dumps(projected)
     assert native.project(projected, POLICY) == projected
 
@@ -284,6 +284,50 @@ def test_workspace_api_and_ui_deny_destinations(allow_destination, deny_destinat
         assert any(step.get('layer') == 'workspace_context_ingress'
                    and step.get('destination') == proof and step.get('public_source_ip') == '8.8.8.8'
                    for step in row.path)
+
+
+@pytest.mark.parametrize('allow_identity,deny_identity,destination,expected,principal', [
+    ('IDENTITY_TYPE_ALL_SERVICE_PRINCIPALS', 'IDENTITY_TYPE_ALL_USERS', 'workspace_api', 'FAIL', 'service_principals'),
+    (None, 'IDENTITY_TYPE_ALL_USERS', 'workspace_api', 'FAIL', 'service_principals'),
+    ('IDENTITY_TYPE_ALL_SERVICE_PRINCIPALS', 'IDENTITY_TYPE_ALL_SERVICE_PRINCIPALS', 'workspace_api', 'UNKNOWN', None),
+    ('IDENTITY_TYPE_ALL_USERS', 'IDENTITY_TYPE_ALL_SERVICE_PRINCIPALS', 'workspace_api', 'FAIL', 'users'),
+    ('IDENTITY_TYPE_ALL_SERVICE_PRINCIPALS', None, 'workspace_ui', 'UNKNOWN', None),
+    ('IDENTITY_TYPE_SELECTED_IDENTITIES', None, 'workspace_api', 'UNKNOWN', None),
+])
+def test_api_identity_classes_and_matching_denies(allow_identity, deny_identity,
+                                                   destination, expected, principal):
+    class Rules(Transport):
+        def request_databricks_ingress(self, path):
+            if path == BINDING:
+                return super().request_databricks_ingress(path)
+            target = ({'workspace_api': {'scopes': ['sql'], 'scope_qualifier': 'API_SCOPE_QUALIFIER_ALL'}}
+                      if destination == 'workspace_api' else {'workspace_ui': {'all_destinations': True}})
+            allow = {'origin': {'all_ip_ranges': True}, 'destination': target}
+            if allow_identity:
+                allow['authentication'] = {'identity_type': allow_identity}
+            denies = []
+            if deny_identity:
+                deny_target = {'workspace_api': {}} if destination == 'workspace_api' else target
+                denies = [{'origin': {'all_ip_ranges': True}, 'destination': deny_target,
+                           'authentication': {'identity_type': deny_identity}, 'label': TOKEN}]
+            raw = {'account_id': ACCOUNT, 'network_policy_id': 'default-policy', 'ingress': {'public_access': {
+                'restriction_mode': 'RESTRICTED_ACCESS', 'allow_rules': [allow], 'deny_rules': denies}}}
+            return native.project(raw, path)
+
+    reader, transport = Reader(), Rules('RESTRICTED_ACCESS')
+    native.collect(reader, transport, [SCOPE], {'databricks_workspace'}, approval(),
+                   {'databricks_account_token': TOKEN})
+    assert TOKEN not in json.dumps(reader.collections)
+    reader.collections.append({'type': 'databricks_workspace_ip_policy', 'scope': SCOPE,
+        'service': 'Databricks.Workspace', 'status': 'collected', 'items': [{
+            'id': RID, 'policyStatus': 'collected', 'ipAccessListsEnabled': False, 'ipAccessLists': []}]})
+    snapshot = make_snapshot('azure', [SCOPE], reader.collections)
+    row = next(row for row in assess(snapshot, resources(snapshot))
+               if row.resource['type'] == 'databricks_workspace')
+    assert row.verdict() == expected
+    if principal:
+        assert any(step.get('layer') == 'workspace_context_ingress'
+                   and step.get('principal_type') == principal for step in row.path)
 
 
 def test_workspace_block_overrides_same_public_allow_under_full_context_access():
