@@ -19,8 +19,8 @@ import zlib
 
 from . import private_secret_source_epoch_20261021 as _epoch
 
-_RECEIPT_SHA256 = "2a6ea6b973cab2212950523a59c944752c8bf673e692aec36690b2a7b8516fdf"
-_SELF_SHA256 = "79421a051d1962dbbf4c5ef79604a1d408ca40445d12bc7a4ded2871216fcaa9"
+_RECEIPT_SHA256 = "b1fdc428fed7cb3684e7852b16cf410f20b55ab8fb293c6eb247478e3d643307"
+_SELF_SHA256 = "2d3391bd1eebdd085f8dc73d8e727ae399d28f9e3922ed8d2b056a4f5dad61a5"
 _ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -31,7 +31,7 @@ def _sha(data: bytes) -> str:
 def _finite_source():
     from . import private_secret_current_source_successor_20261028 as successor
     source = _epoch._root_path(_ROOT, "peaso/private_secret_current_source_successor_20261028.py")
-    if _sha(source.read_bytes()) != "4ed018bd5b6e58f7d7971a1c9f69fac2a451091306de1e7417c4f13e03067bf1":
+    if _sha(source.read_bytes()) != "baf8ee498dbfaecfaf84d9ab03c3536d37f62bb569386e9095ba7f9b9e329287":
         raise _epoch.AdmissionError("finite current successor changed")
     return successor
 
@@ -83,7 +83,7 @@ def predecessor_bytes(relative: str, current: bytes, expected_before: str,
     if current != live_path.read_bytes():
         raise _epoch.AdmissionError("reviewed collector current source changed")
     reviewed_current = (_finite_source().reviewed_predecessor(relative, current, root)
-                        if relative == "peaso/collectors/azure.py" else current)
+                        if relative in {"peaso/collectors/azure.py", "peaso/collectors/gcp.py"} else current)
     if _sha(current) != row["current_sha256"]:
         raise _epoch.AdmissionError("reviewed collector current source changed")
     epoch_after = zlib.decompress(base64.b64decode(row["epoch_after_zlib_b64"], validate=True))
@@ -112,7 +112,7 @@ def previous_function_source(relative: str, name: str, current_fragment: str,
         raise _epoch.AdmissionError("reviewed collector root changed")
     current = _epoch._root_path(root, relative).read_bytes()
     reviewed_current = (_finite_source().reviewed_predecessor(relative, current, root)
-                        if relative == "peaso/collectors/azure.py" else current)
+                        if relative in {"peaso/collectors/azure.py", "peaso/collectors/gcp.py"} else current)
     if _sha(current) != row["current_sha256"]:
         raise _epoch.AdmissionError("reviewed collector current source changed")
     previous = zlib.decompress(base64.b64decode(row["epoch_after_zlib_b64"], validate=True))
@@ -260,7 +260,7 @@ def trusted_definition(fn: FunctionType, root: str | Path) -> dict:
     row = _receipt()["sources"][relative]
     source = _epoch._root_path(root, relative).read_bytes()
     reviewed_source = (_finite_source().reviewed_predecessor(relative, source, root)
-                       if relative == "peaso/collectors/azure.py" else source)
+                       if relative in {"peaso/collectors/azure.py", "peaso/collectors/gcp.py"} else source)
     if Path(root).resolve(strict=True) != _ROOT or _sha(source) != row["current_sha256"]:
         raise _epoch.AdmissionError("reviewed transport source changed")
     owner_module = sys.modules.get(module_name)
@@ -304,6 +304,7 @@ def previous_gcp_method_source(name: str, current_fragment: str,
     if Path(root).resolve(strict=True) != _ROOT:
         raise _epoch.AdmissionError("reviewed GCP root changed")
     current = _epoch._root_path(root, relative).read_bytes()
+    _finite_source().reviewed_predecessor(relative, current, root)
     if _sha(current) != row["current_sha256"]:
         raise _epoch.AdmissionError("reviewed GCP current source changed")
     previous = zlib.decompress(base64.b64decode(row["epoch_after_zlib_b64"], validate=True))

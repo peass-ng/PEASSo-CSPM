@@ -1,6 +1,6 @@
 """Finite current-to-reviewed source bridge for the 2026-10-28 release wave.
 
-Only three exact live sources are admitted. The retained 2026-10-21 epoch and
+Only four exact live sources are admitted. The retained 2026-10-21 epoch and
 the 2026-10-22 collector successor still prove their own predecessors.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ import sys
 from types import FunctionType
 import zipfile
 
-_RECEIPT_SHA256 = "885cdb404cbc64caa1247c98d278c59f1541e321fb7b925c2d543dd0e10d5175"
+_RECEIPT_SHA256 = "30516ef9205e04844a5f70b857136e4b8de50ed8b4200d356c710b692a6fe6fb"
 _ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -38,7 +38,7 @@ def reviewed_predecessor(relative: str, current: bytes, root: str | Path) -> byt
     if receipt.get("version") != 1 or set(receipt.get("sources", {})) != {
             "peaso/collectors/aws_code_log_content_indicators.py",
             "peaso/collectors/aws_workload_command_source_20261020.py",
-            "peaso/collectors/azure.py"}:
+            "peaso/collectors/azure.py", "peaso/collectors/gcp.py"}:
         raise AdmissionError("finite successor roster changed")
     row = receipt["sources"].get(relative)
     if row is None or current != _root_path(root, relative).read_bytes() or _sha(current) != row["current_sha256"]:
