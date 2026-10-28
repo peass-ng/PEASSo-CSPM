@@ -93,12 +93,13 @@ def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cance
             from .providers import auth_document
             files['codex-auth'] = auth_document(token)
         def prepare_workspace():
+            prepared_platform = platform() if callable(platform) else platform
             if stage == 'priorities':
                 from .briefing import build
-                build(root, platform, findings, reviews, private_json)
+                build(root, prepared_platform, findings, reviews, private_json)
             elif stage == 'network':
                 from .network import build
-                build(root, platform, reviews, private_json)
+                build(root, prepared_platform, reviews, private_json)
             for name, data in files.items():
                 private_json(root / (name + '.json'), data)
             if on_prepared is not None:
@@ -606,10 +607,15 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                 if review_concurrency() == 0:
                     raise MemoryError('ai_memory_headroom_unavailable')
                 from peaso.least_privilege import project
-                platform = {'report': priorities_report, 'inventory': inventory,
+                def priorities_platform():
+                    return {'report': priorities_report, 'inventory': inventory,
                             'snapshot_context': snapshot_context(snapshot),
                             'least_privilege': project(report['provider'], inventory, snapshot=snapshot),
                             'network_review': result['network']}
+                # Fargate invoke starts the role-free task before preparing its
+                # exact input. Keep the local path eager for its normal tests
+                # and process isolation contract.
+                platform = priorities_platform if isolation.remote() else priorities_platform()
                 data = invoke_before_deadline('priorities', platform, entries, token,
                     hardening + exposure, reviewed, end, stage_limit('priorities', isolation.remote()),
                     **({key: value for key, value in

@@ -306,6 +306,32 @@ def test_network_failure_preserves_reviews_and_still_runs_priorities(environment
     assert 'private-error' not in json.dumps(result)
 
 
+def test_remote_priorities_projects_full_inventory_after_task_launch(environment, monkeypatch):
+    data, inventory, network_output = network_fixture()
+    monkeypatch.setattr('peaso.snapshot.resources', lambda _: inventory)
+    monkeypatch.setattr('peaso.ai.isolation.remote', lambda: True)
+    monkeypatch.setattr(pipeline, 'available_memory', lambda: 4 * 1024**3)
+    projected = []
+    def project(provider, resources, *, snapshot):
+        projected.append((provider, resources, snapshot))
+        return {'coverage': {'source': 'complete inventory'}}
+    monkeypatch.setattr('peaso.least_privilege.project', project)
+    def invoke(stage, platform, entries, token, findings, reviews, timeout):
+        if stage == 'network':
+            return network_output
+        assert stage == 'priorities' and callable(platform)
+        assert not projected
+        prepared = platform()  # Fargate calls this only after RunTask.
+        assert projected == [(data['provider'], inventory, {})]
+        assert prepared['inventory'] is inventory
+        assert prepared['network_review']['status'] == 'completed'
+        assert any(row.get('category') == 'network' for row in prepared['report']['findings'])
+        return {'actions': [], 'limitations': []}
+    monkeypatch.setattr(pipeline, 'invoke', invoke)
+    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2])
+    assert result['status'] == 'completed' and len(projected) == 1
+
+
 def test_priorities_brief_includes_new_network_findings_and_assessment(tmp_path):
     from peaso.ai.briefing import build
     from peaso.ai.network import prepare, with_findings
