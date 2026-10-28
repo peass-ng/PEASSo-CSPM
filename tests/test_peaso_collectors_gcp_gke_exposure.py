@@ -49,6 +49,8 @@ def test_all_discovered_clusters_receive_service_inventory_markers(monkeypatch):
             raise ReadError("unavailable", "gke_cluster_endpoint_or_ca_unproved")
         return {"selection": selection, "endpoint": "34.1.2.3", "ca_sha256": "abc"}
     monkeypatch.setattr(services, "cluster_binding", binding)
+    monkeypatch.setattr(services, "dns_cluster_binding", lambda *_: (_ for _ in ()).throw(
+        ReadError("unavailable", "gke_cluster_endpoint_or_ca_unproved")))
     monkeypatch.setattr(services.ServiceReader, "pages", lambda self: iter([([
         {"name": self.binding["selection"] + "/namespaces/default/services/web"}], "service-request")]))
     jobs = services.dependent_jobs(collector)
@@ -104,3 +106,56 @@ def test_service_reader_uses_verified_get_and_records_no_bearer(monkeypatch):
     assert calls[0][2]["Authorization"] == "Bearer test-token"
     assert "test-token" not in str(transport.evidence)
     assert transport.evidence[0]["status"] == "collected"
+
+
+def test_dns_binding_requires_exact_source_receipt_and_enabled_endpoint():
+    scope = "projects/p1"
+    selection = scope + "/locations/r1/clusters/c1"
+    row = {"name": "c1", "location": "r1", "status": "RUNNING",
+        "selfLink": f"https://container.googleapis.com/v1/{selection}",
+        "_provenance": {"scope": scope, "source_requests": ["cluster-request"]},
+        "controlPlaneEndpointsConfig": {"dnsEndpointConfig": {
+            "endpoint": "abc.r1.gke.goog", "allowExternalTraffic": True}}}
+    receipt = {"id": "cluster-request", "scope": scope, "method": "GET", "status": "collected",
+        "http_status": 200, "query": {},
+        "url": f"https://container.googleapis.com/v1/{scope}/locations/-/clusters"}
+    collector = SimpleNamespace(collections={("gke_cluster", scope): {"status": "collected",
+        "coverage_status": "collected", "items": [row]}}, transport=SimpleNamespace(evidence=[receipt]))
+    binding = services.dns_cluster_binding(collector, scope, selection)
+    assert binding["endpoint"] == "abc.r1.gke.goog"
+    assert binding["context"].check_hostname is True
+    assert binding["context"].verify_mode == services.ssl.CERT_REQUIRED
+    assert binding["ca_sha256"] is None
+    for endpoint in ("abc.r1.gke.goog.evil.test", "https://abc.r1.gke.goog", "ABC.r1.gke.goog"):
+        row["controlPlaneEndpointsConfig"]["dnsEndpointConfig"]["endpoint"] = endpoint
+        with pytest.raises(ReadError, match="gke_cluster_dns_endpoint_unproved"):
+            services.dns_cluster_binding(collector, scope, selection)
+    row["controlPlaneEndpointsConfig"]["dnsEndpointConfig"].update(
+        endpoint="abc.r1.gke.goog", allowExternalTraffic=False)
+    with pytest.raises(ReadError, match="gke_cluster_dns_endpoint_unproved"):
+        services.dns_cluster_binding(collector, scope, selection)
+    row["controlPlaneEndpointsConfig"]["dnsEndpointConfig"]["allowExternalTraffic"] = True
+    receipt["http_status"] = 403
+    with pytest.raises(ReadError, match="gke_cluster_source_receipt_unproved"):
+        services.dns_cluster_binding(collector, scope, selection)
+
+
+def test_dns_fallback_publishes_only_complete_read(monkeypatch):
+    scope = "projects/p1"
+    selection = scope + "/locations/r1/clusters/c1"
+    collector = SimpleNamespace(needed={services.KIND}, scopes=[scope], transport=None,
+        collections={("gke_cluster", scope): {"status": "collected", "coverage_status": "collected",
+            "items": [{"name": "c1", "location": "r1"}], "source_requests": ["cluster-request"]}})
+    monkeypatch.setattr(services, "cluster_binding", lambda *_: {"selection": selection,
+        "endpoint": "34.1.2.3", "ca_sha256": "abc"})
+    monkeypatch.setattr(services, "dns_cluster_binding", lambda *_: {"selection": selection,
+        "endpoint": "abc.r1.gke.goog", "ca_sha256": None, "endpointTrust": "public_ca"})
+    def pages(reader):
+        if reader.binding["endpoint"] == "34.1.2.3":
+            yield ([{"name": "partial-ip"}], "ip-request")
+            raise ReadError("unavailable", "gke_exposure_services_read_unavailable")
+        yield ([{"name": "complete-dns"}], "dns-request")
+    monkeypatch.setattr(services.ServiceReader, "pages", pages)
+    rows = [row for page, _ in services.dependent_jobs(collector)[0][3]() for row in page]
+    assert [row["name"] for row in rows] == ["complete-dns", selection + "/serviceInventory"]
+    assert rows[-1]["inventoryStatus"] == "collected" and rows[-1]["serviceCount"] == 1

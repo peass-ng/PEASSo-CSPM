@@ -1,6 +1,6 @@
 """Read-only, per-cluster GKE Service inventory for Exposure.
 
-Uses the existing verified GKE IP endpoint, CA and Google bearer-token bridge.
+Uses a source-proven GKE IP or DNS endpoint and existing Google bearer token.
 Unavailable or bounded reads produce an explicit cluster marker; they never
 stand in for a complete empty Service list.
 """
@@ -8,12 +8,13 @@ stand in for a complete empty Service list.
 import http.client
 import json
 import re
+import ssl
 import time
 from urllib.parse import urlencode
 
 from .gcp_gke_literal_secret_indicators import (
     CLUSTER, LOCATION, MAX_CALLS, MAX_HTTP_BYTES, MAX_READ_BYTES, PAGE_SIZE, PROJECT,
-    cluster_binding, existing_bearer, _failure,
+    SELECTION, cluster_binding, existing_bearer, _failure,
 )
 
 KIND = "gke_exposure_service"
@@ -24,6 +25,47 @@ ANNOTATIONS = frozenset({
     "networking.gke.io/load-balancer-type",
     "service.beta.kubernetes.io/load-balancer-source-ranges",
 })
+DNS_ENDPOINT = re.compile(r"(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.gke\.goog")
+
+
+def dns_cluster_binding(collector, scope, selection):
+    """Bind a GKE DNS endpoint only to its proven cluster-list subject."""
+    source = collector.collections.get(("gke_cluster", scope))
+    match = SELECTION.fullmatch(selection)
+    if (not source or source.get("status") != "collected" or source.get("coverage_status") != "collected"
+            or not isinstance(source.get("items"), list) or not match or "projects/" + match[1] != scope):
+        raise _failure("gke_cluster_inventory_unproved")
+    candidates = [row for row in source["items"] if isinstance(row, dict)
+                  and row.get("name") == match[3] and row.get("location") == match[2]]
+    if len(candidates) != 1:
+        raise _failure("gke_cluster_subject_ambiguous")
+    row = candidates[0]
+    expected_links = {f"https://container.googleapis.com/v1/{scope}/{segment}/{match[2]}/clusters/{match[3]}"
+                      for segment in ("locations", "zones")}
+    provenance = row.get("_provenance", {})
+    refs = provenance.get("source_requests") if isinstance(provenance, dict) else None
+    if (row.get("selfLink") not in expected_links or row.get("status") != "RUNNING"
+            or row.get("_coverage") or row.get("collection_status", "collected") != "collected"
+            or not isinstance(provenance, dict) or provenance.get("scope") != scope
+            or not isinstance(refs, list) or not refs):
+        raise _failure("gke_cluster_subject_unproved")
+    receipts = {e.get("id"): e for e in collector.transport.evidence if isinstance(e, dict)}
+    if any(not isinstance(ref, str) or ref not in receipts or receipts[ref].get("scope") != scope
+            or receipts[ref].get("method") != "GET" or receipts[ref].get("status") != "collected"
+            or receipts[ref].get("http_status") != 200 or receipts[ref].get("query") != {}
+            or receipts[ref].get("url") != f"https://container.googleapis.com/v1/{scope}/locations/-/clusters"
+            for ref in refs):
+        raise _failure("gke_cluster_source_receipt_unproved")
+    config = row.get("controlPlaneEndpointsConfig")
+    config = config.get("dnsEndpointConfig") if isinstance(config, dict) else None
+    endpoint = config.get("endpoint") if isinstance(config, dict) else None
+    if (not isinstance(config, dict) or config.get("allowExternalTraffic") is not True
+            or not isinstance(endpoint, str) or not DNS_ENDPOINT.fullmatch(endpoint)):
+        raise _failure("gke_cluster_dns_endpoint_unproved")
+    context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return {"selection": selection, "endpoint": endpoint, "ca_sha256": None,
+            "context": context, "source_requests": refs[:], "endpointTrust": "public_ca"}
 
 
 class ServiceReader:
@@ -187,7 +229,8 @@ class ServiceReader:
                 "uid": uid, "resourceVersion": meta.get("resourceVersion"),
                 "spec": safe_spec, "status": {"loadBalancer": {"ingress": ingress}},
                 "annotations": selected_annotations, "clusterEndpoint": self.binding["endpoint"],
-                "clusterCaSha256": self.binding["ca_sha256"]})
+                "clusterCaSha256": self.binding["ca_sha256"],
+                "endpointTrust": self.binding.get("endpointTrust", "cluster_ca")})
         return {"items": rows, "continue": token, "resourceVersion": version}
 
     def pages(self):
@@ -244,20 +287,24 @@ def dependent_jobs(collector):
                     raise ReadError("malformed", "gke_cluster_identity_duplicate")
                 seen.add(selection)
                 last_request = parent["source_requests"][0]
-                count = 0
-                try:
-                    binding = cluster_binding(collector, scope, selection)
-                    budget = {"deadline": time.monotonic() + MAX_SECONDS, "calls": 0,
-                              "read_bytes": MAX_READ_BYTES, "resources": 0}
-                    reader = ServiceReader(collector, binding, None, budget)
-                    for rows, request_id in reader.pages():
-                        count += len(rows)
-                        last_request = request_id
-                        yield rows, request_id
-                    state, reason = "collected", None
-                except ReadError as exc:
-                    state, reason = "unavailable", exc.error["code"]
-                    last_request = getattr(exc, "request_id", None) or last_request
+                count, state, reason = 0, "unavailable", "gke_cluster_endpoint_unproved"
+                budget = {"deadline": time.monotonic() + MAX_SECONDS, "calls": 0,
+                          "read_bytes": MAX_READ_BYTES, "resources": 0}
+                for bind in (cluster_binding, dns_cluster_binding):
+                    try:
+                        binding = bind(collector, scope, selection)
+                        # Publish only a complete endpoint read. A failed second page
+                        # cannot leave first-page rows masquerading as live inventory.
+                        pages = list(ServiceReader(collector, binding, None, budget).pages())
+                        count = sum(len(rows) for rows, _ in pages)
+                        for rows, request_id in pages:
+                            last_request = request_id
+                            yield rows, request_id
+                        state, reason = "collected", None
+                        break
+                    except ReadError as exc:
+                        reason = exc.error["code"]
+                        last_request = getattr(exc, "request_id", None) or last_request
                 yield [{"name": selection + "/serviceInventory", "cluster": selection,
                         "inventoryStatus": state, "serviceCount": count,
                         **({"reason": reason} if reason else {})}], last_request
