@@ -1121,7 +1121,7 @@ def _aws_cloudformation_stack_instance(snapshot, inventory, resource):
     return a
 
 
-def _aws_transfer_server(snapshot, inventory, resource):
+def _aws_transfer_server_public(snapshot, inventory, resource):
     """Assess an online Transfer Family PUBLIC SFTP frontend and its ports."""
     data = resource["data"]
     a = Assessment(resource, "managed_endpoint")
@@ -19174,7 +19174,7 @@ _AZURE_MANAGED_ENDPOINTS = {
 }
 
 
-def _azure_attestation_provider(snapshot, inventory, resource):
+def _azure_attestation_provider_recorded(snapshot, inventory, resource):
     """Assess the provider's documented public HTTPS attestation endpoint."""
     a = Assessment(resource, "managed_endpoint")
     a.authenticated = True
@@ -22249,7 +22249,7 @@ def _azure_fabric_external_data_share(snapshot, inventory, resource):
     return a
 
 
-def _azure_cost_export(snapshot, inventory, resource):
+def _azure_cost_export_recorded(snapshot, inventory, resource):
     """Configured cost-data delivery to a foreign subscription or tenant."""
     a = Assessment(resource, "data_pipeline")
     a.ports = {}
@@ -23749,7 +23749,7 @@ def _azure_stream_analytics_job(snapshot, inventory, resource):
     return a
 
 
-def _azure_managed_application(snapshot, inventory, resource):
+def _azure_managed_application_recorded(snapshot, inventory, resource):
     """Publisher management grants on the managed resource group."""
     a = Assessment(resource, "identity_trust")
     a.authenticated = True
@@ -23862,7 +23862,7 @@ def _azure_managed_application_definition(snapshot, inventory, resource):
     return a
 
 
-def _azure_attestation_provider(snapshot, inventory, resource):
+def _azure_attestation_provider_current(snapshot, inventory, resource):
     """Public attestation API reachability from ARM provider state."""
     a = Assessment(resource, "managed_endpoint")
     a.authenticated = True
@@ -24200,7 +24200,7 @@ def _azure_app_configuration_event_subscription(snapshot, inventory, resource):
     return a
 
 
-def _azure_cost_export(snapshot, inventory, resource):
+def _azure_cost_export_current(snapshot, inventory, resource):
     """Cost exports can deliver billing data to a different subscription."""
     a = Assessment(resource, "external_report_delivery")
     a.ports = {}
@@ -24392,7 +24392,7 @@ def _azure_lighthouse_assignment(snapshot, inventory, resource):
     return a
 
 
-def _azure_managed_application(snapshot, inventory, resource):
+def _azure_managed_application_current(snapshot, inventory, resource):
     """Assess publisher management of a customer-owned managed application."""
     a = Assessment(resource, "external_share")
     props = _props(resource)
@@ -24442,6 +24442,27 @@ def _azure_managed_application(snapshot, inventory, resource):
         a.data_exposure = True
     return a
 
+
+
+def _azure_attestation_provider(snapshot, inventory, resource):
+    props = _props(resource)
+    if "attestUri" in props or (resource["data"].get("_provenance") or {}).get("representation") == "full":
+        return _azure_attestation_provider_recorded(snapshot, inventory, resource)
+    return _azure_attestation_provider_current(snapshot, inventory, resource)
+
+
+def _azure_cost_export(snapshot, inventory, resource):
+    props = _props(resource)
+    if "deliveryInfo" in props:
+        return _azure_cost_export_recorded(snapshot, inventory, resource)
+    return _azure_cost_export_current(snapshot, inventory, resource)
+
+
+def _azure_managed_application(snapshot, inventory, resource):
+    data = resource["data"]
+    if "jitRequests" in data or "_coverage" in data:
+        return _azure_managed_application_recorded(snapshot, inventory, resource)
+    return _azure_managed_application_current(snapshot, inventory, resource)
 
 def _azure_managed_grafana(snapshot, inventory, resource):
     """Assess Grafana's workspace URL and external snapshot capability."""
@@ -30468,7 +30489,7 @@ def _aws_redshift_serverless_cross_account_vpc(snapshot, inventory, resource):
     return a
 
 
-def _aws_transfer_server(snapshot, inventory, resource):
+def _aws_transfer_server_vpc(snapshot, inventory, resource):
     """Transfer Family public or Elastic-IP-backed VPC server endpoint."""
     data = resource["data"]
     a = Assessment(resource, "transfer_server")
@@ -30546,6 +30567,13 @@ def _aws_transfer_server(snapshot, inventory, resource):
         a.dormant = True
         a.notes.append("Transfer server is not currently online; retained endpoint configuration applies after restart")
     return a
+
+
+def _aws_transfer_server(snapshot, inventory, resource):
+    detail = resource["data"].get("Server")
+    if isinstance(detail, dict) and detail.get("EndpointType") == "VPC":
+        return _aws_transfer_server_vpc(snapshot, inventory, resource)
+    return _aws_transfer_server_public(snapshot, inventory, resource)
 
 
 def _aws_transfer_web_app(snapshot, inventory, resource):
@@ -38051,6 +38079,10 @@ def _azure_sql_public_blocked(assessment):
 
 def _title(assessment, status):
     if assessment.resource["type"] == "transfer_server":
+        if assessment.kind == "transfer_server":
+            return ("Transfer VPC endpoint with public address" if status == "FAIL" else
+                    "Transfer VPC endpoint path unresolved" if status == "UNKNOWN" else
+                    "Transfer VPC endpoint has no active public path")
         return ("Transfer SFTP public listener" if status == "FAIL" else
                 "Transfer SFTP listener offline" if status == "PASS" else "Transfer SFTP listener unresolved")
     if assessment.kind == "external_deployment":
@@ -38203,111 +38235,197 @@ def _title(assessment, status):
 
 
 def _observed(assessment, status):
+    # Replace the newly prepended Azure branches through data_share in the
+    # combined _observed function. Preserve every branch below this block.
     if assessment.resource["type"] == "web_pubsub" and assessment.kind == "external_event_delivery":
         if status == "FAIL":
-            return "A Web PubSub hub forwards client events to an HTTP handler or Event Hub in another subscription; callback paths and tokens are not retained."
+            return ("The Web PubSub hub has an HTTP handler or a foreign Event Hub listener.\n"
+                    "Client events may be delivered to that configured receiver.\n"
+                    "Those events could contain data about people using the service.")
         if status == "PASS":
-            return "The collected hubs have no HTTP handler or foreign Event Hub event listener."
-        return "Hub delivery settings or Event Hub destination ownership are incomplete."
+            return ("The Web PubSub hubs have no HTTP handler or foreign Event Hub listener.\n"
+                    "Their recorded delivery settings do not send client events through those routes.\n"
+                    "Data in those events has no observed external destination through this setting.")
+        return ("The Web PubSub hub delivery setting or Event Hub owner is missing.\n"
+                "Whether client events may reach an external receiver is unclear.\n"
+                "Those events could contain data about people using the service.")
     if assessment.resource["type"] == "signalr_service" and assessment.kind == "external_event_delivery":
         if status == "FAIL":
-            return "Serverless SignalR has an HTTP upstream that can receive client events; only receiver hostnames are retained."
+            return ("The serverless SignalR service has an HTTP upstream template.\n"
+                    "Client events may be sent to its configured receiver hostname.\n"
+                    "Those events could contain data about people using the service.")
         if status == "PASS":
-            return "The collected SignalR service mode cannot run upstream hooks, or no upstream template is configured."
-        return "SignalR service mode or upstream template inventory is incomplete."
+            return ("The SignalR service mode cannot run upstream hooks, or it has no upstream template.\n"
+                    "Its recorded settings do not send client events through an upstream hook.\n"
+                    "Data in those events has no observed external destination through this setting.")
+        return ("The SignalR service mode or upstream template is missing.\n"
+                "Whether client events may reach an HTTP receiver is unclear.\n"
+                "Those events could contain data about people using the service.")
     if assessment.resource["type"] == "bastion_host":
         if status == "FAIL":
-            return "Azure Bastion has a public HTTPS client path or an issued shareable URL for a VM. Target VM authentication still applies; URL tokens are not retained."
+            return ("The Bastion host has a public HTTPS client path or an issued shareable VM link.\n"
+                    "A client may start a connection, subject to the VM's own authentication.\n"
+                    "That connection could reach data on the VM if access is granted.")
         if status == "PASS":
-            return "The collected Bastion client path is private or excludes public clients, and no issued shareable URL was found."
-        return "Bastion public IP, subnet access, shared endpoint ACL, or shareable-link inventory is incomplete."
+            return ("The Bastion client path excludes public clients, and no issued shareable VM link is recorded.\n"
+                    "Its recorded settings do not offer a public Bastion route to the VM.\n"
+                    "VM data has no observed public Bastion path through this setting.")
+        return ("The Bastion public IP, subnet rule, shared endpoint rule, or link inventory is missing.\n"
+                "Whether a public client may start a Bastion connection is unclear.\n"
+                "That connection could reach VM data if separate authentication allows it.")
     if assessment.resource["type"] == "app_configuration_event_subscription":
         if status == "FAIL":
-            return "An active App Configuration event subscription targets a webhook host or an Azure resource in another subscription. Event metadata may be delivered; webhook paths and tokens are not retained."
+            return ("The active App Configuration event subscription targets a webhook or foreign Azure resource.\n"
+                    "Event metadata may be delivered to that configured destination.\n"
+                    "That metadata could reveal activity to people outside the source subscription.")
         if status == "PASS":
-            return "The event subscription has expired or its configured Azure destinations are in the source subscription."
-        return "The event destination, its recipient ownership, action-group recipients, or subscription state is unresolved."
+            return ("The App Configuration event subscription is expired or targets only same-subscription Azure resources.\n"
+                    "Its recorded destination does not provide an active foreign delivery route.\n"
+                    "Event metadata has no observed external destination through this subscription.")
+        return ("The App Configuration event destination, owner, action-group recipient, or active state is missing.\n"
+                "Whether event metadata may reach another recipient is unclear.\n"
+                "That metadata could reveal activity to people outside the source subscription.")
     if assessment.resource["type"] == "app_configuration_private_connection":
         if status == "FAIL":
-            return "The store approved a private endpoint in another subscription; the connection is provisioned. Application authentication still applies."
+            return ("The store has an approved, provisioned private endpoint in another subscription.\n"
+                    "That endpoint may connect to the store if application authentication also allows it.\n"
+                    "A permitted connection could read configuration data used by applications.")
         if status == "PASS":
-            return "The private endpoint is in the store's subscription or its connection is rejected or disconnected."
-        return "The private endpoint owner, approval, or provisioning state is unresolved."
+            return ("The store's private endpoint belongs to its subscription or is rejected or disconnected.\n"
+                    "Its recorded connection does not grant a foreign private route.\n"
+                    "Configuration data has no observed foreign path through this endpoint.")
+        return ("The store's private endpoint owner, approval, or provisioning state is missing.\n"
+                "Whether a foreign endpoint may connect to the store is unclear.\n"
+                "That connection could reach configuration data if authentication allows it.")
     if assessment.resource["type"] == "app_configuration":
         if status == "FAIL":
-            return "The store allows public access, or its enforced perimeter has an inbound public-IP or cross-subscription rule. Client authentication still applies."
+            return ("The store allows public access or has an enforced public or foreign perimeter inbound rule.\n"
+                    "A client may reach the store through that configured route if authentication allows it.\n"
+                    "That route could expose configuration data used by applications.")
         if status == "PASS":
-            return "The collected store and perimeter settings block public inbound access under the evaluated rule set."
-        return "The store's public access or effective perimeter association and inbound rules are incomplete or unresolved."
+            return ("The store and its effective perimeter rules block public inbound access.\n"
+                    "Their recorded settings provide no public inbound route.\n"
+                    "Configuration data has no observed public path through these settings.")
+        return ("The store's public access setting or effective perimeter inbound rules are incomplete.\n"
+                "Whether public clients may reach the store is unclear.\n"
+                "That could affect configuration data used by applications.")
     if assessment.resource["type"] == "cost_export":
         if status == "FAIL":
-            return "The configured billing-data export destination is a storage account in another subscription."
+            return ("The billing-data export targets a storage account in another subscription.\n"
+                    "Billing records may be written to that configured destination.\n"
+                    "Those records could reveal spending or usage information to its owner.")
         if status == "PASS":
-            return "The configured billing-data export destination is in the source subscription."
-        return "The export destination owner cannot be established from the returned storage account or partner SAS metadata."
+            return ("The billing-data export targets a storage account in the source subscription.\n"
+                    "Its recorded destination stays within that subscription.\n"
+                    "Billing records have no observed foreign destination through this export.")
+        return ("The export destination's storage account owner or partner SAS metadata is missing.\n"
+                "Whether billing records may reach a foreign subscription is unclear.\n"
+                "Those records could reveal spending or usage information to its owner.")
     if assessment.resource["type"] in ("acat_report", "acat_webhook"):
         if status == "FAIL":
-            return ("The report stores results outside its source subscriptions or an enabled webhook is configured "
-                    "to send report events to a URL. Only destination subscription or host metadata is retained.")
+            return ("The App Compliance report has foreign storage or an enabled event webhook URL.\n"
+                    "Report results or events may be delivered to that configured destination.\n"
+                    "Those details could reveal security information to its recipient.")
         if status == "PASS":
-            return "The report has no external storage destination, or this webhook is disabled or has no subscribed events."
-        return "Report storage, webhook inventory, active state, event selection, or destination is unresolved."
+            return ("The App Compliance report has no external storage destination or active event webhook.\n"
+                    "Its recorded settings provide no active external delivery route.\n"
+                    "Report details have no observed foreign destination through this setting.")
+        return ("The report's storage, webhook state, selected events, or destination is missing.\n"
+                "Whether report details may reach an external recipient is unclear.\n"
+                "Those details could reveal security information if delivered.")
     if assessment.resource["type"] == "private_link_service":
         if status == "FAIL":
-            return ("The provider's Private Link Service auto-approves another subscription or has an approved "
-                    "private endpoint from it. This is private cross-subscription access; the consumer's tenant "
-                    "and application authentication are not established by this resource response.")
+            return ("The Private Link Service auto-approves a foreign subscription or has its approved endpoint.\n"
+                    "That consumer may use the private connection if its own access rules allow it.\n"
+                    "A permitted connection could reach data served through this service.")
         if status == "PASS":
-            return "The service restricts visibility to its owner subscription and has no external approvals."
-        return "The service's access mode, visibility, or pending connection approval does not establish effective external access."
+            return ("The Private Link Service limits visibility to its owner and has no foreign approval.\n"
+                    "Its recorded settings provide no approved foreign private connection.\n"
+                    "Served data has no observed foreign path through this service.")
+        return ("The Private Link Service visibility or endpoint approval is missing.\n"
+                "Whether a foreign consumer may use a private connection is unclear.\n"
+                "That connection could reach data served through this service.")
     if assessment.resource["type"] == "managed_grafana":
         if status == "FAIL":
             if any(step.get("layer") == "external_snapshot" for step in assessment.path):
-                return ("The read-only Grafana snapshot list contains an unexpired externally published snapshot. "
-                        "The share is a public capability link; its key and URL are omitted from evidence storage.")
-            return ("A succeeded Grafana workspace has public network access enabled and an HTTPS workspace URL. "
-                    "Authentication remains required; snapshots are checked through a separate Grafana list.")
+                return ("The Grafana snapshot list contains an unexpired externally published snapshot.\n"
+                        "Anyone holding its capability link may open that snapshot.\n"
+                        "The snapshot could contain dashboard data about people or services.")
+            return ("The succeeded Grafana workspace has public network access and an HTTPS URL.\n"
+                    "A public client may reach its sign-in path, subject to authentication.\n"
+                    "An authenticated client could view dashboard data about people or services.")
         if status == "PASS":
-            return "The workspace blocks public network access and the complete Grafana list has no unexpired external snapshot."
-        return ("Workspace state, URL, public network setting, or external snapshot publishing is unresolved. "
-                "An enabled snapshot publisher alone does not prove that a snapshot was published.")
+            return ("The Grafana workspace blocks public network access and has no unexpired external snapshot.\n"
+                    "Its recorded settings provide no public workspace or snapshot route.\n"
+                    "Dashboard data has no observed public path through these settings.")
+        return ("The Grafana workspace state, URL, network setting, or snapshot list is missing.\n"
+                "Whether a public workspace or snapshot route exists is unclear.\n"
+                "That route could expose dashboard data about people or services.")
     if assessment.resource["type"] == "managed_application":
         if status == "FAIL":
-            return ("The succeeded customer-managed resource has publisher-managed mode, a foreign publisher tenant, "
-                    "authorized principals, and just-in-time access disabled. The publisher can manage its managed resource group; "
-                    "specific operations and data reads depend on the granted roles.")
+            return ("The managed application has a foreign publisher tenant and authorized principals without just-in-time access.\n"
+                    "Those principals may manage its resource group within their granted roles.\n"
+                    "Their permitted actions could affect application data or service availability.")
         if status == "PASS":
-            return "The application is customer-managed, has no publisher principal grant, or belongs to the same verified tenant."
-        return ("The publisher grant, customer tenant, application state, or just-in-time activation is unresolved. "
-                "The collected response does not prove current foreign publisher access.")
+            return ("The managed application has no foreign publisher principal grant in its recorded state.\n"
+                    "This setting provides no foreign publisher management route.\n"
+                    "Application data has no observed foreign publisher path through this grant.")
+        return ("The managed application's publisher grant, tenant, state, or just-in-time setting is missing.\n"
+                "Whether a foreign publisher may manage its resources is unclear.\n"
+                "Such management could affect application data or service availability.")
     if assessment.resource["type"] == "lighthouse_assignment":
         if status == "FAIL":
-            return ("A succeeded Lighthouse registration assignment links to a succeeded expanded definition for a different managing tenant.\n"
-                    "The definition names principals and active built-in roles at this subscription or resource-group scope.\n"
-                    "This grants delegated ARM access; actual operations and role-specific data reads were not observed.")
+            return ("The active Lighthouse assignment names a different managing tenant and built-in roles.\n"
+                    "Its named principals may perform the operations granted at this scope.\n"
+                    "Those operations could affect data or services in the subscription.")
         if status == "PASS":
-            return "The collected assignment has no principal grant or its managing tenant matches the verified subscription tenant."
-        return ("The Lighthouse assignment, expanded definition, tenant ownership, or just-in-time activation is incomplete.\n"
-                "The collected facts do not prove current foreign access.\n"
-                "A completed grant could delegate ARM operations at this scope.")
+            return ("The Lighthouse assignment has no principal grant or names the subscription's tenant.\n"
+                    "Its recorded definition provides no foreign delegated ARM route.\n"
+                    "Data and services have no observed foreign path through this assignment.")
+        return ("The Lighthouse assignment, definition, tenant, or activation state is missing.\n"
+                "Whether foreign principals may perform delegated ARM operations is unclear.\n"
+                "Those operations could affect data or services in the subscription.")
     if assessment.resource["type"] in ("data_share_invitation", "data_share_provider_subscription"):
-        kind = assessment.resource["type"]
-        if kind == "data_share_provider_subscription":
-            return ("The provider share subscription is Active in the collected Data Share response.\n"
-                    "The recorded consumer can receive data from this share while the subscription remains active.\n"
-                    "The API supplies a consumer tenant name, not a tenant ID or proof of organizational ownership.") if status == "FAIL" else (
-                    "The provider share subscription is revoked or its source is deleted." if status == "PASS" else
-                    "The provider share subscription status is incomplete; recipient access is unresolved.")
+        if assessment.resource["type"] == "data_share_provider_subscription":
+            if status == "FAIL":
+                return ("The Data Share provider subscription is Active for its recorded consumer.\n"
+                        "That consumer may receive data while the subscription remains active.\n"
+                        "The shared data could contain information about people or services.")
+            if status == "PASS":
+                return ("The Data Share provider subscription is revoked or its source is deleted.\n"
+                        "Its recorded state does not deliver data to that consumer.\n"
+                        "Shared data has no observed delivery path through this subscription.")
+            return ("The Data Share provider subscription status or consumer identity is missing.\n"
+                    "Whether that consumer may receive shared data is unclear.\n"
+                    "The shared data could contain information about people or services.")
         if status == "PASS":
-            return "The Data Share invitation is rejected or withdrawn, so it grants no current share access."
-        return ("The Data Share invitation is pending, accepted without an observed active subscription, or its recipient tenant cannot be established.\n"
-                "The collected invitation does not prove current third-party access.\n"
-                "Acceptance and provider subscription state determine whether data can be received.")
+            return ("The Data Share invitation is rejected or withdrawn.\n"
+                    "Its recorded state provides no current share invitation path.\n"
+                    "Shared data has no observed delivery through this invitation.")
+        return ("The Data Share invitation is pending, lacks an active subscription, or has no verified recipient tenant.\n"
+                "Whether its recipient may receive shared data is unclear.\n"
+                "The shared data could contain information about people or services.")
     """A short observation, with uncertainty retained when a path is incomplete."""
     if assessment.resource["type"] == "transfer_server":
         data = assessment.resource["data"]
         detail = data.get("Server") if isinstance(data.get("Server"), dict) else {}
         server_id = data.get("ServerId") or "with an unrecorded ID"
+        if assessment.kind == "transfer_server":
+            endpoint = detail.get("EndpointDetails") if isinstance(detail.get("EndpointDetails"), dict) else {}
+            allocations = endpoint.get("AddressAllocationIds")
+            if status == "FAIL":
+                return (f"Transfer server {server_id} has a VPC endpoint with recorded public Elastic IP allocations {allocations}.\n"
+                        "Its recorded subnet and security group path may permit a client connection.\n"
+                        "Authentication still controls file access through that endpoint.\n"
+                        "Files could be exposed to an admitted user if those settings allow access.")
+            if status == "PASS":
+                return (f"Transfer server {server_id} has a VPC endpoint with recorded allocations {allocations}.\n"
+                        "Its recorded state or network path blocks a public client connection.\n"
+                        "Files are not available through that blocked public path.")
+            return (f"Transfer server {server_id} has VPC endpoint allocations {allocations}.\n"
+                    "Its address, subnet, security group, or online state is incomplete.\n"
+                    "Whether a public client may connect is unclear.\n"
+                    "Files could be exposed if the unresolved settings permit access.")
         if status == "FAIL":
             listener = next((step for step in assessment.path if step.get("layer") == "listener"), {})
             ports = ", ".join(str(port) for port in listener.get("ports", []))
@@ -39311,6 +39429,139 @@ def _observed(assessment, status):
         return ("The registry has anonymousPullEnabled true.\n"
                 "Its public network path is unresolved, so internet pull access cannot be determined.\n"
                 "The scan did not inventory whether repositories contain images.")
+    if assessment.resource["type"] == "devops_project":
+        if status == "FAIL":
+            return ("The Azure DevOps project has visibility set to public.\n"
+                    "A visitor may view its public project content without signing in.\n"
+                    "That content could contain information about people, code, or services.")
+        if status == "PASS":
+            return ("The Azure DevOps project has visibility set to private.\n"
+                    "Its recorded setting does not offer anonymous project access.\n"
+                    "Project information has no observed public path through this setting.")
+        return ("The Azure DevOps project visibility value is missing or inconsistent.\n"
+                "Whether visitors may view its content without signing in is unclear.\n"
+                "That content could contain information about people, code, or services.")
+    if assessment.resource["type"] in ("eventgrid_topic", "eventgrid_domain"):
+        noun = "topic" if assessment.resource["type"] == "eventgrid_topic" else "domain"
+        if status == "FAIL":
+            return (f"The Event Grid {noun} has an HTTPS publishing endpoint that admits a public IP source.\n"
+                    "A client from that source may send events if publisher authorization allows it.\n"
+                    "Those events could affect people or services that consume them.")
+        if status == "PASS":
+            return (f"The Event Grid {noun} disables public network access or has no public source in its IP rules.\n"
+                    "Its recorded network setting blocks the public publishing endpoint.\n"
+                    "Event consumers have no observed public publishing path through this setting.")
+        return (f"The Event Grid {noun} endpoint or inbound IP rule is missing or malformed.\n"
+                "Whether a public source may reach its publishing endpoint is unclear.\n"
+                "Published events could affect people or services that consume them.")
+    if assessment.resource["type"] == "automation_account":
+        if status == "FAIL":
+            return ("The Automation account has an enabled, unexpired runbook webhook.\n"
+                    "A holder of its bearer URL may invoke the configured runbook.\n"
+                    "That invocation could affect data or services the runbook can access.")
+        if status == "PASS":
+            return ("The Automation account has no enabled, unexpired runbook webhook.\n"
+                    "Its recorded webhook settings provide no active bearer URL route.\n"
+                    "Data and services have no observed invocation path through this setting.")
+        return ("The Automation account webhook inventory, enabled flag, expiry, or time is missing.\n"
+                "Whether a bearer URL may invoke a runbook is unclear.\n"
+                "Such an invocation could affect data or services the runbook can access.")
+    if assessment.resource["type"] == "iot_hub":
+        if status == "FAIL":
+            return ("The IoT Hub network rules admit a public source to its device or service listener.\n"
+                    "A client from that source may connect if device or service authentication allows it.\n"
+                    "That connection could affect device messages or service data.")
+        if status == "PASS":
+            return ("The IoT Hub IP rules admit no public source.\n"
+                    "Its recorded network setting blocks the public device and service listeners.\n"
+                    "Device messages have no observed public path through this setting.")
+        return ("The IoT Hub default network action or an IP rule is missing or malformed.\n"
+                "Whether a public client may reach its listeners is unclear.\n"
+                "That connection could affect device messages or service data.")
+    if assessment.resource["type"] == "mssql_managed_instance":
+        if status == "FAIL":
+            return ("The SQL Managed Instance enables its public data endpoint and its subnet NSG admits a public source.\n"
+                    "A client from that source may reach the TDS listener if the service responds.\n"
+                    "SQL authentication still controls access to database data.")
+        if status == "PASS":
+            return ("The SQL Managed Instance disables its public data endpoint or its subnet NSG blocks public sources.\n"
+                    "Its recorded settings provide no public route to the TDS listener.\n"
+                    "Database data has no observed public path through that endpoint.")
+        return ("The SQL Managed Instance public endpoint setting, subnet, or NSG path is incomplete.\n"
+                "Whether a public client may reach its TDS listener is unclear.\n"
+                "A permitted connection could reach database data if SQL authentication allows it.")
+    if assessment.resource["type"] in ("service_fabric_cluster", "service_fabric_managed_cluster"):
+        noun = "Service Fabric cluster" if assessment.resource["type"] == "service_fabric_cluster" else "managed Service Fabric cluster"
+        listener = next((step for step in assessment.path
+                         if step.get("layer") in ("cluster_management", "public_load_balancer")), None)
+        if listener is not None:
+            return (f"The {noun} records a management or client listener and a public address.\n"
+                    "Its network ingress rules are missing, so public reachability is unclear.\n"
+                    "A reachable listener could affect cluster services if authorization allows it.")
+        return (f"The {noun} management address, client port, or ready state is missing.\n"
+                "Whether its control listener has a public route is unclear.\n"
+                "A reachable listener could affect cluster services if authorization allows it.")
+    if assessment.resource["type"] == "ml_compute":
+        if status == "PASS":
+            return ("The ML compute instance has sshPublicAccess set to Disabled.\n"
+                    "Its recorded SSH setting blocks the public SSH route.\n"
+                    "Compute files have no observed public path through that setting.")
+        if any(step.get("layer") == "public_ssh" and step.get("setting") == "Enabled"
+               for step in assessment.path):
+            return ("The ML compute instance has sshPublicAccess set to Enabled.\n"
+                    "Its subnet policy and public address are missing, so SSH reachability is unclear.\n"
+                    "A reachable SSH listener could expose compute files if authentication allows it.")
+        return ("The ML compute type or public SSH setting is missing.\n"
+                "Whether an SSH listener has a public route is unclear.\n"
+                "A reachable SSH listener could expose compute files if authentication allows it.")
+    if assessment.resource["type"] == "recovery_vault":
+        foreign = any(step.get("layer") == "private_vault_share" and step.get("decision") == "allow"
+                      for step in assessment.path)
+        if status == "FAIL" and foreign:
+            return ("The Recovery Services vault has an approved foreign private endpoint.\n"
+                    "That endpoint may reach the vault if Azure authorization also allows it.\n"
+                    "A permitted connection could affect backup data held by the vault.")
+        if status == "FAIL":
+            return ("The Recovery Services vault has publicNetworkAccess set to Enabled.\n"
+                    "A public client may reach its endpoint if network delivery and Azure authorization allow it.\n"
+                    "A permitted connection could affect backup data held by the vault.")
+        if status == "PASS":
+            return ("The Recovery Services vault has publicNetworkAccess set to Disabled and no approved foreign endpoint.\n"
+                    "Its recorded settings provide no public or foreign private route.\n"
+                    "Backup data has no observed external path through these settings.")
+        return ("The Recovery Services vault public network setting or private endpoint approval is missing.\n"
+                "Whether a public or foreign private client may reach it is unclear.\n"
+                "A permitted connection could affect backup data held by the vault.")
+    if assessment.resource["type"] == "oracle_cloud_vm_cluster":
+        public = any(step.get("layer") == "oracle_nsg" and step.get("public_sources")
+                     for step in assessment.path)
+        if public:
+            return ("The Oracle cluster NSG lists a globally routable source CIDR for its database listener.\n"
+                    "Its SCAN address and Azure VNet ingress path are missing, so reachability is unclear.\n"
+                    "A reachable listener could expose database data if Oracle authentication allows it.")
+        return ("The Oracle cluster NSG lists no globally routable source CIDR, or its CIDR list is missing.\n"
+                "Implicit VNet rules and the database route remain unresolved.\n"
+                "A separate permitted route could reach database data if authentication allows it.")
+    if assessment.resource["type"] == "palo_alto_firewall":
+        public = any(step.get("layer") == "firewall_public_ips" and step.get("addresses")
+                     for step in assessment.path)
+        if public:
+            return ("The Cloud NGFW has a globally routable public IP assignment.\n"
+                    "Its frontend and DNAT rule stack are missing, so admitted traffic is unclear.\n"
+                    "A permitted route could affect services or data behind the firewall.")
+        return ("The Cloud NGFW has no recorded global public IP assignment, or that list is missing.\n"
+                "Other frontend routes and rule-stack behavior remain unclear.\n"
+                "A separate permitted route could affect services or data behind the firewall.")
+    if assessment.resource["type"] == "network_cloud_vm":
+        public = any(step.get("layer") == "nexus_network_attachment" and step.get("public_addresses")
+                     for step in assessment.path)
+        if public:
+            return ("The Operator Nexus VM has a globally routable network attachment address.\n"
+                    "Network Fabric routing and ACLs are missing, so reachability is unclear.\n"
+                    "A reachable VM service could expose its data if authentication allows it.")
+        return ("The Operator Nexus VM has no recorded global attachment address, or its attachment list is missing.\n"
+                "Dynamic addresses and the external fabric route remain unclear.\n"
+                "A separate reachable VM service could expose its data if authentication allows it.")
     if status == "UNKNOWN":
         return "Internet access could not be determined because required configuration is missing."
     if status == "PASS":
