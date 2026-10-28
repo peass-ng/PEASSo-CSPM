@@ -207,6 +207,17 @@ def test_compute_gallery_community_and_direct_sharing_policy():
         "groups": [{"type": "AADTenants", "ids": ["outside-tenant"]}]}})
     assert direct.verdict() == "UNKNOWN"
     assert len(_observed(direct, "UNKNOWN").splitlines()) == 3
+    def tenant_sharing(owner_verified, recipients):
+        item = {"id": f"{SCOPE}/resourceGroups/rg/providers/Microsoft.Compute/galleries/images",
+                "properties": {"sharingProfile": {"permissions": "Groups",
+                    "groups": [{"type": "AADTenants", "ids": recipients}]}},
+                "_provenance": {"tenant_id": "home-tenant", "tenant_verified": owner_verified}}
+        snap = make_snapshot("azure", [SCOPE], [{"type": "compute_gallery", "scope": SCOPE,
+            "service": "compute", "status": "collected", "items": [item]}])
+        return assess(snap, resources(snap))[0]
+    assert tenant_sharing(True, ["outside-tenant"]).verdict() == "FAIL"
+    assert tenant_sharing(True, ["home-tenant"]).verdict() == "PASS"
+    assert tenant_sharing(False, ["outside-tenant"]).verdict() == "UNKNOWN"
     other_subscription = decision("compute_gallery", {"sharingProfile": {"permissions": "Groups",
         "groups": [{"type": "Subscriptions", "ids": ["test", "outside-subscription"]}]}})
     assert other_subscription.verdict() == "FAIL"
