@@ -5585,15 +5585,28 @@ def _azure_databricks_workspace(snapshot, inventory, resource):
                     else:
                         a.gap('policy', 'Databricks IP lists do not establish a surviving public source')
         if restricted_rules is not None:
-            rules = restricted_rules.get('public_ui_rules')
-            denies = restricted_rules.get('public_ui_denies')
-            if (ip_policy is not None and isinstance(denies, list)
-                    and restricted_rules.get('deny_rule_count') == len(denies)
-                    and isinstance(rules, list) and rules
-                    and (witness := _databricks_public_witness(rules, *ip_policy, denies))):
-                a.step('workspace_context_ingress', 'allow', restriction_mode='RESTRICTED_ACCESS',
-                       destination='workspace_ui', public_source_ip=witness)
-            else:
+            found = False
+            for target, rule_key, deny_key, ignored_key in (
+                    ('workspace_ui', 'public_ui_rules', 'public_ui_denies', 'ui_ignored_deny_count'),
+                    ('workspace_api', 'public_api_rules', 'public_api_denies', 'api_ignored_deny_count')):
+                rules = restricted_rules.get(rule_key)
+                denies = restricted_rules.get(deny_key)
+                ignored = restricted_rules.get(ignored_key)
+                if (ip_policy is None or not isinstance(rules, list) or not isinstance(denies, list)
+                        or type(ignored) is not int
+                        or restricted_rules.get('deny_rule_count') != len(denies) + ignored):
+                    continue
+                for rule in rules:
+                    witness = _databricks_public_witness([rule], *ip_policy, denies)
+                    if witness:
+                        detail = {'api_scope': rule['scope']} if target == 'workspace_api' else {}
+                        a.step('workspace_context_ingress', 'allow', restriction_mode='RESTRICTED_ACCESS',
+                               destination=target, public_source_ip=witness, **detail)
+                        found = True
+                        break
+                if found:
+                    break
+            if not found:
                 a.gap('policy', 'Databricks context ingress rules require identity, source and destination matching')
         if not a.addresses:
             a.gap("inventory", "Databricks workspaceUrl is unavailable")

@@ -14,13 +14,30 @@ _BINDING = re.compile(r'/api/2\.0/accounts/(' + UUID + r')/workspaces/([1-9][0-9
 _POLICY = re.compile(r'/api/2\.0/accounts/(' + UUID + r')/network-policies/([A-Za-z0-9_.-]{1,32})')
 
 
-def _ui_rule(rule):
-    """Project public workspace-UI rules applying to every human user."""
+def _public_rule(rule, target, *, deny=False):
+    """Project a public UI or SQL API rule applying to every human user."""
     if not isinstance(rule, dict) or set(rule) - {'origin', 'destination', 'authentication', 'label'}:
         return None
     destination = rule.get('destination')
-    if destination not in ({'all_destinations': True}, {'workspace_ui': {'all_destinations': True}}):
-        return None
+    if target == 'ui':
+        if destination not in ({'all_destinations': True}, {'workspace_ui': {'all_destinations': True}}):
+            return None
+    elif target == 'api':
+        if destination == {'all_destinations': True} or destination == {'workspace_api': {}}:
+            scope = 'all'
+        elif (not deny and isinstance(destination, dict) and set(destination) == {'workspace_api'}
+              and isinstance(destination['workspace_api'], dict)
+              and set(destination['workspace_api']) == {'scopes', 'scope_qualifier'}
+              and isinstance(destination['workspace_api']['scopes'], list)
+              and 1 <= len(destination['workspace_api']['scopes']) <= 100
+              and 'sql' in destination['workspace_api']['scopes']
+              and destination['workspace_api']['scope_qualifier'] in
+                  ('API_SCOPE_QUALIFIER_READ', 'API_SCOPE_QUALIFIER_ALL')):
+            scope = 'sql'
+        else:
+            return None
+    else:
+        raise ValueError('unsupported Databricks ingress target')
     authentication = rule.get('authentication')
     if authentication is not None and authentication != {'identity_type': 'IDENTITY_TYPE_ALL_USERS'}:
         return None
@@ -28,7 +45,8 @@ def _ui_rule(rule):
     if not isinstance(origin, dict):
         return None
     if origin == {'all_ip_ranges': True}:
-        return {'origin': 'all', 'ranges': []}
+        result = {'origin': 'all', 'ranges': []}
+        return {**result, 'scope': scope} if target == 'api' else result
     if len(origin) != 1 or next(iter(origin)) not in ('included_ip_ranges', 'excluded_ip_ranges'):
         return None
     kind, spec = next(iter(origin.items()))
@@ -45,7 +63,32 @@ def _ui_rule(rule):
         if network.version != 4:
             return None
         ranges.append(str(network))
-    return {'origin': 'include' if kind == 'included_ip_ranges' else 'exclude', 'ranges': ranges}
+    result = {'origin': 'include' if kind == 'included_ip_ranges' else 'exclude', 'ranges': ranges}
+    return {**result, 'scope': scope} if target == 'api' else result
+
+
+def _other_destination(rule, target):
+    """Count a recognized deny whose destination cannot affect this target."""
+    if not isinstance(rule, dict) or set(rule) - {'origin', 'destination', 'authentication', 'label'}:
+        return False
+    destination = rule.get('destination')
+    return (target == 'ui' and isinstance(destination, dict) and set(destination) == {'workspace_api'}
+            or target == 'api' and destination == {'workspace_ui': {'all_destinations': True}})
+
+
+def _valid_projected_rule(rule, *, api=False):
+    if (not isinstance(rule, dict) or set(rule) != ({'origin', 'ranges', 'scope'} if api else {'origin', 'ranges'})
+            or rule['origin'] not in ('all', 'include', 'exclude')
+            or not isinstance(rule['ranges'], list) or len(rule['ranges']) > 1000
+            or rule['origin'] == 'all' and rule['ranges']
+            or rule['origin'] != 'all' and not rule['ranges']
+            or api and rule['scope'] not in ('all', 'sql')):
+        return False
+    try:
+        return all(isinstance(cidr, str) and isinstance(
+            ipaddress.ip_network(cidr, strict=False), ipaddress.IPv4Network) for cidr in rule['ranges'])
+    except ValueError:
+        return False
 
 
 def endpoint(path):
@@ -75,7 +118,8 @@ def project(value, path):
     # injected transports are projected at the collector boundary as well.
     if 'ingress' not in value and set(value) == {
             'account_id', 'network_policy_id', 'restriction_mode',
-            'allow_rule_count', 'deny_rule_count', 'public_ui_rules', 'public_ui_denies'}:
+            'allow_rule_count', 'deny_rule_count', 'public_ui_rules', 'public_ui_denies',
+            'public_api_rules', 'public_api_denies', 'ui_ignored_deny_count', 'api_ignored_deny_count'}:
         if (value['restriction_mode'] not in ('FULL_ACCESS', 'RESTRICTED_ACCESS')
                 or type(value['allow_rule_count']) is not int or not 0 <= value['allow_rule_count'] <= 1000
                 or type(value['deny_rule_count']) is not int or not 0 <= value['deny_rule_count'] <= 1000
@@ -83,15 +127,22 @@ def project(value, path):
                 or len(value['public_ui_rules']) > value['allow_rule_count']
                 or not isinstance(value['public_ui_denies'], list)
                 or len(value['public_ui_denies']) > value['deny_rule_count']
-                or any(not isinstance(rule, dict) or set(rule) != {'origin', 'ranges'}
-                       or rule['origin'] not in ('all', 'include', 'exclude')
-                       or not isinstance(rule['ranges'], list) or len(rule['ranges']) > 1000
-                       or rule['origin'] == 'all' and rule['ranges']
-                       or rule['origin'] != 'all' and not rule['ranges']
-                       or any(not isinstance(cidr, str) or not isinstance(
-                           ipaddress.ip_network(cidr, strict=False), ipaddress.IPv4Network)
-                           for cidr in rule['ranges']) for rule in
-                       (*value['public_ui_rules'], *value['public_ui_denies']))):
+                or not isinstance(value['public_api_rules'], list)
+                or len(value['public_api_rules']) > value['allow_rule_count']
+                or not isinstance(value['public_api_denies'], list)
+                or len(value['public_api_denies']) > value['deny_rule_count']
+                or type(value['ui_ignored_deny_count']) is not int
+                or type(value['api_ignored_deny_count']) is not int
+                or not 0 <= value['ui_ignored_deny_count'] <= value['deny_rule_count']
+                or not 0 <= value['api_ignored_deny_count'] <= value['deny_rule_count']
+                or len(value['public_ui_denies']) + value['ui_ignored_deny_count'] > value['deny_rule_count']
+                or len(value['public_api_denies']) + value['api_ignored_deny_count'] > value['deny_rule_count']
+                or any(not _valid_projected_rule(rule) for rule in
+                       (*value['public_ui_rules'], *value['public_ui_denies']))
+                or any(not _valid_projected_rule(rule, api=True) for rule in
+                       (*value['public_api_rules'], *value['public_api_denies']))
+                or sum(len(rule['ranges']) for rule in (*value['public_ui_rules'], *value['public_ui_denies'],
+                       *value['public_api_rules'], *value['public_api_denies'])) > 2000):
             raise ValueError('invalid projected Databricks ingress policy')
         return value
     ingress = value.get('ingress')
@@ -104,14 +155,19 @@ def project(value, path):
             or len(allows) > 1000 or len(denies) > 1000
             or any(not isinstance(rule, dict) for rule in (*allows, *denies))):
         raise ValueError('Databricks ingress rules unavailable')
-    ui_rules = [projected for rule in allows if (projected := _ui_rule(rule)) is not None]
-    ui_denies = [projected for rule in denies if (projected := _ui_rule(rule)) is not None]
-    if sum(len(rule['ranges']) for rule in (*ui_rules, *ui_denies)) > 1000:
+    ui_rules = [projected for rule in allows if (projected := _public_rule(rule, 'ui')) is not None]
+    ui_denies = [projected for rule in denies if (projected := _public_rule(rule, 'ui', deny=True)) is not None]
+    api_rules = [projected for rule in allows if (projected := _public_rule(rule, 'api')) is not None]
+    api_denies = [projected for rule in denies if (projected := _public_rule(rule, 'api', deny=True)) is not None]
+    if sum(len(rule['ranges']) for rule in (*ui_rules, *ui_denies, *api_rules, *api_denies)) > 2000:
         raise ValueError('oversized Databricks ingress ranges')
     return {'account_id': match[1], 'network_policy_id': match[2],
             'restriction_mode': public['restriction_mode'],
             'allow_rule_count': len(allows), 'deny_rule_count': len(denies),
-            'public_ui_rules': ui_rules, 'public_ui_denies': ui_denies}
+            'public_ui_rules': ui_rules, 'public_ui_denies': ui_denies,
+            'public_api_rules': api_rules, 'public_api_denies': api_denies,
+            'ui_ignored_deny_count': sum(_other_destination(rule, 'ui') for rule in denies),
+            'api_ignored_deny_count': sum(_other_destination(rule, 'api') for rule in denies)}
 
 
 def request_policy(path, auth):
@@ -174,7 +230,8 @@ def collect(reader, transport, scopes, wanted, options, auth):
                     policy = project(policy, policy_path)
                     row.update(policyStatus='collected', **{k: policy[k] for k in
                         ('network_policy_id', 'restriction_mode', 'allow_rule_count', 'deny_rule_count',
-                         'public_ui_rules', 'public_ui_denies')},
+                         'public_ui_rules', 'public_ui_denies', 'public_api_rules', 'public_api_denies',
+                         'ui_ignored_deny_count', 'api_ignored_deny_count')},
                         _provenance={'source_operations': ['Account.WorkspaceNetworkOption.Get', 'Account.NetworkPolicy.Get'],
                                      'read_only': True, 'exact_resource_id': rid, 'account_id': account, 'workspace_id': wid})
                 except Exception as exc:

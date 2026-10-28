@@ -6,7 +6,7 @@ The only native requests are GET `/api/2.0/workspace-conf?keys=enableIpAccessLis
 
 The analyzer proves a blocked direct public path when an enabled BLOCK list covers `0.0.0.0/0` or all active ALLOW ranges lie within RFC1918 space. Otherwise it joins the separately collected account context ingress policy and preserves `UNKNOWN` if that policy is unavailable or cannot resolve the path. [Databricks documents](https://learn.microsoft.com/en-us/azure/databricks/security/network/front-end/ip-access-list) that context-based ingress is evaluated jointly with workspace IP access lists. Policy changes can also take a few minutes to become effective.
 
-Current source SHA-256: collector `d79f224039d6b4897165efe16b1ada0a1b2c63f8c66646156136f612a1fe473a`; Azure collector dispatcher `485d5d6eeb1a24ca8975a919f74a6df80dbcdefb21530b795be7987697c3f99b`; exposure analyzer `5421dfb33fa3d98f007f9e1a4fbe00a18d5cb102766269a11979b62350f74fc6`.
+Current source SHA-256: collector `d79f224039d6b4897165efe16b1ada0a1b2c63f8c66646156136f612a1fe473a`; Azure collector dispatcher `485d5d6eeb1a24ca8975a919f74a6df80dbcdefb21530b795be7987697c3f99b`; exposure analyzer `1ea2cde12e366371ec59bf4c9299f06ed872fd2c0f3ed26e0bfe93914098ba4b`.
 
 Hosted intake source SHA-256: connector validator `4a013f5c5435c97bf666f4c52347a007bb9476b59d6a9fd0ba0b08e92bed000e`; scan resume boundary `7aa47f1632d404ab1aae9fdbb521accd8f5979d9fa065866a37e4bc1e3cb21c8`.
 
