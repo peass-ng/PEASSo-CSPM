@@ -3416,6 +3416,8 @@ def gcp_pubsub_public_grant_findings(snapshot, resources):
         name = data.get("name", native_id(resource))
         resource_label = "topic" if topic else "subscription"
         action = "publish messages to the topic" if topic else "consume messages from the subscription"
+        impact = ("Those messages could affect people or services that rely on the topic."
+                  if topic else "Those messages could contain data intended for a smaller audience.")
         first = (f"The Pub/Sub {resource_label} {name} has {role} for {grant['member']} in its direct IAM policy."
                  if unconditional else
                  f"The Pub/Sub {resource_label} {name} has a conditional {role} binding for {grant['member']}.")
@@ -3425,7 +3427,7 @@ def gcp_pubsub_public_grant_findings(snapshot, resources):
                 "The condition has no recorded request evaluation.",
                 f"Internet principals may {action} if other controls allow it." if unconditional else
                 f"If the condition is satisfied, that principal may {action}.",
-                "Inherited policy, IAM denies, API authentication, and actual message access remain unresolved.")),
+                impact)),
             "direct_public_grants": grants,
             "permission": permission,
             "source": source(snapshot, resource, "iamPolicy.bindings"),
