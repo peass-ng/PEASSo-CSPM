@@ -1058,8 +1058,9 @@ def _validate_readonly_post(url, audience, body):
               version_valid and set(query) <= {"api-version", "$filter", "$top", "$skiptoken", "$skipToken", "$select", "$orderby", "$apply", "$expand", "$from", "$to"} and
               body == {})
     from . import azure_graph_batch
-    graph_batch = (audience == GRAPH and parsed.netloc == "graph.microsoft.com" and
-                   parsed.path == "/v1.0/$batch" and not query and azure_graph_batch.valid_body(body))
+    graph_batch = (audience == GRAPH and parsed.netloc == "graph.microsoft.com" and not query and
+                   (parsed.path == "/v1.0/$batch" and azure_graph_batch.valid_body(body) or
+                    parsed.path == "/beta/$batch" and azure_graph_batch.valid_body(body, beta_members_only=True)))
     if not (arg or logs or policy or graph_batch):
         raise AzureReadError("cloud_mutation_prohibited")
 
@@ -3699,10 +3700,13 @@ def collect(connector, requirements=None, *, transport=None):
                 reader.run(jobs)
         if "directory_membership" in wanted:
             jobs, graph_urls = [], []
+            # Graph v1.0 omits service-principal group members. Exposure scans
+            # need the documented beta workaround to see outside SP grantees.
+            member_version = "beta" if "role_assignment" in wanted else "v1.0"
             for c in reader.collections:
                 if c["type"] == "directory_group":
                     for group in c["items"]:
-                        url = GRAPH + "/v1.0/groups/" + quote(group["id"], safe="") + "/members?$select=id"
+                        url = GRAPH + "/" + member_version + "/groups/" + quote(group["id"], safe="") + "/members?$select=id"
                         graph_urls.append(url)
                         jobs.append(("directory_membership", tenant_scope + "/groups/" + group["id"], "Microsoft.Graph", lambda url=url: reader.pages(graph_request, url, audience=GRAPH, next_key="@odata.nextLink")))
             with azure_graph_batch.first_pages(reader, transport, request, graph_urls, enabled=graph_batching) as graph_request:

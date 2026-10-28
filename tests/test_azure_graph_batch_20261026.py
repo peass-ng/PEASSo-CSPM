@@ -138,10 +138,12 @@ def test_only_reviewed_directory_gets_may_be_batched(body):
         _validate_readonly_post(GRAPH + "/v1.0/$batch", GRAPH, body)
 
 
-def test_reviewed_batch_is_accepted_only_on_graph_v1():
+def test_reviewed_batch_versions_restrict_beta_to_group_members():
     body = {"requests": [{"id": "0", "method": "GET", "url": "/groups/g1/members?$select=id"},
                          {"id": "1", "method": "GET", "url": "/servicePrincipals/s-1/appRoleAssignments"}]}
     _validate_readonly_post(GRAPH + "/v1.0/$batch", GRAPH, body)
+    beta_body = {"requests": [body["requests"][0]]}
+    _validate_readonly_post(GRAPH + "/beta/$batch", GRAPH, beta_body)
     for url, audience in ((GRAPH + "/beta/$batch", GRAPH), (GRAPH + "/v1.0/$batch?x=1", GRAPH),
                           (GRAPH + "/v1.0/$batch", azure.ARM)):
         with pytest.raises(AzureReadError):
@@ -157,6 +159,22 @@ class _Reader:
 
 def _url(n):
     return GRAPH + f"/v1.0/groups/g{n}/members?$select=id"
+
+
+def test_beta_group_members_share_one_read_only_batch():
+    calls = []
+    class Transport:
+        def request(self, url, *, body=None, audience=None):
+            _validate_readonly_post(url, audience, body)
+            calls.append((url, body))
+            return {"responses": [{"id": row["id"], "status": 200,
+                                   "body": {"value": [{"id": row["url"]}]}}
+                                  for row in body["requests"]]}
+    urls = [GRAPH + f"/beta/groups/g{n}/members?$select=id" for n in range(2)]
+    with azure_graph_batch.FirstPages(_Reader(), Transport(), lambda url, **k: None, urls) as request:
+        assert request(urls[0], audience=GRAPH)["value"][0]["id"] == "/groups/g0/members?$select=id"
+        assert request(urls[1], audience=GRAPH)["value"][0]["id"] == "/groups/g1/members?$select=id"
+    assert len(calls) == 1 and calls[0][0] == GRAPH + "/beta/$batch"
 
 
 def test_throttled_sub_responses_are_retried_in_a_later_batch(monkeypatch):
