@@ -136,13 +136,41 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
+def _update_collection_hash(update, collection):
+    """Hash the exact canonical envelope with bounded native-item encodings."""
+    if (type(collection) is not dict or type(collection.get("items")) is not list
+            or not all(type(key) is str for key in collection)):
+        update(canonical(collection).encode())
+        return
+    update(b"{")
+    for index, key in enumerate(sorted(collection)):
+        if index:
+            update(b",")
+        update(canonical(key).encode())
+        update(b":")
+        if key == "items":
+            update(b"[")
+            items = collection[key]
+            for start in range(0, len(items), 128):
+                if start:
+                    update(b",")
+                # A bounded shallow slice retains every native field and item
+                # order. Only its outer brackets are supplied by this stream.
+                update(canonical(items[start:start + 128])[1:-1].encode())
+            update(b"]")
+        else:
+            update(canonical(collection[key]).encode())
+    update(b"}")
+
+
 def _hash_canonical(value):
     """sha256 of canonical(value).encode(), streamed one collection at a time for snapshot documents.
 
     canonical() of a dict with only str keys is '{' + ','.join(canonical(key) + ':' + canonical(item)
     for key in sorted keys) + '}', and of a list '[' + ','.join(canonical(item)) + ']'; hashing those
-    pieces in order hashes exactly the same bytes without holding the whole document as one string
-    and one bytes object at once. Anything else is encoded in one piece, as before.
+    pieces in order hashes exactly the same bytes. Native item lists use bounded chunks so one
+    large collection does not allocate its whole JSON string and bytes together. Other shapes retain
+    the original single-encoding fallback.
     """
     digest = hashlib.sha256()
     collections = value.get("collections") if type(value) is dict else None
@@ -161,7 +189,7 @@ def _hash_canonical(value):
             for position, collection in enumerate(collections):
                 if position:
                     update(b",")
-                update(canonical(collection).encode())
+                _update_collection_hash(update, collection)
             update(b"]")
         else:
             update(canonical(value[key]).encode())
@@ -269,7 +297,7 @@ def _digests_with_metadata(result, key, value):
                 for position, collection in enumerate(collections):
                     if position:
                         update(b",")
-                    update(canonical(collection).encode())
+                    _update_collection_hash(update, collection)
                 update(b"]")
             else:
                 update(canonical(result[name]).encode())

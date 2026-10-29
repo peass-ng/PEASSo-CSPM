@@ -990,7 +990,7 @@
     "peaso/checks/post_dfaf_aws.py": "d7b41a3a3d86242c60f22dd412688f0b2ae1ec4fff8b78c930f2678668b6fb48",
     "peaso/checks/post_dfaf_aws_specs.py": "4f2410348d731c2c76c3db79b0b2b0aebedebf874ce9044f9dccb612622d2476",
     "peaso/checks/post_dfaf_azure.py": "c00e5f758009f1929eb97f83a096706874b97fc6e2269dea8ccdab06c8e5640e",
-    "peaso/checks/private_secret_shared_source_successor_20261021.py": "18c5caaa8764fcc1fe99d1062edd62f69d56feb58a23521f39e6bd14e4aa5519",
+    "peaso/checks/private_secret_shared_source_successor_20261021.py": "e7869001d858ff5a6975f28a61a25772102a195a99e7e2e040ed2124c6b20538",
     "peaso/checks/provider_content_native_cases_20261021.py": "3383f96e2670cf34f00d2224205ceba6cb97a6cba5a54c404d52759555ae6377",
     "peaso/checks/provider_group_install_20261021.py": "304edef228583ad5c17909b42669ddce303c99bd828702662750c718a76dc5f9",
     "peaso/checks/provider_group_witnesses_20261021/test_gcp_job_image_vulnerability_product_20261021.py": "addfca8b8b2a53c44cd1ece9909bc1c5894e5a1485eb175b4f99799d82d9f835",
@@ -1747,7 +1747,7 @@
     "peaso/server/service_labels_static_20261020.py": "4098e118b519b0042981b1efee39588b93c1832a69395814b468b56b7f2a5f47",
     "peaso/server/validation.py": "4a013f5c5435c97bf666f4c52347a007bb9476b59d6a9fd0ba0b08e92bed000e",
     "peaso/settle_memo.py": "b687f6389ff5173212800acaaf4790b528448d4fb5a5c7b244f8836f531b3e46",
-    "peaso/snapshot.py": "104db165b8e1869dff3372a87dbf3b06c8f11625bdf6338261e20255d5b66f52",
+    "peaso/snapshot.py": "44a83fcd54779e5ed9478bfc5a22419613b7852fbfc55c840d7ceed2ea97ae1b",
     "peaso/snapshot_public_identity.py": "c3c26a15ee15c4dcf7784d7547caaf59c68bd036a1714b464e318c0991d9f5c3",
     "peaso/source_attestation_mode.py": "78d0cee51654af24aedc9a62a0935e69733dc8f43b390af531391d8a92ad733b",
     "peaso/storage/__init__.py": "5df86931d2b4f39b1b6702fd7b5d5b039af98e54de29e2d98c307689f5d8531d",
@@ -1900,7 +1900,7 @@
     "top20_performance_review": "Five runtime files reviewed: fresh tenant-bound status/TTL reads use existing DynamoDB GetItem; privilege query generators retain original traversal and ordering, bounded heap selection changes response paging only.30 client construction sites, credential factories and API service roster unchanged. Native admission sources unchanged."
   },
   "python_source_count": 1778,
-  "python_source_sha256": "408d78183ddfcfcc72eca771ab9776c3221ca82d33129e29647e1998fb9d2b80",
+  "python_source_sha256": "2ee67e948e719f01ca188fc50d94a297d0bac66cad7fd80ee32fa56a361e0691",
   "review_context": "Hosted production disables Hardening and Exposure model stages for all four providers. Native FAIL reviews are explicitly marked native_final in AI API and excluded from finding overlay; model_reviewed coverage remains zero for those stages. Network and Priorities model agents remain and progressive disabled stages do not launch. Three runtime Python files changed from pushed main: pipeline, progressive scheduler and review presentation; no SDK client or credential source change. 1717 Python files and 30 direct client sites across 12 used services in the reviewed 15-service allowlist. Next Exposure A/B wave adds one GCP GKE collector module and changes 12 existing Python files including generated privilege display source. Direct SDK client closure remains 30 literal sites within the existing 15-service allowlist; no new service, credential factory or dynamic client site. The Firebase App Hosting project route guard restricts previously accepted query parameters and paths; no new SDK client, service, operation or credential source. Second Exposure wave combines committed Azure A/B, AWS A/B safe subset and GCP A/B paths; collector receipt now pins their merged source bytes. Direct SDK client roster remains 30 literal sites. Analyze-native committed b4aee800 adds inventory index and report publication optimizations, scoped secret memoization, ECS privesc fact lookup indexing, and bounded S3 upload fanout. It changes no direct SDK client creation, service allowlist or credential factory; source review against merge parents c6ac4160 and 8fc73542. Rematerialization changed only generated native/API catalog bytes; display rebind changed only the loader pinned gzip digest. Check IDs and catalog source contract are validated by the materializer and display gate. Finding-detail hotfix on pushed 98b8: copied exposure_action AST exactly into native-free presentation, carried seven reviewed retired alias remediation templates in the signed materialized API catalog, refreshed four changed evidence-source hashes, and rebound privilege display. No SDK client, service, credential factory, native finding verdict, or AI stage switch changed. Direct API SDK closure remains 30 literal sites in the reviewed 15-service allowlist.",
   "source_commit": "b8fab4974069eb0dc373be4e2f1c51b7da00b969",
   "worker_startup_span_review": "Two existing registered worker.startup spans around lazy engine imports; AST identical after removing these spans, no collection/verdict/SDK changes. Actual Azure capture509s has~270s CPU before collect; this closes measurement gap."

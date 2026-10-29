@@ -1,0 +1,1408 @@
+{
+  "ai_contract": "OPENAI_BEST_QUALITY/high/30 unchanged; no model calls",
+  "aws_iam_access_analyzer_calls": 0,
+  "base_commit": "c730dcba63365c0e177b51e31d9d3147f3255c2a",
+  "before_runs": {
+    "hash-before": {
+      "collections": 1872,
+      "collector_peak_rss_bytes_before_export": 2043215872,
+      "collector_rss_bytes_at_return": 1620541440,
+      "concurrency": 4,
+      "consumed_recorded_calls": 536,
+      "cpu_s": 8.276541000000002,
+      "credential_source": "synthetic never-sent offline fixture",
+      "latency_scale": 0.5,
+      "mode": "after",
+      "model_calls": 0,
+      "network_blocked": true,
+      "process_peak_rss_bytes_after_export": 2043215872,
+      "process_wall_s": 72.52712724999583,
+      "provider_network_calls": 0,
+      "resources": 53338,
+      "statuses": {
+        "collected": 758,
+        "denied": 31,
+        "empty": 1028,
+        "not_collected": 5,
+        "partial": 3,
+        "unknown": 47
+      },
+      "unused_recorded_calls": 0,
+      "wall_s": 70.66673841699958
+    },
+    "hash-before-repeat": {
+      "collections": 1872,
+      "collector_peak_rss_bytes_before_export": 1910554624,
+      "collector_rss_bytes_at_return": 1379319808,
+      "concurrency": 4,
+      "consumed_recorded_calls": 536,
+      "cpu_s": 8.571852,
+      "credential_source": "synthetic never-sent offline fixture",
+      "latency_scale": 0.5,
+      "mode": "after",
+      "model_calls": 0,
+      "network_blocked": true,
+      "process_peak_rss_bytes_after_export": 1910554624,
+      "process_wall_s": 73.0319835840055,
+      "provider_network_calls": 0,
+      "resources": 53338,
+      "statuses": {
+        "collected": 758,
+        "denied": 31,
+        "empty": 1028,
+        "not_collected": 5,
+        "partial": 3,
+        "unknown": 47
+      },
+      "unused_recorded_calls": 0,
+      "wall_s": 71.11700133400154
+    }
+  },
+  "candidate_runs": {
+    "hash-after": {
+      "collections": 1872,
+      "collector_peak_rss_bytes_before_export": 1723449344,
+      "collector_rss_bytes_at_return": 1086504960,
+      "concurrency": 4,
+      "consumed_recorded_calls": 536,
+      "cpu_s": 8.495365,
+      "credential_source": "synthetic never-sent offline fixture",
+      "latency_scale": 0.5,
+      "mode": "after",
+      "model_calls": 0,
+      "network_blocked": true,
+      "process_peak_rss_bytes_after_export": 1723449344,
+      "process_wall_s": 72.34993883300922,
+      "provider_network_calls": 0,
+      "resources": 53338,
+      "statuses": {
+        "collected": 758,
+        "denied": 31,
+        "empty": 1028,
+        "not_collected": 5,
+        "partial": 3,
+        "unknown": 47
+      },
+      "unused_recorded_calls": 0,
+      "wall_s": 70.62685820800834
+    },
+    "hash-repeat": {
+      "collections": 1872,
+      "collector_peak_rss_bytes_before_export": 1716191232,
+      "collector_rss_bytes_at_return": 1070809088,
+      "concurrency": 4,
+      "consumed_recorded_calls": 536,
+      "cpu_s": 8.636834,
+      "credential_source": "synthetic never-sent offline fixture",
+      "latency_scale": 0.5,
+      "mode": "after",
+      "model_calls": 0,
+      "network_blocked": true,
+      "process_peak_rss_bytes_after_export": 1716191232,
+      "process_wall_s": 72.48529762499675,
+      "provider_network_calls": 0,
+      "resources": 53338,
+      "statuses": {
+        "collected": 758,
+        "denied": 31,
+        "empty": 1028,
+        "not_collected": 5,
+        "partial": 3,
+        "unknown": 47
+      },
+      "unused_recorded_calls": 0,
+      "wall_s": 70.74516487499932
+    }
+  },
+  "canonical_bytes_contract": "Independent stdlib json.dumps(sort_keys=True,separators=(comma,colon),ensure_ascii=False,allow_nan=False) +SHA256 exactly matches every declared final snapshot address. Boundary/nested Unicode/float/error/cycle/fallback and all4provider tests preserve bytes. Item shallow slices retain all data; no sampling or field removal.",
+  "change": "Stream exact canonical collection envelopes and bounded128-item native lists into the existing SHA256 state. Reuse for ordinary snapshot digest and the shared metadata-prefix digest. Preserve every native field/order and snapshot address; conservative original encoding fallback for other shapes.",
+  "combined_azure_series_vs_original": {
+    "limit": "Repeated>2x and no RSS growth are established on one full saved-response set at concurrency4. Production speed/RSS and changed-fixture parity require root verification.",
+    "mean_candidate_peak_rss_bytes": 1719820288.0,
+    "mean_candidate_wall_seconds": 70.68601154150383,
+    "mean_original_peak_rss_bytes": 2064990208.0,
+    "mean_original_wall_seconds": 164.98892995849747,
+    "original_runs": {
+      "original4": {
+        "collections": 1872,
+        "collector_peak_rss_bytes_before_export": 2099707904,
+        "collector_rss_bytes_at_return": 1477017600,
+        "concurrency": 4,
+        "consumed_recorded_calls": 536,
+        "cpu_s": 9.107078999999999,
+        "credential_source": "synthetic never-sent offline fixture",
+        "latency_scale": 0.5,
+        "mode": "before",
+        "model_calls": 0,
+        "network_blocked": true,
+        "process_peak_rss_bytes_after_export": 2099707904,
+        "process_wall_s": 166.456730083999,
+        "provider_network_calls": 0,
+        "resources": 53338,
+        "statuses": {
+          "collected": 758,
+          "denied": 31,
+          "empty": 1028,
+          "not_collected": 5,
+          "partial": 3,
+          "unknown": 47
+        },
+        "unused_recorded_calls": 0,
+        "wall_s": 164.98593833300401
+      },
+      "original4-repeat": {
+        "collections": 1872,
+        "collector_peak_rss_bytes_before_export": 2030272512,
+        "collector_rss_bytes_at_return": 1187217408,
+        "concurrency": 4,
+        "consumed_recorded_calls": 536,
+        "cpu_s": 9.130171,
+        "credential_source": "synthetic never-sent offline fixture",
+        "latency_scale": 0.5,
+        "mode": "before",
+        "model_calls": 0,
+        "network_blocked": true,
+        "process_peak_rss_bytes_after_export": 2030272512,
+        "process_wall_s": 166.3408642909926,
+        "provider_network_calls": 0,
+        "resources": 53338,
+        "statuses": {
+          "collected": 758,
+          "denied": 31,
+          "empty": 1028,
+          "not_collected": 5,
+          "partial": 3,
+          "unknown": 47
+        },
+        "unused_recorded_calls": 0,
+        "wall_s": 164.99192158399092
+      }
+    },
+    "original_runtime_commit": "491c544fd88f7291dd7e2763b4b614562b76028e",
+    "peak_rss_reduction_percent": 16.715329625427454,
+    "wall_speedup": 2.3341100503544885
+  },
+  "comparison": {
+    "interpretation": "Repeatable memory reduction; wall time effectively unchanged, no CPU/speed improvement claimed for this hashing change.",
+    "mean_cpu_after_seconds": 8.5660995,
+    "mean_cpu_before_seconds": 8.4241965,
+    "mean_peak_rss_after_bytes": 1719820288.0,
+    "mean_peak_rss_before_bytes": 1976885248.0,
+    "mean_return_rss_after_bytes": 1078657024.0,
+    "mean_return_rss_before_bytes": 1499930624.0,
+    "mean_wall_after_seconds": 70.68601154150383,
+    "mean_wall_before_seconds": 70.89186987550056,
+    "peak_rss_reduction_percent": 13.003534740322975,
+    "return_rss_reduction_percent": 28.086205672403153
+  },
+  "concurrency": 4,
+  "deploys": 0,
+  "diagnostic_profiles": {
+    "chunked": {
+      "events": [
+        {
+          "gc_collections": [
+            183,
+            16,
+            1
+          ],
+          "gc_count": [
+            602,
+            7,
+            5
+          ],
+          "peak_rss_bytes": 212811776,
+          "phase": "loaded",
+          "rss_bytes": 212811776,
+          "seconds": 0.006330040996544994,
+          "stage": "process",
+          "threads": 1
+        },
+        {
+          "gc_collections": [
+            2959,
+            269,
+            6
+          ],
+          "gc_count": [
+            92,
+            0,
+            7
+          ],
+          "peak_rss_bytes": 1231945728,
+          "phase": "before",
+          "rss_bytes": 1203470336,
+          "seconds": 5.387292125000386,
+          "stage": "peaso.collectors.azure.make_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2959,
+            269,
+            6
+          ],
+          "gc_count": [
+            97,
+            0,
+            7
+          ],
+          "peak_rss_bytes": 1231945728,
+          "phase": "before",
+          "rss_bytes": 1203470336,
+          "seconds": 5.391899333000765,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2960,
+            269,
+            6
+          ],
+          "gc_count": [
+            12,
+            1,
+            7
+          ],
+          "peak_rss_bytes": 1394851840,
+          "phase": "after",
+          "rss_bytes": 1394851840,
+          "seconds": 5.686956207995536,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2962,
+            269,
+            6
+          ],
+          "gc_count": [
+            316,
+            3,
+            7
+          ],
+          "peak_rss_bytes": 1394966528,
+          "phase": "before",
+          "rss_bytes": 1394966528,
+          "seconds": 5.700452582997968,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2962,
+            269,
+            6
+          ],
+          "gc_count": [
+            418,
+            3,
+            7
+          ],
+          "peak_rss_bytes": 1421033472,
+          "phase": "after",
+          "rss_bytes": 1421033472,
+          "seconds": 6.19662299999618,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2962,
+            269,
+            6
+          ],
+          "gc_count": [
+            417,
+            3,
+            7
+          ],
+          "peak_rss_bytes": 1421033472,
+          "phase": "after",
+          "rss_bytes": 1421033472,
+          "seconds": 6.200933457992505,
+          "stage": "peaso.collectors.azure.make_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2962,
+            269,
+            6
+          ],
+          "gc_count": [
+            418,
+            3,
+            7
+          ],
+          "peak_rss_bytes": 1421033472,
+          "phase": "before",
+          "rss_bytes": 1421033472,
+          "seconds": 6.204765082991798,
+          "stage": "peaso.collectors.azure_function_settings_runtime_hooks_20261020.final_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2962,
+            269,
+            6
+          ],
+          "gc_count": [
+            426,
+            3,
+            7
+          ],
+          "peak_rss_bytes": 1421033472,
+          "phase": "before",
+          "rss_bytes": 1421033472,
+          "seconds": 6.2087516659958055,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2963,
+            269,
+            6
+          ],
+          "gc_count": [
+            12,
+            4,
+            7
+          ],
+          "peak_rss_bytes": 1619197952,
+          "phase": "after",
+          "rss_bytes": 1619197952,
+          "seconds": 6.513107958002365,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2963,
+            269,
+            6
+          ],
+          "gc_count": [
+            16,
+            4,
+            7
+          ],
+          "peak_rss_bytes": 1619197952,
+          "phase": "before",
+          "rss_bytes": 1619197952,
+          "seconds": 6.517099165997934,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2963,
+            269,
+            6
+          ],
+          "gc_count": [
+            25,
+            4,
+            7
+          ],
+          "peak_rss_bytes": 1619279872,
+          "phase": "after",
+          "rss_bytes": 1486110720,
+          "seconds": 7.0499261249933625,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2963,
+            269,
+            6
+          ],
+          "gc_count": [
+            26,
+            4,
+            7
+          ],
+          "peak_rss_bytes": 1619279872,
+          "phase": "before",
+          "rss_bytes": 1486159872,
+          "seconds": 7.054136708000442,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2964,
+            269,
+            6
+          ],
+          "gc_count": [
+            12,
+            5,
+            7
+          ],
+          "peak_rss_bytes": 1619279872,
+          "phase": "after",
+          "rss_bytes": 1551974400,
+          "seconds": 7.351753583003301,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2964,
+            269,
+            6
+          ],
+          "gc_count": [
+            16,
+            5,
+            7
+          ],
+          "peak_rss_bytes": 1619279872,
+          "phase": "before",
+          "rss_bytes": 1551974400,
+          "seconds": 7.354774915991584,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2964,
+            269,
+            6
+          ],
+          "gc_count": [
+            25,
+            5,
+            7
+          ],
+          "peak_rss_bytes": 1619279872,
+          "phase": "after",
+          "rss_bytes": 1543798784,
+          "seconds": 7.846479665997322,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2964,
+            269,
+            6
+          ],
+          "gc_count": [
+            1,
+            5,
+            7
+          ],
+          "peak_rss_bytes": 1619279872,
+          "phase": "after",
+          "rss_bytes": 1354006528,
+          "seconds": 7.910721958003705,
+          "stage": "peaso.collectors.azure_function_settings_runtime_hooks_20261020.final_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2964,
+            269,
+            6
+          ],
+          "gc_count": [
+            16,
+            5,
+            7
+          ],
+          "peak_rss_bytes": 1619279872,
+          "phase": "returned",
+          "rss_bytes": 1206861824,
+          "seconds": 8.419986583001446,
+          "stage": "process",
+          "threads": 1
+        }
+      ],
+      "summary": {
+        "collections": 1872,
+        "collector_peak_rss_bytes_before_export": 1619279872,
+        "collector_rss_bytes_at_return": 981745664,
+        "consumed_recorded_calls": 536,
+        "cpu_s": 6.952641,
+        "latency_scale": 0.0,
+        "mode": "after",
+        "model_calls": 0,
+        "provider_network_calls": 0,
+        "resources": 53338,
+        "statuses": {
+          "collected": 758,
+          "denied": 31,
+          "empty": 1028,
+          "not_collected": 5,
+          "partial": 3,
+          "unknown": 47
+        },
+        "unused_recorded_calls": 0,
+        "wall_s": 7.013724250005907
+      }
+    },
+    "chunked-repeat": {
+      "events": [
+        {
+          "gc_collections": [
+            183,
+            16,
+            1
+          ],
+          "gc_count": [
+            571,
+            7,
+            5
+          ],
+          "peak_rss_bytes": 212500480,
+          "phase": "loaded",
+          "rss_bytes": 212500480,
+          "seconds": 0.004641833991627209,
+          "stage": "process",
+          "threads": 1
+        },
+        {
+          "gc_collections": [
+            2963,
+            269,
+            6
+          ],
+          "gc_count": [
+            92,
+            4,
+            6
+          ],
+          "peak_rss_bytes": 1339768832,
+          "phase": "before",
+          "rss_bytes": 1229127680,
+          "seconds": 5.400603541987948,
+          "stage": "peaso.collectors.azure.make_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2963,
+            269,
+            6
+          ],
+          "gc_count": [
+            97,
+            4,
+            6
+          ],
+          "peak_rss_bytes": 1339768832,
+          "phase": "before",
+          "rss_bytes": 1229127680,
+          "seconds": 5.404043124988675,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2964,
+            269,
+            6
+          ],
+          "gc_count": [
+            12,
+            5,
+            6
+          ],
+          "peak_rss_bytes": 1406550016,
+          "phase": "after",
+          "rss_bytes": 1406550016,
+          "seconds": 5.713444583991077,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2966,
+            269,
+            6
+          ],
+          "gc_count": [
+            316,
+            7,
+            6
+          ],
+          "peak_rss_bytes": 1406664704,
+          "phase": "before",
+          "rss_bytes": 1406664704,
+          "seconds": 5.726264083990827,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2966,
+            269,
+            6
+          ],
+          "gc_count": [
+            418,
+            7,
+            6
+          ],
+          "peak_rss_bytes": 1408778240,
+          "phase": "after",
+          "rss_bytes": 1324711936,
+          "seconds": 6.211687874994823,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2966,
+            269,
+            6
+          ],
+          "gc_count": [
+            417,
+            7,
+            6
+          ],
+          "peak_rss_bytes": 1408778240,
+          "phase": "after",
+          "rss_bytes": 1324711936,
+          "seconds": 6.2156752919981955,
+          "stage": "peaso.collectors.azure.make_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2966,
+            269,
+            6
+          ],
+          "gc_count": [
+            418,
+            7,
+            6
+          ],
+          "peak_rss_bytes": 1408778240,
+          "phase": "before",
+          "rss_bytes": 1324711936,
+          "seconds": 6.218711333989631,
+          "stage": "peaso.collectors.azure_function_settings_runtime_hooks_20261020.final_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2966,
+            269,
+            6
+          ],
+          "gc_count": [
+            426,
+            7,
+            6
+          ],
+          "peak_rss_bytes": 1408778240,
+          "phase": "before",
+          "rss_bytes": 1324728320,
+          "seconds": 6.221658166992711,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2967,
+            269,
+            6
+          ],
+          "gc_count": [
+            12,
+            8,
+            6
+          ],
+          "peak_rss_bytes": 1522925568,
+          "phase": "after",
+          "rss_bytes": 1522925568,
+          "seconds": 6.514921291993232,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2967,
+            269,
+            6
+          ],
+          "gc_count": [
+            16,
+            8,
+            6
+          ],
+          "peak_rss_bytes": 1522941952,
+          "phase": "before",
+          "rss_bytes": 1522941952,
+          "seconds": 6.518295124988072,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2967,
+            269,
+            6
+          ],
+          "gc_count": [
+            25,
+            8,
+            6
+          ],
+          "peak_rss_bytes": 1523761152,
+          "phase": "after",
+          "rss_bytes": 1521844224,
+          "seconds": 7.055973999988055,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2967,
+            269,
+            6
+          ],
+          "gc_count": [
+            26,
+            8,
+            6
+          ],
+          "peak_rss_bytes": 1523761152,
+          "phase": "before",
+          "rss_bytes": 1521926144,
+          "seconds": 7.062156749991118,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2968,
+            269,
+            6
+          ],
+          "gc_count": [
+            12,
+            9,
+            6
+          ],
+          "peak_rss_bytes": 1576714240,
+          "phase": "after",
+          "rss_bytes": 1576714240,
+          "seconds": 7.383126499989885,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2968,
+            269,
+            6
+          ],
+          "gc_count": [
+            16,
+            9,
+            6
+          ],
+          "peak_rss_bytes": 1576730624,
+          "phase": "before",
+          "rss_bytes": 1576730624,
+          "seconds": 7.386319874989567,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2968,
+            269,
+            6
+          ],
+          "gc_count": [
+            25,
+            9,
+            6
+          ],
+          "peak_rss_bytes": 1592819712,
+          "phase": "after",
+          "rss_bytes": 1585283072,
+          "seconds": 7.87625862499408,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2968,
+            269,
+            6
+          ],
+          "gc_count": [
+            1,
+            9,
+            6
+          ],
+          "peak_rss_bytes": 1592819712,
+          "phase": "after",
+          "rss_bytes": 1384595456,
+          "seconds": 7.94492458399327,
+          "stage": "peaso.collectors.azure_function_settings_runtime_hooks_20261020.final_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2968,
+            269,
+            6
+          ],
+          "gc_count": [
+            16,
+            9,
+            6
+          ],
+          "peak_rss_bytes": 1592819712,
+          "phase": "returned",
+          "rss_bytes": 1201963008,
+          "seconds": 8.472707791996072,
+          "stage": "process",
+          "threads": 1
+        }
+      ],
+      "summary": {
+        "collections": 1872,
+        "collector_peak_rss_bytes_before_export": 1592819712,
+        "collector_rss_bytes_at_return": 976486400,
+        "consumed_recorded_calls": 536,
+        "cpu_s": 6.911877,
+        "latency_scale": 0.0,
+        "mode": "after",
+        "model_calls": 0,
+        "provider_network_calls": 0,
+        "resources": 53338,
+        "statuses": {
+          "collected": 758,
+          "denied": 31,
+          "empty": 1028,
+          "not_collected": 5,
+          "partial": 3,
+          "unknown": 47
+        },
+        "unused_recorded_calls": 0,
+        "wall_s": 7.028023333012243
+      }
+    },
+    "current": {
+      "events": [
+        {
+          "gc_collections": [
+            183,
+            16,
+            1
+          ],
+          "gc_count": [
+            565,
+            7,
+            5
+          ],
+          "peak_rss_bytes": 212631552,
+          "phase": "loaded",
+          "rss_bytes": 212631552,
+          "seconds": 0.0052583750075427815,
+          "stage": "process",
+          "threads": 1
+        },
+        {
+          "gc_collections": [
+            2960,
+            269,
+            6
+          ],
+          "gc_count": [
+            91,
+            1,
+            14
+          ],
+          "peak_rss_bytes": 1376911360,
+          "phase": "before",
+          "rss_bytes": 1264861184,
+          "seconds": 5.406991374999052,
+          "stage": "peaso.collectors.azure.make_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2960,
+            269,
+            6
+          ],
+          "gc_count": [
+            96,
+            1,
+            14
+          ],
+          "peak_rss_bytes": 1376911360,
+          "phase": "before",
+          "rss_bytes": 1264861184,
+          "seconds": 5.410836125010974,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2961,
+            269,
+            6
+          ],
+          "gc_count": [
+            12,
+            2,
+            14
+          ],
+          "peak_rss_bytes": 1456816128,
+          "phase": "after",
+          "rss_bytes": 1456816128,
+          "seconds": 5.706144916010089,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2963,
+            269,
+            6
+          ],
+          "gc_count": [
+            316,
+            4,
+            14
+          ],
+          "peak_rss_bytes": 1456930816,
+          "phase": "before",
+          "rss_bytes": 1456930816,
+          "seconds": 5.718354916010867,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2963,
+            269,
+            6
+          ],
+          "gc_count": [
+            416,
+            4,
+            14
+          ],
+          "peak_rss_bytes": 1620000768,
+          "phase": "after",
+          "rss_bytes": 1620000768,
+          "seconds": 6.2282312080060365,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2963,
+            269,
+            6
+          ],
+          "gc_count": [
+            415,
+            4,
+            14
+          ],
+          "peak_rss_bytes": 1620000768,
+          "phase": "after",
+          "rss_bytes": 1620000768,
+          "seconds": 6.232478375008213,
+          "stage": "peaso.collectors.azure.make_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2963,
+            269,
+            6
+          ],
+          "gc_count": [
+            416,
+            4,
+            14
+          ],
+          "peak_rss_bytes": 1620000768,
+          "phase": "before",
+          "rss_bytes": 1620000768,
+          "seconds": 6.236754124998697,
+          "stage": "peaso.collectors.azure_function_settings_runtime_hooks_20261020.final_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2963,
+            269,
+            6
+          ],
+          "gc_count": [
+            424,
+            4,
+            14
+          ],
+          "peak_rss_bytes": 1620000768,
+          "phase": "before",
+          "rss_bytes": 1620000768,
+          "seconds": 6.24018579100084,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2964,
+            269,
+            6
+          ],
+          "gc_count": [
+            12,
+            5,
+            14
+          ],
+          "peak_rss_bytes": 1716060160,
+          "phase": "after",
+          "rss_bytes": 1617526784,
+          "seconds": 6.572639666002942,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2964,
+            269,
+            6
+          ],
+          "gc_count": [
+            16,
+            5,
+            14
+          ],
+          "peak_rss_bytes": 1716060160,
+          "phase": "before",
+          "rss_bytes": 1617559552,
+          "seconds": 6.575793416006491,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2964,
+            269,
+            6
+          ],
+          "gc_count": [
+            24,
+            5,
+            14
+          ],
+          "peak_rss_bytes": 1716060160,
+          "phase": "after",
+          "rss_bytes": 1620688896,
+          "seconds": 7.0928742500109365,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2964,
+            269,
+            6
+          ],
+          "gc_count": [
+            25,
+            5,
+            14
+          ],
+          "peak_rss_bytes": 1716060160,
+          "phase": "before",
+          "rss_bytes": 1620934656,
+          "seconds": 7.096273208007915,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2965,
+            269,
+            6
+          ],
+          "gc_count": [
+            12,
+            6,
+            14
+          ],
+          "peak_rss_bytes": 1727479808,
+          "phase": "after",
+          "rss_bytes": 1727479808,
+          "seconds": 7.387825083002099,
+          "stage": "peaso.snapshot._sealed_structure",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2965,
+            269,
+            6
+          ],
+          "gc_count": [
+            16,
+            6,
+            14
+          ],
+          "peak_rss_bytes": 1727479808,
+          "phase": "before",
+          "rss_bytes": 1727479808,
+          "seconds": 7.390871208001045,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2965,
+            269,
+            6
+          ],
+          "gc_count": [
+            24,
+            6,
+            14
+          ],
+          "peak_rss_bytes": 1942061056,
+          "phase": "after",
+          "rss_bytes": 1942061056,
+          "seconds": 7.910640541012981,
+          "stage": "peaso.snapshot._hash_canonical",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2965,
+            269,
+            6
+          ],
+          "gc_count": [
+            1,
+            6,
+            14
+          ],
+          "peak_rss_bytes": 1942061056,
+          "phase": "after",
+          "rss_bytes": 1752285184,
+          "seconds": 7.975399166010902,
+          "stage": "peaso.collectors.azure_function_settings_runtime_hooks_20261020.final_snapshot",
+          "threads": 5
+        },
+        {
+          "gc_collections": [
+            2965,
+            269,
+            6
+          ],
+          "gc_count": [
+            16,
+            6,
+            14
+          ],
+          "peak_rss_bytes": 1942061056,
+          "phase": "returned",
+          "rss_bytes": 1601257472,
+          "seconds": 8.526170750003075,
+          "stage": "process",
+          "threads": 1
+        }
+      ],
+      "summary": {
+        "collections": 1872,
+        "collector_peak_rss_bytes_before_export": 1942061056,
+        "collector_rss_bytes_at_return": 1381842944,
+        "consumed_recorded_calls": 536,
+        "cpu_s": 7.0602089999999995,
+        "latency_scale": 0.0,
+        "mode": "after",
+        "model_calls": 0,
+        "provider_network_calls": 0,
+        "resources": 53338,
+        "statuses": {
+          "collected": 758,
+          "denied": 31,
+          "empty": 1028,
+          "not_collected": 5,
+          "partial": 3,
+          "unknown": 47
+        },
+        "unused_recorded_calls": 0,
+        "wall_s": 7.127915208009654
+      }
+    }
+  },
+  "integration_scope": "Shared snapshot hashing affects all providers; full measured memory evidence here is Azure. Canonical/ownership/validation regression tests cover all4providers; no GCP/K8s/AWS production performance claim.",
+  "latency_scale": 0.5,
+  "model_calls": 0,
+  "parity": {
+    "hash-after": {
+      "after_collections": 1872,
+      "after_resources": 53338,
+      "after_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "before_collections": 1872,
+      "before_resources": 53338,
+      "before_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "complete_collection_envelopes_equal": true,
+      "declared_snapshot_address_matches_independent_canonical_reference": true,
+      "excluded_after": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "excluded_before": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "reader_calls_after": 1867,
+      "reader_calls_before": 1867,
+      "scope": "Complete collection envelopes; snapshot-level metadata is not compared."
+    },
+    "hash-before": {
+      "after_collections": 1872,
+      "after_resources": 53338,
+      "after_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "before_collections": 1872,
+      "before_resources": 53338,
+      "before_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "complete_collection_envelopes_equal": true,
+      "declared_snapshot_address_matches_independent_canonical_reference": true,
+      "excluded_after": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "excluded_before": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "reader_calls_after": 1867,
+      "reader_calls_before": 1867,
+      "scope": "Complete collection envelopes; snapshot-level metadata is not compared."
+    },
+    "hash-before-repeat": {
+      "after_collections": 1872,
+      "after_resources": 53338,
+      "after_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "before_collections": 1872,
+      "before_resources": 53338,
+      "before_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "complete_collection_envelopes_equal": true,
+      "declared_snapshot_address_matches_independent_canonical_reference": true,
+      "excluded_after": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "excluded_before": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "reader_calls_after": 1867,
+      "reader_calls_before": 1867,
+      "scope": "Complete collection envelopes; snapshot-level metadata is not compared."
+    },
+    "hash-repeat": {
+      "after_collections": 1872,
+      "after_resources": 53338,
+      "after_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "before_collections": 1872,
+      "before_resources": 53338,
+      "before_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "complete_collection_envelopes_equal": true,
+      "declared_snapshot_address_matches_independent_canonical_reference": true,
+      "excluded_after": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "excluded_before": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "reader_calls_after": 1867,
+      "reader_calls_before": 1867,
+      "scope": "Complete collection envelopes; snapshot-level metadata is not compared."
+    }
+  },
+  "production_connector_writes": 0,
+  "production_scans_dispatched": 0,
+  "provider_network_calls": 0,
+  "pushes": 0,
+  "qualification": {
+    "diff_check": "PASS",
+    "direct_sdk_client_sites": 29,
+    "exact_historical_reconstruction": "1passed8.20s",
+    "frozen_native_fallback_reference": "PASS",
+    "k8s_cross_provider_source_ok": true,
+    "normal_focused_tests": 435,
+    "normal_log_sha256": "34a36b5659e6a29d2492f6e339ad1aa60237f2f9b61504f77b9618a5709d9e1a",
+    "normal_pytest_seconds": 7.42,
+    "py_compile": "PASS",
+    "reviewed_runtime_files": 1778,
+    "snapshot_current_sha256": "44a83fcd54779e5ed9478bfc5a22419613b7852fbfc55c840d7ceed2ea97ae1b",
+    "snapshot_inverse": "Two bounded function replacements prepended to the existing exact inverse; historical predecessor retained and reconstructed exactly. All other shared-source receipt records unchanged.",
+    "snapshot_predecessor_sha256": "6dcf7d4953c1b1b17e8669cb5f44960a4340ea8d6e9f93fb356d4df52d570919",
+    "source_digest": "2ee67e948e719f01ca188fc50d94a297d0bac66cad7fd80ee32fa56a361e0691",
+    "whole_reviewed_python": "PASS"
+  },
+  "reproduction_hashes": {
+    "azure_streamed_hash_candidate.py": "fef69f2b3caea1770f594108f79dd2620a1eafd7fa823001248c85e3a47651cc",
+    "profile_azure_rss_stages.py": "d090d1abb98a9684812d1c328ab4a0299ebda3407a8c194b5b0c284760e999fb",
+    "replay_azure_full_speed.py": "1387b2cc6b34a4802b0ba6b1c83fdae74228af62d15f572fc37959bc4fab8138",
+    "run_azure_assessment_replay.py": "fe8e3b33f6243292f11018a7beedc2a1809e8c2372498d3a61b91587a384d34d"
+  },
+  "rss_scope": "macOS process high-water before snapshot file export; includes imports/retained recordings/collection/sealing. Not production ECS cgroup evidence. Normal recorded latency scale0.5; zero-latency stage profiles are diagnostic only.",
+  "run_order": [
+    "hash-before",
+    "hash-after",
+    "hash-repeat",
+    "hash-before-repeat"
+  ],
+  "source_sha256": "44a83fcd54779e5ed9478bfc5a22419613b7852fbfc55c840d7ceed2ea97ae1b"
+}
