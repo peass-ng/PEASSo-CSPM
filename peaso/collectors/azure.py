@@ -3392,6 +3392,7 @@ def collect(connector, requirements=None, *, transport=None):
     start, end = (now - timedelta(days=days)).isoformat(), now.isoformat()
     request = None  # Bound only after explicit authentication validation succeeds.
     page_prefetch = None
+    service_tags_scheduled = False
     def close_transport():
         if owned and transport is not None:
             if function_targets:
@@ -3983,6 +3984,13 @@ def collect(connector, requirements=None, *, transport=None):
                             retained.append(item)
                         yield retained
                 jobs.append(("activity_log", scope, "Microsoft.Insights", activities))
+        if reader.workers > 1 and not reader.explicit_limits and "service_tag" in wanted:
+            from .azure_service_tags_native import collection_jobs as service_tag_jobs
+            # These subscription-wide prefixes do not depend on discovered
+            # resources. Start them with the independent native inventories;
+            # explicit caps retain the original reduction and request order.
+            jobs = service_tag_jobs(reader, request, scopes, wanted, options) + jobs
+            service_tags_scheduled = True
         reader.run(jobs)
         if "web_pubsub_hub" in wanted:
             hub_jobs = []
@@ -5560,7 +5568,8 @@ def collect(connector, requirements=None, *, transport=None):
         azure_subnet_firewall_policy.project(reader, scopes, options)
         azure_wave_network_controls.collect(reader, scopes, wanted)
         from .azure_service_tags_native import collect as collect_service_tags
-        collect_service_tags(reader, request, scopes, wanted, options)
+        if not service_tags_scheduled:
+            collect_service_tags(reader, request, scopes, wanted, options)
     except _MetadataOnlyCollection:
         pass  # Continue the same metadata assembly after scope/owner preflight.
     except Exception as exc:

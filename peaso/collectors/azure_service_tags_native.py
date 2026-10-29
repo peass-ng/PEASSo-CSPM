@@ -6,9 +6,9 @@ import re
 API_VERSION = "2025-09-01"
 
 
-def collect(reader, request, scopes, wanted, options):
+def collection_jobs(reader, request, scopes, wanted, options):
     if "service_tag" not in wanted:
-        return
+        return []
     location = options.get("service_tag_location", "westcentralus")
     if not isinstance(location, str) or re.fullmatch(r"[a-z0-9]{2,32}", location) is None:
         raise ValueError("service_tag_location must be a native Azure region name")
@@ -31,4 +31,10 @@ def collect(reader, request, scopes, wanted, options):
                 yield output
 
         jobs.append(("service_tag", scope, "Microsoft.Network", pages))
-    reader.run(jobs)
+    return jobs
+
+
+def collect(reader, request, scopes, wanted, options):
+    jobs = collection_jobs(reader, request, scopes, wanted, options)
+    if jobs:
+        reader.run(jobs)
