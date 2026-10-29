@@ -99,7 +99,7 @@ def test_numeric_project_alias_requires_independent_selected_project_binding(pro
         assert row['status'] not in {'collected', 'empty'}
 
 
-@pytest.mark.parametrize('kind', ['knowledge_catalog_lake', 'bigquery_private_connection'])
+@pytest.mark.parametrize('kind', ['bigquery_private_connection'])
 def test_other_inventory_location_discovery_is_unchanged(kind):
     from types import SimpleNamespace
     reader = SimpleNamespace(options={}, pages=lambda *a, **kw: iter([

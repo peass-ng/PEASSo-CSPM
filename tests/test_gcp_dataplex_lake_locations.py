@@ -81,8 +81,7 @@ def test_only_automatic_lake_routes_exclude_non_regions(kind):
 
 @pytest.mark.parametrize('kind', ['knowledge_catalog_aspect_type',
                                 'knowledge_catalog_entry_group', 'knowledge_catalog_entry_type',
-                                'backupdr_backup_plan', 'backupdr_backup_plan_association',
-                                'backupdr_management_server', 'backupdr_backup_vault'])
+                                'backupdr_backup_vault'])
 def test_other_inventory_location_routes_are_unchanged(kind):
     assert discovered(Collector(), kind)[0] == NON_REGIONS + REGIONS
 
