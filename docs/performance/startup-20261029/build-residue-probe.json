@@ -1,0 +1,31 @@
+{
+  "cloud_calls": 0,
+  "elapsed_seconds": 23.757084886005032,
+  "gzip6_tar_proxy_bytes": 34847043,
+  "imports": {
+    "distribution_version": "0.1.0",
+    "peaso": "/app/peaso/__init__.py",
+    "peaso.ai.runner": "/app/peaso/ai/runner.py",
+    "peaso.checks": "/app/peaso/checks/__init__.py",
+    "peaso.engine": "/app/peaso/engine.py",
+    "peaso.server.scheduler_handler": "/app/peaso/server/scheduler_handler.py",
+    "peaso.worker": "/app/peaso/worker.py"
+  },
+  "limitation": "Existing image probe; no OCI layer or production latency claim.",
+  "model_calls": 0,
+  "network": "none (container launch)",
+  "removed_file_bytes": 220281188,
+  "removed_files": 2550,
+  "removed_tar_bytes": 224921600,
+  "retained_after": {
+    "bytes": 1155733686,
+    "files": 29816,
+    "sha256": "1e6b8a8f24f29f1491a6a1dcb7f22ff6387cef7f5332d176879f985aede768ff"
+  },
+  "retained_before": {
+    "bytes": 1155733686,
+    "files": 29816,
+    "sha256": "1e6b8a8f24f29f1491a6a1dcb7f22ff6387cef7f5332d176879f985aede768ff"
+  },
+  "retained_bytes_equal": true
+}

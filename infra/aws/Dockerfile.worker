@@ -29,7 +29,10 @@ COPY --from=codex-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=codex-runtime /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
 RUN ln -s /usr/local/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex
 RUN ln -s /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe /usr/local/bin/claude
+# setuptools leaves a second application tree after building the wheel. Remove
+# it in the installation layer so it is never uploaded or pulled by Fargate.
 RUN pip install --no-cache-dir --constraint /app/infra/aws/sdk-constraints.txt '.[cloud,hosted,secrets,ai]' \
+    && rm -rf /app/build \
     && groupadd --gid 10001 peaso && useradd --uid 10001 --gid 10001 --no-create-home peaso \
     && mkdir -p /tmp/peaso && chown -R 10001:10001 /tmp && chmod 0700 /tmp
 # Fargate copies ownership from this exact image volume path. Without VOLUME,
