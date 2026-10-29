@@ -121,10 +121,15 @@ c.send((True,a['final']));c.close()
     context = type('Context', (), {'Pipe': staticmethod(actual_context.Pipe), 'Process': OwnedProcess})()
     monkeypatch.setattr(worker.multiprocessing, 'get_context', lambda *_: context)
     polling = []
-    def poll_stages(control):
+    def poll_stages(control, native_checkpoint=None):
         current = store.job('alice', job['id'])
         assert control['status'] == 'analyzing'
         published = current.get('partial_report') == native_ref
+        if published:
+            assert native_checkpoint == {'sequence': 1, 'snapshot_ref': snapshot_ref,
+                'report_ref': native_ref, 'stage': 'analyzer_native'}
+        else:
+            assert native_checkpoint is None
         polling.append(published)
         if published and cancel:
             store.cancel('alice', job['id'])

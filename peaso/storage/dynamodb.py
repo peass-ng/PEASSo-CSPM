@@ -919,6 +919,22 @@ class DynamoStore:
                 return False
             raise
 
+    def abandon_stage(self, tenant, ident, stage, data_revision, owner):
+        """Release only our drained obsolete claim; newer/foreign claims survive."""
+        SQLiteStore._stage_args(stage, data_revision, owner)
+        try:
+            self.client.update_item(TableName=self.table, Key=attrs(self._stage_key(tenant, ident, stage)),
+                UpdateExpression="SET #status=:cancelled,#owner=:null,lease=:null,result_ref=:null",
+                ConditionExpression="data_revision=:revision AND #status=:running AND #owner=:owner",
+                ExpressionAttributeNames={"#status": "status", "#owner": "owner"},
+                ExpressionAttributeValues=attrs({":revision": data_revision, ":running": "running",
+                    ":cancelled": "cancelled", ":owner": owner, ":null": None}))
+            return True
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return False
+            raise
+
     def finish_stage(self, tenant, ident, stage, data_revision, owner, result_ref, now=None):
         from .artifacts import job_prefix
         SQLiteStore._stage_args(stage, data_revision, owner)

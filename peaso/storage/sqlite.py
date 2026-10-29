@@ -506,7 +506,7 @@ class SQLiteStore:
             row = db.execute("SELECT data_revision,status,lease FROM scan_stage_results WHERE tenant=? AND scan_id=? AND stage=?",
                              (tenant, ident, stage)).fetchone()
             if row and (row["data_revision"] > data_revision or
-                        row["data_revision"] == data_revision and (row["status"] == "completed" or (row["lease"] or 0) > now)):
+                        row["data_revision"] == data_revision and (row["status"] != "running" or (row["lease"] or 0) > now)):
                 return False
             db.execute("INSERT INTO scan_stage_results(tenant,scan_id,stage,data_revision,status,owner,lease,result_ref) VALUES(?,?,?,?,'running',?,?,NULL) ON CONFLICT(tenant,scan_id,stage) DO UPDATE SET data_revision=excluded.data_revision,status='running',owner=excluded.owner,lease=excluded.lease,result_ref=NULL",
                        (tenant, ident, stage, data_revision, owner, now + lease_seconds))
@@ -521,6 +521,13 @@ class SQLiteStore:
             return db.execute("UPDATE scan_stage_results SET lease=? WHERE tenant=? AND scan_id=? AND stage=? AND data_revision=? AND status='running' AND owner=? AND lease>? AND EXISTS (SELECT 1 FROM jobs WHERE tenant=? AND id=? AND status IN ('collecting','collected','analyzing') AND deadline>?)",
                               (now + lease_seconds, tenant, ident, stage, data_revision, owner, now,
                                tenant, ident, now)).rowcount == 1
+
+    def abandon_stage(self, tenant, ident, stage, data_revision, owner):
+        """Release only our drained obsolete claim; prevent same-revision replay."""
+        self._stage_args(stage, data_revision, owner)
+        with self.transaction() as db:
+            return db.execute("UPDATE scan_stage_results SET status='cancelled',owner=NULL,lease=NULL,result_ref=NULL WHERE tenant=? AND scan_id=? AND stage=? AND data_revision=? AND status='running' AND owner=?",
+                              (tenant, ident, stage, data_revision, owner)).rowcount == 1
 
     def finish_stage(self, tenant, ident, stage, data_revision, owner, result_ref, now=None):
         from .artifacts import job_prefix

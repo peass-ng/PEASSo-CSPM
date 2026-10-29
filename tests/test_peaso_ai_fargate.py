@@ -124,6 +124,24 @@ class Tasks:
     def stop_task(self,**kw):self.stops.append(kw)
 
 
+def test_stale_network_cancellation_cleans_transport_without_relaunch(configured, tmp_path):
+    from concurrent.futures import CancelledError
+    from peaso.ai.providers import ModelAccess
+    (tmp_path / 'credentials.json').write_text('{"entries":[]}')
+    tasks, storage = Tasks(stopped=False), Storage()
+    def cancelled_sleep(seconds):
+        assert len(tasks.requests) == 1
+        raise CancelledError()
+    access = ModelAccess('openai', 'OPENAI_BEST_QUALITY', 'high', 'inert')
+    with pytest.raises(CancelledError):
+        fargate.invoke('network', tmp_path, access, 30,
+                       ecs=tasks, s3=storage, sleep=cancelled_sleep)
+    assert len(tasks.requests) == 1
+    assert len(tasks.stops) == 1
+    assert {key.rsplit('/', 1)[-1] for key in storage.deleted} == {
+        'input.tgz', 'relay.json', 'result.json'}
+
+
 @pytest.mark.parametrize('provider', [None, 'codex', 'openai', 'anthropic', 'anthropic_token', 'openrouter'])
 def test_task_transport_never_exposes_real_model_token(configured,tmp_path,provider):
     (tmp_path/'credentials.json').write_text('{"entries":[]}')

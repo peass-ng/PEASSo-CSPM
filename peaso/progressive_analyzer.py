@@ -89,7 +89,7 @@ def _ready(job, artifacts, tenant, *, phase="collecting"):
     return report, snapshot, sections
 
 
-def _ready_sections(job, artifacts, tenant):
+def _ready_sections(job, artifacts, tenant, *, phase="collecting"):
     """Read readiness only; stage children independently validate full artifacts.
 
     Published bundles carry the same publication metadata in their summary.
@@ -113,7 +113,7 @@ def _ready_sections(job, artifacts, tenant):
         return None
     publication = report.get("publication", {})
     if (not isinstance(publication, dict) or publication.get("state") != "partial"
-            or publication.get("phase") != "collecting"):
+            or publication.get("phase") != phase):
         return None
     sections = publication.get("sections")
     return sections if isinstance(sections, dict) else None
@@ -240,19 +240,47 @@ def run_progressive(worker, tenant, ident, *, poll_seconds=0.25):
     next_heartbeat = 0.0
     checkpoint_key = None
     checkpoint_sections = None
+    final_key = None
+    final_sections = None
+    superseded = set()
     try:
         max_workers = max(1, min(2, review_concurrency()))
     except (ValueError, OSError):
         max_workers = 1
     def poll_active(job, native_checkpoint=None):
-        nonlocal next_heartbeat
+        nonlocal next_heartbeat, final_key, final_sections
+        # Worker supplies this only AFTER the final native publication is durable.
+        # An older review can never pass final reuse validation. Cancel it, but
+        # retain ownership and the fence until its invocation cleanup has exited.
+        if active and native_checkpoint is not None:
+            key = (native_checkpoint.get("report_ref"), native_checkpoint.get("snapshot_ref"))
+            if key != final_key:
+                try:
+                    final_sections = _ready_sections(
+                        {"partial_report": key[0], "partial_snapshot": key[1]},
+                        worker.artifacts, tenant, phase="analyzing")
+                except Exception:  # Optional cancellation proof; retain the existing wait.
+                    final_sections = None
+                    LOGGER.warning("Final Network revision unavailable; retaining progressive fence")
+                final_key = key
         for stage, (revision, task) in tuple(active.items()):
+            section = (final_sections or {}).get(stage, {})
+            final_revision = section.get("data_revision") if isinstance(section, dict) else None
+            if (stage == "network" and isinstance(section, dict)
+                    and section.get("status") == "complete"
+                    and type(final_revision) is int and type(revision) is int
+                    and 0 <= revision < final_revision and stage not in superseded):
+                task.request_stop()
+                superseded.add(stage)
             result_ref = task.poll()
-            if result_ref is _PENDING:
+            if result_ref is _PENDING or (stage in superseded and task.process.is_alive()):
                 continue
             task.close()
             del active[stage]
-            if isinstance(result_ref, str) and job["status"] in {"collecting", "collected", "analyzing"}:
+            if stage in superseded:
+                worker.store.abandon_stage(tenant, ident, stage, revision, owner)
+                superseded.remove(stage)
+            elif isinstance(result_ref, str) and job["status"] in {"collecting", "collected", "analyzing"}:
                 worker.store.finish_stage(tenant, ident, stage, revision, owner, result_ref)
         if active and time.time() >= next_heartbeat:
             lost = {}

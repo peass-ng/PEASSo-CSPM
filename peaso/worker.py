@@ -1205,6 +1205,7 @@ class Worker:
             result = None
             control_read = getattr(self.store, "job_control", self.store.job)
             stage_results_pending = False
+            native_checkpoint = None
             while not self.stopping.is_set():
                 now = time.time()
                 if now >= job["deadline"]:
@@ -1218,7 +1219,8 @@ class Worker:
                 control = control_read(job["tenant"], job["id"])
                 if control["status"] not in {"collecting", "analyzing"}:
                     return True
-                stages_settled = stage_poll(control) if stage_poll is not None else True
+                stages_settled = (stage_poll(control, native_checkpoint=native_checkpoint)
+                                  if stage_poll is not None else True)
                 if stage_results_pending and stages_settled:
                     parent.send(("__stage_results__", self.store.stage_results(job["tenant"], job["id"])))
                     stage_results_pending = False
@@ -1269,6 +1271,8 @@ class Worker:
                             parent.send(("__checkpoint_ack__", event["sequence"], bool(accepted)))
                             if not accepted:
                                 return True
+                            if self.role == "analyzer" and event.get("stage") == "analyzer_native":
+                                native_checkpoint = event
                             result = None
                             continue
                     except EOFError:

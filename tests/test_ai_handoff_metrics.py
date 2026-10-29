@@ -250,7 +250,7 @@ c.send((True,a['final']));c.close()
     context = SimpleNamespace(Pipe=actual_context.Pipe, Process=Process)
     monkeypatch.setattr(worker.multiprocessing, 'get_context', lambda *_: context)
     polls = []
-    def late_stage(control):
+    def late_stage(control, native_checkpoint=None):
         assert control['status'] == 'analyzing'
         if store.job('test', job['id']).get('partial_report') != native:
             return False

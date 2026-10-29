@@ -1,0 +1,108 @@
+{
+  "attribution": "Saved older complete stage and full final revision prove stale reuse rejection. Source final-results fence waits for all active progressive children before rejecting that output. Strong wait/discard evidence; neither exact child duration nor exclusive allocation of the residual is established.",
+  "base_revision": "89a1fc62bbc2332830ca0d605c30cc6ec6553bc7",
+  "correction": {
+    "authorization": "Durably accepted analyzer_native checkpoint, complete Network section, strict integer active revision older than final. Metadata failure or absent proof retains existing wait.",
+    "cancellation": "Signal once; keep child owned/heartbeated and withhold final stage-result reply until process exits. No new forced-kill path. Discard any late stale result.",
+    "claim_cleanup": "Conditional exact stage/revision/owner/running update to cancelled after drain. Clear owner/lease/ref. Cancelled same revision cannot reclaim; newer revision can. Foreign/newer claims survive.",
+    "cost": "No new invocation or retry path. Existing obsolete invocation is cancelled; existing full final Network and Priorities remain. Provider charges and realized savings not measured.",
+    "data_quality": "Final _process, final stage validation, stage child, full final snapshot delivery, pipeline and agent configuration unchanged. Stale output was already ineligible for reuse.",
+    "deadline": "Existing job/stage budgets and cancellation/deadline control loop unchanged."
+  },
+  "limitations": [
+    "No hosted execution of correction yet; root owns integration and release.",
+    "No exact child launch/stop timeline recovered; do not claim a fixed 360s timer.",
+    "Existing remote stop/delete are best effort and retain task watchdog/lifecycle backstops.",
+    "If child cleanup stalls, retain fence until existing job deadline rather than overlap a new final task."
+  ],
+  "numeric_intervals": {
+    "analyzer_wall_ms": 1630046,
+    "flat_active_spans": 0,
+    "flat_cpu_end_ms": 45400,
+    "flat_cpu_start_ms": 45397,
+    "flat_end_elapsed_ms": 360105,
+    "flat_start_elapsed_ms": 60102,
+    "flat_wall_ms": 300003,
+    "network_wall_ms": 328327,
+    "outside_worker_ai_ms": 370890,
+    "priorities_wall_ms": 928430,
+    "worker_ai_start_elapsed_ms_bounds": [
+      368462,
+      368463
+    ],
+    "worker_ai_start_observations": 42,
+    "worker_ai_wall_ms": 1259156
+  },
+  "operations": {
+    "deploys": 0,
+    "model_calls": 0,
+    "paid_access_analyzer_calls": 0,
+    "production_mutations": 0,
+    "pushes": 0,
+    "scans": 0
+  },
+  "saved_evidence": {
+    "ai_task_binding": "unavailable",
+    "artifact_binding_matches": true,
+    "ecs_task_metadata": "expired",
+    "final_network_section_complete": true,
+    "frame_count": 55,
+    "hosted_run": "40861212005",
+    "private_filename": "k8s-ai-handoff-40861212005-stdout-reconstructed.json",
+    "revision_relation": "older",
+    "saved_network_findings_count": 1,
+    "saved_network_status": "completed",
+    "sha256": "d1df521415775f88323085f2fe3f9c9edfe0b4fb387c515eefe82a5c0ef7573b"
+  },
+  "scan": "0e917e17757647df9f71b245dd3d672f",
+  "source_closure": {
+    "files": 1779,
+    "sdk_sites": 29,
+    "source_diff": {
+      "added": [],
+      "changed": [],
+      "removed": []
+    }
+  },
+  "unchanged_source_proof": {
+    "peaso/progressive_analyzer.py:_stage_child": {
+      "ast_sha256": "8df15a251d494701c8d4de78901b5bb891f52569c452e403c64f0bc1f496ca5e",
+      "unchanged": true
+    },
+    "peaso/worker.py:_process": {
+      "ast_sha256": "a4bb807a2ea7ccf59424aba63c9ea7b36eaf227b6942f4d8aead5be14b209aad",
+      "unchanged": true
+    },
+    "peaso/worker.py:_reusable_stages": {
+      "ast_sha256": "4defa44bb50d39504927c05f4dda44793fb0b2411b59eabdec3d03a2a42a5e52",
+      "unchanged": true
+    }
+  },
+  "validation": {
+    "broader_historical_comparison": {
+      "candidate_failed": 20,
+      "candidate_passed": 97,
+      "candidate_skipped": 3,
+      "parent_failed": 20,
+      "parent_passed": 97,
+      "parent_skipped": 3,
+      "result": "Same historical failure identities on parent and candidate (old stage/protocol fixtures), no additional failure."
+    },
+    "focused_passed": 105,
+    "focused_skipped": 3,
+    "focused_tests": [
+      "test_stale_network_drain.py",
+      "test_ai_handoff_metrics.py",
+      "test_peaso_native_before_ai_handoff.py::test_supervisor_publishes_native_while_waiting_and_reads_fresh_stage_rows",
+      "test_peaso_api_service_model_gate.py",
+      "test_peaso_ai_fargate.py",
+      "test_incremental_storage_20261022.py::test_sqlite_parallel_stage_owner_and_final_fencing",
+      "test_incremental_storage_20261022.py::test_dynamo_parallel_stage_owner_and_final_fencing"
+    ],
+    "moto": "5.2.5, local mock only",
+    "parent_regression": "Representative stale-native test fails on parent: child was not signalled after durable higher revision.",
+    "python": "3.12.13",
+    "skips": "Existing optional isolation/CLI checks in test_peaso_ai_fargate.py. Moto DynamoDB lifecycle did run."
+  },
+  "version": 1
+}
