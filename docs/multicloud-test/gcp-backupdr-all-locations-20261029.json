@@ -1,0 +1,133 @@
+{
+  "aws_iam_access_analyzer_calls": 0,
+  "baseline_catalog_sha256": "ddc35862eab9f095af0de716068cd12b791b9bf9357e3ebb254c87b061746e9e",
+  "baseline_public_commit": "f617504f7015da4210d87da8dad18431c6314440",
+  "candidate_catalog_sha256": "52e31ff5ad48ed8827dea2f9936e57502c069973703205d137fecc0da79dfbfb",
+  "change": "Use documented all-location list on exactly three BackupDR operations instead of discovering service-wide locations. Retain explicit selections and multi-regions. Prove each concrete resource under selected project or independently attested CRM alias before management-server IAM; use its native regional API root. Keep valid prefix before malformed/foreign row or unreachable-page failure.",
+  "historical_production": {
+    "caveat": "Request references are not exact physical HTTP counts. The baseline regional fan-out completed valid locations but retained its malformed-location failures honestly.",
+    "http_status_per_kind": 400,
+    "items_per_kind": 0,
+    "request_refs_per_kind": 44,
+    "scan": "52588fc3ab784ea7959e126197dc4ff9",
+    "status_per_kind": "unknown"
+  },
+  "kinds": [
+    "backupdr_backup_plan",
+    "backupdr_backup_plan_association",
+    "backupdr_management_server"
+  ],
+  "local_read_only": {
+    "caveat": "One empty owned test project. Includes supporting inventories; OAuth refresh is not in transport call count. No production recovery/full-provider parity claimed.",
+    "raw_three_get_probe_sha256": "64537cee13710c61f401a7e8463c1c6b0c712103b660716eebe6a7a082e0de7c",
+    "snapshot_sha256": "52d2878814ff0e87d2c9eba428aae2533c5d6b043e22d375db1fbfa26affedee",
+    "summary": {
+      "calls": 8,
+      "model_calls": 0,
+      "production_scan_launches": 0,
+      "rows": [
+        {
+          "error": {},
+          "items": 0,
+          "status": "empty",
+          "type": "backupdr_backup_plan"
+        },
+        {
+          "error": {},
+          "items": 0,
+          "status": "empty",
+          "type": "backupdr_backup_plan_association"
+        },
+        {
+          "error": {},
+          "items": 0,
+          "status": "empty",
+          "type": "backupdr_management_server"
+        }
+      ],
+      "scope_count": 1,
+      "statuses": {
+        "empty": 3
+      },
+      "targeted_local_collection": true,
+      "wall_s": 28.256248417004826
+    },
+    "target_inventory_list_requests": 3
+  },
+  "model_calls": 0,
+  "official_contracts": [
+    "https://docs.cloud.google.com/backup-disaster-recovery/docs/reference/rest/v1/projects.locations.backupPlans/list",
+    "https://docs.cloud.google.com/backup-disaster-recovery/docs/reference/rest/v1/projects.locations.backupPlanAssociations/list",
+    "https://docs.cloud.google.com/backup-disaster-recovery/docs/reference/rest/v1/projects.locations.managementServers/list"
+  ],
+  "offline_benchmark": {
+    "after": {
+      "calls": 60,
+      "collections": 3,
+      "cpu_s": 0.007633000000000001,
+      "hydration_workers": 8,
+      "inventory_workers": 3,
+      "location_workers": 8,
+      "mode": "after",
+      "model_calls": 0,
+      "native_content_sha256": "7113c4854521c245aeb6e71231d6cef678b655f9f582d19a682ed283ff03af36",
+      "process_peak_rss_bytes": 221118464,
+      "provider_network_calls": 0,
+      "regions_including_multi_regions": 48,
+      "resources": 144,
+      "simulated_request_latency_s": 0.01,
+      "stage": "three BackupDR list factories and IAM hydration",
+      "statuses": [
+        "collected",
+        "collected",
+        "collected"
+      ],
+      "wall_s": 0.14933524999651127
+    },
+    "before": {
+      "calls": 195,
+      "collections": 3,
+      "cpu_s": 0.021127000000000007,
+      "hydration_workers": 8,
+      "inventory_workers": 3,
+      "location_workers": 8,
+      "mode": "before",
+      "model_calls": 0,
+      "native_content_sha256": "7113c4854521c245aeb6e71231d6cef678b655f9f582d19a682ed283ff03af36",
+      "process_peak_rss_bytes": 227901440,
+      "provider_network_calls": 0,
+      "regions_including_multi_regions": 48,
+      "resources": 144,
+      "simulated_request_latency_s": 0.01,
+      "stage": "three BackupDR list factories and IAM hydration",
+      "statuses": [
+        "collected",
+        "collected",
+        "collected"
+      ],
+      "wall_s": 0.18080966699926648
+    },
+    "caveat": "List-stage synthetic latency; not a full-provider or production speed result. Whole-process RSS includes setup; no causal memory reduction is claimed.",
+    "comparison": "Same144 native items, three collected statuses, including all48 management IAM policies. Only generated scan timestamps/context/request references are excluded from content hash; native fields/IAM bindings/coverage status retained. Baseline public helper bytes equal worker ee50e4ba helper bytes used for measurement.",
+    "wall_ratio": 1.2107634801795994
+  },
+  "production_scans_launched": 0,
+  "provider_mutations": 0,
+  "qualification": {
+    "aggregate_source_sha256": "ef3de6fdf4a8be18d705adda24c653f5620b6095d05fdfad90b19ccdca898eda",
+    "historical_noconftest": true,
+    "historical_pytest_wall_s": 9.23,
+    "historical_reconstruction_tests": 1,
+    "literal_sdk_sites": 29,
+    "log_sha256": "46a4eca10f92b33e89499a9d8416e262a41f2f14464b7c2229d9e8f58248871a",
+    "normal_focused_tests": 50,
+    "pytest_wall_s": 0.58,
+    "source_count": 1778,
+    "source_diff": {
+      "added": [],
+      "changed": [],
+      "removed": []
+    }
+  },
+  "remaining_scope": "Five Dataplex lake-derived invalid-location cases remain unresolved; do not extend this wildcard contract to them. This replaces no global/multi-region catalog reads and performs no broad geographic filtering."
+}

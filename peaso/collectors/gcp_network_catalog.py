@@ -56,6 +56,10 @@ IAM_NETWORK_SECURITY = frozenset({
 })
 DMS_KINDS = frozenset({"migration_private_connection", "migration_connection_profile", "migration_job"})
 NCC_KINDS = frozenset({"network_connectivity_spoke"})
+BACKUPDR_ALL_LOCATIONS = frozenset({
+    'backupdr_backup_plan', 'backupdr_backup_plan_association', 'backupdr_management_server',
+})
+_BACKUPDR_ALL_SEGMENTS = frozenset(REGIONAL[kind][2] for kind in BACKUPDR_ALL_LOCATIONS)
 
 
 SERVICE_ENDPOINTS = json.loads(Path(__file__).with_name('gcp_network_service_endpoints.json').read_text())
@@ -113,6 +117,11 @@ def locations(collector, scope, kind):
     if regions is not None:
         yield _location_validations(regions), None
         return
+    if kind in BACKUPDR_ALL_LOCATIONS:
+        # Each of these three native list operations explicitly supports all
+        # locations. This retains multi-regions without guessing valid regions.
+        yield ['-'], None
+        return
     if plan.get('default_location'):
         yield [plan['default_location']], None
         return
@@ -157,6 +166,20 @@ def _native_child_name(row, parent, segment, collector, scope):
             suffix in {'.', '..'} or any(c in suffix for c in '/?#%')):
         raise ReadError('malformed', 'network_resource_identity_outside_native_parent')
     return name, receipts
+
+
+def _backupdr_inventory_name(row, parent, plan, collector, scope):
+    if (plan['service'] == 'backupdr' and plan['segment'] in _BACKUPDR_ALL_SEGMENTS
+            and parent == scope + '/locations/-'):
+        name = row.get('name')
+        parts = name.split('/') if isinstance(name, str) else []
+        if (len(parts) != 6 or parts[0] != 'projects' or parts[2] != 'locations'
+                or not re.fullmatch(r'[a-z][a-z0-9-]{0,62}', parts[3])):
+            raise ReadError('malformed', 'backupdr_location_identity_invalid')
+        # Only geography varies. The existing child validator still proves the
+        # exact resource segment/ID and selected project (or CRM-attested alias).
+        parent = scope + '/locations/' + parts[3]
+    return _native_child_name(row, parent, plan['segment'], collector, scope)
 
 
 def _dms_safe_row(kind, row):
@@ -248,29 +271,46 @@ def inventory_pages(collector, scope, plan, parent, root):
                 failures.append(exc)
         parents = discovered
     for parent_name in parents:
+        wildcard_backupdr = (plan['service'] == 'backupdr' and plan['segment'] in _BACKUPDR_ALL_SEGMENTS
+                             and parent_name == scope + '/locations/-')
         try:
             for page, receipt in collector.pages(root + '/' + parent_name + '/' + plan['segment'], scope,
                     key=plan['key'], params={'fields': plan['fields']},
                     transform=projection):
                 if not plan.get('hydrate'):
+                    identity_error = None
+                    if wildcard_backupdr:
+                        valid = []
+                        for item in page:
+                            try:
+                                _, aliases = _backupdr_inventory_name(item, parent_name, plan, collector, scope)
+                            except ReadError as exc:
+                                identity_error = exc
+                                break
+                            for alias_receipt in aliases:
+                                yield [], alias_receipt
+                            valid.append(item)
+                        page = valid
                     if plan.get('projection') == 'integration_connection':
                         page = [dict(item, _coverage={**item.get('_coverage', {}),
                             'network_detail': {'status': 'collected', 'source_requests': [receipt]}}) for item in page]
                     if plan.get('iam_policy'):
                         def policy(item):
-                            name, _ = _native_child_name(item, parent_name, plan['segment'], collector, scope)
+                            name, _ = _backupdr_inventory_name(item, parent_name, plan, collector, scope)
+                            native_root = (api_root(plan['service'], plan['version'], name.split('/')[3])
+                                           if wildcard_backupdr else root)
                             if plan['service'] == 'binaryauthorization':
                                 note = item.get('userOwnedGrafeasNote')
                                 item = {'name': name, 'userOwnedGrafeasNote': {
                                     'noteReference': note['noteReference']} if isinstance(note, dict)
                                     and isinstance(note.get('noteReference'), str) else {}}
                             if plan.get('iam_method') == 'POST':
-                                return collector.hydrate(item, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
+                                return collector.hydrate(item, 'iamPolicy', native_root + '/' + name + ':getIamPolicy', scope,
                                     method='POST', body={'resource': name, 'options': {'requestedPolicyVersion': 3}})
                             if plan.get('iam_method') == 'POST_EMPTY':
-                                return collector.hydrate(item, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
+                                return collector.hydrate(item, 'iamPolicy', native_root + '/' + name + ':getIamPolicy', scope,
                                     method='POST', body={}, params={'options.requestedPolicyVersion': 3})
-                            return collector.hydrate(item, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
+                            return collector.hydrate(item, 'iamPolicy', native_root + '/' + name + ':getIamPolicy', scope,
                                 params={'options.requestedPolicyVersion': 3})
                         parallel = getattr(collector, 'parallel', None)
                         page = parallel(policy, page) if callable(parallel) else [policy(item) for item in page]
@@ -287,6 +327,8 @@ def inventory_pages(collector, scope, plan, parent, root):
                         parallel = getattr(collector, 'parallel', None)
                         page = parallel(vault_sources, page) if callable(parallel) else [vault_sources(row) for row in page]
                     yield page, receipt
+                    if identity_error is not None:
+                        raise identity_error
                     continue
                 yield [], receipt
                 def detail(row, parent_name=parent_name, receipt=receipt):
