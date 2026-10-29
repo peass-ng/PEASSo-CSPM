@@ -9,6 +9,7 @@ import json
 import math
 import re
 import os
+import sys
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -2612,6 +2613,12 @@ class _Reader:
                 time.sleep(delay)
 
     def pages(self, request, url, *, audience=ARM, key="value", next_key="nextLink", body=None):
+        prefetch = getattr(self, "page_prefetch", None)
+        if prefetch is not None:
+            stream = prefetch.take(request, url, audience, key, next_key, body)
+            if stream is not None:
+                yield from stream
+                return
         origin = urlsplit(url)
         seen = set()
         page = 0
@@ -3384,6 +3391,15 @@ def collect(connector, requirements=None, *, transport=None):
     days = _bound(options.get("activity_days", 30), "activity_days", 1, 90)
     start, end = (now - timedelta(days=days)).isoformat(), now.isoformat()
     request = None  # Bound only after explicit authentication validation succeeds.
+    page_prefetch = None
+    def close_transport():
+        if owned and transport is not None:
+            if function_targets:
+                transport.tokens.clear()
+                with azure_function_settings_declarations_20261020.private_native_logs():
+                    transport.close()
+            else:
+                transport.close()
     try:
         if metadata_only_selection:
             raise _MetadataOnlyCollection
@@ -3454,6 +3470,35 @@ def collect(connector, requirements=None, *, transport=None):
                         raise ValueError("subscription tenant binding unavailable")
                     yield [value]
                 reader.run([("subscription", scope, "Microsoft.Resources", selected_subscription)])
+        start, end = azure_swc.activity_bounds(options, scopes, start, end)
+        if reader.workers > 1 and not reader.explicit_limits:
+            urls = []
+            if "directory_audit" in wanted:
+                urls.append(GRAPH + "/v1.0/auditLogs/directoryAudits?" + urlencode(
+                    {"$filter": f"activityDateTime ge {start} and activityDateTime le {end}"}))
+            from peaso.azure_unused_iam_contract import KIND as unused_kind, REPORTS
+            if unused_kind in wanted:
+                urls.extend(GRAPH + endpoint for endpoint in REPORTS.values())
+            group_url = GRAPH + "/v1.0/" + DIRECTORY["directory_group"]
+            if "directory_group" in wanted and "directory_group_pim_owner_policy" in wanted:
+                urls.append(group_url)
+            def group_policy_lookahead(url, page):
+                if url != group_url or "directory_group_pim_owner_policy" not in wanted:
+                    return
+                children = []
+                for group in page:
+                    group_id = group.get("id") if isinstance(group, dict) else None
+                    if not isinstance(group_id, str) or not group_id:
+                        return  # The regular consumer preserves malformed-parent handling.
+                    query = urlencode({"$filter": f"scopeId eq '{group_id}' and scopeType eq 'Group' and roleDefinitionId eq 'owner'",
+                                       "$expand": "policy($expand=rules)"})
+                    children.append(GRAPH + "/v1.0/policies/roleManagementPolicyAssignments?" + query)
+                page_prefetch.add(children)
+            if urls:
+                from .azure_page_prefetch import PagePrefetch
+                page_prefetch = reader.page_prefetch = PagePrefetch(reader, request, urls, GRAPH,
+                                                                  on_page=group_policy_lookahead)
+                page_prefetch.start()
         if nsp_query_selected and scopes:
             if discover_all:
                 # The discovery LIST is not a selected subscription GET receipt.
@@ -3472,7 +3517,6 @@ def collect(connector, requirements=None, *, transport=None):
         if discover_all:bind_tls_scopes(tls_owner, scopes)
         if "tenant" in wanted:
             jobs.append(("tenant", tenant_scope, "Microsoft.Resources", lambda: reader.pages(request, ARM + "/tenants?api-version=2022-12-01")))
-        start, end = azure_swc.activity_bounds(options, scopes, start, end)
         if "management_group" in wanted or wanted.intersection(AUTHORIZATION):
             def management_groups():
                 incomplete = None
@@ -5528,253 +5572,255 @@ def collect(connector, requirements=None, *, transport=None):
                 if kind not in projected_after_collection and (kind, scope) not in existing:
                     reader.unavailable(kind, scope, "azure", exc)
     finally:
-        if owned and transport is not None:
-            if function_targets:
-                transport.tokens.clear()
-                with azure_function_settings_declarations_20261020.private_native_logs():
-                    transport.close()
-            else:
-                transport.close()
-    # Complete empty parent lists prove no child instances; denied/partial
-    # parents never fabricate an empty child envelope.
-    child_parents = {"key_metadata": "vault", "key_vault_key": "vault", "key_rotation_policy": "vault", "key_vault_certificate_policy": "vault", "secret_metadata": "vault",
-                     "subnet": "vnet", "vnet_peering": "vnet", "storage_service": "storage_account", "sql_database": "sql_server", "sql_firewall_rule": "sql_server", "sql_ipv6_firewall_rule": "sql_server", "sql_audit": "sql_server", "sql_security": "sql_server", "sql_tde": "sql_database",
-                     "dns_record": "dns_zone", "private_dns_link": "private_dns_zone", "managed_identity_federated_credential": "managed_identity",
-                     "app_service_config": "app_service", "app_service_identity_detail": "app_service"}
-    for child, parent in child_parents.items():
-        if child not in wanted: continue
-        for scope in scopes:
-            if any(collection["type"] == child and (collection["scope"].lower() == scope.lower() or collection["scope"].lower().startswith(scope.lower() + "/")) for collection in reader.collections): continue
-            sources = [collection for collection in reader.collections if collection["type"] == parent and (collection["scope"].lower() == scope.lower() or collection["scope"].lower().startswith(scope.lower() + "/"))]
-            if sources and all(collection["status"] in ("collected", "empty") and not collection["items"] for collection in sources):
-                reader.collections.append({"type": child, "scope": scope, "service": service_for('azure', child, service_for('azure', parent)), "status": "empty", "items": [], "parent_inventory": parent})
-            elif sources and any(collection["status"] not in ("collected", "empty") for collection in sources):
-                state = next(collection["status"] for collection in sources if collection["status"] not in ("collected", "empty"))
-                reader.collections.append({"type": child, "scope": scope, "service": service_for('azure', child, service_for('azure', parent)), "status": state, "items": [], "error": {"code": "parent_inventory_unavailable"}})
-    if "diagnostic_setting" in wanted:
-        _complete_diagnostic_inventory(reader, scopes)
-    from .azure_sql_inventory import project as project_sql_inventory
-    project_sql_inventory(reader, scopes, wanted)
-    authenticated_tenant = getattr(transport, "tenant", None)
-    if authenticated_tenant:
-        for collection in reader.collections:
-            # The ARM tenant record joins the Graph directory facts of the same
-            # authenticated tenant; a placeholder scope leaves tenant checks UNKNOWN.
-            if (collection["service"] == "Microsoft.Graph" or collection["type"] == "tenant") and collection["scope"].startswith("/tenants/selected"):
-                collection["scope"] = collection["scope"].replace("/tenants/selected", "/tenants/" + authenticated_tenant, 1)
-            if collection["service"] == "Microsoft.Graph":
-                for item in collection["items"]:
-                    item.setdefault("_provenance", {}).update(tenant_id=authenticated_tenant, tenant_verified=bool(getattr(transport, "verified_tenant", None)))
-    if "entra_user" in wanted:
-        reader.collections.extend(azure_entra_user_native.project(
-            reader.collections, scopes, tenant_id=authenticated_tenant,
-            verified_tenant=getattr(transport, "verified_tenant", None)))
-    # Scan-local opaque binding is generated here, never accepted from portable
-    # connector input, and is unique across credentials/captures/customers.
-    from .azure_unused_iam_20261021 import collect as collect_unused_iam
-    collect_unused_iam(reader, request, scopes, wanted, transport, credential_context_id, customer_context_id)
-    for collection in reader.collections:
-        _bind_service_diagnostic_receipt(collection, reader)
-        proof = {"credential_context_id": credential_context_id, "customer_context_id": customer_context_id}
-        if collection["service"] == "Microsoft.Graph":
-            proof.update(tenant_id=authenticated_tenant, tenant_verified=bool(getattr(transport, "verified_tenant", None)))
-        collection.setdefault("_provenance", {}).update(proof)
-        for item in collection["items"]:
-            item.setdefault("_provenance", {}).update(proof)
-        _bind_hsm_diagnostic_context(collection, proof)
-    if request is not None:
-        azure_identity_enforcement_review_20261020.collect(reader, request, scopes, wanted, transport,
-            credential_context_id, customer_context_id)
-    metadata = reader.metadata()
-    if auto_container_literals or auto_app_settings:
-        metadata['automatic_workload_environment_coverage'] = {}
-        metadata['automatic_workload_environment_batches'] = {}
-        if auto_container_literals:
-            metadata['automatic_workload_environment_coverage'][azure_selected_configuration_secret_indicators.KIND] = reader.automatic_container_literal_coverage
-            metadata['automatic_workload_environment_batches'][azure_selected_configuration_secret_indicators.KIND] = reader.automatic_container_literal_batches
-        if auto_app_settings:
-            metadata['automatic_workload_environment_coverage'][azure_app_settings_secret_indicators.KIND] = reader.automatic_app_settings_coverage
-            metadata['automatic_workload_environment_batches'][azure_app_settings_secret_indicators.KIND] = reader.automatic_app_settings_batches
-    metadata.update(getattr(reader, 'unused_arm_role_metadata', {}))
-    metadata.update(getattr(reader, "nsp_query_cmk_metadata", {}))
-    metadata.update(getattr(reader, 'configuration_secret_metadata', {}))
-    metadata.update(getattr(reader, 'declaration_secret_metadata', {}))
-    metadata.update(getattr(reader, 'log_sample_secret_metadata', {}))
-    metadata.update(getattr(reader, 'ml_command_job_secret_metadata', {}))
-    metadata.update(getattr(reader, 'databricks_notebook_secret_metadata', {}))
-    metadata.update(getattr(reader, 'synapse_notebook_secret_metadata', {}))
-    metadata.update(getattr(reader, 'ml_asset_secret_metadata', {}))
-    metadata.update(getattr(reader, 'function_declaration_metadata', {}))
-    metadata.update(getattr(reader, 'storage_source_secret_metadata', {}))
-    metadata.update(getattr(reader, 'flex_archive_metadata', {}))
-    metadata.update(getattr(reader, 'devops_selected_metadata', {}))
-    metadata.update(getattr(reader, 'app_setting_secret_metadata', {}))
-    metadata.update(getattr(reader, 'acr_image_secret_metadata', {}))
-    metadata.update(getattr(reader, 'azure_aks_image_metadata', {}))
-    metadata.update(getattr(reader, 'acr_image_vulnerability_metadata', {}))
-    if "security_admin_rule" in wanted:
-        admin_rows = [c for c in reader.collections if c["type"] == "security_admin_rule" and c["scope"] in scopes]
-        vnet_rows = {c["scope"]: c for c in reader.collections if c["type"] == "vnet" and c["scope"] in scopes}
-        complete = len(admin_rows) == len(scopes) and all(c["status"] in {"collected", "empty"} for c in admin_rows)
-        for row in admin_rows:
-            parents = vnet_rows.get(row["scope"])
-            expected = {item["id"].lower() for item in parents["items"]} if parents and parents["status"] in {"collected", "empty"} else None
-            observed = {proof.get("resource_id", "").lower() for proof in row.get("source_evidence", [])
-                if proof.get("source_operation") == "listNetworkManagerEffectiveSecurityAdminRules"
-                and isinstance(proof.get("response_sha256"), str)}
-            if expected is None or observed != expected:
-                complete = False
-        evidence = [{"collection_type": "security_admin_rule", "scope": c["scope"],
-            "source_operation": "listNetworkManagerEffectiveSecurityAdminRules",
-            "query_proofs": c.get("source_evidence", [])} for c in admin_rows]
-        metadata.setdefault("network_context", {}).setdefault("azure", {})["security_admin"] = {
-            "status": "collected" if complete else "unknown", "complete": complete,
-            "policies": [item["id"] for c in admin_rows for item in c["items"]] if complete else None,
-            "source_evidence": evidence}
-    accepted_subjects = getattr(transport, 'disclosure_accepted_subjects', {})
-    if (options.get('native_disclosure_metadata') and accepted_subjects.get(ARM)
-            and accepted_subjects.get(ARM) == accepted_subjects.get(VAULT)):
-        metadata['native_disclosure_subject'] = dict(accepted_subjects[ARM])
-    if scopes_limited:
-        metadata.update(intentional_partial=True, scope_coverage={"status": "partial", "reason": "explicit max_scopes limit", "max_scopes": max_scopes})
-    def field_states(value):
-        if isinstance(value, dict):
-            coverage = value.get("_coverage", {})
-            if isinstance(coverage, dict):
-                for field in coverage.values():
-                    if isinstance(field, dict): yield field.get("status", "unknown")
-            for child in value.values(): yield from field_states(child)
-        elif isinstance(value, list):
-            for child in value: yield from field_states(child)
-    directory = [c for c in reader.collections if c["service"] == "Microsoft.Graph"]
-    directory_fields_complete = all(state in ("collected", "empty") for collection in directory for state in field_states(collection["items"]))
-    def field_limit_reached(value):
-        if isinstance(value, dict):
-            if isinstance(value.get("_coverage"), dict) and any(isinstance(field, dict) and field.get("error", {}).get("code") in ("resource_limit", "page_limit", "call_limit", "scope_limit", "deadline_exceeded", "collection_cancelled") for field in value["_coverage"].values()):
-                return True
-            return any(field_limit_reached(child) for child in value.values())
-        return any(field_limit_reached(child) for child in value) if isinstance(value, list) else False
-    if any(field_limit_reached(collection["items"]) for collection in reader.collections):
-        metadata["intentional_partial"] = True
-    metadata.update(credential_context_id=credential_context_id, customer_context_id=customer_context_id, context_binding="scan_local", tenant_id=getattr(transport, "tenant", None) or auth.get("tenant_id"), tenant_verified=bool(getattr(transport, "verified_tenant", None)),
-                    trusted_scope_ids=trusted_scopes,
-                    subscription_tenants={**{item["id"]: item["tenantId"] for collection in reader.collections if collection["type"] == "subscription" for item in collection["items"] if isinstance(item.get("id"), str) and isinstance(item.get("tenantId"), str)}, **getattr(reader, "native_subscription_tenants", {})},
-                    directory_coverage={"status": "not_collected" if not directory else "complete" if directory_fields_complete and all(c["status"] in ("collected", "empty") for c in directory) else "incomplete", "types": {c["type"]: c["status"] for c in directory}},
-                    authorization_semantics={"effective_access": "not_computed", "control_data_separation": True, "not_actions_are_exclusions": True, "conditions_preserved": True, "management_group_visibility": "accessible_only"},
-                    activity_window={"start": start, "end": end, "retention": "unknown", "complete": False, "reason": "provider retention and directory/data-plane events are not verified"},
-                    omitted_inventories=sorted(set(TYPES) - wanted))
-    metadata["defender_containers_policy"] = _defender_containers_policy(options, scopes, datetime.now(timezone.utc).isoformat())
-    metadata["cosmos_backup_retention"] = _cosmos_backup_retention_policy(options, scopes, datetime.now(timezone.utc).isoformat())
-    metadata.update(azure_swc.owner_metadata(options, scopes, metadata.get("tenant_id")))
-    merge_tls_metadata(metadata, tls_owner)
-    for namespace, fields in getattr(reader, "native_aks_workloads_metadata", {}).items():
-        if namespace in ("sw25_policy", "sw22"):
-            metadata[namespace] = {**metadata.get(namespace, {}), **fields}
-        else:
-            metadata[namespace] = fields
-    if sw15_owner is not None:
-        metadata.setdefault("compliance_policy", {})["sw15"] = sw15_owner
-    databricks_policy = azure_databricks_native.owner_policy(options, scopes)
-    if databricks_policy:
-        parent_policy = metadata.setdefault("compliance_policy", {})
-        raw_sw33 = options.get("compliance_policy", {}).get("sw33", {})
-        merged_sw33 = {**raw_sw33, **parent_policy.get("sw33", {}), **databricks_policy}
-        # Preserve independent owner requirements and their original authority;
-        # a Databricks approval cannot refresh or rebind another SW33 family.
-        for field in ("status", "scope", "observed_at", "max_age_seconds"):
-            if field in raw_sw33:
-                merged_sw33[field] = raw_sw33[field]
-        parent_policy["sw33"] = merged_sw33
-    arm_metadata = azure_arm_metadata_native.owner_metadata(reader, options, scopes)
-    arm_policy = arm_metadata.pop('compliance_policy', {})
-    metadata.update(arm_metadata)
-    if arm_policy:
-        existing_policy = metadata.get('compliance_policy', {})
-        # A new baseline cannot rebind or refresh authority for other checks.
-        if 'parameters' in existing_policy or any(key in existing_policy for key in ('status', 'scope', 'observed_at', 'max_age_seconds')):
-            for key in ('status', 'scope', 'observed_at', 'max_age_seconds'):
-                arm_policy.pop(key, None)
-        if 'parameters' in arm_policy:
-            arm_policy['parameters'] = {**existing_policy.get('parameters', {}), **arm_policy['parameters']}
-        if 'sw27' in arm_policy and isinstance(existing_policy.get('sw27'), dict):
-            arm_policy['sw27'] = {**existing_policy['sw27'], **arm_policy['sw27']}
-            if 'status' in existing_policy['sw27']:
-                arm_policy['sw27']['status'] = existing_policy['sw27']['status']
-        metadata['compliance_policy'] = {**existing_policy, **arm_policy}
-    from .azure_resource_logging_policy import owner_policy as resource_logging_policy
-    logging_policy = resource_logging_policy(options, scopes)
-    if logging_policy:
-        parent_policy = metadata.get('compliance_policy', {})
-        raw_sw16 = options.get('compliance_policy', {}).get('sw16', {})
-        raw_sw16 = raw_sw16 if isinstance(raw_sw16, dict) else {}
-        metadata['compliance_policy'] = {**parent_policy, 'sw16': {**raw_sw16, **parent_policy.get('sw16', {}), **logging_policy}}
-    iot_policy = azure_iot_policy_native.owner_policy(options, scopes)
-    if iot_policy:
-        parent_policy = metadata.get("compliance_policy", {})
-        raw_sw16 = options.get("compliance_policy", {}).get("sw16", {})
-        raw_sw16 = raw_sw16 if isinstance(raw_sw16, dict) else {}
-        metadata["compliance_policy"] = {**parent_policy, "sw16": {**raw_sw16, **parent_policy.get("sw16", {}), **iot_policy}}
-    native_sw32 = getattr(reader, "native_sw32_policy", sw32_owner)
-    if native_sw32 is not None:
-        metadata["compliance_policy"] = {**metadata.get("compliance_policy", {}), "sw32": native_sw32}
-    point_policy = azure_storage_recovery_metadata_native.owner_policy(options, scopes)
-    if point_policy:
-        parent_policy = metadata.get('compliance_policy', {})
-        raw_policy = options.get('compliance_policy', {})
-        raw_prior = raw_policy.get('sw13', {}) if isinstance(raw_policy, dict) else {}
-        derived_prior = parent_policy.get('sw13', {})
-        authority = ('scope','status','authorized_by','document_id','observed_at','expires_at')
-        # Bulk evidence merges namespaces shallowly: retain raw siblings and their
-        # authority before adding this control. Never refresh/rebind another review.
-        if (isinstance(raw_prior, dict) and isinstance(derived_prior, dict) and
-                isinstance(raw_prior.get('checks', {}), dict) and isinstance(derived_prior.get('checks', {}), dict)):
-            prior = {**raw_prior, **derived_prior}
-            prior['checks'] = {**raw_prior.get('checks', {}), **derived_prior.get('checks', {})}
-            for key in authority:
-                if key in raw_prior:
-                    prior[key] = raw_prior[key]
-            if not raw_prior and not derived_prior:
-                prior = point_policy
-            elif all(prior.get(k) == point_policy.get(k) for k in authority):
-                prior['checks'] = {**prior['checks'], **point_policy['checks']}
-            metadata['compliance_policy'] = {**parent_policy, 'sw13': prior}
-    if guest_policy:
-        metadata['compliance_policy'] = {**metadata.get('compliance_policy',{}), **guest_policy}
-    if "maxCredentialAgeDays" in options:
-        age = options["maxCredentialAgeDays"]
-        if type(age) is not int or age <= 0:
-            raise ValueError("maxCredentialAgeDays must be a positive integer")
-        metadata["parameters"] = {"maxCredentialAgeDays": age}
+        if page_prefetch is None or sys.exc_info()[0] is not None:
+            if page_prefetch is not None:
+                page_prefetch.close()
+            close_transport()
     try:
-        native_instant = azure_storage_recovery_metadata_native.snapshot_instant(reader.collections, wanted)
-        native_instant = azure_storage_lifecycle_native.snapshot_instant(reader.collections, wanted, native_instant)
-        native_instant = azure_apim_protocol_policy.project(reader, scopes, wanted, options, native_instant)
-        native_instant = azure_apim_diagnostic_evidence_native.project(reader, scopes, wanted, options, native_instant)
-        native_instant = azure_storage_blob_keys_native.snapshot_instant(reader.collections, wanted, native_instant)
-        native_instant = azure_audit_storage_native.snapshot_instant(reader.collections, wanted, native_instant)
-        if "apim_api_evidence" in wanted:
-            metadata["intentional_partial"] = bool(metadata.get("intentional_partial") or reader.metadata()["intentional_partial"])
-        devops_scopes = getattr(reader, 'native_devops_pipeline_scopes', [])
-        if devops_scopes:
-            metadata['native_devops_pipeline_capture'] = reader.native_devops_pipeline_capture
-            metadata['sw14Policy'] = reader.native_devops_pipeline_policy
-        if nsg_owner is not None:
-            native_instant = native_instant or datetime.now(timezone.utc).isoformat()
-            approved = azure_nsg_ingress_native.owner_metadata(nsg_owner, native_instant)
-            if approved:
-                metadata["compliance_policy"] = {**metadata.get("compliance_policy", {}), "sw31": approved}
-        snapshot = make_snapshot("azure", scopes + devops_scopes, reader.collections, metadata=metadata, created_at=native_instant)
-        if devops_scopes:
-            snapshot = azure_devops_pipeline_native.bind_snapshot(snapshot)
-    except Exception:
-        reader.progress("error")
-        raise
-    if package_grant is not None:
-        snapshot = package_source.finish(reader, snapshot, options, transport,
-            locals().get('cache', {}), locals().get('cache_locks', {}))
-        reader.progress('completed')
+        # Complete empty parent lists prove no child instances; denied/partial
+        # parents never fabricate an empty child envelope.
+        child_parents = {"key_metadata": "vault", "key_vault_key": "vault", "key_rotation_policy": "vault", "key_vault_certificate_policy": "vault", "secret_metadata": "vault",
+                         "subnet": "vnet", "vnet_peering": "vnet", "storage_service": "storage_account", "sql_database": "sql_server", "sql_firewall_rule": "sql_server", "sql_ipv6_firewall_rule": "sql_server", "sql_audit": "sql_server", "sql_security": "sql_server", "sql_tde": "sql_database",
+                         "dns_record": "dns_zone", "private_dns_link": "private_dns_zone", "managed_identity_federated_credential": "managed_identity",
+                         "app_service_config": "app_service", "app_service_identity_detail": "app_service"}
+        for child, parent in child_parents.items():
+            if child not in wanted: continue
+            for scope in scopes:
+                if any(collection["type"] == child and (collection["scope"].lower() == scope.lower() or collection["scope"].lower().startswith(scope.lower() + "/")) for collection in reader.collections): continue
+                sources = [collection for collection in reader.collections if collection["type"] == parent and (collection["scope"].lower() == scope.lower() or collection["scope"].lower().startswith(scope.lower() + "/"))]
+                if sources and all(collection["status"] in ("collected", "empty") and not collection["items"] for collection in sources):
+                    reader.collections.append({"type": child, "scope": scope, "service": service_for('azure', child, service_for('azure', parent)), "status": "empty", "items": [], "parent_inventory": parent})
+                elif sources and any(collection["status"] not in ("collected", "empty") for collection in sources):
+                    state = next(collection["status"] for collection in sources if collection["status"] not in ("collected", "empty"))
+                    reader.collections.append({"type": child, "scope": scope, "service": service_for('azure', child, service_for('azure', parent)), "status": state, "items": [], "error": {"code": "parent_inventory_unavailable"}})
+        if "diagnostic_setting" in wanted:
+            _complete_diagnostic_inventory(reader, scopes)
+        from .azure_sql_inventory import project as project_sql_inventory
+        project_sql_inventory(reader, scopes, wanted)
+        authenticated_tenant = getattr(transport, "tenant", None)
+        if authenticated_tenant:
+            for collection in reader.collections:
+                # The ARM tenant record joins the Graph directory facts of the same
+                # authenticated tenant; a placeholder scope leaves tenant checks UNKNOWN.
+                if (collection["service"] == "Microsoft.Graph" or collection["type"] == "tenant") and collection["scope"].startswith("/tenants/selected"):
+                    collection["scope"] = collection["scope"].replace("/tenants/selected", "/tenants/" + authenticated_tenant, 1)
+                if collection["service"] == "Microsoft.Graph":
+                    for item in collection["items"]:
+                        item.setdefault("_provenance", {}).update(tenant_id=authenticated_tenant, tenant_verified=bool(getattr(transport, "verified_tenant", None)))
+        if "entra_user" in wanted:
+            reader.collections.extend(azure_entra_user_native.project(
+                reader.collections, scopes, tenant_id=authenticated_tenant,
+                verified_tenant=getattr(transport, "verified_tenant", None)))
+        # Scan-local opaque binding is generated here, never accepted from portable
+        # connector input, and is unique across credentials/captures/customers.
+        from .azure_unused_iam_20261021 import collect as collect_unused_iam
+        collect_unused_iam(reader, request, scopes, wanted, transport, credential_context_id, customer_context_id)
+        for collection in reader.collections:
+            _bind_service_diagnostic_receipt(collection, reader)
+            proof = {"credential_context_id": credential_context_id, "customer_context_id": customer_context_id}
+            if collection["service"] == "Microsoft.Graph":
+                proof.update(tenant_id=authenticated_tenant, tenant_verified=bool(getattr(transport, "verified_tenant", None)))
+            collection.setdefault("_provenance", {}).update(proof)
+            for item in collection["items"]:
+                item.setdefault("_provenance", {}).update(proof)
+            _bind_hsm_diagnostic_context(collection, proof)
+        if request is not None:
+            azure_identity_enforcement_review_20261020.collect(reader, request, scopes, wanted, transport,
+                credential_context_id, customer_context_id)
+        metadata = reader.metadata()
+        if auto_container_literals or auto_app_settings:
+            metadata['automatic_workload_environment_coverage'] = {}
+            metadata['automatic_workload_environment_batches'] = {}
+            if auto_container_literals:
+                metadata['automatic_workload_environment_coverage'][azure_selected_configuration_secret_indicators.KIND] = reader.automatic_container_literal_coverage
+                metadata['automatic_workload_environment_batches'][azure_selected_configuration_secret_indicators.KIND] = reader.automatic_container_literal_batches
+            if auto_app_settings:
+                metadata['automatic_workload_environment_coverage'][azure_app_settings_secret_indicators.KIND] = reader.automatic_app_settings_coverage
+                metadata['automatic_workload_environment_batches'][azure_app_settings_secret_indicators.KIND] = reader.automatic_app_settings_batches
+        metadata.update(getattr(reader, 'unused_arm_role_metadata', {}))
+        metadata.update(getattr(reader, "nsp_query_cmk_metadata", {}))
+        metadata.update(getattr(reader, 'configuration_secret_metadata', {}))
+        metadata.update(getattr(reader, 'declaration_secret_metadata', {}))
+        metadata.update(getattr(reader, 'log_sample_secret_metadata', {}))
+        metadata.update(getattr(reader, 'ml_command_job_secret_metadata', {}))
+        metadata.update(getattr(reader, 'databricks_notebook_secret_metadata', {}))
+        metadata.update(getattr(reader, 'synapse_notebook_secret_metadata', {}))
+        metadata.update(getattr(reader, 'ml_asset_secret_metadata', {}))
+        metadata.update(getattr(reader, 'function_declaration_metadata', {}))
+        metadata.update(getattr(reader, 'storage_source_secret_metadata', {}))
+        metadata.update(getattr(reader, 'flex_archive_metadata', {}))
+        metadata.update(getattr(reader, 'devops_selected_metadata', {}))
+        metadata.update(getattr(reader, 'app_setting_secret_metadata', {}))
+        metadata.update(getattr(reader, 'acr_image_secret_metadata', {}))
+        metadata.update(getattr(reader, 'azure_aks_image_metadata', {}))
+        metadata.update(getattr(reader, 'acr_image_vulnerability_metadata', {}))
+        if "security_admin_rule" in wanted:
+            admin_rows = [c for c in reader.collections if c["type"] == "security_admin_rule" and c["scope"] in scopes]
+            vnet_rows = {c["scope"]: c for c in reader.collections if c["type"] == "vnet" and c["scope"] in scopes}
+            complete = len(admin_rows) == len(scopes) and all(c["status"] in {"collected", "empty"} for c in admin_rows)
+            for row in admin_rows:
+                parents = vnet_rows.get(row["scope"])
+                expected = {item["id"].lower() for item in parents["items"]} if parents and parents["status"] in {"collected", "empty"} else None
+                observed = {proof.get("resource_id", "").lower() for proof in row.get("source_evidence", [])
+                    if proof.get("source_operation") == "listNetworkManagerEffectiveSecurityAdminRules"
+                    and isinstance(proof.get("response_sha256"), str)}
+                if expected is None or observed != expected:
+                    complete = False
+            evidence = [{"collection_type": "security_admin_rule", "scope": c["scope"],
+                "source_operation": "listNetworkManagerEffectiveSecurityAdminRules",
+                "query_proofs": c.get("source_evidence", [])} for c in admin_rows]
+            metadata.setdefault("network_context", {}).setdefault("azure", {})["security_admin"] = {
+                "status": "collected" if complete else "unknown", "complete": complete,
+                "policies": [item["id"] for c in admin_rows for item in c["items"]] if complete else None,
+                "source_evidence": evidence}
+        accepted_subjects = getattr(transport, 'disclosure_accepted_subjects', {})
+        if (options.get('native_disclosure_metadata') and accepted_subjects.get(ARM)
+                and accepted_subjects.get(ARM) == accepted_subjects.get(VAULT)):
+            metadata['native_disclosure_subject'] = dict(accepted_subjects[ARM])
+        if scopes_limited:
+            metadata.update(intentional_partial=True, scope_coverage={"status": "partial", "reason": "explicit max_scopes limit", "max_scopes": max_scopes})
+        def field_states(value):
+            if isinstance(value, dict):
+                coverage = value.get("_coverage", {})
+                if isinstance(coverage, dict):
+                    for field in coverage.values():
+                        if isinstance(field, dict): yield field.get("status", "unknown")
+                for child in value.values(): yield from field_states(child)
+            elif isinstance(value, list):
+                for child in value: yield from field_states(child)
+        directory = [c for c in reader.collections if c["service"] == "Microsoft.Graph"]
+        directory_fields_complete = all(state in ("collected", "empty") for collection in directory for state in field_states(collection["items"]))
+        def field_limit_reached(value):
+            if isinstance(value, dict):
+                if isinstance(value.get("_coverage"), dict) and any(isinstance(field, dict) and field.get("error", {}).get("code") in ("resource_limit", "page_limit", "call_limit", "scope_limit", "deadline_exceeded", "collection_cancelled") for field in value["_coverage"].values()):
+                    return True
+                return any(field_limit_reached(child) for child in value.values())
+            return any(field_limit_reached(child) for child in value) if isinstance(value, list) else False
+        if any(field_limit_reached(collection["items"]) for collection in reader.collections):
+            metadata["intentional_partial"] = True
+        metadata.update(credential_context_id=credential_context_id, customer_context_id=customer_context_id, context_binding="scan_local", tenant_id=getattr(transport, "tenant", None) or auth.get("tenant_id"), tenant_verified=bool(getattr(transport, "verified_tenant", None)),
+                        trusted_scope_ids=trusted_scopes,
+                        subscription_tenants={**{item["id"]: item["tenantId"] for collection in reader.collections if collection["type"] == "subscription" for item in collection["items"] if isinstance(item.get("id"), str) and isinstance(item.get("tenantId"), str)}, **getattr(reader, "native_subscription_tenants", {})},
+                        directory_coverage={"status": "not_collected" if not directory else "complete" if directory_fields_complete and all(c["status"] in ("collected", "empty") for c in directory) else "incomplete", "types": {c["type"]: c["status"] for c in directory}},
+                        authorization_semantics={"effective_access": "not_computed", "control_data_separation": True, "not_actions_are_exclusions": True, "conditions_preserved": True, "management_group_visibility": "accessible_only"},
+                        activity_window={"start": start, "end": end, "retention": "unknown", "complete": False, "reason": "provider retention and directory/data-plane events are not verified"},
+                        omitted_inventories=sorted(set(TYPES) - wanted))
+        metadata["defender_containers_policy"] = _defender_containers_policy(options, scopes, datetime.now(timezone.utc).isoformat())
+        metadata["cosmos_backup_retention"] = _cosmos_backup_retention_policy(options, scopes, datetime.now(timezone.utc).isoformat())
+        metadata.update(azure_swc.owner_metadata(options, scopes, metadata.get("tenant_id")))
+        merge_tls_metadata(metadata, tls_owner)
+        for namespace, fields in getattr(reader, "native_aks_workloads_metadata", {}).items():
+            if namespace in ("sw25_policy", "sw22"):
+                metadata[namespace] = {**metadata.get(namespace, {}), **fields}
+            else:
+                metadata[namespace] = fields
+        if sw15_owner is not None:
+            metadata.setdefault("compliance_policy", {})["sw15"] = sw15_owner
+        databricks_policy = azure_databricks_native.owner_policy(options, scopes)
+        if databricks_policy:
+            parent_policy = metadata.setdefault("compliance_policy", {})
+            raw_sw33 = options.get("compliance_policy", {}).get("sw33", {})
+            merged_sw33 = {**raw_sw33, **parent_policy.get("sw33", {}), **databricks_policy}
+            # Preserve independent owner requirements and their original authority;
+            # a Databricks approval cannot refresh or rebind another SW33 family.
+            for field in ("status", "scope", "observed_at", "max_age_seconds"):
+                if field in raw_sw33:
+                    merged_sw33[field] = raw_sw33[field]
+            parent_policy["sw33"] = merged_sw33
+        arm_metadata = azure_arm_metadata_native.owner_metadata(reader, options, scopes)
+        arm_policy = arm_metadata.pop('compliance_policy', {})
+        metadata.update(arm_metadata)
+        if arm_policy:
+            existing_policy = metadata.get('compliance_policy', {})
+            # A new baseline cannot rebind or refresh authority for other checks.
+            if 'parameters' in existing_policy or any(key in existing_policy for key in ('status', 'scope', 'observed_at', 'max_age_seconds')):
+                for key in ('status', 'scope', 'observed_at', 'max_age_seconds'):
+                    arm_policy.pop(key, None)
+            if 'parameters' in arm_policy:
+                arm_policy['parameters'] = {**existing_policy.get('parameters', {}), **arm_policy['parameters']}
+            if 'sw27' in arm_policy and isinstance(existing_policy.get('sw27'), dict):
+                arm_policy['sw27'] = {**existing_policy['sw27'], **arm_policy['sw27']}
+                if 'status' in existing_policy['sw27']:
+                    arm_policy['sw27']['status'] = existing_policy['sw27']['status']
+            metadata['compliance_policy'] = {**existing_policy, **arm_policy}
+        from .azure_resource_logging_policy import owner_policy as resource_logging_policy
+        logging_policy = resource_logging_policy(options, scopes)
+        if logging_policy:
+            parent_policy = metadata.get('compliance_policy', {})
+            raw_sw16 = options.get('compliance_policy', {}).get('sw16', {})
+            raw_sw16 = raw_sw16 if isinstance(raw_sw16, dict) else {}
+            metadata['compliance_policy'] = {**parent_policy, 'sw16': {**raw_sw16, **parent_policy.get('sw16', {}), **logging_policy}}
+        iot_policy = azure_iot_policy_native.owner_policy(options, scopes)
+        if iot_policy:
+            parent_policy = metadata.get("compliance_policy", {})
+            raw_sw16 = options.get("compliance_policy", {}).get("sw16", {})
+            raw_sw16 = raw_sw16 if isinstance(raw_sw16, dict) else {}
+            metadata["compliance_policy"] = {**parent_policy, "sw16": {**raw_sw16, **parent_policy.get("sw16", {}), **iot_policy}}
+        native_sw32 = getattr(reader, "native_sw32_policy", sw32_owner)
+        if native_sw32 is not None:
+            metadata["compliance_policy"] = {**metadata.get("compliance_policy", {}), "sw32": native_sw32}
+        point_policy = azure_storage_recovery_metadata_native.owner_policy(options, scopes)
+        if point_policy:
+            parent_policy = metadata.get('compliance_policy', {})
+            raw_policy = options.get('compliance_policy', {})
+            raw_prior = raw_policy.get('sw13', {}) if isinstance(raw_policy, dict) else {}
+            derived_prior = parent_policy.get('sw13', {})
+            authority = ('scope','status','authorized_by','document_id','observed_at','expires_at')
+            # Bulk evidence merges namespaces shallowly: retain raw siblings and their
+            # authority before adding this control. Never refresh/rebind another review.
+            if (isinstance(raw_prior, dict) and isinstance(derived_prior, dict) and
+                    isinstance(raw_prior.get('checks', {}), dict) and isinstance(derived_prior.get('checks', {}), dict)):
+                prior = {**raw_prior, **derived_prior}
+                prior['checks'] = {**raw_prior.get('checks', {}), **derived_prior.get('checks', {})}
+                for key in authority:
+                    if key in raw_prior:
+                        prior[key] = raw_prior[key]
+                if not raw_prior and not derived_prior:
+                    prior = point_policy
+                elif all(prior.get(k) == point_policy.get(k) for k in authority):
+                    prior['checks'] = {**prior['checks'], **point_policy['checks']}
+                metadata['compliance_policy'] = {**parent_policy, 'sw13': prior}
+        if guest_policy:
+            metadata['compliance_policy'] = {**metadata.get('compliance_policy',{}), **guest_policy}
+        if "maxCredentialAgeDays" in options:
+            age = options["maxCredentialAgeDays"]
+            if type(age) is not int or age <= 0:
+                raise ValueError("maxCredentialAgeDays must be a positive integer")
+            metadata["parameters"] = {"maxCredentialAgeDays": age}
+        try:
+            native_instant = azure_storage_recovery_metadata_native.snapshot_instant(reader.collections, wanted)
+            native_instant = azure_storage_lifecycle_native.snapshot_instant(reader.collections, wanted, native_instant)
+            native_instant = azure_apim_protocol_policy.project(reader, scopes, wanted, options, native_instant)
+            native_instant = azure_apim_diagnostic_evidence_native.project(reader, scopes, wanted, options, native_instant)
+            native_instant = azure_storage_blob_keys_native.snapshot_instant(reader.collections, wanted, native_instant)
+            native_instant = azure_audit_storage_native.snapshot_instant(reader.collections, wanted, native_instant)
+            if "apim_api_evidence" in wanted:
+                metadata["intentional_partial"] = bool(metadata.get("intentional_partial") or reader.metadata()["intentional_partial"])
+            devops_scopes = getattr(reader, 'native_devops_pipeline_scopes', [])
+            if devops_scopes:
+                metadata['native_devops_pipeline_capture'] = reader.native_devops_pipeline_capture
+                metadata['sw14Policy'] = reader.native_devops_pipeline_policy
+            if nsg_owner is not None:
+                native_instant = native_instant or datetime.now(timezone.utc).isoformat()
+                approved = azure_nsg_ingress_native.owner_metadata(nsg_owner, native_instant)
+                if approved:
+                    metadata["compliance_policy"] = {**metadata.get("compliance_policy", {}), "sw31": approved}
+            snapshot = make_snapshot("azure", scopes + devops_scopes, reader.collections, metadata=metadata, created_at=native_instant)
+            if devops_scopes:
+                snapshot = azure_devops_pipeline_native.bind_snapshot(snapshot)
+        except Exception:
+            reader.progress("error")
+            raise
+        if package_grant is not None:
+            snapshot = package_source.finish(reader, snapshot, options, transport,
+                locals().get('cache', {}), locals().get('cache_locks', {}))
+            reader.progress('completed')
+            return snapshot
+        snapshot = azure_function_settings_runtime_hooks_20261020.final_snapshot(reader, snapshot)
+        reader.progress("completed")
         return snapshot
-    snapshot = azure_function_settings_runtime_hooks_20261020.final_snapshot(reader, snapshot)
-    reader.progress("completed")
-    return snapshot
 
+    finally:
+        if page_prefetch is not None:
+            page_prefetch.close()
+            close_transport()
