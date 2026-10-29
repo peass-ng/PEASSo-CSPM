@@ -245,10 +245,13 @@ def test_authenticated_api_reads_partial_only_for_own_tenant_and_final_wins(tmp_
         assert client.get(ai_path, headers={"Authorization": "Bearer bob"}).status_code == 404
         assert client.get(ai_path, headers={"Authorization": "Bearer alice"}).json()["network"]["findings"][0]["id"] == "network-early"
         summary = client.get("/api/scans/" + SCAN + "/summary", headers={"Authorization": "Bearer alice"}).json()
-        assert summary["publication"]["ai_stages"] == {"network": 1, "hardening": 1}
+        # Hardening verdicts are native-final: a stored legacy Hardening stage
+        # result is neither published as an AI stage nor overlaid on the finding.
+        assert summary["publication"]["ai_stages"] == {"network": 1}
         reviewed = client.get("/api/scans/" + SCAN + "/findings?status=PASS", headers={"Authorization": "Bearer alice"}).json()
-        assert reviewed["items"][0]["id"] == "native-hardening-1"
-        assert reviewed["items"][0]["scanner_status"] == "FAIL"
+        assert reviewed["items"] == []
+        native = client.get("/api/scans/" + SCAN + "/findings?status=FAIL", headers={"Authorization": "Bearer alice"}).json()
+        assert [row["id"] for row in native["items"]] == ["native-hardening-1"]
         assert client.get(path, headers={"Authorization": "Bearer alice"}).json()["ai"]["network"]["findings"][0]["id"] == "network-early"
         newer = dict(partial, publication=dict(partial["publication"], sequence=2))
         newer_json = artifacts.put(TENANT, SCAN, "report", newer)
@@ -398,18 +401,22 @@ def test_final_ai_stage_reuse_requires_complete_matching_revision(tmp_path):
     from peaso.worker import _reusable_stages
 
     artifacts = FileArtifacts(tmp_path)
-    good = artifacts.put(TENANT, SCAN, "ai-review", {"stage": "hardening", "data_revision": 4,
-        "result": {"status": "completed", "reviews": {"hardening": []}}})
+    good = artifacts.put(TENANT, SCAN, "ai-review", {"stage": "network", "data_revision": 4,
+        "result": {"status": "completed", "network": {"status": "completed", "findings": []}}})
     mismatched = artifacts.put(TENANT, SCAN, "ai-review", {"stage": "network", "data_revision": 3,
         "result": {"status": "completed"}})
-    other_tenant = artifacts.put(OTHER, SCAN, "ai-review", {"stage": "exposure", "data_revision": 4,
+    other_tenant = artifacts.put(OTHER, SCAN, "ai-review", {"stage": "network", "data_revision": 4,
         "result": {"status": "completed"}})
+    # Hardening and Exposure are native-final; their legacy stage results are never reused.
+    legacy = artifacts.put(TENANT, SCAN, "ai-review", {"stage": "hardening", "data_revision": 4,
+        "result": {"status": "completed", "reviews": {"hardening": []}}})
     sections = {"hardening": {"status": "complete", "data_revision": 4},
                 "network": {"status": "complete", "data_revision": 4},
                 "exposure": {"status": "complete", "data_revision": 4}}
-    stages = {"hardening": {"data_revision": 4, "result_ref": good},
-              "network": {"data_revision": 4, "result_ref": mismatched},
-              "exposure": {"data_revision": 4, "result_ref": other_tenant}}
-    assert set(_reusable_stages(artifacts, TENANT, sections, stages)) == {"hardening"}
-    sections["hardening"]["status"] = "running"
+    stages = {"network": {"data_revision": 4, "result_ref": good},
+              "hardening": {"data_revision": 4, "result_ref": legacy}}
+    assert set(_reusable_stages(artifacts, TENANT, sections, stages)) == {"network"}
+    assert _reusable_stages(artifacts, TENANT, sections, {"network": {"data_revision": 4, "result_ref": mismatched}}) == {}
+    assert _reusable_stages(artifacts, TENANT, sections, {"network": {"data_revision": 4, "result_ref": other_tenant}}) == {}
+    sections["network"]["status"] = "running"
     assert _reusable_stages(artifacts, TENANT, sections, stages) == {}

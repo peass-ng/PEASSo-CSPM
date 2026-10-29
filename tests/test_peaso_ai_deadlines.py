@@ -16,14 +16,13 @@ def test_unbounded_or_invalid_deadline_hints_fail_closed(value):
 
 @pytest.mark.parametrize('stage,remaining,work_seconds', [
     ('network', 520, 401), ('priorities', 520, 401),
-    ('hardening', 350, 325), ('exposure', 350, 325),
+    ('network', 350, 325), ('priorities', 350, 325),
 ])
 def test_runner_does_not_discard_work_within_the_parent_deadline(tmp_path, monkeypatch, stage, remaining, work_seconds):
     # The previous five-minute Chack budget discarded this otherwise valid run.
     config = SimpleNamespace(agent=SimpleNamespace(max_runtime_minutes=5), credentials=SimpleNamespace())
-    payload = {'items': []} if stage in ('hardening', 'exposure') else (
-        {'actions': [], 'limitations': []} if stage == 'priorities' else
-        {'explanation': 'Captured network reviewed.', 'findings': []})
+    payload = ({'actions': [], 'limitations': []} if stage == 'priorities' else
+               {'explanation': 'Captured network reviewed.', 'findings': []})
     class Chack:
         def __init__(self, actual):
             self.config = actual
@@ -41,13 +40,22 @@ def test_runner_does_not_discard_work_within_the_parent_deadline(tmp_path, monke
     (tmp_path/'codex-auth.json').write_text('{"access_token":"task-local-capability"}')
     (tmp_path/'credentials.json').write_text('{"entries":[]}')
     (tmp_path/'findings.json').write_text('{"items":[]}')
-    if stage in ('network', 'priorities'):
-        import sqlite3
-        with sqlite3.connect(tmp_path/'context.sqlite') as db:
-            db.execute('CREATE TABLE records(domain TEXT,id TEXT,detail TEXT)')
+    import sqlite3
+    with sqlite3.connect(tmp_path/'context.sqlite') as db:
+        db.execute('CREATE TABLE records(domain TEXT,id TEXT,detail TEXT)')
     runner.main()
     assert json.loads((tmp_path/'result.json').read_text()) == payload
     assert not (tmp_path/'codex-auth.json').exists()
+
+
+@pytest.mark.parametrize('stage', ['hardening', 'exposure'])
+def test_removed_reviewer_stages_are_rejected_by_runner_and_hosted_runtime(monkeypatch, stage):
+    # Hardening and Exposure verdicts are native-final; no model agent runs for them.
+    monkeypatch.setattr(sys, 'argv', ['runner', stage])
+    with pytest.raises(ValueError, match='^unknown_ai_stage$'):
+        runner.main()
+    with pytest.raises(ValueError, match='^invalid_task_stage$'):
+        task_runtime.run_agent({'stage': stage, 'timeout': 520, 'relay_token': 'task-local-capability'})
 
 
 def test_hosted_runtime_passes_the_same_budget_to_process_and_runner(tmp_path, monkeypatch):
@@ -57,7 +65,10 @@ def test_hosted_runtime_passes_the_same_budget_to_process_and_runner(tmp_path, m
     packed = fargate.pack_workspace(source)
     observed = {}
     def transfer(method, path, capability, **kwargs):
-        if path == '/input': return packed
+        if path == '/input':
+            # The runtime streams the input archive into a disk-backed sink.
+            kwargs['sink'].write(packed if isinstance(packed, bytes) else packed.read())
+            return None
         assert path == '/result' and json.loads(kwargs['body']) == {'items': []}
         return b'{}'
     class Process:
@@ -73,7 +84,7 @@ def test_hosted_runtime_passes_the_same_budget_to_process_and_runner(tmp_path, m
     monkeypatch.setattr(task_runtime, 'relay_request', transfer)
     monkeypatch.setattr(task_runtime.subprocess, 'Popen', Process)
     monkeypatch.setattr(task_runtime.os, 'killpg', lambda *args: None)
-    task_runtime.run_agent({'stage': 'hardening', 'timeout': 520, 'relay_token': 'task-local-capability'})
+    task_runtime.run_agent({'stage': 'network', 'timeout': 520, 'relay_token': 'task-local-capability'})
     assert observed['wait_timeout'] == 520
     assert observed['env'][deadline.ENVIRONMENT_KEY] == '520'
     assert 'AWS_SECRET_ACCESS_KEY' not in observed['env']

@@ -34,34 +34,45 @@ def analyzer(findings):
                 configuration={'unusedAccess': {'unusedAccessAge': 90}})
 
 
-def test_sdk_get_finding_pages_all_four_unused_types_and_preserves_metadata(monkeypatch):
+def test_live_access_analyzer_sdk_is_banned_before_any_request(monkeypatch):
     session = boto3.Session(aws_access_key_id='inert', aws_secret_access_key='inert')
     client = session.client('accessanalyzer', region_name='us-east-1')
     stub = Stubber(client)
-    monkeypatch.setattr(aws.Requests, 'client', lambda *args: client)
-    kinds = list(KINDS)
-    stub.add_response('get_analyzer', {'analyzer': dict(arn=ARN, name='unused', type='ACCOUNT_UNUSED_ACCESS', status='ACTIVE', createdAt=NOW,
-        configuration={'unusedAccess': {'unusedAccessAge': 90}})}, {'analyzerName': 'unused'})
-    stub.add_response('list_findings_v2', {'findings': [summary(k) for k in kinds[:2]], 'nextToken': 'next'},
-                      {'analyzerArn': ARN, 'filter': {'status': {'eq': ['ACTIVE']}}})
-    stub.add_response('list_findings_v2', {'findings': [summary(k) for k in kinds[2:]]},
-                      {'analyzerArn': ARN, 'filter': {'status': {'eq': ['ACTIVE']}}, 'nextToken': 'next'})
-    for kind in kinds:
-        detail = dict(summary(kind), findingDetails=[KINDS[kind]])
-        if kind == 'UnusedPermission':
-            stub.add_response('get_finding_v2', dict(detail, nextToken='more'), {'analyzerArn': ARN, 'id': kind})
-            second = {'unusedPermissionDetails': {'serviceNamespace': 'ec2'}}
-            stub.add_response('get_finding_v2', dict(detail, findingDetails=[second]), {'analyzerArn': ARN, 'id': kind, 'nextToken': 'more'})
-        else:
-            stub.add_response('get_finding_v2', detail, {'analyzerArn': ARN, 'id': kind})
+    monkeypatch.setattr(aws.Requests, 'client', lambda *args, **kwargs: client)
     with stub:
-        incomplete_summary = analyzer([])
-        incomplete_summary.pop('configuration')
-        result = _analyzer_findings(aws.Requests({}), session, 'us-east-1', [incomplete_summary])[0]
+        with pytest.raises(aws.ReadFailure) as failure:
+            _analyzer_findings(aws.Requests({}), session, 'us-east-1', [analyzer([])])
         stub.assert_no_pending_responses()
+    assert (failure.value.status, failure.value.code) == ('not_collected', 'access_analyzer_live_api_banned')
+
+
+def test_recorded_finding_pages_keep_all_four_unused_types_and_metadata():
+    kinds = list(KINDS)
+    calls = []
+
+    class Requests:
+        def pages(self, session, service, region, operation, expression, **arguments):
+            calls.append((operation, arguments))
+            if operation == 'get_analyzer':
+                return aws.ReadResult([{'arn': ARN, 'name': 'unused', 'type': 'ACCOUNT_UNUSED_ACCESS', 'status': 'ACTIVE',
+                    'createdAt': NOW, 'configuration': {'unusedAccess': {'unusedAccessAge': 90}}}], 'collected')
+            if operation == 'list_findings_v2':
+                return aws.ReadResult([summary(kind) for kind in kinds], 'collected')
+            kind = arguments['id']
+            detail = dict(summary(kind), findingDetails=[KINDS[kind]])
+            if kind == 'UnusedPermission':
+                second = dict(detail, findingDetails=[{'unusedPermissionDetails': {'serviceNamespace': 'ec2'}}])
+                return aws.ReadResult([dict(detail, nextToken='more'), second], 'collected')
+            return aws.ReadResult([detail], 'collected')
+
+    incomplete_summary = analyzer([])
+    incomplete_summary.pop('configuration')
+    result = _analyzer_findings(Requests(), object(), 'us-east-1', [incomplete_summary])[0]
+    assert [operation for operation, _ in calls] == ['get_analyzer', 'list_findings_v2'] + ['get_finding_v2'] * 4
     assert len(result['Findings']) == 4
     assert all(row['analyzedAt'] for row in result['Findings'])
     assert all(row['FindingDetails']['collection_status'] == 'collected' for row in result['Findings'])
+    assert all('nextToken' not in row for row in result['Findings'])
     assert len(result['Findings'][-1]['UnusedPermissionDetails']['items']) == 2
     status, evidence = CHECK.evaluate({}, idx(access_analyzer=[result]))
     assert status == 'FAIL' and CHECK.category == 'hardening'

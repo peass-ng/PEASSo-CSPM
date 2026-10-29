@@ -75,66 +75,6 @@ def test_only_confirmed_failures_are_copied_to_group_members():
     assert recheck == [{'id': 'b1'}]
 
 
-def test_equivalent_replicas_cost_one_reviewer_item_and_keep_every_result(monkeypatch):
-    rows = replicas(120)
-    calls = []
-    def invoke(stage, platform, entries, token, findings, reviews, timeout):
-        calls.append([row['id'] for row in findings])
-        return {'items': [review(row['id']) for row in findings]}
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    output, failed = pipeline.review_batches({'provider': 'k8s'}, {}, [], 'token', rows, [],
-                                             time.monotonic() + 60)
-    assert calls == [['h0']] and failed is False
-    assert output['hardening'] == [review(row['id']) for row in rows]
-
-
-def test_unconfirmed_representative_sends_every_member_to_its_own_review(monkeypatch):
-    rows = replicas(45)
-    calls = []
-    def invoke(stage, platform, entries, token, findings, reviews, timeout):
-        calls.append([row['id'] for row in findings])
-        # The representative and one other replica are not applicable.
-        return {'items': [review(row['id'], 'NOT_APPLICABLE' if row['id'] in ('h0', 'h7') else 'FAIL')
-                          for row in findings]}
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    output, failed = pipeline.review_batches({'provider': 'k8s'}, {}, [], 'token', rows, [],
-                                             time.monotonic() + 60)
-    assert calls[0] == ['h0'] and failed is False
-    assert sorted(len(call) for call in calls[1:]) == [22, 22]
-    assert sorted(ident for call in calls[1:] for ident in call) == sorted(f'h{i}' for i in range(1, 45))
-    assert [row['finding_id'] for row in output['hardening']] == [row['id'] for row in rows]
-    assert {row['finding_id'] for row in output['hardening'] if row['verdict'] != 'FAIL'} == {'h0', 'h7'}
-
-
-def test_failed_representative_marks_its_whole_group_unknown(monkeypatch):
-    rows = replicas(5)
-    solo = [finding('solo', 'db', {'pod': 'db', 'host_network': True}, check='k8s.pod.host_network',
-                    category='exposure')]
-    def invoke(stage, platform, entries, token, findings, reviews, timeout):
-        if findings[0]['id'] == 'h0':
-            raise RuntimeError('agent_failed')
-        return {'items': [review(row['id']) for row in findings]}
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    output, failed = pipeline.review_batches({'provider': 'k8s'}, {}, [], 'token', rows, solo,
-                                             time.monotonic() + 60)
-    assert failed is True
-    assert [row['verdict'] for row in output['hardening']] == ['UNKNOWN'] * 5
-    assert output['exposure'] == [review('solo')]
-
-
-def test_members_left_by_the_deadline_stay_unknown(monkeypatch):
-    clock = [100.0]
-    monkeypatch.setattr(pipeline.time, 'monotonic', lambda: clock[0])
-    rows = replicas(3)
-    def invoke(stage, platform, entries, token, findings, reviews, timeout):
-        clock[0] = 200.0
-        return {'items': [review(row['id'], 'PASS') for row in findings]}
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
-    output, failed = pipeline.review_batches({'provider': 'k8s'}, {}, [], 'token', rows, [], 150)
-    assert failed is True
-    assert [row['verdict'] for row in output['hardening']] == ['PASS', 'UNKNOWN', 'UNKNOWN']
-
-
 def test_hosted_budgets_reserve_final_publication_and_allow_long_holistic_stages():
     assert publish_reserve(2400, True) == 300 and publish_reserve(400, True) == 100
     assert publish_reserve(20, True) == 10 and publish_reserve(5000, False) == 10
@@ -157,38 +97,40 @@ def environment(tmp_path, monkeypatch):
     return artifacts
 
 
-def test_slow_reviews_leave_priorities_the_remaining_budget_and_publication_time(environment, monkeypatch):
+def test_slow_network_leaves_priorities_the_remaining_budget_and_publication_time(environment, monkeypatch):
     # Regression: Kubernetes priorities had 1500 s of budget left after the
-    # reviewers but were cut off by a fixed 600 s per-call ceiling.
+    # earlier model stage but were cut off by a fixed 600 s per-call ceiling.
+    # Network is now the only model stage before Priorities.
     clock = [0.0]
     monkeypatch.setattr(pipeline, 'time', SimpleNamespace(monotonic=lambda: clock[0], time=lambda: 1000.0))
     monkeypatch.setattr(pipeline.isolation, 'remote', lambda: True)
+    monkeypatch.setattr('peaso.ai.network.prepare', lambda *a: {'inventory': []})
     monkeypatch.setenv('PEASO_AI_TIMEOUT_SECONDS', '3000')
     report = {'provider': 'k8s', 'findings': replicas(1), 'graphs': {}}
     seen = {}
-    def reviews(*args, network=None):
-        seen['review_end'] = args[-1]
+    def network_review(report, entries, token, network, end, **kwargs):
+        seen['review_end'] = end
         clock[0] = 1460.0
-        return {'hardening': [review('h0')], 'exposure': []}, False
+        return {'status': 'completed', 'explanation': '', 'findings': []}, False
     def invoke(stage, platform, entries, token, findings, reviews, timeout):
         assert stage == 'priorities'
         seen['priorities'] = timeout
         return {'actions': [], 'limitations': []}
-    monkeypatch.setattr(pipeline, 'review_batches', reviews)
+    monkeypatch.setattr(pipeline, 'review_network', network_review)
     monkeypatch.setattr(pipeline, 'invoke', invoke)
     value = pipeline.review_scan(report, {}, {}, tenant='alice', artifacts=environment, deadline=1000.0 + 3600)
     assert value['status'] == 'completed', value
-    assert seen['priorities'] == 1500
+    assert 'review_end' in seen and seen['priorities'] == 1500
     # Deadline 3600 s away: 300 s stay reserved for the final publication.
     tight = {}
     clock[0] = 0.0
-    def tight_reviews(*args, network=None):
-        tight['review_end'] = args[-1]
-        return {'hardening': [review('h0')], 'exposure': []}, False
+    def tight_network(report, entries, token, network, end, **kwargs):
+        tight['review_end'] = end
+        return {'status': 'completed', 'explanation': '', 'findings': []}, False
     def tight_invoke(stage, platform, entries, token, findings, reviews, timeout):
         tight['priorities'] = timeout
         return {'actions': [], 'limitations': []}
-    monkeypatch.setattr(pipeline, 'review_batches', tight_reviews)
+    monkeypatch.setattr(pipeline, 'review_network', tight_network)
     monkeypatch.setattr(pipeline, 'invoke', tight_invoke)
     value = pipeline.review_scan(report, {}, {}, tenant='alice', artifacts=environment, deadline=1000.0 + 2000)
     assert value['status'] == 'completed', value
