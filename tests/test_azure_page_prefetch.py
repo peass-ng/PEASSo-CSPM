@@ -1,5 +1,6 @@
 """Lookahead overlaps I/O while keeping the reader's exact pages and failures."""
 import threading
+import weakref
 from email.message import Message
 from urllib.error import HTTPError
 
@@ -109,7 +110,7 @@ def test_dynamic_child_lookahead_is_bounded_and_does_not_duplicate_reads():
     assert len(calls) == 101
 
 
-def test_large_pages_are_compact_and_keep_every_json_value_and_failure_prefix():
+def test_large_pages_keep_every_json_value_and_failure_prefix():
     reader = _Reader({'concurrency': 2})
     url = GRAPH + '/v1.0/large'
     page = [{'id': str(i), 'text': 'héllo\n' * 300,
@@ -123,8 +124,7 @@ def test_large_pages_are_compact_and_keep_every_json_value_and_failure_prefix():
     try:
         manager.futures[0].result(timeout=3)
         buffered = manager.streams[url].pages[0]
-        assert buffered.compressed
-        assert len(buffered.value) < 10000
+        assert buffered is page
         consumed = reader.pages(request, url, audience=GRAPH, next_key='@odata.nextLink')
         assert next(consumed) == page
         with pytest.raises(ValueError, match='fixture final page unavailable'):
@@ -145,7 +145,7 @@ def test_non_json_values_are_preserved_without_a_serialization_failure(value):
     manager.start()
     try:
         manager.futures[0].result(timeout=3)
-        assert not manager.streams[url].pages[0].compressed
+        assert manager.streams[url].pages[0] is page
         assert next(reader.pages(request, url, audience=GRAPH,
                                  next_key='@odata.nextLink')) is page
     finally:
@@ -196,3 +196,28 @@ def test_queued_consumer_cannot_deadlock_behind_full_earlier_streams():
         assert manager.streams[queued].future.cancelled()
     finally:
         manager.close()
+
+
+@pytest.mark.parametrize('failed', [False, True])
+def test_close_releases_scan_callbacks_without_waiting_for_cyclic_gc(failed):
+    class RetainedInventory:
+        pass
+    inventory = RetainedInventory()
+    witness = weakref.ref(inventory)
+    reader = _Reader({'concurrency': 2})
+    url = GRAPH + '/v1.0/retained'
+    def request(current, *, retained=inventory, **kwargs):
+        if failed:
+            raise ValueError('fixture unavailable')
+        return {'value': []}
+    def observe(current, page, *, retained=inventory):
+        pass
+    manager = reader.page_prefetch = PagePrefetch(reader, request, [url], GRAPH, on_page=observe)
+    manager.start()
+    manager.futures[0].result(timeout=3)
+    del inventory, request, observe
+    assert witness() is not None
+    manager.close()
+    assert not hasattr(reader, 'page_prefetch')
+    assert manager.request is manager.on_page is None
+    assert witness() is None

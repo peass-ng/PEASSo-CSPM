@@ -7,47 +7,7 @@ network wait overlaps unrelated ARM work. Explicit inventory caps stay serial.
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
-import json
 import threading
-import zlib
-
-
-class _BufferedPage:
-    """Keep large JSON pages compact until the ordered consumer needs them."""
-    __slots__ = ('value', 'compressed')
-
-    def __init__(self, page):
-        self.value, self.compressed = page, False
-        pending, visited = [page], set()
-        while pending:
-            value = pending.pop()
-            if type(value) in (dict, list):
-                if id(value) in visited:
-                    continue
-                visited.add(id(value))
-                if type(value) is dict:
-                    if any(type(key) is not str for key in value):
-                        return
-                    pending.extend(value.values())
-                else:
-                    pending.extend(value)
-            elif type(value) not in (str, int, float, bool, type(None)):
-                return  # Preserve non-JSON test/custom transport values exactly.
-        try:
-            raw = json.dumps(page, ensure_ascii=False, allow_nan=False,
-                             separators=(',', ':')).encode('utf-8')
-            if len(raw) < 32768:
-                return
-            packed = zlib.compress(raw, level=1)
-        except (TypeError, ValueError, UnicodeError, RecursionError, OverflowError):
-            return
-        if len(packed) < len(raw):
-            self.value, self.compressed = packed, True
-
-    def load(self):
-        if self.compressed:
-            return json.loads(zlib.decompress(self.value))
-        return self.value
 
 
 class _Stream:
@@ -73,7 +33,7 @@ class _Stream:
                         self.owner.reader.check_cancelled()
                     if self.stopped:
                         break
-                    self.pages.append(_BufferedPage(page))
+                    self.pages.append(page)
                     self.condition.notify_all()
         except BaseException as exc:
             with self.condition:
@@ -100,7 +60,7 @@ class _Stream:
                         raise self.error
                     else:
                         return
-                yield page.load()
+                yield page
         finally:
             self.stop()
 
@@ -167,4 +127,10 @@ class PagePrefetch:
         for stream in streams:
             stream.stop()
         self.pool.shutdown(wait=True, cancel_futures=True)
+        for stream in streams:
+            stream.error = None  # Unclaimed tracebacks also retain the scan.
         self.streams.clear()
+        if getattr(self.reader, 'page_prefetch', None) is self:
+            del self.reader.page_prefetch
+        # Both callbacks can close over this scan and its complete response cache.
+        self.request = self.on_page = None
