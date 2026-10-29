@@ -1,0 +1,169 @@
+{
+  "aws_iam_access_analyzer_calls": 0,
+  "baseline_commit": "eb7e9e552ff1e321c69c55068729c9452cff5898",
+  "change": "Use native Filestore locations/- only when no explicit location selection is present; retain all pages and incomplete/error evidence. Do not suppress LOCATION_POLICY_VIOLATED at wildcard scope.",
+  "full_small_fixture": {
+    "after": {
+      "calls": 7,
+      "content_sha256": "116969c7ebd9121b11e12958baa26bbf0b3cede5ce0dd4ff29e719442d43095d",
+      "cpu_s": 7.640829999999999,
+      "items": 48,
+      "live_provider_calls": 0,
+      "model_calls": 0,
+      "peak_rss_bytes": 434601984,
+      "regions_and_zones": 48,
+      "simulated_latency_s": 0.01,
+      "statuses": [
+        "collected",
+        "collected"
+      ],
+      "wall_s": 7.794179042000906
+    },
+    "before": {
+      "calls": 101,
+      "content_sha256": "cdf8af670548ee50ae790d3ed3198447699e362960889c1517794cd197131b92",
+      "cpu_s": 7.198367,
+      "items": 48,
+      "live_provider_calls": 0,
+      "model_calls": 0,
+      "peak_rss_bytes": 439599104,
+      "regions_and_zones": 48,
+      "simulated_latency_s": 0.01,
+      "statuses": [
+        "collected",
+        "collected"
+      ],
+      "wall_s": 7.560151375000714
+    },
+    "caveat": "No full-collector wall saving observed. Startup dominates this small fixture; full-envelope hashes include distinct provenance/timestamps and are not used to claim parity."
+  },
+  "historical_production": {
+    "caveat": "Historical request-reference counts are not exact wire call counts. No production recovery is claimed.",
+    "filestore_backup": {
+      "http_status": 429,
+      "items": 0,
+      "reason": "RATE_LIMIT_EXCEEDED",
+      "source_request_refs": 176,
+      "status": "unknown"
+    },
+    "filestore_instance": {
+      "http_status": 429,
+      "items": 0,
+      "reason": "RATE_LIMIT_EXCEEDED",
+      "source_request_refs": 169,
+      "status": "unknown"
+    },
+    "scan": "52588fc3ab784ea7959e126197dc4ff9"
+  },
+  "local_read_only": {
+    "caveat": "One owned project, empty inventories, targeted local collection with supporting inventories. Final policy-error guard does not change these successful GET paths. Not a production or complete-provider parity proof; OAuth refresh calls are not included.",
+    "snapshot_sha256": "68d26f214bc8826a698d66e25e881b9257ee5754ef989ee05ee0a7ccc61177e3",
+    "summary": {
+      "calls": 26,
+      "model_calls": 0,
+      "production_scan_launches": 0,
+      "rows": [
+        {
+          "error": {},
+          "items": 0,
+          "status": "empty",
+          "type": "filestore_backup"
+        },
+        {
+          "error": {},
+          "items": 0,
+          "status": "empty",
+          "type": "filestore_instance"
+        }
+      ],
+      "scope_count": 1,
+      "statuses": {
+        "empty": 2
+      },
+      "targeted_local_collection": true,
+      "wall_s": 14.915062250001938
+    },
+    "targeted_inventory_list_request_refs_per_kind": 1,
+    "targeted_inventory_list_requests": 2
+  },
+  "model_calls": 0,
+  "official_contracts": [
+    "https://docs.cloud.google.com/filestore/docs/reference/rest/v1/projects.locations.instances/list",
+    "https://docs.cloud.google.com/filestore/docs/reference/rest/v1/projects.locations.backups/list"
+  ],
+  "offline_list_stage": {
+    "after": {
+      "before_commit": "eb7e9e552ff1e321c69c55068729c9452cff5898",
+      "calls": 4,
+      "content_sha256": "ecf58026c5bac109d265da1b99e142c4d1fdd103ecd0f966174f5b5d146e9b61",
+      "cpu_s": 0.00047399999999997444,
+      "inventory_workers": 2,
+      "items": 48,
+      "live_provider_calls": 0,
+      "location_workers": 8,
+      "model_calls": 0,
+      "peak_rss_bytes": 220594176,
+      "regions_and_zones": 48,
+      "simulated_latency_s": 0.01,
+      "stage": "two Filestore list factories only",
+      "statuses": [
+        "collected",
+        "collected"
+      ],
+      "wall_s": 0.030347124993568286
+    },
+    "before": {
+      "before_commit": "eb7e9e552ff1e321c69c55068729c9452cff5898",
+      "calls": 98,
+      "content_sha256": "ecf58026c5bac109d265da1b99e142c4d1fdd103ecd0f966174f5b5d146e9b61",
+      "cpu_s": 0.005694000000000032,
+      "inventory_workers": 2,
+      "items": 48,
+      "live_provider_calls": 0,
+      "location_workers": 8,
+      "model_calls": 0,
+      "peak_rss_bytes": 266354688,
+      "regions_and_zones": 48,
+      "simulated_latency_s": 0.01,
+      "stage": "two Filestore list factories only",
+      "statuses": [
+        "collected",
+        "collected"
+      ],
+      "wall_s": 0.20307233299536165
+    },
+    "coverage": "48 mixed zonal/regional native rows, exact native content hash and two collected statuses match",
+    "rss_caveat": "Whole-process high-water marks include setup. Before loads/compiles the historical method; no causal memory improvement is claimed.",
+    "wall_ratio": 6.691649803347119
+  },
+  "production_mutations": 0,
+  "production_scans_launched": 0,
+  "qualification": {
+    "aggregate_source_sha256": "5d4cfe8c2c782e7cee974f22d14e210f38c33f576b1b9e35303f9c394ce2fb39",
+    "broader_existing_fixture_limitation": "Existing test_managed_network_metadata_uses_location_pagination_without_iam_reads[filestore_instance-file-instances-filestore_locations] assumes 2 total calls; supporting inventories make 6 in this branch. Its explicit-location runtime path is unchanged by this candidate. A prior clean 04ddda71 baseline already recorded this Filestore call-count failure. That older test was not weakened; full-suite success is not claimed.",
+    "current_fixture_refresh": "PASS: native795/provider402 changed records; historical predecessor fields retained",
+    "full_reviewed_python_proof": "PASS",
+    "historical_reconstruction_test": {
+      "noconftest": true,
+      "passed": 1,
+      "selection": "tests/test_provider_combined_source_bridge_20261020.py::test_exact_additions_and_replacements_reconstruct_the_whole_historical_epoch",
+      "wall_s": 8.08
+    },
+    "literal_sdk_client_sites": 29,
+    "log_sha256": "a4cb761ad0e22ce7ee10d1e95c757eaf283a0d5d593f56f19deb6b0fc18d029d",
+    "normal_conftest_tests": 18,
+    "pytest_wall_s": 0.6,
+    "reviewed_runtime_files": 1778,
+    "scope": "12 targeted real-factory/envelope tests, 5 finite source/tamper tests, 1 existing location-error test. Targeted fixtures exclude supporting inventories; the live local collection includes them.",
+    "source_diff": {
+      "added": [],
+      "changed": [],
+      "removed": []
+    },
+    "test_files": [
+      "tests/test_gcp_filestore_all_locations.py",
+      "tests/test_private_secret_current_source_successor_20261028.py",
+      "tests/test_peaso_collectors_gcp.py::test_connector_location_discovery_and_denied_region_stay_in_coverage"
+    ]
+  }
+}

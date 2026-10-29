@@ -3320,6 +3320,11 @@ class GCPCollector:
                     not isinstance(x, str) or not re.fullmatch(r"[a-z0-9-]+", x) for x in locations):
                     raise ValueError("regional metadata locations must contain at most 100 region names")
                 locations = list(dict.fromkeys(locations))
+            elif service == "file" and segment in {"instances", "backups"}:
+                # Filestore lists both zonal instances and regional backups
+                # across every location with this native parent. Keep explicit
+                # location selections above and pages() unreachable detection.
+                locations = ["-"]
             else:
                 locations = []
                 for items, request_id in self.pages(f"https://{service}.googleapis.com/{locations_version or version}/{scope}/locations",
@@ -3336,7 +3341,7 @@ class GCPCollector:
                 if exc is not None:
                     # Same semantics as Dataproc: an org-policy restricted region
                     # is unusable by the project; a disabled service is project-wide.
-                    if exc.error.get("reason") == "LOCATION_POLICY_VIOLATED":
+                    if location != "-" and exc.error.get("reason") == "LOCATION_POLICY_VIOLATED":
                         self.regional_policy_skips.setdefault(service, {}).setdefault(scope, set()).add(location)
                         continue
                     if exc.error.get("reason") == "SERVICE_DISABLED":
