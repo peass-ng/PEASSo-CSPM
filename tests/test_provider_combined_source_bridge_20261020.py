@@ -1387,7 +1387,8 @@ def test_real_unrelated_edits_and_historical_or_bridge_tamper_are_rejected(isola
         earlier = {
             # Whichever reviewed GCP proof runs first refuses the edited collector.
             "peaso/collectors/gcp.py": (admission + "reviewed transport source changed",
-                                        admission + "reviewed GCP current source changed"),
+                                        admission + "reviewed GCP current source changed",
+                                        admission + "finite successor current source changed"),
             "peaso/checks/aws_ai_recheck_corrections_20261020.py":
                 "RuntimeError: Content cohort source changed: peaso/checks/aws_ai_recheck_corrections_20261020.py",
             "peaso/checks/aws_workload_command_shared_successor_20261020.py": admission + "unreviewed predecessor request",
