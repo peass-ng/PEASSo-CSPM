@@ -1,0 +1,50 @@
+{
+  "api_python_count": 1778,
+  "aws_iam_access_analyzer_calls": 0,
+  "base_main": "1f45df8dbabf707d3637bb6562e0789336fa4f8f",
+  "baseline_test_correction": "Same stale exact-message failure reproduced on unchanged main; now asserts earlier finite successor exact error, same tamper bytes and AdmissionError; no production guard change.",
+  "candidate_source_sha256": "fe0e84bb0f5c59deb97810232db0a03d89b601ffaf2efc5e2a8fee0261f8c4d3",
+  "combined_release_tests": "7 passed within initial16-test run; strict setup rerun separately below",
+  "deploys": 0,
+  "direct_sdk_sites": 29,
+  "focused_tests": "27 passed",
+  "guard_behavior_changed": false,
+  "historical_epoch_before_after_unchanged": true,
+  "live_after_pending": true,
+  "logs": [
+    {
+      "mode": "0600",
+      "path": "/Users/carlospolop/peaso-work/multicloud-private/gcp-firewall-focused-20261029.log",
+      "sha256": "8ed67278d9d7c29e871d2b3e77e4537141393cc8ae9a991ec42d817987913a73"
+    },
+    {
+      "mode": "0600",
+      "path": "/Users/carlospolop/peaso-work/multicloud-private/gcp-firewall-release-20261029.log",
+      "sha256": "52acf61c68cabf31816ec809ca77421b7567d95d7fe8b116af2915f1a4dad059"
+    },
+    {
+      "mode": "0600",
+      "path": "/Users/carlospolop/peaso-work/multicloud-private/gcp-firewall-strict-normal-20261029.log",
+      "sha256": "0436f60543f417a70eaae8f50b2cb408ee276ae8026f85e5510e6c481fc86fd0"
+    },
+    {
+      "mode": "0600",
+      "path": "/Users/carlospolop/peaso-work/multicloud-private/gcp-firewall-whole-epoch-20261029.log",
+      "sha256": "7f7c08aac69ad2f417c664f39e8c37723e60650ab6fd7c81a4d01797ffe0ed35"
+    }
+  ],
+  "model_calls": 0,
+  "other_finite_sources_unchanged": true,
+  "production_scan_dispatches": 0,
+  "production_speed_claim": false,
+  "pushes": 0,
+  "rebased_runtime_commit": "73cd6ae6",
+  "reused_runtime_commit": "b2d09d888e185db321bce943c5aacc2d42b4c54a",
+  "source_diff": {
+    "added": [],
+    "changed": [],
+    "removed": []
+  },
+  "strict_source_tests": "9 passed27.76s with normal conftest/always mode",
+  "whole_historical_epoch": "1 passed8.27s"
+}

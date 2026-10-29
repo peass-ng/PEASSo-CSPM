@@ -146,7 +146,9 @@ def test_existing_reviewed_source_owner_rejects_resume_source_tamper():
     assert reviewed.predecessor_bytes('peaso/collectors/gcp.py', original, expected, root)
     try:
         source.write_bytes(original + b'\n# tampered scoped resume source\n')
-        with pytest.raises(epoch.AdmissionError, match='reviewed collector current source changed'):
+        # The exact finite bridge rejects changed bytes before the historical
+        # collector inverse runs; the same tamper must still fail closed.
+        with pytest.raises(epoch.AdmissionError, match='finite successor current source changed'):
             reviewed.predecessor_bytes('peaso/collectors/gcp.py', source.read_bytes(), expected, root)
     finally:
         source.write_bytes(original)
