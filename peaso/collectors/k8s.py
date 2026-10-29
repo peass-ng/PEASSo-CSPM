@@ -1703,6 +1703,12 @@ def collect(connector, requirements=None, *, api=None):
     if auto_workload_literals:
         deferred.add(literals.KIND)
     reader.collections = SettledCollections(reader.collection_callback, deferred=deferred)
+    if auto_workload_literals:
+        # Startup can fail before discovery; retain explicit incomplete coverage.
+        reader.automatic_literal_coverage = {'discovered': 0, 'planned': 0,
+            'inspected': 0, 'targets': [], 'complete': False,
+            'reason': 'source_inventory_unavailable'}
+        reader.automatic_literal_batches = []
     private_content = ((log_samples.KIND in wanted and log_samples.enabled(options))
         or (literals.KIND in wanted and literals.enabled(options))
         or (selected_metadata.KIND in wanted and selected_metadata.enabled(options, scopes))
