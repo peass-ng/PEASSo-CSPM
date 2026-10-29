@@ -1240,6 +1240,12 @@ class Worker:
                                 record_metrics(result[1], LOGGER)
                             result = None
                             continue
+                        if isinstance(result, tuple) and len(result) == 2 and result[0] == "__collection_job_metrics__":
+                            if self.role == "collector":
+                                from peaso.collection_job_metrics import record
+                                record(result[1], LOGGER)
+                            result = None
+                            continue
                         if isinstance(result, tuple) and len(result) == 2 and result[0] == "__progress__":
                             from peaso.worker_progress import record_progress
                             record_progress(self.store, job, result[1], LOGGER)

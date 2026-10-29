@@ -2,8 +2,9 @@
 
 Wall and thread CPU totals are additive per stage; nested/concurrent stages
 may overlap. Process CPU and RSS are whole-process measurements, not exclusive
-attribution. Only registered code-owned labels and numeric measurements leave
-this process. Diagnostics never change a scan verdict or propagate sink errors.
+attribution. Only registered code-owned labels, opaque job binding hashes and
+numeric measurements leave this process. Diagnostics never change a scan
+verdict or propagate sink errors.
 """
 from contextlib import contextmanager
 import json
@@ -103,8 +104,11 @@ def configure(sink, *, role, interval_seconds=30):
             and math.isfinite(interval_seconds)):
         try:
             _recorder = Recorder(sink, role, interval_seconds)
+            if role == 'collector':
+                from .collection_job_metrics import configure as configure_jobs
+                configure_jobs(sink, started=_recorder.started)
         except Exception:
-            _recorder = None
+            close()
 
 
 def flush():
@@ -115,6 +119,8 @@ def flush():
 def close():
     global _recorder
     recorder, _recorder = _recorder, None
+    from .collection_job_metrics import close as close_jobs
+    close_jobs()
     if recorder is not None:
         recorder.stop.set()
         if threading.current_thread() is not recorder.thread:
@@ -125,8 +131,21 @@ def close():
         recorder.flush()
 
 
+def span(stage, *, job_kind=None, job_scope=None):
+    if stage == 'collection.job' and _recorder is not None and job_kind is not None:
+        return _job_span(stage, job_kind, job_scope)
+    return _stage_span(stage)
+
+
 @contextmanager
-def span(stage):
+def _job_span(stage, kind, scope):
+    from .collection_job_metrics import span as job_span
+    with job_span(kind, scope), _stage_span(stage):
+        yield
+
+
+@contextmanager
+def _stage_span(stage):
     recorder = _recorder
     if recorder is None or type(stage) is not str or stage not in _STAGES:
         yield

@@ -1,0 +1,167 @@
+{
+  "all_other_historical_transitions_unchanged": true,
+  "authoritative_2dce_receipt": {
+    "all_43_collector_32_analyzer_spans_shared_fields_equal": true,
+    "file": "aws-2dce-stage-metrics.json",
+    "mode": "0600",
+    "per_job_identity_available": false,
+    "sha256": "33b0df78eac0836afc57ce9dd9eaaf25ae7b935353a348102fce2ad694531d1c",
+    "task_timestamps_available": false,
+    "workflow_run": "40840420069"
+  },
+  "base_commit": "2fa8a465c63f3d4df8b2981a0042f4655189fb77",
+  "cardinality": {
+    "final_summaries_max": 1,
+    "longest_jobs_retained_max": 16,
+    "scope_key_bytes": 32,
+    "scope_key_scope": "fresh per collector scan configuration; never persisted/logged; cleared on close and reset after fork",
+    "streamed_jobs_max": 4096
+  },
+  "change_type": "bounded diagnostics only; no scheduling/scanner/concurrency change",
+  "claimed_production_saving_seconds": null,
+  "connector_changes": 0,
+  "deploys": 0,
+  "exporter_retention_proof_sha256": "e0e90ac4a4343a3f616e61372893387c1a736d520466026c5647f71ae9f8877a",
+  "fixed_roster": {
+    "kinds": 730,
+    "matches_current_dispatch_exactly": true,
+    "sha256": "37e677633d601df85231f732f7ee6d04e2d9a497391274cc91f66d23974123b9"
+  },
+  "guard_self_digest_and_receipt_pin_pass": true,
+  "model_calls": 0,
+  "new_measured_scan_required": true,
+  "paid_access_analyzer_calls": 0,
+  "production_longest_job_identified": false,
+  "production_reads": 0,
+  "production_writes": 0,
+  "provider_calls": 0,
+  "pushes": 0,
+  "release_source_binding": {
+    "new_sdk_client_sites": 0,
+    "pending_root_final_tree_rebind": true,
+    "sdk_client_sites": 29,
+    "source_diff": {
+      "added": [
+        "peaso/collection_job_metrics.py"
+      ],
+      "changed": [
+        "peaso/checks/private_secret_shared_source_successor_20261021.py",
+        "peaso/collectors/aws.py",
+        "peaso/runtime_metrics.py",
+        "peaso/worker.py"
+      ],
+      "removed": []
+    }
+  },
+  "scan_launches": 0,
+  "schema": "aws-job-telemetry-qualification-v1",
+  "source_hashes": {
+    "peaso/checks/private_secret_shared_source_successor_20261021.json": "e12e05fddecfa4e6eb0fc9f745030fcdff34bd866f3ef17699043ebea871b009",
+    "peaso/checks/private_secret_shared_source_successor_20261021.py": "0edfefb815b309e5187db58bc6b9ecb60ea1357ab24f3277ed07df3a0cd9867a",
+    "peaso/collection_job_kinds_20261029.json": "37e677633d601df85231f732f7ee6d04e2d9a497391274cc91f66d23974123b9",
+    "peaso/collection_job_metrics.py": "f2901b8a03f7743fe0642c1e85668f61ceb47772e9eeea93f1dd518f50340daa",
+    "peaso/collectors/aws.py": "04fb3d97811b44d43916be6ec0ffde40ab7f99a1a299e3940868cd2be3083203",
+    "peaso/runtime_metrics.py": "27e843e3ada321bbb89e4e3c5bbe78874a6fcd108cb6a77c53b28ea4d08e2457",
+    "peaso/worker.py": "15643faef5cd53ab5c7f861c025d05853fcd8dd6644889ad38940104bd325070",
+    "pyproject.toml": "7dec9c1b70681af51866e331380cdbe47d3b3061c0eeb0dc90124b91e7c6895c",
+    "scripts/decode_collection_job_metrics.py": "e23df1b88ff20c898a88a7e6067496bb76a0819f679894bd99d864bb643616a5"
+  },
+  "source_successor_proof": {
+    "peaso/collectors/aws.py": {
+      "current_sha256": "04fb3d97811b44d43916be6ec0ffde40ab7f99a1a299e3940868cd2be3083203",
+      "exact_predecessor_bytes_equal": true,
+      "historical_predecessor_sha256": "6895fefeb9374e42df4f39234de826615f4660ed7d830027b6b91621dedd3255",
+      "previous_current_sha256": "168c09de5f79a278b00f00dc31a89fde45102b25eb61ae20b36cee24e84d9fbd"
+    },
+    "peaso/collectors/aws.py:collect": {
+      "current_sha256": "3f2fd7df1cca5ec6deac47c11d3a6ac373e4d5b582841d4db8c73b25216e512b",
+      "exact_predecessor_bytes_equal": true,
+      "historical_predecessor_sha256": "433c5328e69c4cecfb62711f40ff5210f7de46bf91d6ae87a2b6a6a81a8af64e",
+      "previous_current_sha256": "845ba89777fb9911b58e51815ce1136d6b816b471da3a7a6f1260ef1be013950"
+    }
+  },
+  "synthetic_overhead": {
+    "cpus": 4,
+    "image_id": "sha256:eca921607a21ead7acf1ad02c55a6d151cc2e252fc14db8300db8dcfc47b38d6",
+    "jobs": 1352,
+    "mean_cpu_overhead_seconds": 0.05958192000000001,
+    "mean_wall_overhead_seconds": 0.0491814790002536,
+    "memory_bytes": 1073741824,
+    "network": "none",
+    "platform": "linux/amd64 emulated on macOS arm64 host",
+    "root_filesystem": "read-only",
+    "runs_abba": [
+      {
+        "cpu_s": 0.03641809200000001,
+        "diagnostic_bytes": 0,
+        "job_events": 0,
+        "jobs": 1352,
+        "mode": "baseline",
+        "output_sha256": "28714f464c6e9fc440efd958e5c074b6ba8861caac923544fcb277056be84c49",
+        "peak_rss_bytes": 34054144,
+        "summary_events": 0,
+        "wall_s": 0.033764082996640354
+      },
+      {
+        "cpu_s": 0.09267972099999999,
+        "diagnostic_bytes": 436328,
+        "job_events": 1352,
+        "jobs": 1352,
+        "mode": "instrumented",
+        "output_sha256": "28714f464c6e9fc440efd958e5c074b6ba8861caac923544fcb277056be84c49",
+        "peak_rss_bytes": 36306944,
+        "summary_events": 1,
+        "wall_s": 0.07769916599499993
+      },
+      {
+        "cpu_s": 0.08921221000000001,
+        "diagnostic_bytes": 436328,
+        "job_events": 1352,
+        "jobs": 1352,
+        "mode": "instrumented",
+        "output_sha256": "28714f464c6e9fc440efd958e5c074b6ba8861caac923544fcb277056be84c49",
+        "peak_rss_bytes": 36589568,
+        "summary_events": 1,
+        "wall_s": 0.07897775000310503
+      },
+      {
+        "cpu_s": 0.026309998999999973,
+        "diagnostic_bytes": 0,
+        "job_events": 0,
+        "jobs": 1352,
+        "mode": "baseline",
+        "output_sha256": "28714f464c6e9fc440efd958e5c074b6ba8861caac923544fcb277056be84c49",
+        "peak_rss_bytes": 34177024,
+        "summary_events": 0,
+        "wall_s": 0.0245498750009574
+      }
+    ],
+    "scope": "synthetic empty jobs, JSON sink; excludes worker IPC and hosted logging. No production throughput or billed-cost parity claim.",
+    "threads": 16,
+    "warm_roster": true
+  },
+  "validation": {
+    "actual_collector_arms": [
+      "disabled",
+      "enabled",
+      "failing sink"
+    ],
+    "actual_collector_complete_snapshot_and_snapshot_id_equal": true,
+    "actual_collector_frozen_inputs": [
+      "producer observed clock",
+      "capture UUID generators"
+    ],
+    "actual_collector_scripted_calls_each_arm": 2,
+    "actual_worker_ipc_and_access_analyzer_ban_tested": true,
+    "exporter_patch_and_full_compact_decoder_end_to_end_pass": true,
+    "latest_offline_diagnostic_tests": 9,
+    "normal_focused_tests": {
+      "passed": 19,
+      "pytest_reported_seconds": 113.32
+    },
+    "returned_metadata_exclusions": 0,
+    "saved_compact_2dce_without_jobs_rejected_by_decoder": true,
+    "wheel_package_data_contains_fixed_roster": true,
+    "whole_historical_epoch_reconstruction_pass": true
+  }
+}

@@ -37,6 +37,11 @@ def _collector_sdk_child(role,request,connection):
         # a checkpoint/terminal result and never acknowledged.
         connection.send(('__aws_metrics__',{'private':'PRIVATE-INJECTED'}))
         assert handle.flush('manual')
+        # The real IPC parser consumes only the strict hashed job diagnostic.
+        from peaso.runtime_metrics import span
+        with span('collection.job', job_kind='aws_account', job_scope='123456789012/PRIVATE-SCOPE'):
+            pass
+        connection.send(('__collection_job_metrics__', {'scope': 'PRIVATE-INJECTED'}))
         return make_snapshot('aws',['222222222222'],[dict(type='vpc',scope='222222222222/us-east-1',service='ec2',status='empty',items=[])])
     engine.collect_snapshot=collect
     request['connector']['input_mode']='offline_snapshot'
@@ -86,6 +91,7 @@ def test_real_worker_supervisor_keeps_metrics_nonterminal_nonfatal_and_private(t
     assert 'final-metrics' in order
     assert order.index('final-metrics')<order.index('terminal-store-finish')
     text=output.getvalue()
+    assert 'peaso collection job metrics:' in text
     assert 'service=sts operation=GetCallerIdentity calls=2 completed=2' in text
     for private in ('PRIVATE','123456789012','arn:aws:','https://sts'):assert private not in text
 

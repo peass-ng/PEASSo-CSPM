@@ -2675,7 +2675,7 @@ def collect(connector, requirements=None):
 
     def global_job(session, identity, kind):
         from peaso.runtime_metrics import span as _runtime_span
-        with _runtime_span("collection.job"):
+        with _runtime_span("collection.job", job_kind=kind, job_scope=identity["Account"]):
             account = identity["Account"]
             region = regions_for(account)[0]
             if kind in FETCHERS:
@@ -2843,7 +2843,7 @@ def collect(connector, requirements=None):
 
     def regional_job(session, identity, region, kind):
         from peaso.runtime_metrics import span as _runtime_span
-        with _runtime_span("collection.job"):
+        with _runtime_span("collection.job", job_kind=kind, job_scope=identity["Account"] + "/" + region):
             if kind == ecr_public_image.KIND:
                 return ecr_public_image.collect_scope(requests, session, identity, region, public_targets, secret=public_secret, vuln=public_vuln)
             if kind == image_vulnerabilities.KIND:

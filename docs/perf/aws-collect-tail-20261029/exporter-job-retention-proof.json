@@ -1,0 +1,25 @@
+{
+  "apply_flags": [
+    "--unidiff-zero"
+  ],
+  "base_source_sha256": "9e6f794bd5e142d615dcfda71d422a3d30df95d478dd228b8af646d7fc371b9b",
+  "candidate_source_sha256": "0a44769dff2bab244820e7884b89f706708acc2e485a193f633b5657a005b068",
+  "network_calls_during_preparation": 0,
+  "offline_actual_exporter_test": {
+    "compact_retention_roundtrip_passed": true,
+    "compact_without_jobs_fails_closed": true,
+    "fake_pages": 2,
+    "invalid_job_events_rejected": 1,
+    "legacy_runtime_frame_retained": true,
+    "passed": true,
+    "provider_calls": 0,
+    "resource_values_absent": true,
+    "retained_final_summary": true,
+    "retained_jobs": 1,
+    "saved_export_decoder_passed": true
+  },
+  "patch_apply_check_passed": true,
+  "patch_sha256": "d7fb410c64a9925d8ff7238aa88f9f1f5c0ae1a08435cac14e62a374981e16d4",
+  "pinned_linux_saved_export_decoder_byte_parity": true,
+  "root_operator_modified": false
+}
