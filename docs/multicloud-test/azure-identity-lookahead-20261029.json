@@ -189,6 +189,142 @@
   "deploys": 0,
   "lifetime_fix": "Clear completed traceback-frame locals for consumed and unclaimed prefetch failures at shutdown; follow cause/context chains without dropping exception type/message/traceback locations. Two no-cyclic-GC weak-reference probes prove immediate owner release. This does not establish a peak-RSS win.",
   "model_calls": 0,
+  "original_series_comparison": {
+    "all_runs_same_concurrency": 4,
+    "candidate_runtime_commit": "c424adc403184461fdcbcd0b58ef1e9cf93df5a5",
+    "latency_scale": 0.5,
+    "mean_candidate_seconds": 71.03600666649436,
+    "mean_original_seconds": 164.98892995849747,
+    "mean_saved_seconds": 93.9529232920031,
+    "memory_verdict": "No no-growth claim: candidate peak/return RSS exceeds original observations. Candidate maximum2,324,168,704B stays~13.84GiB below16GiB task configuration; whole macOS process, not ECS cgroup proof.",
+    "original_azure_runtime_files": {
+      "peaso/collectors/azure.py": "2617038985958a0b18602fef7bafe729835bd2ad9be447be4a109a5a2286b735",
+      "peaso/collectors/azure_identity_enforcement_review_20261020.py": "d29f0d87f9dcedce4b421470f3136e27d102f3c403fc28ce6211319162df4f45",
+      "peaso/collectors/azure_service_tags_native.py": "0675287a948e6cf30ba93c9e090ed94b2ac4bc4019cc9c66c3f094d70b9078c1"
+    },
+    "original_page_prefetch": "Original collector does not use the later PagePrefetch helper. Other Azure runtime files are byte-identical between491c544f and555f571b.",
+    "original_runs": {
+      "original4": {
+        "collections": 1872,
+        "collector_peak_rss_bytes_before_export": 2099707904,
+        "collector_rss_bytes_at_return": 1477017600,
+        "concurrency": 4,
+        "consumed_recorded_calls": 536,
+        "cpu_s": 9.107078999999999,
+        "credential_source": "synthetic never-sent offline fixture",
+        "latency_scale": 0.5,
+        "mode": "before",
+        "model_calls": 0,
+        "network_blocked": true,
+        "process_peak_rss_bytes_after_export": 2099707904,
+        "process_wall_s": 166.456730083999,
+        "provider_network_calls": 0,
+        "resources": 53338,
+        "statuses": {
+          "collected": 758,
+          "denied": 31,
+          "empty": 1028,
+          "not_collected": 5,
+          "partial": 3,
+          "unknown": 47
+        },
+        "unused_recorded_calls": 0,
+        "wall_s": 164.98593833300401
+      },
+      "original4-repeat": {
+        "collections": 1872,
+        "collector_peak_rss_bytes_before_export": 2030272512,
+        "collector_rss_bytes_at_return": 1187217408,
+        "concurrency": 4,
+        "consumed_recorded_calls": 536,
+        "cpu_s": 9.130171,
+        "credential_source": "synthetic never-sent offline fixture",
+        "latency_scale": 0.5,
+        "mode": "before",
+        "model_calls": 0,
+        "network_blocked": true,
+        "process_peak_rss_bytes_after_export": 2030272512,
+        "process_wall_s": 166.3408642909926,
+        "provider_network_calls": 0,
+        "resources": 53338,
+        "statuses": {
+          "collected": 758,
+          "denied": 31,
+          "empty": 1028,
+          "not_collected": 5,
+          "partial": 3,
+          "unknown": 47
+        },
+        "unused_recorded_calls": 0,
+        "wall_s": 164.99192158399092
+      }
+    },
+    "original_source_commit": "491c544fd88f7291dd7e2763b4b614562b76028e",
+    "parity": {
+      "original4": {
+        "after_collections": 1872,
+        "after_resources": 53338,
+        "after_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+        "before_collections": 1872,
+        "before_resources": 53338,
+        "before_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+        "complete_collection_envelopes_equal": true,
+        "excluded_after": {
+          "capture_id": 2,
+          "credential_context_id": 55256,
+          "customer_context_id": 55256,
+          "network_source_evidence.observed_at": 3,
+          "observed_at": 119,
+          "transport_context_id": 3
+        },
+        "excluded_before": {
+          "capture_id": 2,
+          "credential_context_id": 55256,
+          "customer_context_id": 55256,
+          "network_source_evidence.observed_at": 3,
+          "observed_at": 119,
+          "transport_context_id": 3
+        },
+        "reader_calls_after": 1867,
+        "reader_calls_before": 1867,
+        "scope": "Complete collection envelopes; snapshot-level metadata is not compared."
+      },
+      "original4-repeat": {
+        "after_collections": 1872,
+        "after_resources": 53338,
+        "after_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+        "before_collections": 1872,
+        "before_resources": 53338,
+        "before_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+        "complete_collection_envelopes_equal": true,
+        "excluded_after": {
+          "capture_id": 2,
+          "credential_context_id": 55256,
+          "customer_context_id": 55256,
+          "network_source_evidence.observed_at": 3,
+          "observed_at": 119,
+          "transport_context_id": 3
+        },
+        "excluded_before": {
+          "capture_id": 2,
+          "credential_context_id": 55256,
+          "customer_context_id": 55256,
+          "network_source_evidence.observed_at": 3,
+          "observed_at": 119,
+          "transport_context_id": 3
+        },
+        "reader_calls_after": 1867,
+        "reader_calls_before": 1867,
+        "scope": "Complete collection envelopes; snapshot-level metadata is not compared."
+      }
+    },
+    "percent_saved": 56.94498613672852,
+    "qualification_limits": "Two original and two final candidate runs establish repeatable >2x on this saved full-provider response set at hosted concurrency4. Shared host and simulated recorded latency scale0.5; does not establish production speed or changed-fixture parity.",
+    "rss_candidate_mean_peak_bytes": 2210766848.0,
+    "rss_mean_peak_increase_percent": 7.059434927838651,
+    "rss_original_mean_peak_bytes": 2064990208.0,
+    "speedup": 2.3226098664737864
+  },
   "parity": {
     "identity-settled": {
       "after_collections": 1872,
@@ -355,6 +491,12 @@
     "source_digest": "408d78183ddfcfcc72eca771ab9776c3221ca82d33129e29647e1998fb9d2b80",
     "whole_reviewed_python": "PASS"
   },
+  "reproduction_hashes": {
+    "azure-full-replay-wire.json": "4d842d823d537c25b14f3d48c29c978f9732931f155c364e15da6ba573990389",
+    "azure-speed-prefetch-after-calls.jsonl": "2299b1e5d9d85172024285124cd97d77a9c0a9447078a6e77fd55f34a281c219",
+    "replay_azure_full_speed.py": "1387b2cc6b34a4802b0ba6b1c83fdae74228af62d15f572fc37959bc4fab8138",
+    "run_azure_assessment_replay.py": "e20675bb9c329ff64431101342c25d88ab126bc7d101d828553f4633a475717e"
+  },
   "rss_caveat": "Final peaks2,097,364,992/2,324,168,704B exceed before peaks1,847,181,312/1,712,373,760/1,748,500,480B. ReturnRSS also increased. No memory improvement or no-growth claim. Final maximum is well within the reviewed16GiB task configuration with~13.84GiB margin, but these are whole macOS process high-water values including imports/retained recordings/sealing, not production ECS cgroup proof.",
   "scope": "One full saved-provider response set, frozen30-day window, latency_scale0.5, concurrency4. All native item fields, order, statuses/errors and response digests compared; only generated scan-context fields and3typed local network-read timestamps excluded. Snapshot-level metadata not compared except reader call count.",
   "source_hashes": {
@@ -366,7 +508,7 @@
     "before_mean_seconds": 81.23004480566306,
     "candidate_mean_seconds": 71.03600666649436,
     "incremental_speedup": 1.1435052252729871,
-    "limitations": "Three current-code baselines, two final candidate runs. Shared host; simulated saved latency. Not production speed; full-series original comparison pending.",
+    "limitations": "Three current-code baselines and two final candidates prove the incremental win. Two exact original Azure runtime replays also prove aggregate2.32x at concurrency4 on this one saved response set, not production speed. Memory no-growth target remains open.",
     "mean_saved_seconds": 10.194038139168697,
     "percent_saved": 12.54959068846655
   }
