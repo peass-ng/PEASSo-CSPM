@@ -16,7 +16,7 @@ import sys
 from types import FunctionType
 import zipfile
 
-_RECEIPT_SHA256 = "9d375a91396e3075effbaf48191237358db346b8a10177dd31fc759b08afda46"
+_RECEIPT_SHA256 = "5ec9585e7f7fa64618f6b2c842c3779660f48d6b0857dc0b05243337b730572c"
 _ROOT = Path(__file__).resolve().parent.parent
 
 

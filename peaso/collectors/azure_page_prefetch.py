@@ -1,4 +1,4 @@
-"""Bounded scan-local lookahead for independent, fully consumed Graph lists.
+"""Bounded scan-local lookahead for independent, fully consumed native lists.
 
 The normal reader owns retries, cancellation, budgets and continuation checks.
 Consumers receive the same pages and exception in the same order; only the
@@ -22,7 +22,7 @@ class _Stream:
     def produce(self):
         self.owner.local.producing = True
         iterator = self.owner.reader.pages(self.owner.request, self.url,
-            audience=self.owner.audience, next_key='@odata.nextLink')
+            audience=self.owner.audience, next_key=self.owner.next_key)
         try:
             for page in iterator:
                 if self.owner.on_page is not None:
@@ -72,8 +72,10 @@ class _Stream:
 
 
 class PagePrefetch:
-    def __init__(self, reader, request, urls, audience, *, lookahead=64, on_page=None):
+    def __init__(self, reader, request, urls, audience, *, lookahead=64, on_page=None,
+                 next_key='@odata.nextLink'):
         self.reader, self.request, self.audience = reader, request, audience
+        self.next_key = next_key
         self.lookahead, self.on_page = lookahead, on_page
         self.lock, self.closed = threading.Lock(), False
         self.local = threading.local()
@@ -102,7 +104,7 @@ class PagePrefetch:
     def take(self, request, url, audience, key, next_key, body):
         if (getattr(self.local, 'producing', False) or request is not self.request
                 or audience != self.audience or key != 'value'
-                or next_key != '@odata.nextLink' or body is not None):
+                or next_key != self.next_key or body is not None):
             return None
         with self.lock:
             stream = self.streams.get(url)
@@ -130,7 +132,8 @@ class PagePrefetch:
         for stream in streams:
             stream.error = None  # Unclaimed tracebacks also retain the scan.
         self.streams.clear()
-        if getattr(self.reader, 'page_prefetch', None) is self:
-            del self.reader.page_prefetch
+        for attribute in ('page_prefetch', 'assessment_metadata_prefetch'):
+            if getattr(self.reader, attribute, None) is self:
+                delattr(self.reader, attribute)
         # Both callbacks can close over this scan and its complete response cache.
         self.request = self.on_page = None

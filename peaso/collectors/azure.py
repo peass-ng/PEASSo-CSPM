@@ -2613,12 +2613,13 @@ class _Reader:
                 time.sleep(delay)
 
     def pages(self, request, url, *, audience=ARM, key="value", next_key="nextLink", body=None):
-        prefetch = getattr(self, "page_prefetch", None)
-        if prefetch is not None:
-            stream = prefetch.take(request, url, audience, key, next_key, body)
-            if stream is not None:
-                yield from stream
-                return
+        for attribute in ("page_prefetch", "assessment_metadata_prefetch"):
+            prefetch = getattr(self, attribute, None)
+            if prefetch is not None:
+                stream = prefetch.take(request, url, audience, key, next_key, body)
+                if stream is not None:
+                    yield from stream
+                    return
         origin = urlsplit(url)
         seen = set()
         page = 0
@@ -3392,6 +3393,7 @@ def collect(connector, requirements=None, *, transport=None):
     start, end = (now - timedelta(days=days)).isoformat(), now.isoformat()
     request = None  # Bound only after explicit authentication validation succeeds.
     page_prefetch = None
+    assessment_metadata_prefetch = None
     service_tags_scheduled = False
     def close_transport():
         if owned and transport is not None:
@@ -3503,6 +3505,13 @@ def collect(connector, requirements=None, *, transport=None):
                 page_prefetch = reader.page_prefetch = PagePrefetch(reader, request, urls, GRAPH,
                                                                   on_page=group_policy_lookahead)
                 page_prefetch.start()
+            if "assessment_metadata" in wanted and scopes:
+                from .azure_page_prefetch import PagePrefetch
+                urls = [ARM + scope + "/providers/Microsoft.Security/assessmentMetadata?api-version=2020-01-01"
+                        for scope in scopes[:min(4, reader.workers)]]
+                assessment_metadata_prefetch = reader.assessment_metadata_prefetch = PagePrefetch(
+                    reader, request, urls, ARM, lookahead=1, next_key="nextLink")
+                assessment_metadata_prefetch.start()
         if nsp_query_selected and scopes:
             if discover_all:
                 # The discovery LIST is not a selected subscription GET receipt.
@@ -5584,6 +5593,8 @@ def collect(connector, requirements=None, *, transport=None):
                 if kind not in projected_after_collection and (kind, scope) not in existing:
                     reader.unavailable(kind, scope, "azure", exc)
     finally:
+        if assessment_metadata_prefetch is not None:
+            assessment_metadata_prefetch.close()
         if page_prefetch is None or sys.exc_info()[0] is not None:
             if page_prefetch is not None:
                 page_prefetch.close()

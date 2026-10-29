@@ -1,0 +1,236 @@
+{
+  "ai_contract": "OPENAI_BEST_QUALITY/high/30 unchanged; no model calls.",
+  "aws_iam_access_analyzer_calls": 0,
+  "base_commit": "d7bcacff110b22661adb8859d5567bdb834aa0fb",
+  "change": "Bounded ARM assessmentMetadata page lookahead overlaps independent inventory; original native validation and owner comparison remain late and unchanged. At most four scopes are prefetched, one queued page per stream; every later scope retains ordinary reads. Explicit caps and one-worker mode preserve ordinary scheduling.",
+  "deploys": 0,
+  "parity": {
+    "baseline-repeat": {
+      "after_collections": 1872,
+      "after_resources": 53338,
+      "after_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "before_collections": 1872,
+      "before_resources": 53338,
+      "before_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "complete_collection_envelopes_equal": true,
+      "excluded_after": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "excluded_before": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "scope": "Complete collection envelopes; snapshot-level metadata is not compared."
+    },
+    "candidate": {
+      "after_collections": 1872,
+      "after_resources": 53338,
+      "after_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "before_collections": 1872,
+      "before_resources": 53338,
+      "before_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "complete_collection_envelopes_equal": true,
+      "excluded_after": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "excluded_before": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "scope": "Complete collection envelopes; snapshot-level metadata is not compared."
+    },
+    "repeat": {
+      "after_collections": 1872,
+      "after_resources": 53338,
+      "after_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "before_collections": 1872,
+      "before_resources": 53338,
+      "before_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "complete_collection_envelopes_equal": true,
+      "excluded_after": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "excluded_before": {
+        "capture_id": 2,
+        "credential_context_id": 55256,
+        "customer_context_id": 55256,
+        "network_source_evidence.observed_at": 3,
+        "observed_at": 119,
+        "transport_context_id": 3
+      },
+      "scope": "Complete collection envelopes; snapshot-level metadata is not compared."
+    }
+  },
+  "production_connector_writes": 0,
+  "production_scans_dispatched": 0,
+  "provider_network_calls": 0,
+  "pushes": 0,
+  "qualification": {
+    "direct_sdk_client_sites": 29,
+    "focused_log_sha256": "a0be7191e81de2dfef1d7079f28d7c55b0550b42549cf93a0c69036a2b6b2c0b",
+    "focused_pytest_seconds": 1.76,
+    "focused_tests": 56,
+    "historical_reconstruction": "1 passed in8.78s",
+    "k8s_cross_provider_source_ok": true,
+    "native_assessment_validator": "byte-identical to base",
+    "non_azure_predecessor_records": "unchanged",
+    "reviewed_runtime_files": 1778,
+    "source_digest": "397b1919785ff1b5edda8d3c9c9dc4976154f7295f1f1881efbc1d44d7623ed8",
+    "whole_reviewed_python": "PASS"
+  },
+  "rejected_alternative": "Moving the definition job to the initial shared ARM batch measured 82.461699s against82.498555s and increased CPU; rejected as noise, not committed.",
+  "replays": {
+    "baseline": {
+      "collections": 1872,
+      "collector_peak_rss_bytes_before_export": 1843888128,
+      "collector_rss_bytes_at_return": 1393917952,
+      "concurrency": 4,
+      "consumed_recorded_calls": 536,
+      "cpu_s": 7.82416,
+      "credential_source": "synthetic never-sent offline fixture",
+      "latency_scale": 0.5,
+      "mode": "after",
+      "model_calls": 0,
+      "network_blocked": true,
+      "process_peak_rss_bytes_after_export": 1843888128,
+      "process_wall_s": 84.6537038749957,
+      "provider_network_calls": 0,
+      "resources": 53338,
+      "statuses": {
+        "collected": 758,
+        "denied": 31,
+        "empty": 1028,
+        "not_collected": 5,
+        "partial": 3,
+        "unknown": 47
+      },
+      "unused_recorded_calls": 0,
+      "wall_s": 82.49855537500116
+    },
+    "baseline-repeat": {
+      "collections": 1872,
+      "collector_peak_rss_bytes_before_export": 1802944512,
+      "collector_rss_bytes_at_return": 1396572160,
+      "concurrency": 4,
+      "consumed_recorded_calls": 536,
+      "cpu_s": 8.277665,
+      "credential_source": "synthetic never-sent offline fixture",
+      "latency_scale": 0.5,
+      "mode": "after",
+      "model_calls": 0,
+      "network_blocked": true,
+      "process_peak_rss_bytes_after_export": 1802944512,
+      "process_wall_s": 83.97217979199195,
+      "provider_network_calls": 0,
+      "resources": 53338,
+      "statuses": {
+        "collected": 758,
+        "denied": 31,
+        "empty": 1028,
+        "not_collected": 5,
+        "partial": 3,
+        "unknown": 47
+      },
+      "unused_recorded_calls": 0,
+      "wall_s": 82.59413612500066
+    },
+    "candidate": {
+      "collections": 1872,
+      "collector_peak_rss_bytes_before_export": 1847181312,
+      "collector_rss_bytes_at_return": 1385086976,
+      "concurrency": 4,
+      "consumed_recorded_calls": 536,
+      "cpu_s": 8.102155,
+      "credential_source": "synthetic never-sent offline fixture",
+      "latency_scale": 0.5,
+      "mode": "after",
+      "model_calls": 0,
+      "network_blocked": true,
+      "process_peak_rss_bytes_after_export": 1847181312,
+      "process_wall_s": 82.95627733400033,
+      "provider_network_calls": 0,
+      "resources": 53338,
+      "statuses": {
+        "collected": 758,
+        "denied": 31,
+        "empty": 1028,
+        "not_collected": 5,
+        "partial": 3,
+        "unknown": 47
+      },
+      "unused_recorded_calls": 0,
+      "wall_s": 81.08024545900116
+    },
+    "repeat": {
+      "collections": 1872,
+      "collector_peak_rss_bytes_before_export": 1712373760,
+      "collector_rss_bytes_at_return": 1382547456,
+      "concurrency": 4,
+      "consumed_recorded_calls": 536,
+      "cpu_s": 8.622499,
+      "credential_source": "synthetic never-sent offline fixture",
+      "latency_scale": 0.5,
+      "mode": "after",
+      "model_calls": 0,
+      "network_blocked": true,
+      "process_peak_rss_bytes_after_export": 1712373760,
+      "process_wall_s": 83.51643270801287,
+      "provider_network_calls": 0,
+      "resources": 53338,
+      "statuses": {
+        "collected": 758,
+        "denied": 31,
+        "empty": 1028,
+        "not_collected": 5,
+        "partial": 3,
+        "unknown": 47
+      },
+      "unused_recorded_calls": 0,
+      "wall_s": 81.58413554199797
+    }
+  },
+  "rss_limits": "macOS process high-water RSS measured before snapshot file export includes imports, retained recordings and collection/sealing. Candidate first +0.18% vs baseline, repeat lower; no causal memory improvement claimed. Not ECS cgroup measurement.",
+  "scope": "Complete collection envelope parity excludes only generated scan-context fields and three typed native-network local read timestamps; snapshot-level metadata is not compared. Item order, provider-native fields, response digests, identities, statuses and errors retained.",
+  "source_hashes": {
+    "peaso/collectors/azure.py": "e6b37a0956d1b42c0519a1502946a5d5d6f7108241759360cb9bcc0e104f6156",
+    "peaso/collectors/azure_page_prefetch.py": "3f972db24aa41c5c7bea3ac603417e1fa8b46c6d04dba60ca2cea150c0a62d3a"
+  },
+  "timing_limits": "Two baseline and two candidate runs on one saved full-provider response set, synthetic latency scale0.5, concurrency4. Repeatable modest incremental benefit; neither production improvement nor stable aggregate2x established.",
+  "timing_summary": {
+    "baseline_mean_seconds": 82.54634575000091,
+    "baseline_repeat_source": "Azure and PagePrefetch module bytes loaded from exact d7bcacff; no provider calls",
+    "candidate_mean_seconds": 81.33219050049956,
+    "mean_saved_seconds": 1.2141552495013457,
+    "percent_saved": 1.470877043035345,
+    "run_order": [
+      "baseline",
+      "candidate",
+      "repeat",
+      "baseline-repeat"
+    ],
+    "speedup": 1.0149283480750944
+  }
+}
