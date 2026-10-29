@@ -102,6 +102,69 @@
     "whole_reviewed_python": "PASS"
   },
   "rejected_alternative": "Moving the definition job to the initial shared ARM batch measured 82.461699s against82.498555s and increased CPU; rejected as noise, not committed.",
+  "rejected_preseal_cache_release": {
+    "change": "Close completed Graph lookahead and clear decoded request cache immediately after the final native identity read, while retaining the package-source privacy-finalizer path.",
+    "decision": "Rejected; runtime and probe restored/parked privately. Source successors were not rebound for this experiment; no merge/release qualification claimed.",
+    "measurements": {
+      "memory": {
+        "collections": 1872,
+        "collector_peak_rss_bytes_before_export": 2054602752,
+        "collector_rss_bytes_at_return": 1699840000,
+        "concurrency": 4,
+        "consumed_recorded_calls": 536,
+        "cpu_s": 8.927574,
+        "credential_source": "synthetic never-sent offline fixture",
+        "latency_scale": 0.5,
+        "mode": "after",
+        "model_calls": 0,
+        "network_blocked": true,
+        "process_peak_rss_bytes_after_export": 2054602752,
+        "process_wall_s": 83.78217491600662,
+        "provider_network_calls": 0,
+        "resources": 53338,
+        "statuses": {
+          "collected": 758,
+          "denied": 31,
+          "empty": 1028,
+          "not_collected": 5,
+          "partial": 3,
+          "unknown": 47
+        },
+        "unused_recorded_calls": 0,
+        "wall_s": 81.63591275000363
+      },
+      "memory-repeat": {
+        "collections": 1872,
+        "collector_peak_rss_bytes_before_export": 1711636480,
+        "collector_rss_bytes_at_return": 1350008832,
+        "concurrency": 4,
+        "consumed_recorded_calls": 536,
+        "cpu_s": 8.203875,
+        "credential_source": "synthetic never-sent offline fixture",
+        "latency_scale": 0.5,
+        "mode": "after",
+        "model_calls": 0,
+        "network_blocked": true,
+        "process_peak_rss_bytes_after_export": 1711636480,
+        "process_wall_s": 82.87663149999571,
+        "provider_network_calls": 0,
+        "resources": 53338,
+        "statuses": {
+          "collected": 758,
+          "denied": 31,
+          "empty": 1028,
+          "not_collected": 5,
+          "partial": 3,
+          "unknown": 47
+        },
+        "unused_recorded_calls": 0,
+        "wall_s": 81.12887395800499
+      }
+    },
+    "parity": "Both experiments retained full envelope digest67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68 and all536 logical calls, counts and statuses.",
+    "reason": "Peak RSS2,054,602,752/1,711,636,480B versus committed candidate1,847,181,312/1,712,373,760B. ReturnRSS1,699,840,000/1,350,008,832B versus1,385,086,976/1,382,547,456B. Highly variable; no repeatable peak or return-RSS benefit. Wall81.635913/81.128874s adds no clear speed improvement.",
+    "retention_probe": "One offline weak-reference test passed, proving late native reads reuse the cache and decoded envelope owners leave before sealing. This did not establish a peak-RSS improvement."
+  },
   "replays": {
     "baseline": {
       "collections": 1872,
