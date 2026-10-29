@@ -3493,6 +3493,9 @@ def _load_metadata_extension(name="peaso.collectors.aws_b_services"):
     for kind, enricher in getattr(extension, "ENRICHERS", {}).items():
         if name in {'peaso.collectors.aws_code_log_content_indicators', 'peaso.collectors.aws_package_content_indicators'}:
             enricher = _explicit_content_enricher(kind, enricher)
+        if name == 'peaso.collectors.aws_package_content_indicators':
+            from .aws_ecr_repository_lanes_20261029 import lanes
+            enricher = lanes(kind, enricher)
         from .aws_request_pool import item_wise
         enricher = item_wise(name, enricher)
         ENRICHERS[kind] = _chain(ENRICHERS[kind], enricher) if kind in ENRICHERS else enricher

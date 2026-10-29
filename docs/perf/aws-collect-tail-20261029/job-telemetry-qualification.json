@@ -56,11 +56,11 @@
   "scan_launches": 0,
   "schema": "aws-job-telemetry-qualification-v1",
   "source_hashes": {
-    "peaso/checks/private_secret_shared_source_successor_20261021.json": "e12e05fddecfa4e6eb0fc9f745030fcdff34bd866f3ef17699043ebea871b009",
-    "peaso/checks/private_secret_shared_source_successor_20261021.py": "0edfefb815b309e5187db58bc6b9ecb60ea1357ab24f3277ed07df3a0cd9867a",
+    "peaso/checks/private_secret_shared_source_successor_20261021.json": "7df88556bc2505286661d3438b8db627d63fb49679118942a374865212388db1",
+    "peaso/checks/private_secret_shared_source_successor_20261021.py": "b92f7c0dc23da01bc57acd993ca896825950f729577503eb22e2ec8d3414f78b",
     "peaso/collection_job_kinds_20261029.json": "37e677633d601df85231f732f7ee6d04e2d9a497391274cc91f66d23974123b9",
     "peaso/collection_job_metrics.py": "f2901b8a03f7743fe0642c1e85668f61ceb47772e9eeea93f1dd518f50340daa",
-    "peaso/collectors/aws.py": "04fb3d97811b44d43916be6ec0ffde40ab7f99a1a299e3940868cd2be3083203",
+    "peaso/collectors/aws.py": "c0b4c87082528aa191b65562854d5a1351f91bab6f4fb8f67b261ca50f6322af",
     "peaso/runtime_metrics.py": "27e843e3ada321bbb89e4e3c5bbe78874a6fcd108cb6a77c53b28ea4d08e2457",
     "peaso/worker.py": "15643faef5cd53ab5c7f861c025d05853fcd8dd6644889ad38940104bd325070",
     "pyproject.toml": "7dec9c1b70681af51866e331380cdbe47d3b3061c0eeb0dc90124b91e7c6895c",
@@ -68,7 +68,7 @@
   },
   "source_successor_proof": {
     "peaso/collectors/aws.py": {
-      "current_sha256": "04fb3d97811b44d43916be6ec0ffde40ab7f99a1a299e3940868cd2be3083203",
+      "current_sha256": "c0b4c87082528aa191b65562854d5a1351f91bab6f4fb8f67b261ca50f6322af",
       "exact_predecessor_bytes_equal": true,
       "historical_predecessor_sha256": "6895fefeb9374e42df4f39234de826615f4660ed7d830027b6b91621dedd3255",
       "previous_current_sha256": "168c09de5f79a278b00f00dc31a89fde45102b25eb61ae20b36cee24e84d9fbd"

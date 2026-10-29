@@ -1,8 +1,12 @@
 """Isolated proposal: caller must consume each yielded prepared group in place."""
+import os
 import threading
 import time
 import math
 from contextlib import contextmanager
+
+# Concurrent oversized preparations admitted after the first observed probe.
+LARGE_LANES = 3
 
 
 class AdaptiveTH:
@@ -18,7 +22,15 @@ class AdaptiveTH:
         if not 0<small_timeout<=60 or not 0<min_probe_seconds<=60:
             raise ValueError('adaptive timeout bound')
         self.small_timeout,self.min_probe_seconds=small_timeout,min_probe_seconds
-        self.large_lock = threading.Lock()
+        # The first oversized probe runs alone; once it has been observed,
+        # up to LARGE_LANES probes may stage together within one /dev/shm.
+        self.large_lanes = threading.Condition()
+        self.large_active, self.large_bytes, self.large_probed = 0, 0, False
+        try:
+            space = os.statvfs('/dev/shm')
+            self.large_capacity = space.f_blocks * space.f_frsize
+        except (OSError, AttributeError):
+            self.large_capacity = None
         self.large_disabled = False
         self.metrics = dict(large_attempts=0, stdout_bounds=0, small_attempts=0,
                             consumed_sources=0, peak_retained_output_bytes=0,
@@ -70,10 +82,16 @@ class AdaptiveTH:
         if len(items)>512 and not self.large_disabled and not admission:
             self.metrics['reserve_skips']+=1
         if admission:
-            # Serialize large attempts so one scan cannot race several oversized
-            # invocations before the first observed stdout-bound transition.
-            while not self.large_lock.acquire(timeout=min(.05,remaining())):
-                pass
+            # Run the first large attempt alone so one scan cannot race several
+            # oversized invocations before the first observed stdout-bound
+            # transition; later attempts share the volatile staging capacity.
+            need=sum(len(item[0]) for item in items)
+            with self.large_lanes:
+                while not (self.large_active==0 or (self.large_probed and self.large_active<LARGE_LANES
+                        and (self.large_capacity is None
+                             or self.large_bytes+need+1024*1024<=self.large_capacity))):
+                    self.large_lanes.wait(min(.05,remaining()))
+                self.large_active+=1;self.large_bytes+=need
             try:
                 remaining()
                 # A failed speculative probe must not consume the legacy
@@ -83,15 +101,19 @@ class AdaptiveTH:
                 fallback_reserve=((len(items)+511)//512)*self.small_timeout
                 probe_budget=min(self.small_timeout,remaining()-fallback_reserve)
                 if not self.large_disabled and probe_budget>=self.min_probe_seconds:
-                    self.metrics['large_attempts']+=1
+                    with self.large_lanes:self.metrics['large_attempts']+=1
                     try:prepared=invoke(items,probe_budget)
                     except Exception as error:
                         if not self.stdout_bound(error):raise
-                        self.large_disabled=True
-                        self.metrics['stdout_bounds']+=1
+                        with self.large_lanes:
+                            self.large_disabled=True
+                            self.metrics['stdout_bounds']+=1
                 elif not self.large_disabled:
-                    self.metrics['reserve_skips']+=1
-            finally:self.large_lock.release()
+                    with self.large_lanes:self.metrics['reserve_skips']+=1
+            finally:
+                with self.large_lanes:
+                    self.large_active-=1;self.large_bytes-=need;self.large_probed=True
+                    self.large_lanes.notify_all()
         if prepared is not None:
             try:
                 remaining()
