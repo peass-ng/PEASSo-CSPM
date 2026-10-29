@@ -24,7 +24,7 @@ import os
 # unsupported recipes (id -> missing operations, in recipe order) computed from those models.
 RECORDED = {
     "1.43.38": {
-        "recipes": "e4112b40ce9010a597fc2083ac576f6e002082cc8d7231c0381a9b4afb9d906c",
+        "recipes": "cf01ebe8556bc2134dc16fc9de054224d6a0a41a5c5f78a0d9935a9bd5629a7d",
         "unsupported": [],
         "api_versions": {
             "acm-pca": "2017-08-22",
