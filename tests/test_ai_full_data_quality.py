@@ -197,3 +197,32 @@ def test_large_native_records_keep_validation_metadata_and_full_evidence(tmp_pat
     assert context('network', tmp_path)['inventory'][0]['service'] == 'native'
     assert read(tmp_path, 'get', 'findings', 'f', '--path', '/finding/evidence/payload', '--chars', '4000')['text'] == 'x' * 4000
     assert read(tmp_path, 'get', 'resources', 'r', '--path', '/data/payload', '--chars', '4000')['text'] == 'y' * 4000
+
+
+def test_filtered_list_reads_records_once_with_the_two_pass_page_and_total(tmp_path):
+    inventory = [{'id': f'r{i:03}', 'type': 'kind-a' if i % 3 else 'kind-b',
+                  'data': {'native': 'needle' if i % 2 else 'other', 'pad': 'x' * (i % 7) * 300}} for i in range(90)]
+    # One record above the fragment bound keeps its needle only in record_parts.
+    inventory.append({'id': 'r-large', 'type': 'kind-b', 'data': {f'k{i}': 'y' * 1000 for i in range(300)} | {'tail': 'needle'}})
+    briefing.build(tmp_path, {'report': {'provider': 'aws', 'findings': []}, 'inventory': inventory}, [], [], private_json)
+
+    def two_pass(where, params, limit, offset):
+        with sqlite3.connect(tmp_path/'context.sqlite') as db:
+            total = db.execute('SELECT COUNT(*) FROM records WHERE ' + where, params).fetchone()[0]
+            items = [json.loads(row[0]) for row in db.execute(
+                'SELECT summary FROM records WHERE ' + where + ' ORDER BY risk,id LIMIT ? OFFSET ?', (*params, limit, offset))]
+        return total, items
+
+    query = ("domain=? AND (instr(detail,?)>0 OR EXISTS(SELECT 1 FROM record_parts p WHERE p.domain=records.domain "
+             "AND p.id=records.id AND instr(p.value,?)>0))")
+    cases = [(['--query', 'needle'], query, ['resources', 'needle', 'needle']),
+             (['--type', 'kind-b'], "domain=? AND json_extract(summary,'$.type')=?", ['resources', 'kind-b']),
+             (['--query', 'absent-needle'], query, ['resources', 'absent-needle', 'absent-needle'])]
+    for flags, where, params in cases:
+        for limit, offset in ((8, 0), (20, 20), (5, 44), (8, 45), (8, 1000)):
+            page = read(tmp_path, 'list', 'resources', *flags, '--limit', str(limit), '--offset', str(offset))
+            total, items = two_pass(where, params, limit, offset)
+            assert page['total'] == total
+            assert page['items'] == items[:len(page['items'])] and (page['items'] or not items)
+            following = offset + len(page['items'])
+            assert page['next_offset'] == (following if following < total else None)

@@ -90,6 +90,10 @@ def main():
     # Allow one further Priorities correction against the same complete inputs;
     # every attempt shares the original deadline and unchanged agent config.
     attempts = 3 if stage == 'priorities' else 2
+    # Corrections continue the same agent session. The model then fixes its own
+    # candidate with the evidence it already read instead of starting a new
+    # thread that must reload the context before it can repair a reference.
+    agent = Chack(config)
     for attempt in range(attempts):
         if end - time.monotonic() <= 0:
             raise TimeoutError()
@@ -100,12 +104,23 @@ def main():
         if remaining <= 0:
             raise TimeoutError()
         configure_runner(config, remaining=remaining)
-        result = Chack(config).run(
+        result = agent.run(
             'cspm-' + stage, text, exec_cwd=str(root),
             prompt_variables_override={'access_instructions': access_instructions(entries)},
         )
         if end - time.monotonic() <= 0:
             raise TimeoutError()
+        if attempt and getattr(result, 'error', None):
+            # A continued session that cannot resume falls back to the former
+            # fresh correction agent, with the same prompt and original deadline.
+            agent = Chack(config)
+            configure_runner(config, remaining=end - time.monotonic())
+            result = agent.run(
+                'cspm-' + stage, text, exec_cwd=str(root),
+                prompt_variables_override={'access_instructions': access_instructions(entries)},
+            )
+            if end - time.monotonic() <= 0:
+                raise TimeoutError()
         if getattr(result, 'error', None):
             raise RuntimeError('agent_failed')
         output = output_text(result)

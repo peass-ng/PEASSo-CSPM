@@ -338,8 +338,18 @@ def main():
             if args.type is not None:
                 where += " AND json_extract(summary,'$.type')=?"
                 params.append(args.type)
-            total = db.execute('SELECT COUNT(*) FROM records WHERE ' + where, params).fetchone()[0]
-            rows = db.execute('SELECT summary FROM records WHERE ' + where + ' ORDER BY risk,id LIMIT ? OFFSET ?', (*params, limit, offset))
+            if args.query is None and args.type is None:
+                total = db.execute('SELECT COUNT(*) FROM records WHERE ' + where, params).fetchone()[0]
+                rows = db.execute('SELECT summary FROM records WHERE ' + where + ' ORDER BY risk,id LIMIT ? OFFSET ?', (*params, limit, offset)).fetchall()
+            else:
+                # A content or type filter reads every record of the domain.
+                # Scan once: keep only the matching keys with their total, then
+                # read the requested page's summaries by rowid.
+                rows = db.execute('SELECT r.summary,q.total FROM (SELECT rowid AS k,risk,id,COUNT(*) OVER() AS total '
+                                  'FROM records WHERE ' + where + ') q JOIN records r ON r.rowid=q.k '
+                                  'ORDER BY q.risk,q.id LIMIT ? OFFSET ?', (*params, limit, offset)).fetchall()
+                total = rows[0][1] if rows else 0 if not offset else db.execute(
+                    'SELECT COUNT(*) FROM records WHERE ' + where, params).fetchone()[0]
             result = {'total': total, 'offset': offset, 'items': [json.loads(row[0]) for row in rows]}
         elif args.command == 'get':
             row = db.execute('SELECT summary,detail FROM records WHERE domain=? AND id=?', (args.domain, args.id)).fetchone()

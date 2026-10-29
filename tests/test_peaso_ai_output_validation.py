@@ -233,3 +233,56 @@ def test_task_runtime_reports_only_a_fixed_invalid_output_code(monkeypatch, caps
     with pytest.raises(SystemExit) as stopped: task_runtime.main()
     assert stopped.value.code == 65
     assert capsys.readouterr() == ('', 'ai_agent_failure=invalid_output\n')
+
+
+def test_corrections_continue_the_same_agent_session(tmp_path, monkeypatch):
+    malformed = review('assigned')
+    malformed['actions'][0]['steps'] = []
+    calls = inputs(tmp_path, monkeypatch, [review('foreign'), malformed, review('assigned')])
+    agents = []
+    original = sys.modules['chack_agent'].Chack
+    class Tracked(original):
+        def __init__(self, config):
+            super().__init__(config); agents.append(self)
+    monkeypatch.setattr(sys.modules['chack_agent'], 'Chack', Tracked)
+    runner.main()
+    assert len(calls) == 3 and len(agents) == 1
+    assert json.loads((tmp_path/'result.json').read_text()) == review('assigned')
+
+
+def test_unresumable_correction_falls_back_to_a_fresh_agent_within_the_deadline(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(runner, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+    calls = inputs(tmp_path, monkeypatch, [review('foreign'), review('assigned')], clock)
+    agents = []
+    original = sys.modules['chack_agent'].Chack
+    class Resume(original):
+        def __init__(self, config):
+            super().__init__(config); agents.append(self); self.runs = 0
+        def run(self, *args, **kwargs):
+            self.runs += 1
+            if self.runs > 1:
+                clock[0] += 10
+                return SimpleNamespace(error='resume_failed', output='')
+            return super().run(*args, **kwargs)
+    monkeypatch.setattr(sys.modules['chack_agent'], 'Chack', Resume)
+    runner.main()
+    assert len(agents) == 2 and [agent.runs for agent in agents] == [2, 1]
+    assert [call['minutes'] for call in calls] == [9, 6]
+    assert all((call['primary'], call['thinking'], call['max_turns']) ==
+               ('OPENAI_BEST_QUALITY', 'high', 30) for call in calls)
+    assert 'validation-feedback.json' in calls[1]['text']
+    assert json.loads((tmp_path/'result.json').read_text()) == review('assigned')
+
+
+def test_failed_fresh_fallback_is_never_published(tmp_path, monkeypatch):
+    calls = inputs(tmp_path, monkeypatch, [review('foreign')])
+    original = sys.modules['chack_agent'].Chack
+    class Broken(original):
+        def run(self, *args, **kwargs):
+            result = super().run(*args, **kwargs)
+            return result if len(calls) == 1 else SimpleNamespace(error='failed', output='')
+    monkeypatch.setattr(sys.modules['chack_agent'], 'Chack', Broken)
+    with pytest.raises(RuntimeError, match='agent_failed'):
+        runner.main()
+    assert len(calls) == 3 and not (tmp_path/'result.json').exists()
