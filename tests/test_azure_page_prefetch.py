@@ -221,3 +221,38 @@ def test_close_releases_scan_callbacks_without_waiting_for_cyclic_gc(failed):
     assert not hasattr(reader, 'page_prefetch')
     assert manager.request is manager.on_page is None
     assert witness() is None
+
+
+@pytest.mark.parametrize('consumed', [False, True])
+def test_close_releases_self_referencing_failed_request_frames_without_gc(consumed):
+    import gc
+    class RetainedInventory:
+        pass
+    references = []
+    errors = []
+    def request(url, **kwargs):
+        inventory = RetainedInventory()
+        references.append(weakref.ref(inventory))
+        error = ValueError('fixture self-referencing completed frame')
+        errors.append(error)
+        raise error
+    reader = _Reader({'concurrency': 2, 'retries': 0})
+    url = GRAPH + '/v1.0/failed-native-list'
+    manager = reader.page_prefetch = PagePrefetch(reader, request, [url], GRAPH)
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        manager.start()
+        manager.futures[0].result(timeout=3)
+        if consumed:
+            with pytest.raises(ValueError, match='self-referencing'):
+                list(reader.pages(request, url, audience=GRAPH, next_key='@odata.nextLink'))
+        assert references[0]() is not None
+        manager.close()
+        assert references[0]() is None
+        assert errors[0].__traceback__ is not None
+        assert str(errors[0]) == 'fixture self-referencing completed frame'
+    finally:
+        manager.close()
+        if enabled:
+            gc.enable()

@@ -8,6 +8,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 import threading
+import traceback
 
 
 class _Stream:
@@ -130,9 +131,22 @@ class PagePrefetch:
             stream.stop()
         self.pool.shutdown(wait=True, cancel_futures=True)
         for stream in streams:
-            stream.error = None  # Unclaimed tracebacks also retain the scan.
+            # An exception can reference itself from a completed request frame.
+            # Dropping our error reference alone leaves that cycle (and its
+            # native response owners) alive until cyclic GC runs. Keep the
+            # traceback locations while releasing completed-frame locals.
+            pending, seen = [stream.error], set()
+            while pending:
+                error = pending.pop()
+                if error is None or id(error) in seen:
+                    continue
+                seen.add(id(error))
+                traceback.clear_frames(error.__traceback__)
+                pending.extend((error.__cause__, error.__context__))
+            stream.error = None
         self.streams.clear()
-        for attribute in ('page_prefetch', 'assessment_metadata_prefetch'):
+        for attribute in ('page_prefetch', 'assessment_metadata_prefetch',
+                          'identity_graph_prefetch', 'identity_arm_prefetch'):
             if getattr(self.reader, attribute, None) is self:
                 delattr(self.reader, attribute)
         # Both callbacks can close over this scan and its complete response cache.

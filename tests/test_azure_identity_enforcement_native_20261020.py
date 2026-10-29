@@ -101,15 +101,16 @@ class Wire:
         return response
 
 
-def capture(monkeypatch,cid,data=None,*,verified_tenant=TENANT):
+def capture(monkeypatch,cid,data=None,*,verified_tenant=TENANT,concurrency=1):
     wire=Wire(data if data is not None else baseline(cid))
     monkeypatch.setattr(azure,'build_opener',lambda *args:wire)
     transport=object.__new__(REAL_TRANSPORT)
     transport.tenant=TENANT;transport.verified_tenant=verified_tenant;transport.owned=False;transport.credential=None
     transport.token=lambda audience:'offline-native-fixture' if audience in (azure.ARM,azure.GRAPH) else pytest.fail('wrong native audience')
     monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+    monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
     snapshot=engine.collect_snapshot({'connector':{'provider':'azure','scopes':[SUB],'auth':{'tenant_id':TENANT},
-                    'options':{'retries':0,'concurrency':1}},'checks':[cid]})
+                    'options':{'retries':0,'concurrency':concurrency}},'checks':[cid]})
     findings=engine.evaluate_snapshot(snapshot,checks=[cid])['findings']
     assert wire.calls
     return snapshot,findings,wire
@@ -425,3 +426,16 @@ def test_native_unconditional_block_does_not_become_mfa_pass(monkeypatch,cid):
     block['grantControls']['builtInControls']=['block']
     data[('graph','/v1.0/identity/conditionalAccess/policies')]['value'].append(block)
     _,f,_=capture(monkeypatch,cid,data);assert states(f)=={'UNKNOWN'},f
+
+
+@pytest.mark.parametrize('cid', IDS)
+def test_native_bounded_lookahead_preserves_engine_verdict_and_source_reads(monkeypatch, cid):
+    serial, serial_findings, serial_wire = capture(monkeypatch, cid)
+    parallel, parallel_findings, parallel_wire = capture(monkeypatch, cid, concurrency=4)
+    assert states(parallel_findings) == states(serial_findings) == {'PASS'}
+    a = next(c for c in serial['collections'] if c['type'] == native.KIND)['items'][0]
+    b = next(c for c in parallel['collections'] if c['type'] == native.KIND)['items'][0]
+    assert a['sources'] == b['sources']
+    from collections import Counter
+    key = lambda row: json.dumps(row, sort_keys=True)
+    assert Counter(map(key, serial_wire.calls)) == Counter(map(key, parallel_wire.calls))

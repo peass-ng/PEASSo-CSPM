@@ -2613,7 +2613,7 @@ class _Reader:
                 time.sleep(delay)
 
     def pages(self, request, url, *, audience=ARM, key="value", next_key="nextLink", body=None):
-        for attribute in ("page_prefetch", "assessment_metadata_prefetch"):
+        for attribute in ("page_prefetch", "assessment_metadata_prefetch", "identity_graph_prefetch", "identity_arm_prefetch"):
             prefetch = getattr(self, attribute, None)
             if prefetch is not None:
                 stream = prefetch.take(request, url, audience, key, next_key, body)
@@ -3394,6 +3394,7 @@ def collect(connector, requirements=None, *, transport=None):
     request = None  # Bound only after explicit authentication validation succeeds.
     page_prefetch = None
     assessment_metadata_prefetch = None
+    identity_page_prefetch = ()
     service_tags_scheduled = False
     def close_transport():
         if owned and transport is not None:
@@ -5121,6 +5122,8 @@ def collect(connector, requirements=None, *, transport=None):
                                        **({"error": parent["error"]} if item is None and parent is not None and "error" in parent else {})})
         object_collections = {kind: [item for c in reader.collections if c["type"] == kind for item in c["items"]]
                               for kind in ("directory_application", "directory_service_principal", "directory_group", "directory_administrative_unit")}
+        identity_page_prefetch = azure_identity_enforcement_review_20261020.prefetch(
+            reader, request, wanted, transport)
         for kind, endpoint in (("directory_group_eligibility_schedule", "eligibilitySchedules"),
                                ("directory_group_eligibility_instance", "eligibilityScheduleInstances")):
             if kind not in wanted:
@@ -5596,6 +5599,8 @@ def collect(connector, requirements=None, *, transport=None):
         if assessment_metadata_prefetch is not None:
             assessment_metadata_prefetch.close()
         if page_prefetch is None or sys.exc_info()[0] is not None:
+            for manager in identity_page_prefetch:
+                manager.close()
             if page_prefetch is not None:
                 page_prefetch.close()
             close_transport()
@@ -5844,6 +5849,8 @@ def collect(connector, requirements=None, *, transport=None):
         return snapshot
 
     finally:
+        for manager in identity_page_prefetch:
+            manager.close()
         if page_prefetch is not None:
             page_prefetch.close()
             close_transport()

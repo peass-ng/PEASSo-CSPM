@@ -65,6 +65,78 @@ def _rows(reader, request, endpoint, *, graph=True, opaque=False):
     return result
 
 
+def _source_specs(native, scope):
+    def read(name, endpoint, *, graph=True, opaque=False, singleton=False):
+        return name, endpoint, graph, opaque, singleton
+    # These exact SW18 source APIs and its temporal/identity helpers are reused;
+    # the raw sources are retained, not its consumer-specific resolved flags.
+    for name, endpoint in GRAPH_READS.items():
+        yield read(name, endpoint, opaque=name in ('roles', 'active', 'eligible'))
+    users = [r for c in native if c.get('type') == 'directory_user' and c.get('scope', '').casefold() == scope
+             and c.get('status') in ('collected', 'empty') for r in c['items']]
+    groups = [r for c in native if c.get('type') == 'directory_group' and c.get('scope', '').casefold() == scope
+              and c.get('status') in ('collected', 'empty') for r in c['items']]
+    for group in groups:
+        if group.get('isAssignableToRole') is True and isinstance(group.get('id'), str) and sw18.GUID.fullmatch(group['id']):
+            yield read('owners:' + _guid(group['id']), '/v1.0/groups/' + _guid(group['id']) + '/owners?$select=id')
+    principals = set()
+    for row in users + groups:
+        try:
+            principals.add(_guid(row.get('id')))
+        except ValueError:
+            continue  # The evaluator rejects the malformed authoritative inventory.
+    for uid in sorted({_guid(u['id']) for u in users if isinstance(u.get('id'), str) and sw18.GUID.fullmatch(u['id'])}):
+        yield read('requirements:' + uid, '/beta/users/' + uid + '/authentication/requirements', singleton=True)
+    for pid in sorted(principals):
+        for name in ('eligibilityScheduleInstances', 'assignmentScheduleInstances'):
+            yield read('group_' + name + ':' + pid,
+                 '/v1.0/identityGovernance/privilegedAccess/group/' + name + '?' + urlencode({'$filter': "principalId eq '" + pid + "'"}), opaque=True)
+        for name, (operation, version) in ARM_READS.items():
+            # A root principal filter is documented to include at/above/below
+            # the scope. Selected-subscription inventories cannot prove absence
+            # elsewhere in the tenant. Denial of this root query stays UNKNOWN.
+            yield read('arm_' + name + ':' + pid,
+                 '/providers/Microsoft.Authorization/' + operation + '?' + urlencode({'api-version': version, '$filter': "principalId eq '" + pid + "'"}), graph=False)
+
+
+def prefetch(reader, request, wanted, transport):
+    """Look ahead at exact late source lists after directory parents settle.
+
+    Each audience has at most64 streams/four producers/one queued page per
+    stream. Unscheduled and singleton sources retain their ordinary late read.
+    """
+    if KIND not in wanted or reader.workers <= 1 or reader.explicit_limits:
+        return ()
+    try:
+        tenant = _guid(getattr(transport, 'verified_tenant', None))
+        if _guid(getattr(transport, 'tenant', None)) != tenant:
+            return ()
+    except ValueError:
+        return ()  # The late collector owns the typed unavailable row.
+    native = [c for c in reader.collections if c.get('type') in BASE_KINDS]
+    from itertools import islice
+    from .azure_page_prefetch import PagePrefetch
+    managers = []
+    try:
+        for graph, attribute in ((True, 'identity_graph_prefetch'), (False, 'identity_arm_prefetch')):
+            audience = GRAPH if graph else ARM
+            specs = _source_specs(native, '/tenants/' + tenant)
+            urls = list(islice((audience + endpoint for _, endpoint, is_graph, _, singleton in specs
+                               if is_graph == graph and not singleton), 64))
+            if not urls:
+                continue
+            manager = PagePrefetch(reader, request, urls, audience, lookahead=1,
+                                   next_key='@odata.nextLink' if graph else 'nextLink')
+            managers.append(manager)
+            setattr(reader, attribute, manager)
+            manager.start()
+    except BaseException:
+        for manager in managers:
+            manager.close()
+        raise
+    return tuple(managers)
+
+
 def collect(reader, request, scopes, wanted, transport, credential_context_id, customer_context_id):
     if KIND not in wanted:
         return
@@ -111,36 +183,8 @@ def collect(reader, request, scopes, wanted, transport, credential_context_id, c
             if not ok:
                 raise source
             sources.append(source)
-    # These exact SW18 source APIs and its temporal/identity helpers are reused;
-    # the raw sources are retained, not its consumer-specific resolved flags.
-    for name, endpoint in GRAPH_READS.items():
-        read(name, endpoint, opaque=name in ('roles', 'active', 'eligible'))
     native = [deepcopy(c) for c in reader.collections if c.get('type') in BASE_KINDS]
-    users = [r for c in native if c.get('type') == 'directory_user' and c.get('scope', '').casefold() == scope
-             and c.get('status') in ('collected', 'empty') for r in c['items']]
-    groups = [r for c in native if c.get('type') == 'directory_group' and c.get('scope', '').casefold() == scope
-              and c.get('status') in ('collected', 'empty') for r in c['items']]
-    for group in groups:
-        if group.get('isAssignableToRole') is True and isinstance(group.get('id'), str) and sw18.GUID.fullmatch(group['id']):
-            read('owners:' + _guid(group['id']), '/v1.0/groups/' + _guid(group['id']) + '/owners?$select=id')
-    principals = set()
-    for row in users + groups:
-        try:
-            principals.add(_guid(row.get('id')))
-        except ValueError:
-            continue  # The evaluator rejects the malformed authoritative inventory.
-    for uid in sorted({_guid(u['id']) for u in users if isinstance(u.get('id'), str) and sw18.GUID.fullmatch(u['id'])}):
-        read('requirements:' + uid, '/beta/users/' + uid + '/authentication/requirements', singleton=True)
-    for pid in sorted(principals):
-        for name in ('eligibilityScheduleInstances', 'assignmentScheduleInstances'):
-            read('group_' + name + ':' + pid,
-                 '/v1.0/identityGovernance/privilegedAccess/group/' + name + '?' + urlencode({'$filter': "principalId eq '" + pid + "'"}), opaque=True)
-        for name, (operation, version) in ARM_READS.items():
-            # A root principal filter is documented to include at/above/below
-            # the scope. Selected-subscription inventories cannot prove absence
-            # elsewhere in the tenant. Denial of this root query stays UNKNOWN.
-            read('arm_' + name + ':' + pid,
-                 '/providers/Microsoft.Authorization/' + operation + '?' + urlencode({'api-version': version, '$filter': "principalId eq '" + pid + "'"}), graph=False)
+    pending.extend(_source_specs(native, scope))
     settle()
     # Authenticate each returned ARM subscription/management-group scope using
     # a native parent read; never guess a subscription's tenant from the token.
@@ -159,6 +203,12 @@ def collect(reader, request, scopes, wanted, transport, credential_context_id, c
                 bound.add(parent.casefold())
                 read('binding:' + parent.casefold(), parent + '?api-version=' + ('2022-12-01' if match else '2020-05-01'), graph=False, singleton=True)
     settle()
+    # The last native source is settled. Stop producer threads and release
+    # their buffers/failed frames before snapshot sealing copies native items.
+    for attribute in ('identity_graph_prefetch', 'identity_arm_prefetch'):
+        manager = getattr(reader, attribute, None)
+        if manager is not None:
+            manager.close()
     row = {'id': scope + '#identity-enforcement', 'native_collections': native,
            'sources': sources, '_provenance': proof}
     reader.run([(KIND, scope, 'Microsoft.Graph', lambda: iter([[row]]))])
