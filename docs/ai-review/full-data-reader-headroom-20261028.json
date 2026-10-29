@@ -4,7 +4,7 @@
   "container_memory_bytes": 134217728,
   "swap_bytes": 0,
   "read_only_root": true,
-  "context_reader_sha256": "3f9d9419e96b5214b1a4479b33249da562141930647a1862a86209707599b23f",
+  "context_reader_sha256": "ddf2f314f3a79deed75ab8872127d350f7d87de7f0f17bc85790b93797845302",
   "exact_fragment_max_bytes": 131072,
   "sqlite_cache_bytes": 2097152,
   "fixture": {

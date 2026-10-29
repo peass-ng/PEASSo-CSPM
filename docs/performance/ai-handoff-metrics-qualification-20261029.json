@@ -147,7 +147,7 @@
     "modules": {
       "peaso/ai/pipeline.py": {
         "base_sha256": "73273c5bfeace17bfa00b5f6218e8139a96a4292716534d72b5f076477539e0d",
-        "candidate_sha256": "1bdb2783ba074b4fed6559c720594f5d9368eadf12450b288b18f3bff3fbf737",
+        "candidate_sha256": "7c39d03e6ce850a75ccd6a0d3354a401c22cbfae99ecc39a5f9a539ac5056d53",
         "normalized_ast_equal": true,
         "normalized_ast_sha256": "4343a7bc60c8da88e0e81d51326748ea9b734b6e57c40960af4c173e928e9eeb"
       },
