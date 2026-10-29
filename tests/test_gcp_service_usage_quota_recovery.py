@@ -49,6 +49,10 @@ def throttled():
     return Response(429, {"error": {"details": [{"reason": "RATE_LIMIT_EXCEEDED"}]}})
 
 
+def unavailable():
+    return Response(503, {"error": {"message": "service temporarily unavailable"}})
+
+
 def reader(monkeypatch, responses, options=None):
     clock = Clock()
     monkeypatch.setattr(gcp.time, "monotonic", clock.monotonic)
@@ -94,6 +98,16 @@ def test_complete_pages_do_not_add_calls_or_waits(monkeypatch):
     assert len(names) == 368 and len(set(names)) == 368
     assert len(calls) == 2 and clock.waits == []
     assert [row["attempts"] for row in transport.evidence] == [1, 1]
+
+
+def test_late_service_usage_503_uses_same_bounded_extra_attempts(monkeypatch):
+    transport, clock, calls = reader(monkeypatch,
+        [page(0, 200, "second"), *[unavailable() for _ in range(5)],
+         page(200, 168)])
+    names = [item["name"] for items, _ in pages(transport) for item in items]
+    assert len(names) == 368 and len(set(names)) == 368
+    assert len(calls) == 7 and len(clock.waits) == 5
+    assert [row["attempts"] for row in transport.evidence] == [1, 6]
 
 
 def test_persistent_quota_remains_incomplete_after_two_extra_attempts(monkeypatch):

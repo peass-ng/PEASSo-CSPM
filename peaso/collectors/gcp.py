@@ -841,7 +841,7 @@ class Transport:
                     error = http_error(response.status_code, data)
                     throttled = response.status_code == 429 or error.error.get("reason") in (
                         "RATE_LIMIT_EXCEEDED", "RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED")
-                    retry_limit = quota_retry_limit if response.status_code == 429 else self.retries
+                    retry_limit = quota_retry_limit if response.status_code in (429, 503) else self.retries
                     if (throttled or response.status_code in (500, 502, 503, 504)) and attempt < retry_limit:
                         delay = self.backoff(attempt, response, throttled)
                         # A provider minimum must never be shortened by jitter or
