@@ -160,7 +160,8 @@ def _wrappers(function):
     closure = dict(zip(function.__code__.co_freevars, [cell.cell_contents for cell in function.__closure__ or ()]))
     if set(closure) == {'kind', 'function'}:
         yield function, closure
-    for name in ('first', 'second'):
+    # 'enricher' is the reviewed inner function of the ECR repository lanes wrapper.
+    for name in ('first', 'second', 'enricher'):
         if name in closure:
             yield from _wrappers(closure[name])
 
