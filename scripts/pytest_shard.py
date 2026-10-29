@@ -17,7 +17,11 @@ import sys
 
 
 TESTS = Path("tests")
-SHARDS = 19
+# 19 jobs no longer fit the 40-minute job limit: each job spends a fixed
+# ~10 minutes importing the always-mode native catalog in the xdist
+# controller and its workers before the first test, and run 40869224500
+# cancelled six shards at 93-99% of their tests.
+SHARDS = 32
 _SHARD_ENV = "PEASO_CI_PYTEST_SHARD"
 
 # Seconds summed from the completed JUnit files in Actions run 39701781083.
