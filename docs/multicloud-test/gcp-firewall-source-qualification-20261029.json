@@ -10,7 +10,9 @@
   "focused_tests": "27 passed",
   "guard_behavior_changed": false,
   "historical_epoch_before_after_unchanged": true,
-  "live_after_pending": true,
+  "live_after_pending": false,
+  "live_after_receipt": "docs/multicloud-test/gcp-firewall-live-before-after-20261029.json",
+  "live_after_receipt_sha256": "f81e7df11c69d079c8971d965ad839c2cd61fc94313f64e15ff20fbb2f322e2d",
   "logs": [
     {
       "mode": "0600",

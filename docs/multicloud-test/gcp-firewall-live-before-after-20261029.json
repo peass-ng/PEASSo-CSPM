@@ -1,0 +1,158 @@
+{
+  "aws_iam_access_analyzer_calls": 0,
+  "collections": 443,
+  "deploys": 0,
+  "firewall_aggregate_reference_order_equal": false,
+  "firewall_canonical_sha256": "f4838de59a1442f1462174339d201d1b12bd16ab68ccc9c8cc27c4d611165b0a",
+  "firewall_items": 42,
+  "firewall_native_http200_requests": [
+    42,
+    42
+  ],
+  "firewall_native_item_order_and_data_equal": true,
+  "firewall_normalized_envelope_parity": true,
+  "firewall_stage": [
+    {
+      "end_s": 256.7595065420028,
+      "start_s": 202.18718350000563,
+      "status": "collected",
+      "thread_cpu_s": 0.212348542,
+      "wall_s": 54.57232304199715
+    },
+    {
+      "end_s": 213.91290933298296,
+      "start_s": 207.4453729169909,
+      "status": "collected",
+      "thread_cpu_s": 0.015343583000000001,
+      "wall_s": 6.467536415992072
+    }
+  ],
+  "firewall_stage_speedup": 8.437884154321559,
+  "full_collection_speedup": 1.1986052107368417,
+  "identities_missing_or_new": 0,
+  "items": 14708,
+  "limitations": [
+    "One before and one after live sample; no production speed claim and no2xwholecollection claim.",
+    "Whole-run wire retries vary despite identical logicalcall count; no whole-run same-wire-cost claim. Exact regional stage has42successful single-attempt reads on both sides.",
+    "No full native payload-value equivalence claimed for other inventories across different live times; identity/status/count parity verified for every collection.",
+    "Wire events cover requests.Session only; direct GKE HTTPS not profiled.",
+    "Overlapping inventory/wire totals are not additive critical-path durations."
+  ],
+  "logical_transport_calls": [
+    1837,
+    1837
+  ],
+  "model_calls": 0,
+  "normalizations": [
+    "Only _provenance.collected_at removed.",
+    "source_requests scan-local IDs replaced by hashes of exact method/url/query/scope/operation; Per-item reference order retained. Aggregate collection bibliography sorted because wire-assigned request IDs reorder it; same42logicalrequests proved. No native item value/order removed."
+  ],
+  "parity_script": {
+    "path": "/Users/carlospolop/peaso-work/multicloud-private/compare_gcp_firewall_live_20261029.py",
+    "sha256": "3619c1293f3a693433b8ecf427bbcd88fd3d20c8fadf6a16e11668fa8921eff3"
+  },
+  "peak_rss_bytes": {
+    "after": 757563392,
+    "before": 751648768,
+    "delta": 5914624,
+    "percent": 0.786886675240317
+  },
+  "per_collection_count_changes": 0,
+  "per_collection_item_identity_changes": 0,
+  "process_cpu_s": {
+    "after": 14.402473999999998,
+    "before": 14.483792,
+    "delta": -0.08131800000000133,
+    "percent": -0.5614413683930342
+  },
+  "production_scan_dispatches": 0,
+  "profile_harness_sha256": "3ae6484a108951c516ba156d27d5b533d5185fee8e96b77364d4504ae8c9abaa",
+  "provider_resource_mutations": 0,
+  "pushes": 0,
+  "receipts": [
+    {
+      "mode": "0o600",
+      "path": "/Users/carlospolop/peaso-work/multicloud-private/gcp-live-monitor-profile-20261029T085818Z/status.json",
+      "sha256": "2060e73358cfaec8d8d5759331a188fc95d269fee27d1c97b2e66d9486a48cee"
+    },
+    {
+      "mode": "0o600",
+      "path": "/Users/carlospolop/peaso-work/multicloud-private/gcp-live-monitor-profile-20261029T085818Z/snapshot.json",
+      "sha256": "5a490b4a7f7bb218fc26e2a4880c355d623020295ee8faa622a763b0f5381194"
+    },
+    {
+      "mode": "0o600",
+      "path": "/Users/carlospolop/peaso-work/multicloud-private/gcp-live-monitor-profile-20261029T085818Z/events.json",
+      "sha256": "61c5e3a124d0e026b5bf106ed40479c8df0b55a5dd4709a3bd9a30e792072c7d"
+    },
+    {
+      "mode": "0o600",
+      "path": "/Users/carlospolop/peaso-work/multicloud-private/gcp-live-monitor-profile-20261029T091725Z/status.json",
+      "sha256": "443e5f72a78e30a85382ced742f4b269b568aaa004bb5e7e5fc572ee4082fe0f"
+    },
+    {
+      "mode": "0o600",
+      "path": "/Users/carlospolop/peaso-work/multicloud-private/gcp-live-monitor-profile-20261029T091725Z/snapshot.json",
+      "sha256": "772d260fe955e03c429962d273f7eb89f0c856d35641a89432f466040decacd2"
+    },
+    {
+      "mode": "0o600",
+      "path": "/Users/carlospolop/peaso-work/multicloud-private/gcp-live-monitor-profile-20261029T091725Z/events.json",
+      "sha256": "bac416b9c0b369120ed3946b6bdc24cd940deb0d3f942ff46b870a8b9843202f"
+    }
+  ],
+  "runtime_head": "7dcbb7a13f23ecaa741bda79c6820fd0a3bbf387",
+  "scope_count": 1,
+  "status_changes": 0,
+  "statuses": {
+    "collected": 40,
+    "denied": 3,
+    "empty": 107,
+    "partial": 1,
+    "unknown": 292
+  },
+  "tests": {
+    "combined_release": "7passed",
+    "focused": "27passed10.51s",
+    "strict_source": "9passed27.76s",
+    "whole_historical_epoch": "1passed8.27s"
+  },
+  "wall_s": {
+    "after": 219.80070687498664,
+    "before": 263.45427258400014,
+    "delta": -43.65356570901349,
+    "percent": -16.569693586994273
+  },
+  "wire_calls": [
+    1548,
+    1571
+  ],
+  "wire_exception_counts": [
+    {
+      "ConnectionError": 13,
+      "ReadTimeout": 13,
+      "SSLError": 17
+    },
+    {
+      "ConnectionError": 17,
+      "ReadTimeout": 13,
+      "SSLError": 37
+    }
+  ],
+  "wire_http_counts": [
+    {
+      "200": 1370,
+      "204": 1,
+      "403": 130,
+      "404": 4,
+      "None": 43
+    },
+    {
+      "200": 1370,
+      "204": 1,
+      "403": 129,
+      "404": 4,
+      "None": 67
+    }
+  ]
+}
