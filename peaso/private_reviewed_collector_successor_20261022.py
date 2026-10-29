@@ -19,8 +19,8 @@ import zlib
 
 from . import private_secret_source_epoch_20261021 as _epoch
 
-_RECEIPT_SHA256 = "7cfd42b991025f1d742c5e3aa0b0e490c329754402b3a27c3f4dc97c257f5196"
-_SELF_SHA256 = "24504df13105a2e0234d9b234236a9cf40489e525ccdc5ee8c33199f8ca6204b"
+_RECEIPT_SHA256 = "7cf272cb8b0bfcaf50b04b827adc7714095230437fc53604160cdc706ab3d146"
+_SELF_SHA256 = "67b8b585adae35d94ddb1be483b84ecf3d95ca7e39aca76b27e092173dee91fe"
 _ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -31,7 +31,7 @@ def _sha(data: bytes) -> str:
 def _finite_source():
     from . import private_secret_current_source_successor_20261028 as successor
     source = _epoch._root_path(_ROOT, "peaso/private_secret_current_source_successor_20261028.py")
-    if _sha(source.read_bytes()) != "74df3f0e1c7c98fdfd2ab2e3fe0506f6c8828c795da8487674cda3adc2cfaa5d":
+    if _sha(source.read_bytes()) != "a6c7a7c388993e535a35a50af9fa64f80a6946811c493b18ba25e3e652c141c2":
         raise _epoch.AdmissionError("finite current successor changed")
     return successor
 

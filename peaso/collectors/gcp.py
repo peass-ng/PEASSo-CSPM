@@ -2768,7 +2768,7 @@ class GCPCollector:
             if kind == "snapshot":
                 link = item.get("selfLink")
                 match = re.fullmatch(
-                    rf"https://(?:www|compute)\.googleapis\.com/compute/v1/{re.escape(scope)}/"
+                    rf"https://(?:www|compute)\.googleapis\.com/compute/(?:v1|beta)/{re.escape(scope)}/"
                     r"(global|regions/[a-z0-9-]+)/snapshots/([a-z][a-z0-9-]*)",
                     link) if isinstance(link, str) else None
                 if (not match or item.get("name") != match.group(2)
@@ -2832,8 +2832,11 @@ class GCPCollector:
                         "collection_status": status, "source_requests": [request_id for group in groups
                             for request_id in group.get("source_requests", [])]}
                     return output
+                # The cross-region snapshot aggregatedList exists in Compute
+                # beta; v1 returns 404 and loses the whole snapshot inventory.
+                list_root = compute.replace('/compute/v1/', '/compute/beta/') if kind == 'snapshot' else compute
                 for items, request_id in self.pages(
-                    f"{compute}/{endpoint}", scope, key=key, aggregate=key if aggregated else None,
+                    f"{list_root}/{endpoint}", scope, key=key, aggregate=key if aggregated else None,
                     params={"returnPartialSuccess": "true"} if aggregated else None, page_size_key="maxResults",
                     # Compute list calls carry no field mask: each item is the full resource.
                     transform=lambda item: {**item, "_representation": "full",
