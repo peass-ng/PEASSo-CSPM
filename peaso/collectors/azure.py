@@ -3482,6 +3482,9 @@ def collect(connector, requirements=None, *, transport=None):
             group_url = GRAPH + "/v1.0/" + DIRECTORY["directory_group"]
             if "directory_group" in wanted and "directory_group_pim_owner_policy" in wanted:
                 urls.append(group_url)
+            urls.extend(GRAPH + "/v1.0/" + endpoint
+                        for kind, endpoint in DIRECTORY.items()
+                        if kind in wanted and kind != "directory_audit")
             def group_policy_lookahead(url, page):
                 if url != group_url or "directory_group_pim_owner_policy" not in wanted:
                     return

@@ -107,3 +107,92 @@ def test_dynamic_child_lookahead_is_bounded_and_does_not_duplicate_reads():
         manager.close()
     manager.add([GRAPH + '/v1.0/not-requested-after-close'])
     assert len(calls) == 101
+
+
+def test_large_pages_are_compact_and_keep_every_json_value_and_failure_prefix():
+    reader = _Reader({'concurrency': 2})
+    url = GRAPH + '/v1.0/large'
+    page = [{'id': str(i), 'text': 'héllo\n' * 300,
+             'values': [None, True, False, 2**80, 1.25]} for i in range(100)]
+    def request(current, **kwargs):
+        if current == url:
+            return {'value': page, '@odata.nextLink': url + '?page=2'}
+        raise ValueError('fixture final page unavailable')
+    manager = reader.page_prefetch = PagePrefetch(reader, request, [url], GRAPH)
+    manager.start()
+    try:
+        manager.futures[0].result(timeout=3)
+        buffered = manager.streams[url].pages[0]
+        assert buffered.compressed
+        assert len(buffered.value) < 10000
+        consumed = reader.pages(request, url, audience=GRAPH, next_key='@odata.nextLink')
+        assert next(consumed) == page
+        with pytest.raises(ValueError, match='fixture final page unavailable'):
+            next(consumed)
+        assert reader.budget.calls == 2
+    finally:
+        manager.close()
+
+
+@pytest.mark.parametrize('value', [(1, 2), {1: 'integer-key'}, float('inf')])
+def test_non_json_values_are_preserved_without_a_serialization_failure(value):
+    reader = _Reader({'concurrency': 2})
+    url = GRAPH + '/v1.0/custom'
+    page = [{'id': 'one', 'text': 'x' * 40000, 'value': value}]
+    def request(current, **kwargs):
+        return {'value': page}
+    manager = reader.page_prefetch = PagePrefetch(reader, request, [url], GRAPH)
+    manager.start()
+    try:
+        manager.futures[0].result(timeout=3)
+        assert not manager.streams[url].pages[0].compressed
+        assert next(reader.pages(request, url, audience=GRAPH,
+                                 next_key='@odata.nextLink')) is page
+    finally:
+        manager.close()
+
+
+def test_close_releases_a_producer_waiting_on_a_full_buffer():
+    reader = _Reader({'concurrency': 2})
+    url = GRAPH + '/v1.0/bounded'
+    second_request = threading.Event()
+    def request(current, **kwargs):
+        if current != url:
+            second_request.set()
+        return {'value': [{'id': current}],
+                '@odata.nextLink': current + ('&' if '?' in current else '?') + 'next'}
+    manager = reader.page_prefetch = PagePrefetch(reader, request, [url], GRAPH, lookahead=1)
+    manager.start()
+    try:
+        assert second_request.wait(timeout=3)
+    finally:
+        manager.close()
+    assert manager.futures[0].done()
+
+
+def test_queued_consumer_cannot_deadlock_behind_full_earlier_streams():
+    reader = _Reader({'concurrency': 2})
+    urls = [GRAPH + '/v1.0/blocked' + str(i) for i in range(2)]
+    queued = GRAPH + '/v1.0/queued'
+    full = [threading.Event(), threading.Event()]
+    calls = []
+    lock = threading.Lock()
+    def request(current, **kwargs):
+        with lock:
+            calls.append(current)
+        if current == queued:
+            return {'value': [{'id': 'queued'}]}
+        index = next(i for i, url in enumerate(urls) if current.startswith(url))
+        if '?' in current:
+            full[index].set()
+        return {'value': [{'id': current}], '@odata.nextLink': current.split('?')[0] + '?next'}
+    manager = reader.page_prefetch = PagePrefetch(reader, request, urls + [queued], GRAPH, lookahead=1)
+    manager.start()
+    try:
+        assert all(event.wait(timeout=3) for event in full)
+        assert list(reader.pages(request, queued, audience=GRAPH,
+                                 next_key='@odata.nextLink')) == [[{'id': 'queued'}]]
+        assert calls.count(queued) == 1
+        assert manager.streams[queued].future.cancelled()
+    finally:
+        manager.close()

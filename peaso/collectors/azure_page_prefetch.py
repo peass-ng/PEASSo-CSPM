@@ -7,7 +7,47 @@ network wait overlaps unrelated ARM work. Explicit inventory caps stay serial.
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
+import json
 import threading
+import zlib
+
+
+class _BufferedPage:
+    """Keep large JSON pages compact until the ordered consumer needs them."""
+    __slots__ = ('value', 'compressed')
+
+    def __init__(self, page):
+        self.value, self.compressed = page, False
+        pending, visited = [page], set()
+        while pending:
+            value = pending.pop()
+            if type(value) in (dict, list):
+                if id(value) in visited:
+                    continue
+                visited.add(id(value))
+                if type(value) is dict:
+                    if any(type(key) is not str for key in value):
+                        return
+                    pending.extend(value.values())
+                else:
+                    pending.extend(value)
+            elif type(value) not in (str, int, float, bool, type(None)):
+                return  # Preserve non-JSON test/custom transport values exactly.
+        try:
+            raw = json.dumps(page, ensure_ascii=False, allow_nan=False,
+                             separators=(',', ':')).encode('utf-8')
+            if len(raw) < 32768:
+                return
+            packed = zlib.compress(raw, level=1)
+        except (TypeError, ValueError, UnicodeError, RecursionError, OverflowError):
+            return
+        if len(packed) < len(raw):
+            self.value, self.compressed = packed, True
+
+    def load(self):
+        if self.compressed:
+            return json.loads(zlib.decompress(self.value))
+        return self.value
 
 
 class _Stream:
@@ -17,6 +57,7 @@ class _Stream:
         self.pages = deque()
         self.done = self.claimed = self.stopped = False
         self.error = None
+        self.future = None
 
     def produce(self):
         self.owner.local.producing = True
@@ -32,7 +73,7 @@ class _Stream:
                         self.owner.reader.check_cancelled()
                     if self.stopped:
                         break
-                    self.pages.append(page)
+                    self.pages.append(_BufferedPage(page))
                     self.condition.notify_all()
         except BaseException as exc:
             with self.condition:
@@ -59,7 +100,7 @@ class _Stream:
                         raise self.error
                     else:
                         return
-                yield page
+                yield page.load()
         finally:
             self.stop()
 
@@ -83,7 +124,8 @@ class PagePrefetch:
 
     def start(self):
         for stream in tuple(self.streams.values()):
-            self.futures.append(self.pool.submit(copy_context().run, stream.produce))
+            stream.future = self.pool.submit(copy_context().run, stream.produce)
+            self.futures.append(stream.future)
 
     def add(self, urls):
         # Bound pending streams too. Unscheduled consumers use the normal reader.
@@ -94,7 +136,8 @@ class PagePrefetch:
                 if url in self.streams or len(self.streams) >= 64:
                     continue
                 stream = self.streams[url] = _Stream(self, url)
-                self.futures.append(self.pool.submit(copy_context().run, stream.produce))
+                stream.future = self.pool.submit(copy_context().run, stream.produce)
+                self.futures.append(stream.future)
 
     def take(self, request, url, audience, key, next_key, body):
         if (getattr(self.local, 'producing', False) or request is not self.request
@@ -109,6 +152,12 @@ class PagePrefetch:
             if stream.claimed:
                 return None
             stream.claimed = True
+            # Full earlier streams can occupy every producer. A queued stream
+            # must let its consumer perform the read rather than wait behind
+            # producers that need a later consumer to drain their buffers.
+            if stream.future is not None and stream.future.cancel():
+                stream.stop()
+                return None
         return stream.consume()
 
     def close(self):
