@@ -383,17 +383,23 @@ def _reusable_stages(artifacts, tenant, sections, stage_results):
         if stage != "network" or not isinstance(result, dict):
             continue
         section = sections.get(stage)
-        if (not isinstance(section, dict) or section.get("status") != "complete"
-                or section.get("data_revision") != result.get("data_revision")):
-            continue
+        with _runtime_span('ai.network.reuse.revision_check'):
+            if (not isinstance(section, dict) or section.get("status") != "complete"
+                    or section.get("data_revision") != result.get("data_revision")):
+                with _runtime_span('ai.network.reuse.revision_rejected'):
+                    continue
         try:
-            artifact = artifacts.get(tenant, result["result_ref"])
+            with _runtime_span('worker.stage_results.load'):
+                artifact = artifacts.get(tenant, result["result_ref"])
         except (KeyError, ValueError, OSError):
-            continue
-        if (isinstance(artifact, dict) and artifact.get("stage") == stage
-                and artifact.get("data_revision") == result.get("data_revision")
-                and isinstance(artifact.get("result"), dict)):
-            reused[stage] = artifact["result"]
+            with _runtime_span('ai.network.reuse.artifact_unavailable'):
+                continue
+        with _runtime_span('ai.network.reuse.artifact_check'):
+            if (isinstance(artifact, dict) and artifact.get("stage") == stage
+                    and artifact.get("data_revision") == result.get("data_revision")
+                    and isinstance(artifact.get("result"), dict)):
+                with _runtime_span('ai.network.reuse.accepted'):
+                    reused[stage] = artifact["result"]
     return reused
 
 
@@ -809,7 +815,8 @@ def _process(role, request, connection):
             from peaso.snapshot import frozen_view
             # Freeze the native items once; evaluation, publication and AI
             # review share them instead of each making a read-only copy.
-            snapshot = frozen_view(artifacts.get(tenant, request["snapshot_ref"]))
+            with _runtime_span('worker.snapshot.load'):
+                snapshot = frozen_view(artifacts.get(tenant, request["snapshot_ref"]))
             from peaso.related_snapshots import related_view
             related, sources = [], {}
             for entry in request.get("related", []):
@@ -897,14 +904,16 @@ def _process(role, request, connection):
                 connection.send(("__checkpoint__", {"sequence": native_sequence,
                     "stage": "analyzer_native", "snapshot_ref": request["snapshot_ref"],
                     "report_ref": native_reference, "kind": None, "scope": None}))
-                if connection.recv() != ("__checkpoint_ack__", native_sequence, True):
-                    raise RuntimeError("native analysis checkpoint rejected")
+                with _runtime_span('worker.native_checkpoint.wait'):
+                    if connection.recv() != ("__checkpoint_ack__", native_sequence, True):
+                        raise RuntimeError("native analysis checkpoint rejected")
                 if request.get("refresh_stage_results"):
                     connection.send(("__stage_results__", None))
-                    reply = connection.recv()
-                    if (not isinstance(reply, tuple) or len(reply) != 2
-                            or reply[0] != "__stage_results__" or not isinstance(reply[1], dict)):
-                        raise RuntimeError("progressive stage result handoff rejected")
+                    with _runtime_span('worker.stage_results.wait'):
+                        reply = connection.recv()
+                        if (not isinstance(reply, tuple) or len(reply) != 2
+                                or reply[0] != "__stage_results__" or not isinstance(reply[1], dict)):
+                            raise RuntimeError("progressive stage result handoff rejected")
                     request["stage_results"] = reply[1]
                 reused_stages = _reusable_stages(artifacts, tenant, sections, request.get("stage_results"))
             except BaseException:

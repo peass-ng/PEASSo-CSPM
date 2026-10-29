@@ -26,6 +26,10 @@ worker.startup worker.collect worker.evaluate worker.redact worker.private_check
 worker.public_checkpoint worker.final_snapshot worker.ai worker.final_publish
 worker.iam_usage worker.checkpoint.finish worker.checkpoint.close worker.private_document
 ai.network ai.priorities ai.network.prepare ai.priorities.prepare
+worker.snapshot.load worker.native_checkpoint.wait worker.stage_results.wait worker.stage_results.load
+ai.network.reuse.revision_check ai.network.reuse.revision_rejected
+ai.network.reuse.artifact_check ai.network.reuse.artifact_unavailable ai.network.reuse.accepted
+ai.network.reuse.validation ai.network.reuse.validated
 engine.validate engine.resources engine.index engine.native_checks engine.analysis
 engine.graphs engine.privesc engine.finalize collection.job collection.queue_wait collection.automatic_content_scope
 publication.normalize.private publication.normalize.reviews publication.normalize.group

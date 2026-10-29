@@ -1,0 +1,218 @@
+{
+  "added_fixed_labels": [
+    "ai.network.reuse.accepted",
+    "ai.network.reuse.artifact_check",
+    "ai.network.reuse.artifact_unavailable",
+    "ai.network.reuse.revision_check",
+    "ai.network.reuse.revision_rejected",
+    "ai.network.reuse.validated",
+    "ai.network.reuse.validation",
+    "worker.native_checkpoint.wait",
+    "worker.snapshot.load",
+    "worker.stage_results.load",
+    "worker.stage_results.wait"
+  ],
+  "base_revision": "1f45df8dbabf707d3637bb6562e0789336fa4f8f",
+  "branch": "k8s-ai-handoff-metrics-20261029",
+  "cross_cloud_saved_comparison": [
+    {
+      "limitation": "Only final cumulative metrics are locally saved; no equivalent timestamped idle interval can be reconstructed. Outside-AI total is less than360s.",
+      "outside_worker_ai_ms": 124215,
+      "provider": "aws",
+      "raw_heartbeat_frames_saved": false,
+      "recorder_elapsed_ms": 1002673,
+      "scan_id": "2dce0099e79f4b04bed6bf2236488228",
+      "worker_ai_ms": 878458
+    },
+    {
+      "limitation": "Only final cumulative metrics are locally saved; no equivalent timestamped idle interval can be reconstructed. Outside-AI total is less than360s.",
+      "outside_worker_ai_ms": 20075,
+      "provider": "gcp",
+      "raw_heartbeat_frames_saved": false,
+      "recorder_elapsed_ms": 821503,
+      "scan_id": "5cf39bf1fe4b43fe8d413c8ec41a321f",
+      "worker_ai_ms": 801428
+    },
+    {
+      "limitation": "Only final cumulative metrics are locally saved; no equivalent timestamped idle interval can be reconstructed. Outside-AI total is less than360s.",
+      "outside_worker_ai_ms": 18619,
+      "provider": "azure",
+      "raw_heartbeat_frames_saved": false,
+      "recorder_elapsed_ms": 929786,
+      "scan_id": "3b3050a6335544a7aa5beae30a7d4330",
+      "worker_ai_ms": 911167
+    }
+  ],
+  "fixed_timeout_search": {
+    "causal_limit": "K8s360.004s is a sampled flat interval, not proof of an exact360s timeout. A separate active progressive child can keep the final child idle. Child task timeline/result revisions were not saved.",
+    "event_replacement_implemented": false,
+    "fixed_360_second_handoff_timer_found": false,
+    "lease_and_deadline": "Stage claims use max(30, settings.lease_seconds). Heartbeat cadence lease_seconds/3 is independent of per-loop task readiness polling. Shared deadlines bound work; they are not a360s reply timer.",
+    "observed_constants": {
+      "cleanup_grace_seconds": 35,
+      "early_preparation_wait_cap_seconds": 120,
+      "fargate_status_poll_seconds": 2,
+      "parent_pipe_poll_seconds": 0.2,
+      "stage_pipe_poll": "nonblocking default",
+      "stage_process_close_join_seconds": 1,
+      "watcher_poll_seconds": 0.25
+    },
+    "reason": "No fixed timeout wake is demonstrated. Replacing the0.2s poll with a multi-pipe event cannot be claimed to eliminate360s; preserve ownership and durable revision fencing.",
+    "source_scope": [
+      "peaso/worker.py",
+      "peaso/progressive_analyzer.py",
+      "peaso/ai",
+      "peaso/storage/artifacts.py",
+      "peaso/storage/dynamodb.py",
+      "peaso/storage/sqlite.py",
+      "peaso/server/config.py",
+      "infra/aws/workflow.tf",
+      "infra/aws/ai_runtime.tf"
+    ]
+  },
+  "inflight_release_modified": false,
+  "k8s_saved_reference": {
+    "attribution": "Recorded post-native/pre-AI flat interval; exact progressive child lifetime/ACK/reply/read attribution is not retained. Not proof of a fixed360s timer.",
+    "frame_count": 59,
+    "post_native_pre_ai_block": {
+      "bounds_derivation": "First frame has not started worker.evaluate (no row or active span). Source then serially performs evaluate7664ms, redact104ms and first publication3186ms; native publication therefore cannot end before41555ms and is complete by60653ms. worker.ai starts in[421307,421309]ms. The elapsed interval after native publication and before AI is therefore[360654,379754]ms. This is a compound uninstrumented block, not an exclusive function timer.",
+      "native_publication_end_relative_bounds_ms": [
+        41555,
+        60653
+      ],
+      "post_native_pre_ai_duration_bounds_ms": [
+        360654,
+        379754
+      ]
+    },
+    "proven_flat_interval": {
+      "active_spans_in_every_frame": 0,
+      "completed_rows_identical": true,
+      "duration_ms": 360004,
+      "frames": 13,
+      "logged_end_utc": "2026-10-29T06:00:36.770000+00:00",
+      "logged_start_utc": "2026-10-29T05:54:36.766000+00:00",
+      "native_publication_completed_before_interval": true,
+      "process_cpu_delta_ms": 3,
+      "process_cpu_end_ms": 44411,
+      "process_cpu_start_ms": 44408,
+      "relative_end_ms": 420657,
+      "relative_start_ms": 60653
+    },
+    "recorder_decomposition_ms": {
+      "network_inside_worker_ai": 586048,
+      "other_inside_worker_ai": 2579,
+      "outside_worker_ai_total": 423757,
+      "post_worker_ai_point_estimate": 2449.0,
+      "pre_worker_ai_point_estimate": 421308.0,
+      "priorities_inside_worker_ai": 735238,
+      "total": 1747622,
+      "worker_ai": 1323865
+    },
+    "scan_id": "d4cfaf8e753f4922bef4e48cf88ac1d3"
+  },
+  "privacy": "Only registered code-owned labels and existing numeric fields leave recorder. No finding/resource/task/tenant identity, actual revision number, model output/prompt, artifact URL or exception body is added.",
+  "registered_label_count_after": 68,
+  "registered_label_count_before": 57,
+  "risk": "Additional bounded clock reads and recorder updates add diagnostic overhead; no performance gain claim. New spans require future-wave deployment; current1f45 retry will still provide comparable raw heartbeats without these labels.",
+  "semantics": {
+    "ai.network.reuse.accepted": "Artifact envelope accepted, not yet proof that Network finding validation passed.",
+    "ai.network.reuse.artifact_check": "Loaded stage artifact envelope is checked against exact stage/revision/result shape.",
+    "ai.network.reuse.artifact_unavailable": "One existing caught artifact lookup exception; no exception text emitted.",
+    "ai.network.reuse.revision_check": "One check per eligible Network result; exact final-section/revision gate unchanged.",
+    "ai.network.reuse.revision_rejected": "Gate rejects missing/incomplete final section or revision mismatch. No revision values emitted.",
+    "ai.network.reuse.validated": "Completed Network output reuses successfully after unchanged checks.",
+    "ai.network.reuse.validation": "Existing trusted Network-output/reference validation and exact comparison.",
+    "measurement_limits": "Counts refer to gate evaluations, not model calls. Rechecks may occur before/after publication. Spans may nest; wall/CPU are additive, not exclusive. Telemetry remains best effort.",
+    "worker.native_checkpoint.wait": "Child waits for native publication acknowledgement; invalid ACK still raises the same error.",
+    "worker.snapshot.load": "Initial analyzer snapshot artifact read plus frozen-view construction.",
+    "worker.stage_results.load": "Eligible Network stage artifact lookup, including existing missing/ref/read exceptions.",
+    "worker.stage_results.wait": "Child waits for refreshed durable stage-result reply; invalid reply still raises the same error."
+  },
+  "separate_future_wave_only": true,
+  "source_proof": {
+    "api_source_closure": {
+      "direct_sdk_client_sites": 29,
+      "manifest_sha256": "5e0e64a934799988a03f128619941d70a48e797ccd2af78eb9e20b7bd561b4b7",
+      "python_count": 1778,
+      "python_sha256": "260e5dedb609ff863a75ddcecbf2f7bbf181e5bc4adbb39c6245497412b9761d",
+      "source_diff": {
+        "added": [],
+        "changed": [],
+        "removed": []
+      }
+    },
+    "base": "1f45df8dbabf707d3637bb6562e0789336fa4f8f",
+    "method": "Strip only exact one-argument fixed-label _runtime_span wrappers with no binding/kwargs. Normalize only the existing _STAGES string literal, preserving its expression. Canonicalize AST by omitting optional None/empty-list fields for Python-version portability. Freeze canonical hashes from immutable1f45 base source; source tests need no Git history and work in shallow checkouts. Preserve all original57 labels.",
+    "modules": {
+      "peaso/ai/pipeline.py": {
+        "base_sha256": "73273c5bfeace17bfa00b5f6218e8139a96a4292716534d72b5f076477539e0d",
+        "candidate_sha256": "1bdb2783ba074b4fed6559c720594f5d9368eadf12450b288b18f3bff3fbf737",
+        "normalized_ast_equal": true,
+        "normalized_ast_sha256": "4343a7bc60c8da88e0e81d51326748ea9b734b6e57c40960af4c173e928e9eeb"
+      },
+      "peaso/runtime_metrics.py": {
+        "base_sha256": "d56fa5ce82834aea47fbf48a62661091dff1c80b94f3003d127b26c24415ad8a",
+        "candidate_sha256": "0e115269a88ef94be4dc0b990ccdaac4816f0cecdb16e0542e18aa8372324ab3",
+        "normalized_ast_equal": true,
+        "normalized_ast_sha256": "8e73b5b7d1b24352b0453a81534238643e7302dd2ef47a222fe37cea5e07070e"
+      },
+      "peaso/worker.py": {
+        "base_sha256": "58fbb0feae2c72a81e546532146c5346f10bfb1b7caff968d97ddd6a7938704e",
+        "candidate_sha256": "8e51bec9b9fbbf23568c08e0507ae7145d1003f8dedcba6263ac50ca98bc82c8",
+        "normalized_ast_equal": true,
+        "normalized_ast_sha256": "401ad85bfa7d7a849ce4ab8bc2cf63481f6c65302c32e0f19ce812a2f78fd4ac"
+      }
+    },
+    "protected_files_sha256": {
+      "infra/aws/ai_runtime.tf": "71b92edecfd2feaae5fa3250b6df099b25f85f8702d1e392881469b576103c13",
+      "infra/aws/workflow.tf": "aaf76056f63e917b2dac7866e64d626fca27b5b561bf2a7b89b9f6be27a62f23",
+      "peaso/ai/agents/network.yaml": "33040915ba18fde00f34420eea1ada7a7db1f0e8e263e3cf37c4b2729d4074bb",
+      "peaso/ai/agents/priorities.yaml": "7d2475276724930065a0455c0ef0dacc73fc96e749f90978fcef78c129d01b2a",
+      "peaso/ai/contracts.py": "fe550fcb3ad2e917eff6e987bd472619941195d665d4d2dc6a5eac376046d165",
+      "peaso/ai/deadline.py": "710248351e9ae3ee270c9e12944fb642e94dcaf60c21f7a1b4aa4106af057dbc",
+      "peaso/ai/fargate.py": "1a39332a6f2912d4662d170b976ab188388540597ac108b7881c903a85f761a3",
+      "peaso/ai/output_validation.py": "b1fcf7189b0000edcd9b0289dc51a1adf8acee5bb151b894d63480b60e0ca655",
+      "peaso/ai/prompting.py": "5278f9a7187b4ea87a797dfdcea787f18369bbe330c4e4e6ef2d6ff2b2f9c1ce",
+      "peaso/ai/providers.py": "3bf08ddd2bce5f4e8e85ca8908f6e66efe4c5e87c235153662b80ead269e476b",
+      "peaso/ai/runner.py": "678a2f716b2b662801c056de60579655ced63e34589023523e09a392e41b5dae",
+      "peaso/progressive_analyzer.py": "b748ea7beaecd417ef822029ee8e147f416b006b756663dbf0a05dcb776a64f6"
+    },
+    "python": "3.12.13"
+  },
+  "source_receipts_sha256": {
+    "ai-priorities-n1-private/k8s-d4cf-analyzer-logs.json": "1e583a8aaf4976ac08b408eb1d0a6ffa32d46572fe5bfbc1b32ca969a6eddd39",
+    "azure-3b3050a6-stage-metrics.json": "55673d6e169bf08233c1686a61639cf20df87b4473782e8c09bce23b66ba5049",
+    "gcp-5cf-metrics-line.txt": "19b91adb0c8f20ec52fc659376a4ae263d96b05dcf85c090a1cd894699d3ae65",
+    "k8s-d4cf-observer.json": "64d98e5ad339fd7a9dff8fd1b8f1ef963de4914f65fcbe7c270788468a8ce9cc",
+    "k8s-d4cf-stage-metrics.json": "e016d12fc5f12bba3be5f89e1410e92b098c01f7e0d3643eadfee76ca6896100",
+    "stage-metrics-40815739922/cspm-postrelease-stage-metrics/cspm-postrelease-stage-metrics.json": "73e902752f4e7cd9a08f1ec566ad5dcac571adc58cea95e47b3ecd64082cda96"
+  },
+  "validation": {
+    "affected_suites_command": "python -m pytest --noconftest tests/test_ai_handoff_metrics.py tests/test_ai_handoff_metrics_source.py tests/test_runtime_metrics_portable.py tests/test_ai_stage_runtime_metrics.py tests/test_peaso_priorities_early_overlap.py tests/test_peaso_native_before_ai_handoff.py::test_supervisor_publishes_native_while_waiting_and_reads_fresh_stage_rows tests/test_peaso_api_service_model_gate.py tests/test_ai_platform_codex_alias.py -q",
+    "affected_suites_passed": 99,
+    "alternate_python": "3.13",
+    "alternate_source_proof_passed": 4,
+    "compile": "pass",
+    "diff_check": "pass",
+    "meaningful_cases": [
+      "Late native ACK and stage-result reply show distinct active numeric spans; no AI runs before the exact refreshed durable result.",
+      "An actual parent/subprocess IPC handoff with a1080s lease completes a simulated late result without waiting for the360s heartbeat interval.",
+      "Revision mismatch/incomplete sections reject before artifact I/O; accepted artifacts preserve object identity.",
+      "Existing read exceptions remain caught; unexpected exceptions propagate unchanged.",
+      "Cached Network validation failure follows the unchanged fresh-review fallback; successful validation reuses exact output.",
+      "Broken diagnostic sink does not change successful handoff.",
+      "Telemetry frames validate fixed numeric schema and contain no private sentinel inputs, references, content or exception text."
+    ]
+  },
+  "version": 1,
+  "worker_operations": {
+    "deploys": 0,
+    "model_calls": 0,
+    "paid_access_analyzer_calls": 0,
+    "production_mutations": 0,
+    "provider_calls": 0,
+    "pushes": 0,
+    "scans": 0
+  }
+}

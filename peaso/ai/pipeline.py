@@ -576,16 +576,18 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         if (network is not None and isinstance(prior, dict) and prior.get('status') == 'completed'
                 and isinstance(prior.get('network'), dict) and prior['network'].get('status') == 'completed'):
             try:
-                from .contracts import NetworkEvidence, NetworkFinding
-                raw_rows = []
-                for row in prior['network']['findings']:
-                    item = {key: row[key] for key in NetworkFinding.model_fields}
-                    item['evidence'] = {key: row['evidence'][key] for key in NetworkEvidence.model_fields}
-                    raw_rows.append(item)
-                checked = validate_network({'explanation': prior['network']['explanation'],
-                                            'findings': raw_rows}, network)
-                if checked['findings'] == prior['network']['findings']:
-                    result['network'] = copy.deepcopy(prior['network'])
+                with _runtime_span('ai.network.reuse.validation'):
+                    from .contracts import NetworkEvidence, NetworkFinding
+                    raw_rows = []
+                    for row in prior['network']['findings']:
+                        item = {key: row[key] for key in NetworkFinding.model_fields}
+                        item['evidence'] = {key: row['evidence'][key] for key in NetworkEvidence.model_fields}
+                        raw_rows.append(item)
+                    checked = validate_network({'explanation': prior['network']['explanation'],
+                                                'findings': raw_rows}, network)
+                    if checked['findings'] == prior['network']['findings']:
+                        with _runtime_span('ai.network.reuse.validated'):
+                            result['network'] = copy.deepcopy(prior['network'])
             except (KeyError, TypeError, ValueError):
                 pass
         failed_stage = False
