@@ -41,7 +41,7 @@ def enrich_snapshot(snapshot, connector, *, page_limit=20):
                 "status": "denied", "items": [], "queryWindow": query_window,
                 "error": {"code": "hosted_credentials_required"}})
         return make_snapshot(snapshot["provider"], snapshot["scopes"], collections,
-                             created_at=snapshot["created_at"], metadata=snapshot.get("metadata"))
+                             created_at=snapshot["created_at"], metadata=snapshot.get("metadata"), owned=True)
     transport = None
     try:
         transport = AzureTransport(auth)
@@ -113,4 +113,4 @@ def enrich_snapshot(snapshot, connector, *, page_limit=20):
         if transport:
             transport.close()
     return make_snapshot(snapshot["provider"], snapshot["scopes"], collections,
-                         created_at=snapshot["created_at"], metadata=snapshot.get("metadata"))
+                         created_at=snapshot["created_at"], metadata=snapshot.get("metadata"), owned=True)
