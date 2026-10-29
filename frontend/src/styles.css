@@ -1024,6 +1024,14 @@ h1 {
   margin-left: auto;
   color: #efdbac;
 }
+.demo-banner.scan-running-banner {
+  background: rgba(63, 114, 99, 0.08);
+  border-color: rgba(111, 186, 157, 0.17);
+  color: #a8bfbc;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scan-running-banner .spin { animation: none; }
+}
 .auth-banner {
   background: #4660811c;
   border-color: #557ab333;

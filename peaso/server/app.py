@@ -1518,10 +1518,12 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
 
     @app.get("/api/scans/{ident}/ai")
     def scan_ai(ident: str, offset: int = Query(default=0, ge=0), limit: int = Query(default=50, ge=1, le=100), user=Depends(identity)):
-        _, bundle = owned_bundle(user.tenant_id, ident)
+        row, bundle = owned_bundle(user.tenant_id, ident)
         value = (bundle["_stage_ai"] if bundle.get("_stage_ai") else
                  artifacts.get(user.tenant_id, bundle["ai_review"]) if bundle.get("ai_review") else
                  bundle.get("summary", bundle).get("ai", {"status": "not_requested", "actions": [], "reviews": {}}))
+        from .ai_progress import with_pending_stages
+        value = with_pending_stages(row, value)
         reviews = value.get("reviews", {})
         network = value.get("network")
         if isinstance(network, dict):

@@ -10,7 +10,11 @@ import { FindingInspector } from "./Findings";
 import type { Finding } from "./types";
 type Action = { severity?: "critical" | "high" | "medium" | "low" | "info"; effort?: "high" | "medium" | "low"; rank: number; title: string; finding_ids: string[]; rationale: string; steps: string[]; verification: string };
 type NetworkResult = { status: string; explanation: string; findings: (Finding & { verification?: string })[]; total?: number };
-type Result = { network?: NetworkResult; actions: Action[] };
+type Result = { status?: string; network?: NetworkResult; actions: Action[]; pending_stages?: string[] };
+
+function AiPending({ title, children }: { title: string; children: string }) {
+  return <Panel title={title}><div className="state" role="status"><h3>AI analysis in progress</h3><p>{children}</p></div></Panel>;
+}
 
 type NetworkFinding = NonNullable<NetworkResult["findings"]>[number];
 const networkAsset = (row: NetworkFinding) => row.resource_name || row.native_resource_id || row.resource_id;
@@ -94,6 +98,8 @@ export function NetworkAiReview({ scanId, demo }: { scanId: string; demo: boolea
   if (demo) return null;
   if (!scanId) return <Panel title="Network findings"><p>Select a completed scan.</p></Panel>;
   if (query.isPending || query.error) return <State loading={query.isPending} error={query.error} onRetry={() => void query.refetch()} />;
+  if (!query.data?.network && query.data?.pending_stages?.includes("network"))
+    return <AiPending title="Network findings">Network findings appear here when the AI Network review finishes. Native findings, maps and least-privilege results are already available.</AiPending>;
   if (!query.data?.network) return <Panel title="Network findings"><p>No network review is available for this scan. Run a scan with AI enabled to generate network findings.</p></Panel>;
   return <NetworkReviewPanel key={scanId} data={query.data.network} />;
 }
@@ -131,6 +137,8 @@ export function AiReview({ scanId, demo }: { scanId: string; demo: boolean }) {
   if (query.isPending || query.error) return <State loading={query.isPending} error={query.error} onRetry={() => void query.refetch()} />;
   const data = query.data;
   if (!data) return null;
+  if (!data.actions.length && data.pending_stages?.includes("priorities"))
+    return <AiPending title="Prioritized actions">Prioritized actions appear here when the AI Priorities review finishes. Native findings, maps and least-privilege results are already available.</AiPending>;
   const term = search.trim().toLocaleLowerCase();
   const actions = [...data.actions].sort((a, b) => a.rank - b.rank).filter(action =>
     [action.title, action.rationale, ...action.finding_ids,

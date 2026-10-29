@@ -21,5 +21,8 @@ for (const status of ['collecting', 'timed_out']) {
     await expect(page.getByText('Assessment in progress', { exact: true })).toHaveCount(0);
     await expect(page.getByText('Saved partial results', { exact: true })).toHaveCount(0);
     await expect(page.getByText('Completed evidence and findings are available. Coverage is still incomplete.')).toHaveCount(0);
+    // A running scan names its state on every results page; a stopped one does not.
+    if (status === 'collecting') await expect(page.locator('.scan-running-banner')).toContainText('Scan still running');
+    else await expect(page.locator('.scan-running-banner')).toHaveCount(0);
   });
 }

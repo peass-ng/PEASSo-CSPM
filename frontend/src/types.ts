@@ -189,6 +189,9 @@ export type Scan = {
   status: string;
   result_available?: boolean;
   resumable?: boolean;
+  ai_enabled?: boolean;
+  ai_network_enabled?: boolean;
+  ai_priorities_enabled?: boolean;
   error_code?: string;
   created_at: string;
   categories: string[];

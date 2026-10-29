@@ -2,7 +2,7 @@ import { useApi } from "./api";
 import type { Report } from "./types";
 
 type GraphCounts = { nodes?: unknown[]; edges?: unknown[]; total_nodes?: number; total_edges?: number; truncated?: boolean };
-type AiCounts = { actions?: unknown[]; network?: { total?: number; findings?: unknown[] } };
+type AiCounts = { actions?: unknown[]; network?: { total?: number; findings?: unknown[] }; pending_stages?: string[] };
 
 /** Selected-assessment totals, independent of each page's filters and pagination. */
 export function useInsightCounts(scanId: string, demo: boolean, enabled: boolean, aiAvailable: boolean, report?: Report) {
@@ -20,7 +20,8 @@ export function useInsightCounts(scanId: string, demo: boolean, enabled: boolean
     data?.[kind === "nodes" ? "total_nodes" : "total_edges"] ??
     (data?.truncated ? undefined : data?.[kind]?.length);
   return {
-    "Top 15 Actions": ai.data?.actions?.length,
+    // A running AI stage has no count yet; show the pending dash, not zero.
+    "Top 15 Actions": ai.data?.pending_stages?.includes("priorities") && !ai.data.actions?.length ? undefined : ai.data?.actions?.length,
     "Hardening & Compliance": categoryCount("hardening"),
     "Exposure": categoryCount("exposure"),
     "Least Privilege": principals.data?.recommendation_total ?? principals.data?.total,

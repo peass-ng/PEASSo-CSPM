@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import {
   ChevronDown,
@@ -11,6 +11,7 @@ import {
   GraduationCap,
   HelpCircle,
   Layers,
+  Loader2,
   ListChecks,
   Network,
   ScanLine,
@@ -54,6 +55,8 @@ function IamIcon({ size = 18 }: { size?: number }) {
   </svg>;
 }
 
+// Stopped scans whose saved partial results stay reviewable.
+const partialTerminal = ["failed", "timed_out", "cancelled", "queue_exhausted", "credentials_expired"];
 const pages = [
   {
     label: "Dashboard",
@@ -181,10 +184,28 @@ export function App() {
   const publicationRevision = report.data?.publication ? `${report.data.publication.state}:${report.data.publication.sequence ?? ""}:${JSON.stringify(report.data.publication.ai_stages || {})}` : undefined;
   useEffect(() => {
     if (!scanId || publicationRevision === undefined) return;
-    void client.invalidateQueries({ predicate: (query) => query.queryKey[0] === (demo ? "demo" : "live") &&
+    // Network edge, matrix and grid queries are keyed without the live/demo
+    // prefix; they read the same publication and must refresh with it.
+    void client.invalidateQueries({ predicate: (query) => query.queryKey[0] !== (demo ? "live" : "demo") &&
       query.queryKey.some((part) => typeof part === "string" &&
         (part === scanId || part.includes(`/scans/${scanId}/`))) });
   }, [client, demo, scanId, publicationRevision]);
+  // The final report becomes readable when the scan completes, which also
+  // stops the partial summary poll. Fetch the summary once on each status
+  // change; a new publication then refreshes every other section above.
+  const scanStatus = current?.status;
+  const lastStatus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const previous = lastStatus.current;
+    lastStatus.current = scanStatus ? `${scanId}:${scanStatus}` : undefined;
+    if (!scanId || !scanStatus || previous === undefined || previous === lastStatus.current ||
+        !previous.startsWith(`${scanId}:`)) return;
+    void client.invalidateQueries({ predicate: (query) => query.queryKey[0] === (demo ? "demo" : "live") &&
+      query.queryKey.some((part) => typeof part === "string" && part.startsWith(`/scans/${encodeURIComponent(scanId)}/summary`)) });
+  }, [client, demo, scanId, scanStatus]);
+  const running = !!current && !["completed", ...partialTerminal].includes(current.status) && hasResult(current);
+  const aiRequested = current?.ai_enabled !== false && (current?.ai_network_enabled !== false || current?.ai_priorities_enabled !== false);
+  const aiInProgress = running && aiRequested && report.data?.publication?.phase === "analyzing";
   const pageInfo = pages.find((p) => p.label === page) || pages[0];
   function navigate(p: string) {
     p = normalizePage(p);
@@ -400,7 +421,16 @@ export function App() {
           {!demo && page === "Scans" && partialResult && (
             <div className="demo-banner" role="status">
               <ShieldCheck size={17} />
-              <strong>{["failed", "timed_out", "cancelled", "queue_exhausted", "credentials_expired"].includes(current?.status || "") ? "Saved partial results" : "Assessment in progress"}</strong>
+              <strong>{partialTerminal.includes(current?.status || "") ? "Saved partial results" : "Assessment in progress"}</strong>
+            </div>
+          )}
+          {!demo && (insight || page === "Dashboard") && running && (
+            <div className="demo-banner scan-running-banner" role="status">
+              <Loader2 size={17} className="spin" aria-hidden="true" />
+              <strong>{aiInProgress ? "AI analysis in progress" : "Scan still running"}</strong>
+              <span>{aiInProgress
+                ? "Native results are saved and ready to review. AI sections appear here when they finish."
+                : "Saved results are shown now. Each section updates as soon as it finishes."}</span>
             </div>
           )}
           {unauthorized && !demo && page !== "Settings" && (
