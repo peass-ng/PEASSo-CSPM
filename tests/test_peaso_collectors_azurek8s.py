@@ -620,7 +620,7 @@ def test_auth_failure_produces_denied_coverage_not_exception_or_secret(monkeypat
     monkeypatch.setattr(k8s, "_new_api", fail)
     snapshot = k8s.collect({"scopes": ["team-a"], "auth": {"token": "fake-token"}}, ["pod", "role"])
     assert {c["status"] for c in snapshot["collections"]} == {"denied"}
-    monkeypatch.setattr(azure, "AzureTransport", fail)
+    monkeypatch.setattr(azure, "AzureTransportExposure", fail)
     snapshot = azure.collect({"scopes": ["sub-a"], "auth": {"client_secret": "fake-token"}}, ["vnet"])
     assert collection(snapshot, "vnet")["status"] == "denied"
     assert "fake-token" not in json.dumps(snapshot)
