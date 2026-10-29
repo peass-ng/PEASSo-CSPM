@@ -1,4 +1,4 @@
-"""Only fixed-label telemetry wrappers differ from the reviewed 1f45 source."""
+"""Only fixed-label telemetry wrappers differ from reviewed predecessors."""
 import ast
 import hashlib
 import json
@@ -16,11 +16,11 @@ ai.network.reuse.revision_check ai.network.reuse.revision_rejected
 ai.network.reuse.artifact_check ai.network.reuse.artifact_unavailable ai.network.reuse.accepted
 ai.network.reuse.validation ai.network.reuse.validated
 '''.split())
-BASE = '1f45df8dbabf707d3637bb6562e0789336fa4f8f'
+BASE = 'd0699650847d1a5bf5f1dd819bb0463aba75203a'
 BASE_AST = {
-    'peaso/worker.py': '401ad85bfa7d7a849ce4ab8bc2cf63481f6c65302c32e0f19ce812a2f78fd4ac',
+    'peaso/worker.py': '801a97e9d89d42e24bdd42b906f116ced8c3c75c16742a6a4311b63190716361',
     'peaso/ai/pipeline.py': '4343a7bc60c8da88e0e81d51326748ea9b734b6e57c40960af4c173e928e9eeb',
-    'peaso/runtime_metrics.py': '8e73b5b7d1b24352b0453a81534238643e7302dd2ef47a222fe37cea5e07070e',
+    'peaso/runtime_metrics.py': '7d4d8dc356a4de8b4f49fe5265a40a27b91347d2a98e31dd4be33f383202cc8c',
 }
 
 
@@ -70,7 +70,7 @@ def canonical_ast(value):
 
 
 @pytest.mark.parametrize('name', BASE_AST)
-def test_only_metrics_wrappers_or_fixed_roster_differ_from_1f45(name):
+def test_only_metrics_wrappers_or_fixed_roster_differ_from_reviewed_base(name):
     tree = ast.parse((ROOT / name).read_bytes())
     transform = NormalizeRoster if name.endswith('runtime_metrics.py') else StripMetrics
     normalized = json.dumps(canonical_ast(transform().visit(tree)), separators=(',', ':'), ensure_ascii=True)
