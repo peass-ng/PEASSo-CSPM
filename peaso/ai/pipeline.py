@@ -13,6 +13,7 @@ from concurrent.futures import CancelledError
 from urllib.parse import unquote
 
 from peaso.auth.secrets import redact, secret_values
+from peaso.runtime_metrics import span as _runtime_span
 from .crypto import AICipher
 from peaso.server.config import Settings
 from .auth import personal_token
@@ -159,22 +160,26 @@ def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cance
 def invoke_before_deadline(stage, platform, entries, token, findings, reviews, end, limit,
                            *, cancel_event=None, on_prepared=None):
     from .fargate import TaskStartupError
-    for attempt in range(2):
-        remaining = end - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError()
-        try:
-            if cancel_event is None and on_prepared is None:
-                return invoke(stage, platform, entries, token, findings, reviews, min(limit, remaining))
-            kwargs = {}
-            if cancel_event is not None:
-                kwargs['cancel_event'] = cancel_event
-            if on_prepared is not None:
-                kwargs['on_prepared'] = on_prepared
-            return invoke(stage, platform, entries, token, findings, reviews, min(limit, remaining), **kwargs)
-        except TaskStartupError:
-            if attempt:
-                raise
+    # Fixed labels only: no model input, task identity or exception text enters
+    # the numeric recorder. Include startup retries in the stage's wall time.
+    label = {'network': 'ai.network', 'priorities': 'ai.priorities'}.get(stage)
+    with _runtime_span(label):
+        for attempt in range(2):
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError()
+            try:
+                if cancel_event is None and on_prepared is None:
+                    return invoke(stage, platform, entries, token, findings, reviews, min(limit, remaining))
+                kwargs = {}
+                if cancel_event is not None:
+                    kwargs['cancel_event'] = cancel_event
+                if on_prepared is not None:
+                    kwargs['on_prepared'] = on_prepared
+                return invoke(stage, platform, entries, token, findings, reviews, min(limit, remaining), **kwargs)
+            except TaskStartupError:
+                if attempt:
+                    raise
 
 
 def inputs(report):
@@ -563,7 +568,10 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                   time.monotonic() + max(0, until_deadline - publish_reserve(until_deadline, isolation.remote()))
                   if deadline else float('inf'))
         from .network import prepare, with_findings, snapshot_context
-        network = prepare(report, inventory, snapshot) if 'network' in selected else None
+        network = None
+        if 'network' in selected:
+            with _runtime_span('ai.network.prepare'):
+                network = prepare(report, inventory, snapshot)
         prior = (reused_stages or {}).get('network')
         if (network is not None and isinstance(prior, dict) and prior.get('status') == 'completed'
                 and isinstance(prior.get('network'), dict) and prior['network'].get('status') == 'completed'):
@@ -608,10 +616,11 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                     raise MemoryError('ai_memory_headroom_unavailable')
                 from peaso.least_privilege import project
                 def priorities_platform():
-                    return {'report': priorities_report, 'inventory': inventory,
-                            'snapshot_context': snapshot_context(snapshot),
-                            'least_privilege': project(report['provider'], inventory, snapshot=snapshot),
-                            'network_review': result['network']}
+                    with _runtime_span('ai.priorities.prepare'):
+                        return {'report': priorities_report, 'inventory': inventory,
+                                'snapshot_context': snapshot_context(snapshot),
+                                'least_privilege': project(report['provider'], inventory, snapshot=snapshot),
+                                'network_review': result['network']}
                 # Fargate invoke starts the role-free task before preparing its
                 # exact input. Keep the local path eager for its normal tests
                 # and process isolation contract.
