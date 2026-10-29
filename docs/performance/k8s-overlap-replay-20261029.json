@@ -1,0 +1,57 @@
+{
+  "actions_validated": 12,
+  "limitations": [
+    "Historical completed answer, not the failed d4cf candidate output.",
+    "Current complete builder is used for each historical invoke.",
+    "Synthetic capability and empty live credentials; no real task startup or network transport.",
+    "This does not establish the cause of the d4cf failure."
+  ],
+  "model_calls": 0,
+  "native_finding_count": 4299,
+  "provider_calls": 0,
+  "runs": [
+    {
+      "actions": 12,
+      "files": {
+        "context.py": "3f9d9419e96b5214b1a4479b33249da562141930647a1862a86209707599b23f",
+        "context.sqlite": "a830552f769f3e255980517a16ee803b9191fa31268fcb97d2dd7c310be996b1",
+        "credentials.json": "601e17baaa308269e76705c31d9a7882dfe91ad997cb09111410a5b195e9187a",
+        "platform.json": "98e7bf4b8c2d07c7cee8f83fcc5eb6964a4d2eb8c692cb2a47520ac067200144"
+      },
+      "prepare_callback": false,
+      "revision_mode": "before_b08",
+      "wall_s": 0.4834143329935614
+    },
+    {
+      "actions": 12,
+      "files": {
+        "context.py": "3f9d9419e96b5214b1a4479b33249da562141930647a1862a86209707599b23f",
+        "context.sqlite": "a830552f769f3e255980517a16ee803b9191fa31268fcb97d2dd7c310be996b1",
+        "credentials.json": "601e17baaa308269e76705c31d9a7882dfe91ad997cb09111410a5b195e9187a",
+        "platform.json": "98e7bf4b8c2d07c7cee8f83fcc5eb6964a4d2eb8c692cb2a47520ac067200144"
+      },
+      "prepare_callback": true,
+      "revision_mode": "after_b08_eager",
+      "wall_s": 0.38467091700294986
+    },
+    {
+      "actions": 12,
+      "files": {
+        "context.py": "3f9d9419e96b5214b1a4479b33249da562141930647a1862a86209707599b23f",
+        "context.sqlite": "a830552f769f3e255980517a16ee803b9191fa31268fcb97d2dd7c310be996b1",
+        "credentials.json": "601e17baaa308269e76705c31d9a7882dfe91ad997cb09111410a5b195e9187a",
+        "platform.json": "98e7bf4b8c2d07c7cee8f83fcc5eb6964a4d2eb8c692cb2a47520ac067200144"
+      },
+      "prepare_callback": true,
+      "revision_mode": "after_b58_lazy",
+      "wall_s": 0.39929408300668
+    }
+  ],
+  "source_sha256": {
+    "current_pipeline": "73273c5bfeace17bfa00b5f6218e8139a96a4292716534d72b5f076477539e0d",
+    "pre_b08_pipeline": "a5bb8ec379c5d676e64f50b0ada0a32507d3024da5321aabdf31d4da77d48b1e",
+    "report": "bab5a603860f81f840f1174db02b53dc40de08cf20c5a20a421153ab950e5880",
+    "snapshot": "e8132bde6404bc0692cd681ab57e0eaa39dd8e5266d6f30378bbfd266acc75a7"
+  },
+  "workspace_files_identical": true
+}

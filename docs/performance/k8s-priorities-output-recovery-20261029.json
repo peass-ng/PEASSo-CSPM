@@ -1,0 +1,102 @@
+{
+  "api_source_closure": {
+    "direct_sdk_sites": 29,
+    "files": 1778,
+    "manifest_sha256": "42d2a9d5daeafcf872b807aa2c2056b763f3deb27861421d86c7f6bc19aafab6",
+    "python_sha256": "120812e92a92153b9bc9eeed5160f156dc17e830e67d366e6564dfe1db0ecc01",
+    "source_diff": {
+      "added": [],
+      "changed": [],
+      "removed": []
+    }
+  },
+  "correction": {
+    "attempts_after": 3,
+    "attempts_before": 2,
+    "configuration_and_tools_changed": false,
+    "configured_max_turns": 30,
+    "deadline": "Same original absolute invocation end; checked before credential validation, again before model construction, and after the model returns. No per-attempt reset.",
+    "feedback": "Existing value-free validation feedback and latest complete candidate are replaced after each invalid result; all original workspace files remain available.",
+    "maximum_corrective_runs": 2,
+    "model_alias": "OPENAI_BEST_QUALITY",
+    "scope": "Priorities runner only; Network retains2 attempts",
+    "thinking": "high",
+    "validation": "Original strict schema and full original finding-reference validators apply before result.json publication. Invalid/oversized output is never accepted or salvaged."
+  },
+  "diagnosis": {
+    "ai_status": "partial",
+    "analyze_s": 1747.780056,
+    "analyzer_recorder_elapsed_ms": 1747622,
+    "fixed_marker": "ai_agent_failure=invalid_output",
+    "fixed_marker_at_utc": "2026-10-29T06:22:37.974000+00:00",
+    "limitation": "Exact failed candidate/feedback were task-local and lost. Marker proves invalid-output failure class, not which field/reference failed or how many model calls occurred. The uninstrumented wall outside worker.ai cannot be exclusively attributed from these aggregate spans.",
+    "network_ms": 586048,
+    "network_stage_span_count": 1,
+    "network_status": "completed",
+    "outside_worker_ai_ms": 423757,
+    "priorities_actions": 0,
+    "priorities_ms": 735238,
+    "worker_ai_ms": 1323865,
+    "worker_ai_span_count": 1
+  },
+  "overlap_disposition": {
+    "102468d3": "Early Priorities path did not run: accepted early reuse has no fresh ai.network span; rejected early plus fallback would record2 worker.ai spans. Observed counts are1/1. No revert.",
+    "b08e8557": "Saved e109 pre-overlap/current eager input delivery emits byte-identical workspace files, validating all12 saved actions. Real remote startup transport not exercised.",
+    "b58e9385": "Saved e109 deferred platform projection emits same workspace bytes as eager preparation, validating all12 actions. No overlap-specific failure demonstrated."
+  },
+  "production_source_base": "fc288107e172e63f855f15012702174b61b24886",
+  "protected_file_sha256": {
+    "peaso/ai/agents/network.yaml": "33040915ba18fde00f34420eea1ada7a7db1f0e8e263e3cf37c4b2729d4074bb",
+    "peaso/ai/agents/priorities.yaml": "7d2475276724930065a0455c0ef0dacc73fc96e749f90978fcef78c129d01b2a",
+    "peaso/ai/contracts.py": "fe550fcb3ad2e917eff6e987bd472619941195d665d4d2dc6a5eac376046d165",
+    "peaso/ai/deadline.py": "710248351e9ae3ee270c9e12944fb642e94dcaf60c21f7a1b4aa4106af057dbc",
+    "peaso/ai/output_validation.py": "b1fcf7189b0000edcd9b0289dc51a1adf8acee5bb151b894d63480b60e0ca655",
+    "peaso/ai/prompting.py": "5278f9a7187b4ea87a797dfdcea787f18369bbe330c4e4e6ef2d6ff2b2f9c1ce",
+    "peaso/ai/providers.py": "3bf08ddd2bce5f4e8e85ca8908f6e66efe4c5e87c235153662b80ead269e476b"
+  },
+  "recovery_commit_parent": "b18cf8a9a4baa288b0f03637af074f28daa073e5",
+  "risks_and_limits": [
+    "This is a representative robustness correction; exact d4cf rejected field/candidate is unavailable. It does not prove a fresh K8s model run will succeed or be faster.",
+    "One additional same-configuration inference attempt can consume remaining stage time and model budget; no original deadline, max_turns setting, tool access or data limit was raised.",
+    "Context/output size-limit failures remain fail-closed and do not enter this correction loop.",
+    "No overlap revert is supported by the current evidence. The423.757s outside worker.ai remains unassigned.",
+    "Root owns integration, deployment and fresh K8s validation after the current Azure scan.",
+    "Isolated source binding includes prior lookup-index commit b18cf8a9. If root cherry-picks recovery without that index, rebind the final combined source inventory."
+  ],
+  "scan_id": "d4cfaf8e753f4922bef4e48cf88ac1d3",
+  "source_receipts_sha256": {
+    "k8s-d4cf-ai-failure-markers-v2.json": "aa3c6cdb5e8df81f1de21cadd8d753ce53940e0c7eca0dc13e2d0341e3eab526",
+    "k8s-d4cf-observer.json": "64d98e5ad339fd7a9dff8fd1b8f1ef963de4914f65fcbe7c270788468a8ce9cc",
+    "k8s-d4cf-stage-metrics.json": "e016d12fc5f12bba3be5f89e1410e92b098c01f7e0d3643eadfee76ca6896100"
+  },
+  "tests": {
+    "affected_suites": {
+      "command": "python -m pytest --noconftest tests/test_peaso_ai_output_validation.py tests/test_peaso_ai_overlap_input_equivalence.py tests/test_peaso_priorities_early_overlap.py tests/test_peaso_api_service_model_gate.py tests/test_ai_platform_codex_alias.py tests/test_peaso_ai_fargate.py -q",
+      "passed": 95,
+      "skipped": 3
+    },
+    "compile": "pass",
+    "diff_check": "pass",
+    "negative_cases": [
+      "Three invalid Priorities outputs still return65 and publish no result.",
+      "Spent original deadline after second invalid output starts neither credential revalidation nor third model call.",
+      "Credential revalidation that consumes remaining budget starts no next model call.",
+      "Credential revocation still prevents recovery.",
+      "Network remains bounded to one correction.",
+      "Feedback excludes exception inputs/bodies; correction files are0600.",
+      "A valid third response arriving after the original runner deadline is rejected before result publication."
+    ],
+    "parent_failure_reproduced": true,
+    "representative_regression": "Foreign finding reference, followed by valid reference but empty steps, followed by valid action. Parent raises invalid_agent_result on second output; candidate publishes only third valid action.",
+    "saved_baseline_replay": "4299 native findings,12 saved actions, byte-identical complete workspace files across pre-b08/current eager/current deferred delivery. See companion k8s-overlap-replay-20261029.json."
+  },
+  "worker_operations": {
+    "deploys": 0,
+    "model_calls": 0,
+    "paid_access_analyzer_calls": 0,
+    "production_mutations": 0,
+    "provider_calls": 0,
+    "pushes": 0,
+    "scans": 0
+  }
+}

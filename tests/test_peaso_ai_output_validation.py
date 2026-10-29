@@ -1,4 +1,4 @@
-"""Model output is repaired at most once, within its original deadline."""
+"""Bounded same-model output correction within the original deadline."""
 import json
 from pathlib import Path
 import sqlite3
@@ -21,12 +21,15 @@ def inputs(tmp_path, monkeypatch, outputs, clock=None):
         db.execute('INSERT INTO records VALUES(?,?,?)', ('findings', 'assigned', json.dumps({
             'finding': {'id': 'assigned', 'status': 'FAIL', 'category': 'hardening'},
             'review': None})))
-    config = SimpleNamespace(agent=SimpleNamespace(max_runtime_minutes=5), credentials=SimpleNamespace())
+    config = SimpleNamespace(agent=SimpleNamespace(max_runtime_minutes=5, max_turns=30,
+        primary='OPENAI_BEST_QUALITY', thinking_effort='high'), credentials=SimpleNamespace())
     calls = []
     class Chack:
         def __init__(self, config): self.config = config
         def run(self, *args, **kwargs):
-            calls.append({'text': args[1], 'minutes': self.config.agent.max_runtime_minutes})
+            calls.append({'text': args[1], 'minutes': self.config.agent.max_runtime_minutes,
+                          'max_turns': self.config.agent.max_turns,
+                          'primary': self.config.agent.primary, 'thinking': self.config.agent.thinking_effort})
             if clock is not None: clock[0] += 150
             return SimpleNamespace(error='', output=json.dumps(outputs[min(len(calls)-1, len(outputs)-1)]))
     monkeypatch.setitem(sys.modules, 'chack_agent', SimpleNamespace(Chack=Chack, load_config=lambda _:config))
@@ -56,7 +59,7 @@ def test_invalid_reference_is_corrected_against_original_inputs_with_remaining_b
 def test_repeated_invalid_output_is_never_published(tmp_path, monkeypatch, capsys):
     calls = inputs(tmp_path, monkeypatch, [review('invented')])
     assert runner.entrypoint() == 65
-    assert len(calls) == 2 and not (tmp_path/'result.json').exists()
+    assert len(calls) == 3 and not (tmp_path/'result.json').exists()
     assert capsys.readouterr() == ('', '')
 
 
@@ -150,6 +153,73 @@ def test_semantic_schema_error_can_be_corrected_without_changing_verdict(tmp_pat
     assert len(calls) == 2
     assert json.loads((tmp_path/'result.json').read_text()) == review('assigned')
     assert json.loads((tmp_path/'validation-feedback.json').read_text())['fields']
+
+
+def test_second_priorities_correction_uses_latest_candidate_and_full_original_inputs(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(runner, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+    malformed = review('assigned')
+    malformed['actions'][0]['steps'] = []
+    calls = inputs(tmp_path, monkeypatch, [review('foreign'), malformed, review('assigned')], clock)
+    original = (tmp_path/'context.sqlite').read_bytes()
+    runner.main()
+    assert len(calls) == 3 and [call['minutes'] for call in calls] == [9, 7, 4]
+    assert all((call['primary'], call['thinking'], call['max_turns']) ==
+               ('OPENAI_BEST_QUALITY', 'high', 30) for call in calls)
+    assert json.loads((tmp_path/'result.json').read_text()) == review('assigned')
+    assert json.loads((tmp_path/'candidate-output.json').read_text()) == malformed
+    feedback = json.loads((tmp_path/'validation-feedback.json').read_text())
+    assert feedback['code'] == 'invalid_output'
+    assert {'type': 'too_short', 'path': ['actions', 0, 'steps']} in feedback['fields']
+    assert (tmp_path/'context.sqlite').read_bytes() == original
+    assert all('validation-feedback.json' in call['text'] for call in calls[1:])
+    assert (tmp_path/'candidate-output.json').stat().st_mode & 0o777 == 0o600
+    assert (tmp_path/'validation-feedback.json').stat().st_mode & 0o777 == 0o600
+
+
+def test_second_correction_cannot_extend_deadline_or_revalidate_after_it(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(runner, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+    calls = inputs(tmp_path, monkeypatch, [review('foreign')], clock)
+    monkeypatch.setenv(deadline.ENVIRONMENT_KEY, '250')
+    probes = []
+    monkeypatch.setattr(runner, 'validate_runtime', lambda *args: probes.append(True))
+    assert runner.entrypoint() == 124
+    assert len(calls) == 2 and len(probes) == 2
+    assert not (tmp_path/'result.json').exists()
+
+
+def test_credential_revalidation_cannot_start_a_correction_with_stale_time_budget(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(runner, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+    calls = inputs(tmp_path, monkeypatch, [review('foreign')], clock)
+    probes = []
+    def validate(*args):
+        probes.append(True)
+        if len(probes) == 3:
+            clock[0] += 300
+    monkeypatch.setattr(runner, 'validate_runtime', validate)
+    assert runner.entrypoint() == 124
+    assert len(calls) == 2 and len(probes) == 3
+    assert not (tmp_path/'result.json').exists()
+
+
+def test_network_retains_one_correction(tmp_path, monkeypatch):
+    calls = inputs(tmp_path, monkeypatch, [review('foreign')])
+    monkeypatch.setattr(sys, 'argv', ['runner', 'network'])
+    assert runner.entrypoint() == 65
+    assert len(calls) == 2 and not (tmp_path/'result.json').exists()
+
+
+def test_valid_second_correction_returning_after_original_deadline_is_not_published(tmp_path, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(runner, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
+    malformed = review('assigned')
+    malformed['actions'][0]['steps'] = []
+    calls = inputs(tmp_path, monkeypatch, [review('foreign'), malformed, review('assigned')], clock)
+    monkeypatch.setenv(deadline.ENVIRONMENT_KEY, '400')
+    assert runner.entrypoint() == 124
+    assert len(calls) == 3 and not (tmp_path/'result.json').exists()
 
 
 def test_task_runtime_reports_only_a_fixed_invalid_output_code(monkeypatch, capsys):

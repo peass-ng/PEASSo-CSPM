@@ -86,9 +86,16 @@ def main():
     budget = timeout_seconds(os.getenv(ENVIRONMENT_KEY, str(config.agent.max_runtime_minutes * 60)))
     end = started + budget
     text = ''
-    for attempt in range(2):
+    # A first correction can fix references but expose another schema error.
+    # Allow one further Priorities correction against the same complete inputs;
+    # every attempt shares the original deadline and unchanged agent config.
+    attempts = 3 if stage == 'priorities' else 2
+    for attempt in range(attempts):
+        if end - time.monotonic() <= 0:
+            raise TimeoutError()
         if attempt:
             validate_runtime(authentication, relay)
+        # Credential validation also consumes the original invocation budget.
         remaining = end - time.monotonic()
         if remaining <= 0:
             raise TimeoutError()
@@ -97,6 +104,8 @@ def main():
             'cspm-' + stage, text, exec_cwd=str(root),
             prompt_variables_override={'access_instructions': access_instructions(entries)},
         )
+        if end - time.monotonic() <= 0:
+            raise TimeoutError()
         if getattr(result, 'error', None):
             raise RuntimeError('agent_failed')
         output = output_text(result)
@@ -107,7 +116,7 @@ def main():
             data = json.loads(output)
             validate(stage, data, original)
         except ValueError as error:
-            if attempt:
+            if attempt == attempts - 1:
                 raise InvalidAgentOutput('invalid_agent_result') from None
             private_file(root/'candidate-output.json', data if data is not None else
                          {'unparsed_output': output[:100000]})
