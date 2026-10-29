@@ -1,0 +1,102 @@
+{
+  "after": {
+    "collections": 1872,
+    "collector_peak_rss_bytes_before_export": 1978515456,
+    "collector_rss_bytes_at_return": 1406058496,
+    "consumed_recorded_calls": 536,
+    "cpu_s": 8.398947,
+    "credential_source": "synthetic never-sent offline fixture",
+    "latency_scale": 0.5,
+    "mode": "after",
+    "model_calls": 0,
+    "network_blocked": true,
+    "process_peak_rss_bytes_after_export": 1978515456,
+    "process_wall_s": 72.55215579200012,
+    "provider_network_calls": 0,
+    "resources": 53338,
+    "statuses": {
+      "collected": 758,
+      "denied": 31,
+      "empty": 1028,
+      "not_collected": 5,
+      "partial": 3,
+      "unknown": 47
+    },
+    "unused_recorded_calls": 0,
+    "wall_s": 70.83656304099713
+  },
+  "aws_iam_access_analyzer_calls": 0,
+  "baseline_azure_source_commit": "9c9209243e138b7309ab2d3b16442b2457380397",
+  "before": {
+    "collections": 1872,
+    "collector_peak_rss_bytes_before_export": 2174844928,
+    "collector_rss_bytes_at_return": 1587216384,
+    "consumed_recorded_calls": 536,
+    "cpu_s": 8.190275,
+    "credential_source": "synthetic never-sent offline fixture",
+    "latency_scale": 0.5,
+    "mode": "current",
+    "model_calls": 0,
+    "network_blocked": true,
+    "process_peak_rss_bytes_after_export": 2174844928,
+    "process_wall_s": 76.61182270800055,
+    "provider_network_calls": 0,
+    "resources": 53338,
+    "statuses": {
+      "collected": 758,
+      "denied": 31,
+      "empty": 1028,
+      "not_collected": 5,
+      "partial": 3,
+      "unknown": 47
+    },
+    "unused_recorded_calls": 0,
+    "wall_s": 74.69045441701019
+  },
+  "collector_pre_export_peak_rss_saving_bytes": 196329472,
+  "collector_return_rss_saving_bytes": 181157888,
+  "complete_collection_parity": {
+    "after_collections": 1872,
+    "after_resources": 53338,
+    "after_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+    "before_collections": 1872,
+    "before_resources": 53338,
+    "before_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+    "complete_collection_envelopes_equal": true,
+    "excluded_after": {
+      "capture_id": 2,
+      "credential_context_id": 55256,
+      "customer_context_id": 55256,
+      "network_source_evidence.observed_at": 3,
+      "observed_at": 119,
+      "transport_context_id": 3
+    },
+    "excluded_before": {
+      "capture_id": 2,
+      "credential_context_id": 55256,
+      "customer_context_id": 55256,
+      "network_source_evidence.observed_at": 3,
+      "observed_at": 119,
+      "transport_context_id": 3
+    },
+    "scope": "Complete collection envelopes; snapshot-level metadata is not compared."
+  },
+  "harness_sha256": {
+    "replay_azure_full_speed.py": "1532cc04150d187271419735282f43ae7a733ffc077b2d949a08fb1c75513a95",
+    "run_azure_memory_stage_replay.py": "ce40d2b23b7ea35e064ce079aed38e8c2086115e9ead68807d8cff6e7025730e"
+  },
+  "interpretation": [
+    "Incremental service-tag wall saving repeats:75.243->70.821s previously,74.690->70.837s now.",
+    "Previous process RSS regression did not reproduce: this pair has lower candidate peak and return RSS. Do not infer a stable causal memory improvement or dismiss the prior higher candidate observation.",
+    "Both arms reached their peak before snapshot export; exporter serialization is not the explanation for the peak in this pair.",
+    "Combined Azure replay exceeds2x against the fresh143.798s original observation for both candidate repeats; original baseline was not rerun for this second pair. Production2x remains unproved."
+  ],
+  "measurement_scope": "macOS whole-process memory before any replay snapshot export, including imports, retained response recordings, native collection and snapshot construction. Current RSS measured with ps at collector return; ru_maxrss tracks process high water. Both arms sequential fresh processes; no provider/model calls.",
+  "model_calls": 0,
+  "production_scans_launched": 0,
+  "provider_network_calls": 0,
+  "runtime_head": "4974008c2155926e98b473982a5d78688f239ab3",
+  "source_changes_this_measurement": false,
+  "wall_saving_percent": 5.159817818882296,
+  "wall_saving_s": 3.8538913760130526
+}

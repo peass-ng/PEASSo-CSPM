@@ -1,0 +1,84 @@
+{
+  "provider": "azure",
+  "kind": "full saved-response collector memory and overlap follow-up",
+  "prior_source_head": "7862ca2951fc357074e581e4c420fd0cc6fc4e39",
+  "before": {
+    "mode": "after",
+    "wall_s": 80.5185382500058,
+    "cpu_s": 12.55841,
+    "latency_scale": 0.5,
+    "provider_network_calls": 0,
+    "model_calls": 0,
+    "resources": 53338,
+    "collections": 1872,
+    "statuses": {
+      "collected": 758,
+      "empty": 1028,
+      "denied": 31,
+      "unknown": 47,
+      "partial": 3,
+      "not_collected": 5
+    },
+    "consumed_recorded_calls": 536,
+    "unused_recorded_calls": 0,
+    "process_peak_rss_bytes": 1630650368,
+    "process_wall_s": 83.26906329199846,
+    "measurement_scope": "macOS whole process including imports, replay data, collection and snapshot serialization",
+    "harness_sha256": "59df115a0dfa03c6ee6d20f9eb110aacc05f659ae77916a0e1422918b269f280"
+  },
+  "after": {
+    "mode": "after",
+    "wall_s": 77.32893279100244,
+    "cpu_s": 11.911581,
+    "latency_scale": 0.5,
+    "provider_network_calls": 0,
+    "model_calls": 0,
+    "resources": 53338,
+    "collections": 1872,
+    "statuses": {
+      "collected": 758,
+      "empty": 1028,
+      "denied": 31,
+      "unknown": 47,
+      "partial": 3,
+      "not_collected": 5
+    },
+    "consumed_recorded_calls": 536,
+    "unused_recorded_calls": 0,
+    "process_peak_rss_bytes": 1190772736,
+    "process_wall_s": 79.86115154200525,
+    "measurement_scope": "macOS whole process including imports, replay data, collection and snapshot serialization",
+    "harness_sha256": "59df115a0dfa03c6ee6d20f9eb110aacc05f659ae77916a0e1422918b269f280"
+  },
+  "coverage": {
+    "same_complete_collection_envelopes_excluding_scan_provenance": true,
+    "same_resource_identities_counts_and_collection_statuses": true,
+    "canonical_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+    "excluded_scan_provenance_before": 110639,
+    "excluded_scan_provenance_after": 110639
+  },
+  "process_peak_rss_reduction_fraction": 0.2697559456227958,
+  "changes": [
+    "Compress large queued plain-JSON pages with low-cost zlib; preserve custom/non-JSON values unchanged.",
+    "Overlap selected directory list reads with independent ARM stages.",
+    "If every producer is blocked by full buffers, cancel a queued stream before it starts and use the normal reader exactly once."
+  ],
+  "tests": {
+    "normal_focused_passed": 73,
+    "pytest_wall_s": 2.24,
+    "api_source_review_passed": true
+  },
+  "profile": {
+    "directory_phase_wall_s": 9.253251709,
+    "service_tag_phase_wall_s": 3.990795209,
+    "private_events_sha256": "ddf99f8bb32080bbdbd2ee4877c72a0b19954832a580fe7a2e02e4371e617386"
+  },
+  "limitations": [
+    "One repeat; process RSS includes imports, recorded responses, collection and serialization.",
+    "New wall time does not yet establish a consistent twofold speedup against the retained147.895s baseline.",
+    "Performance changes remain local and unpushed; no deployed speed claim."
+  ],
+  "model_calls": 0,
+  "provider_network_calls": 0,
+  "original_source_epochs_unchanged": true
+}

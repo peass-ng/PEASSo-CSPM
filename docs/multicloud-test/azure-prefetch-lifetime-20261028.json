@@ -1,0 +1,281 @@
+{
+  "kind": "Azure lookahead lifecycle correction; supersedes compression interpretation",
+  "before_source_head": "d9d2d0a2484393af98af2ae5e7967e554f16fe52",
+  "accepted_changes": [
+    "Remove queued-page compression, retaining original page objects.",
+    "Detach reader.page_prefetch after producer shutdown.",
+    "Release request and on_page callbacks plus unclaimed exception tracebacks."
+  ],
+  "retained_cache_benchmark": {
+    "before": {
+      "retained_cache_bytes_after_close_without_gc": 67108864,
+      "reader_still_attached": true,
+      "pages": [
+        []
+      ],
+      "calls": 1
+    },
+    "after": {
+      "retained_cache_bytes_after_close_without_gc": 0,
+      "reader_still_attached": false,
+      "pages": [
+        []
+      ],
+      "calls": 1
+    },
+    "provider_calls": 0,
+    "model_calls": 0,
+    "cyclic_gc_forced": false
+  },
+  "full_collector_replay": {
+    "before": {
+      "mode": "after",
+      "wall_s": 77.32893279100244,
+      "cpu_s": 11.911581,
+      "latency_scale": 0.5,
+      "provider_network_calls": 0,
+      "model_calls": 0,
+      "resources": 53338,
+      "collections": 1872,
+      "statuses": {
+        "collected": 758,
+        "empty": 1028,
+        "denied": 31,
+        "unknown": 47,
+        "partial": 3,
+        "not_collected": 5
+      },
+      "consumed_recorded_calls": 536,
+      "unused_recorded_calls": 0,
+      "process_peak_rss_bytes": 1190772736,
+      "process_wall_s": 79.86115154200525,
+      "measurement_scope": "macOS whole process including imports, replay data, collection and snapshot serialization",
+      "harness_sha256": "59df115a0dfa03c6ee6d20f9eb110aacc05f659ae77916a0e1422918b269f280"
+    },
+    "after": {
+      "mode": "after",
+      "wall_s": 78.26704191700264,
+      "cpu_s": 12.366621,
+      "latency_scale": 0.5,
+      "provider_network_calls": 0,
+      "model_calls": 0,
+      "resources": 53338,
+      "collections": 1872,
+      "statuses": {
+        "collected": 758,
+        "empty": 1028,
+        "denied": 31,
+        "unknown": 47,
+        "partial": 3,
+        "not_collected": 5
+      },
+      "consumed_recorded_calls": 536,
+      "unused_recorded_calls": 0,
+      "process_peak_rss_bytes": 1777778688,
+      "process_wall_s": 81.86971645799349,
+      "measurement_scope": "macOS whole process including imports, replay data, collection and snapshot serialization",
+      "harness_sha256": "59df115a0dfa03c6ee6d20f9eb110aacc05f659ae77916a0e1422918b269f280"
+    },
+    "coverage": {
+      "complete_envelopes_equal": true,
+      "resource_identities_counts_and_statuses_equal": true,
+      "canonical_sha256": "67a49982d0432db57eb484c9da3adf85b3d26031b7e28ea4be2afcbed7d8ca68",
+      "scan_provenance_exclusions_before": 110639,
+      "scan_provenance_exclusions_after": 110639
+    }
+  },
+  "qualification": [
+    "Immediate post-close cache release is proved by weak references, without forced cyclic GC.",
+    "The earlier queue-compression explanation for lower RSS is withdrawn. The scan-local decoded cache remains alive while compression adds decoding copies.",
+    "No consistent twofold collector speedup or peak-RSS reduction is established by these observations. Azure speed work remains open.",
+    "Whole-process ru_maxrss includes imports, recordings, collection and serialization; repeated measurements varied on this shared host.",
+    "Final full replay peak RSS1,777,778,688B exceeds the preceding single d9d2d0a2 observation1,190,772,736B; the accepted fix proves immediate retained-cache release, not lower peak RSS or collection wall time."
+  ],
+  "rejected_candidates": {
+    "graph_plus_arm_compression": {
+      "mode": "after",
+      "wall_s": 77.33872629099642,
+      "cpu_s": 15.356413,
+      "latency_scale": 0.5,
+      "provider_network_calls": 0,
+      "model_calls": 0,
+      "resources": 53338,
+      "collections": 1872,
+      "statuses": {
+        "collected": 758,
+        "empty": 1028,
+        "denied": 31,
+        "unknown": 47,
+        "partial": 3,
+        "not_collected": 5
+      },
+      "consumed_recorded_calls": 536,
+      "unused_recorded_calls": 0,
+      "process_peak_rss_bytes": 1702445056,
+      "process_wall_s": 80.02866174999508,
+      "measurement_scope": "macOS whole process including imports, replay data, collection and snapshot serialization",
+      "harness_sha256": "59df115a0dfa03c6ee6d20f9eb110aacc05f659ae77916a0e1422918b269f280"
+    },
+    "arm_overlap_without_compression_and_lifecycle": {
+      "mode": "after",
+      "wall_s": 94.0565509589942,
+      "cpu_s": 15.660760000000002,
+      "latency_scale": 0.5,
+      "provider_network_calls": 0,
+      "model_calls": 0,
+      "resources": 53338,
+      "collections": 1872,
+      "statuses": {
+        "collected": 758,
+        "empty": 1028,
+        "denied": 31,
+        "unknown": 47,
+        "partial": 3,
+        "not_collected": 5
+      },
+      "consumed_recorded_calls": 536,
+      "unused_recorded_calls": 0,
+      "process_peak_rss_bytes": 950222848,
+      "process_wall_s": 104.94918958299968,
+      "measurement_scope": "macOS whole process including imports, replay data, collection and snapshot serialization",
+      "harness_sha256": "59df115a0dfa03c6ee6d20f9eb110aacc05f659ae77916a0e1422918b269f280"
+    },
+    "constant_set_sanitizer_full_replay": {
+      "mode": "after",
+      "wall_s": 123.15715875000751,
+      "cpu_s": 17.529229,
+      "latency_scale": 0.5,
+      "provider_network_calls": 0,
+      "model_calls": 0,
+      "resources": 53338,
+      "collections": 1872,
+      "statuses": {
+        "collected": 758,
+        "empty": 1028,
+        "denied": 31,
+        "unknown": 47,
+        "partial": 3,
+        "not_collected": 5
+      },
+      "consumed_recorded_calls": 536,
+      "unused_recorded_calls": 0,
+      "process_peak_rss_bytes": 936361984,
+      "process_wall_s": 133.4606075000047,
+      "measurement_scope": "macOS whole process including imports, replay data, collection and snapshot serialization",
+      "harness_sha256": "59df115a0dfa03c6ee6d20f9eb110aacc05f659ae77916a0e1422918b269f280"
+    },
+    "constant_set_projection_microbench": {
+      "kind": "all recorded logical response metadata projection",
+      "responses": 403,
+      "results": [
+        {
+          "secret_metadata": false,
+          "mode": "tuple",
+          "wall_s": 3.891535290997126,
+          "cpu_s": 2.980251,
+          "output_sha256": "4c0cb580b5573611239b83bdb2a95cd2cc61f99ef53e76d939cda5d21d453fdf"
+        },
+        {
+          "secret_metadata": false,
+          "mode": "constant_set",
+          "wall_s": 4.04305233299965,
+          "cpu_s": 2.1167569999999998,
+          "output_sha256": "4c0cb580b5573611239b83bdb2a95cd2cc61f99ef53e76d939cda5d21d453fdf"
+        },
+        {
+          "secret_metadata": true,
+          "mode": "tuple",
+          "wall_s": 0.02773499999602791,
+          "cpu_s": 0.026056999999999775,
+          "output_sha256": "16f3b73519d637bb979f40e56c94561591520c8970096196ed055fab52458a4d"
+        },
+        {
+          "secret_metadata": true,
+          "mode": "constant_set",
+          "wall_s": 0.019596666999859735,
+          "cpu_s": 0.019047999999999732,
+          "output_sha256": "16f3b73519d637bb979f40e56c94561591520c8970096196ed055fab52458a4d"
+        }
+      ],
+      "same_exact_outputs": true,
+      "provider_calls": 0,
+      "model_calls": 0
+    },
+    "disposition": "ARM overlap and constant-set sanitizer changes are excluded from final runtime diff; micro CPU gain did not establish a full-collector win."
+  },
+  "tests": {
+    "status": "passed",
+    "lookahead_tests_passed": 12,
+    "api_source_review_passed": true,
+    "normal_focused_passed": 75,
+    "pytest_wall_s": 3.71,
+    "normal_log_sha256": "cf4507e4554ed28133687178d29512e4f020ed9eb0fcef47aabd7d5dc4ddc7a3"
+  },
+  "production_observation": {
+    "attribution": "Root strong-consistency DDB read recorded in HANDOFF at2026-10-28T23:06Z; worker independently verified release/operator workflow success, not raw DDB job data.",
+    "azure_scan": "c89fd875b7b341fdb91e60d6ddcb2beb",
+    "azure_collect_s": 486.186,
+    "azure_stage": "Analyze",
+    "azure_reported_resources": 6740,
+    "azure_reported_collections": 1871,
+    "gcp_scan": "52588fc3ab784ea7959e126197dc4ff9",
+    "gcp_collect_s": 218.954,
+    "gcp_stage": "Analyze",
+    "gcp_reported_resources": 14179,
+    "gcp_reported_collections": 454,
+    "source": "a3befc42",
+    "source_version": "fffaa92b2b84d4f0c8e970f7545005c0ce4251e75f6cc766707447c94902e66c",
+    "final_coverage_and_ai_quality_verified": false,
+    "gcp_final_root_receipt": {
+      "sha256": "7f01fc4a9317e11aa3576a5805bb0bbf5f05f916dab3b2992ec049417e5b2580",
+      "scan_id": "52588fc3ab784ea7959e126197dc4ff9",
+      "status": "completed",
+      "measurement_status": "invalid_incomplete_or_ai_unfinished",
+      "seconds": {
+        "analyze": 917.43,
+        "collect": 218.954,
+        "handoff": 0.222,
+        "queue_to_collect": 81.13,
+        "queue_to_workflow_stop": 1245.925,
+        "queued_to_complete": 1217.735
+      },
+      "collection": {
+        "all_collections_complete": false,
+        "collection_identity_count": 455,
+        "collection_status_counts": {
+          "collected": 40,
+          "denied": 4,
+          "empty": 96,
+          "partial": 3,
+          "unknown": 312
+        },
+        "count_parity": true,
+        "raw_collection_items": 19173,
+        "snapshot_collection_count": 455,
+        "tag_compliance_collection_count": 0,
+        "tag_compliance_collection_statuses": {},
+        "tag_compliance_complete": false,
+        "tag_compliance_items": 0,
+        "tag_compliance_status_counts": {}
+      },
+      "report": {
+        "ai_status": "completed",
+        "check_count": 432,
+        "finding_count": 820,
+        "resource_count": 19173
+      },
+      "network_priorities_only": {
+        "model_call_limit": "Saved report/task artifacts do not retain exact model API call counts.",
+        "network_model_api_calls": null,
+        "network_stage_result_count": 0,
+        "network_status": "completed",
+        "priorities_actions": 15,
+        "priorities_model_api_calls": null
+      },
+      "strict_baseline_comparison": "scope_set_mismatch; no same-scope coverage or quality parity claim"
+    }
+  },
+  "worker_provider_calls": 0,
+  "worker_model_calls": 0,
+  "worker_push_deploy_or_prod_dispatch": false
+}
