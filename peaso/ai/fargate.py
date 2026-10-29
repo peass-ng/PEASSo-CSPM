@@ -101,25 +101,218 @@ def pack_workspace(root):
     return data
 
 
-def invoke(stage, root, token, timeout, *, prepare=None, ecs=None, s3=None,
-           clock=time.monotonic, sleep=time.sleep):
-    if stage not in STAGES or not 0 < timeout <= 1800:
-        raise ValueError('invalid_agent_invocation')
-    deadline = clock() + timeout
-    from .providers import validate_before_launch
-    token = validate_before_launch(token)
-    config = configuration()
+# A prelaunched task waits, with no model access or input, for one later
+# invocation. Its relay polls only for that invocation's exact bootstrap object.
+MAX_PRELAUNCH_WAIT = 1800
+# Minimum remaining relay bootstrap wait for a prelaunched task to be used.
+PRELAUNCH_MARGIN = 60
+_LIVE_TASK_STATES = {'PROVISIONING', 'PENDING', 'ACTIVATING', 'RUNNING'}
+
+
+def _clients(ecs, s3):
     import boto3
     from botocore.config import Config
     sdk = Config(connect_timeout=5, read_timeout=10, retries={'max_attempts': 1}, signature_version='v4')
     ecs = ecs or boto3.client('ecs', config=sdk)
     s3 = s3 or boto3.client('s3', config=sdk.merge(Config(signature_version='s3v4')))
+    return ecs, s3
+
+
+def _keys(ident):
+    prefix = 'invocations/' + ident + '/'
+    return {name: prefix + name for name in ('input.tgz', 'relay.json', 'result.json')}
+
+
+def _run_task(ecs, config, definition, ident, bootstrap_url, wait=None):
+    environment = {'relay': [{'name': 'PEASO_AI_BOOTSTRAP_URL', 'value': bootstrap_url}]}
+    if wait is not None:
+        # Both containers wait for the later bootstrap; neither receives it here.
+        for name in ('relay', 'agent'):
+            environment.setdefault(name, []).append(
+                {'name': 'PEASO_AI_BOOTSTRAP_WAIT_SECONDS', 'value': str(int(wait))})
+    started = ecs.run_task(cluster=config['cluster'], taskDefinition=definition['taskDefinitionArn'],
+        launchType='FARGATE', platformVersion='1.4.0', count=1,
+        networkConfiguration={'awsvpcConfiguration': {'subnets': config['subnets'],
+            'securityGroups': config['security_groups'], 'assignPublicIp': 'ENABLED'}},
+        overrides={'containerOverrides': [{'name': name, 'environment': values}
+                                          for name, values in environment.items()]},
+        clientToken=ident, startedBy='cspm-ai-' + ident[:24], enableExecuteCommand=False)
+    tasks = started.get('tasks', [])
+    if len(tasks) != 1:
+        raise RuntimeError('ai_task_launch_failed')
+    return tasks[0]['taskArn']
+
+
+class PrelaunchedTask:
+    """A role-free task started before its invocation is known.
+
+    It holds no model credential, relay configuration or input: its relay only
+    waits for one exact presigned bootstrap object that ``invoke`` writes when
+    the stage is actually admitted. ``invoke`` then computes the invocation's
+    deadline, model credential and transport exactly as for a fresh launch, so
+    the model's time budget starts when its input is ready, not at launch.
+    """
+
+    def __init__(self, ecs, s3, config, definition, ident, task, ready_until, clock):
+        self.ecs, self.s3, self.config, self.definition = ecs, s3, config, definition
+        self.ident, self.keys, self.task = ident, _keys(ident), task
+        self.ready_until, self.clock = ready_until, clock
+        self.taken = False
+
+    def usable(self):
+        """True only while the relay still waits and ECS reports a live task."""
+        if self.clock() + PRELAUNCH_MARGIN >= self.ready_until:
+            return False
+        try:
+            response = self.ecs.describe_tasks(cluster=self.config['cluster'], tasks=[self.task])
+        except Exception:
+            return False
+        rows = response.get('tasks', [])
+        return (len(rows) == 1 and not response.get('failures')
+                and rows[0].get('lastStatus') in _LIVE_TASK_STATES
+                and rows[0].get('desiredStatus', 'RUNNING') == 'RUNNING')
+
+    def close(self):
+        """Stop an unused task; an invocation that took it owns its cleanup."""
+        if self.taken:
+            return
+        self.taken = True
+        _cleanup(self.ecs, self.s3, self.config, self.task, self.keys)
+
+
+def _cleanup(ecs, s3, config, task, keys):
+    # Also stop on caller errors/cancellation; tasks carry their own watchdog
+    # if the analyzer is killed before it can execute this cleanup.
+    if task:
+        try:
+            ecs.stop_task(cluster=config['cluster'], task=task, reason='AI invocation ended')
+        except Exception:
+            pass
+    try:
+        s3.delete_objects(Bucket=config['bucket'], Delete={'Objects': [{'Key': k} for k in keys.values()], 'Quiet': True})
+    except Exception:
+        pass  # Bucket lifecycle provides backstop cleanup after parent death.
+
+
+def _signing_lifetime(s3):
+    """Seconds left on temporary signing credentials, or None when not expiring.
+
+    A presigned URL stops working when its session credential expires, and S3
+    then answers 403 like a not-yet-written object. Never let a waiting relay
+    depend on a URL that could expire before it is used.
+    """
+    try:
+        credentials = s3._request_signer._credentials
+        expiry = getattr(credentials, '_expiry_time', None)
+    except AttributeError:
+        return None
+    if expiry is None:
+        return None
+    import datetime
+    return (expiry - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+
+
+def prelaunch(wait, *, ecs=None, s3=None, clock=time.monotonic):
+    """Start one idle role-free task whose relay waits up to ``wait`` seconds."""
+    if not 0 < wait <= MAX_PRELAUNCH_WAIT:
+        raise ValueError('invalid_agent_prelaunch')
+    config = configuration()
+    ecs, s3 = _clients(ecs, s3)
+    lifetime = _signing_lifetime(s3)
+    if lifetime is not None:
+        wait = min(wait, int(lifetime) - 2 * PRELAUNCH_MARGIN)
+        if wait <= 2 * PRELAUNCH_MARGIN:
+            raise RuntimeError('ai_prelaunch_signing_lifetime')
     definition = ecs.describe_task_definition(taskDefinition=config['task_definition'])['taskDefinition']
     validate_task(definition)
     ident = uuid.uuid4().hex
-    prefix = 'invocations/' + ident + '/'
-    keys = {name: prefix + name for name in ('input.tgz', 'relay.json', 'result.json')}
+    keys = _keys(ident)
+    ready_until = clock() + wait
+    bootstrap = s3.generate_presigned_url('get_object', Params={'Bucket': config['bucket'], 'Key': keys['relay.json']},
+                                          ExpiresIn=min(3600, int(wait) + PRELAUNCH_MARGIN))
     task = None
+    try:
+        task = _run_task(ecs, config, definition, ident, bootstrap, wait=wait)
+    except BaseException:
+        _cleanup(ecs, s3, config, task, keys)
+        raise
+    return PrelaunchedTask(ecs, s3, config, definition, ident, task, ready_until, clock)
+
+
+class Prelaunch:
+    """Start a prelaunched task in the background and hand it out at most once.
+
+    Launch failures are not errors: the invocation then starts its own task
+    exactly as before. ``close`` stops a task that was never handed out,
+    including one whose launch completes after closing.
+    """
+
+    def __init__(self, wait, *, launcher=None):
+        import threading
+        self._lock = threading.Lock()
+        self._task = None
+        self._closed = False
+        launcher = launcher or prelaunch
+        def run():
+            try:
+                task = launcher(wait)
+            except Exception:
+                return
+            with self._lock:
+                if not self._closed:
+                    self._task = task
+                    return
+            task.close()
+        self._thread = threading.Thread(target=run, name='peaso-ai-prelaunch', daemon=True)
+        self._thread.start()
+
+    def claim(self, timeout=10):
+        """Return the started task once, or None; never wait for long."""
+        self._thread.join(timeout)
+        with self._lock:
+            task, self._task = self._task, None
+            if self._thread.is_alive():
+                self._closed = True
+        return task
+
+    def close(self):
+        with self._lock:
+            self._closed = True
+            task, self._task = self._task, None
+        if task is not None:
+            task.close()
+
+
+def invoke(stage, root, token, timeout, *, prepare=None, ecs=None, s3=None,
+           clock=time.monotonic, sleep=time.sleep, prelaunched=None):
+    if stage not in STAGES or not 0 < timeout <= 1800:
+        if prelaunched is not None:
+            prelaunched.close()
+        raise ValueError('invalid_agent_invocation')
+    deadline = clock() + timeout
+    from .providers import validate_before_launch
+    try:
+        token = validate_before_launch(token)
+    except BaseException:
+        if prelaunched is not None:
+            prelaunched.close()
+        raise
+    if prelaunched is not None and not prelaunched.usable():
+        prelaunched.close()
+        prelaunched = None
+    if prelaunched is not None:
+        prelaunched.taken = True
+        ecs, s3, config, definition = (prelaunched.ecs, prelaunched.s3,
+                                       prelaunched.config, prelaunched.definition)
+        ident, keys, task = prelaunched.ident, prelaunched.keys, prelaunched.task
+    else:
+        config = configuration()
+        ecs, s3 = _clients(ecs, s3)
+        definition = ecs.describe_task_definition(taskDefinition=config['task_definition'])['taskDefinition']
+        validate_task(definition)
+        ident = uuid.uuid4().hex
+        keys = _keys(ident)
+        task = None
     try:
         def upload_input():
             data = pack_workspace(root)
@@ -139,17 +332,8 @@ def invoke(stage, root, token, timeout, *, prepare=None, ecs=None, s3=None,
         s3.put_object(Bucket=config['bucket'], Key=keys['relay.json'], Body=json.dumps(relay).encode(), ServerSideEncryption='AES256')
         if clock() >= deadline:
             raise TimeoutError('agent_deadline')
-        started = ecs.run_task(cluster=config['cluster'], taskDefinition=definition['taskDefinitionArn'],
-            launchType='FARGATE', platformVersion='1.4.0', count=1,
-            networkConfiguration={'awsvpcConfiguration': {'subnets': config['subnets'],
-                'securityGroups': config['security_groups'], 'assignPublicIp': 'ENABLED'}},
-            overrides={'containerOverrides': [{'name': 'relay', 'environment': [
-                {'name': 'PEASO_AI_BOOTSTRAP_URL', 'value': url('get_object', 'relay.json')}]}]},
-            clientToken=ident, startedBy='cspm-ai-' + ident[:24], enableExecuteCommand=False)
-        tasks = started.get('tasks', [])
-        if len(tasks) != 1:
-            raise RuntimeError('ai_task_launch_failed')
-        task = tasks[0]['taskArn']
+        if task is None:
+            task = _run_task(ecs, config, definition, ident, url('get_object', 'relay.json'))
         if prepare is not None:
             # Image pull and task startup overlap local context construction.
             # The relay waits for this exact input object before exposing it.
@@ -181,14 +365,4 @@ def invoke(stage, root, token, timeout, *, prepare=None, ecs=None, s3=None,
             sleep(min(2, max(0, deadline - clock())))
         raise TimeoutError('agent_deadline')
     finally:
-        # Also stop on caller errors/cancellation; tasks carry their own watchdog
-        # if the analyzer is killed before it can execute this cleanup.
-        if task:
-            try:
-                ecs.stop_task(cluster=config['cluster'], task=task, reason='AI invocation ended')
-            except Exception:
-                pass
-        try:
-            s3.delete_objects(Bucket=config['bucket'], Delete={'Objects': [{'Key': k} for k in keys.values()], 'Quiet': True})
-        except Exception:
-            pass  # Bucket lifecycle provides backstop cleanup after parent death.
+        _cleanup(ecs, s3, config, task, keys)

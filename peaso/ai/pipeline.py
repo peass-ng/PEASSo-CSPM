@@ -60,7 +60,19 @@ def kill_tree(process):
 
 
 def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cancel_event=None,
-           on_prepared=None):
+           on_prepared=None, prelaunched=None):
+    try:
+        return _invoke(stage, platform, entries, token, findings, reviews, timeout,
+                       cancel_event=cancel_event, on_prepared=on_prepared, prelaunched=prelaunched)
+    finally:
+        # A taken task is owned and cleaned by its Fargate invocation; this
+        # only stops one that was never used, e.g. after an admission error.
+        if prelaunched is not None:
+            prelaunched.close()
+
+
+def _invoke(stage, platform, entries, token, findings, reviews, timeout, *, cancel_event=None,
+            on_prepared=None, prelaunched=None):
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError()
     if any(entry.get('provider') == 'aws' for entry in entries):
@@ -109,6 +121,8 @@ def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cance
         if remote:
             from .fargate import invoke as invoke_remote
             kwargs = {'prepare': prepare_workspace}
+            if prelaunched is not None:
+                kwargs['prelaunched'] = prelaunched
             if cancel_event is not None:
                 def cancellable_sleep(seconds):
                     if cancel_event.wait(seconds):
@@ -158,7 +172,7 @@ def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cance
 
 
 def invoke_before_deadline(stage, platform, entries, token, findings, reviews, end, limit,
-                           *, cancel_event=None, on_prepared=None):
+                           *, cancel_event=None, on_prepared=None, prelaunch=None):
     from .fargate import TaskStartupError
     # Fixed labels only: no model input, task identity or exception text enters
     # the numeric recorder. Include startup retries in the stage's wall time.
@@ -168,14 +182,19 @@ def invoke_before_deadline(stage, platform, entries, token, findings, reviews, e
             remaining = end - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError()
+            # Only the first attempt may use an already started idle task; a
+            # startup retry always launches a fresh one, exactly as before.
+            prelaunched = prelaunch.claim() if prelaunch is not None and not attempt else None
             try:
-                if cancel_event is None and on_prepared is None:
+                if cancel_event is None and on_prepared is None and prelaunched is None:
                     return invoke(stage, platform, entries, token, findings, reviews, min(limit, remaining))
                 kwargs = {}
                 if cancel_event is not None:
                     kwargs['cancel_event'] = cancel_event
                 if on_prepared is not None:
                     kwargs['on_prepared'] = on_prepared
+                if prelaunched is not None:
+                    kwargs['prelaunched'] = prelaunched
                 return invoke(stage, platform, entries, token, findings, reviews, min(limit, remaining), **kwargs)
             except TaskStartupError:
                 if attempt:
@@ -462,7 +481,28 @@ def review_concurrency():
     return min(requested, capacity)
 
 
-def review_network(report, entries, token, network, end, *, cancel_event=None):
+def start_prelaunch(wait):
+    """Start one idle hosted agent task for a later invocation, or return None.
+
+    The task gets no credential or input until that invocation is admitted;
+    its own deadline is then computed exactly as for a fresh launch. Only
+    image pull and container start move earlier, never model work.
+    """
+    try:
+        if not isolation.remote():
+            return None
+        from .fargate import MAX_PRELAUNCH_WAIT, PRELAUNCH_MARGIN, Prelaunch, configuration
+        wait = min(MAX_PRELAUNCH_WAIT, int(wait))
+        if wait <= 2 * PRELAUNCH_MARGIN:
+            return None
+        configuration()
+        return Prelaunch(wait)
+    except Exception:
+        # Optional: the invocation then launches its own task as before.
+        return None
+
+
+def review_network(report, entries, token, network, end, *, cancel_event=None, prelaunch=None):
     """Run the sole pre-Priorities model stage within its memory and time budget."""
     unavailable = {'status': 'unavailable', 'explanation': '', 'findings': [],
                    'reason': 'network_review_unavailable'}
@@ -476,8 +516,9 @@ def review_network(report, entries, token, network, end, *, cancel_event=None):
         access = review_credentials(entries, report['provider'], [], {'resources': network['inventory']})
         from .review_groups import stage_limit
         args = ('network', network, access, token, [], [], end, stage_limit('network', isolation.remote()))
-        data = (invoke_before_deadline(*args) if cancel_event is None else
-                invoke_before_deadline(*args, cancel_event=cancel_event))
+        kwargs = {key: value for key, value in (('cancel_event', cancel_event), ('prelaunch', prelaunch))
+                  if value is not None}
+        data = invoke_before_deadline(*args, **kwargs)
         return dict(validate_network(data, network), status='completed'), False
     except Exception:
         return unavailable, True
@@ -503,8 +544,14 @@ def selected_stages(selectors, stages=None):
 
 def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None, context=None,
                 stages=None, reused_stages=None, cancel_event=None,
-                require_reused_network=False, on_prepared=None):
-    """Run remaining AI stages with native FAILs as final Priorities inputs."""
+                require_reused_network=False, on_prepared=None, prelaunch=None):
+    """Run remaining AI stages with native FAILs as final Priorities inputs.
+
+    ``prelaunch`` is an optional idle hosted task for this scan's first model
+    invocation. When Network must run first, the Priorities task is started
+    while Network runs. Priorities still receives the complete accepted Network
+    output, and its full invocation budget starts only when its input is ready.
+    """
     selected = selected_stages(selectors, stages)
     result = {'version': 1, 'status': 'skipped', 'actions': [],
               'reviews': {'hardening': [], 'exposure': []}, 'limitations': [],
@@ -528,6 +575,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
     result['coverage'] = {'hardening': len(hardening), 'exposure': len(exposure) + len(duplicates),
                           'reviewed': len(reviewed), 'native_final': len(reviewed),
                           'model_reviewed': 0, 'total': len(reviewed)}
+    priorities_prelaunch = None
     try:
         from peaso.storage.runtime import stores
         settings = Settings()
@@ -599,10 +647,17 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             try:
                 review_end = end - min(600 if isolation.remote() else 60,
                     max(0, end - time.monotonic()) * (.3 if isolation.remote() else .2))
+                if 'priorities' in selected and isolation.remote():
+                    # Image pull/startup of the dependent stage overlaps Network.
+                    priorities_prelaunch = start_prelaunch(max(0, review_end - time.monotonic()) + 120)
+                kwargs = {key: value for key, value in (('cancel_event', cancel_event), ('prelaunch', prelaunch))
+                          if value is not None}
                 result['network'], failed_stage = review_network(report, entries, token, network,
-                    review_end, **({'cancel_event': cancel_event} if cancel_event is not None else {}))
+                    review_end, **kwargs)
             except Exception:
                 failed_stage = True
+        else:
+            priorities_prelaunch = prelaunch
         result['network'] = result.get('network') or {
             'status': 'not_available', 'explanation': '', 'findings': [],
             'reason': 'network_inventory_unavailable'}
@@ -630,7 +685,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                 data = invoke_before_deadline('priorities', platform, entries, token,
                     hardening + exposure, reviewed, end, stage_limit('priorities', isolation.remote()),
                     **({key: value for key, value in
-                        (('cancel_event', cancel_event), ('on_prepared', on_prepared)) if value is not None}))
+                        (('cancel_event', cancel_event), ('on_prepared', on_prepared),
+                         ('prelaunch', priorities_prelaunch)) if value is not None}))
                 recommendations = validate_actions(data, priorities_report, reviewed,
                                                     require_assessment=True)
                 result['actions'] = recommendations['actions']
@@ -652,3 +708,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         result.update(status='unavailable', reason='ai_setup_unavailable', actions=[])
         result['limitations'].append('AI authentication, runtime or scan context is unavailable. Native findings remain final.')
         return result
+    finally:
+        # Stop any idle task that no admitted invocation took.
+        for handle in (prelaunch, priorities_prelaunch):
+            if handle is not None:
+                handle.close()

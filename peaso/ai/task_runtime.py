@@ -31,7 +31,11 @@ def reject_ambient_aws_credentials():
         raise RuntimeError('ambient_aws_credentials_forbidden')
 
 
-def transfer(method, url, *, body=None, limit=MAX_INPUT):
+class TransferPending(RuntimeError):
+    """The exact presigned object does not exist yet."""
+
+
+def transfer(method, url, *, body=None, limit=MAX_INPUT, pending=()):
     """Only presigned S3 HTTPS objects; never ambient cloud credentials."""
     import re
     import requests
@@ -42,6 +46,8 @@ def transfer(method, url, *, body=None, limit=MAX_INPUT):
     with requests.Session() as session:
         session.trust_env = False
         with session.request(method, url, data=body, stream=True, allow_redirects=False, timeout=(10, 60)) as response:
+            if response.status_code in pending:
+                raise TransferPending('task_transfer_pending')
             if response.status_code != 200:
                 raise RuntimeError('task_transfer_failed')
             data = bytearray()
@@ -50,6 +56,34 @@ def transfer(method, url, *, body=None, limit=MAX_INPUT):
                     raise ValueError('task_transfer_limit')
                 data.extend(chunk)
             return bytes(data)
+
+
+def bootstrap_wait(value):
+    """Seconds a prelaunched task may wait for its invocation; 0 when absent."""
+    if value is None:
+        return 0
+    from .fargate import MAX_PRELAUNCH_WAIT
+    if not value.isdigit() or not 0 < int(value) <= MAX_PRELAUNCH_WAIT:
+        raise ValueError('invalid_bootstrap_wait')
+    return int(value)
+
+
+def fetch_bootstrap(url, wait, *, clock=time.monotonic, sleep=time.sleep):
+    """Fetch the relay configuration, waiting only for a not-yet-written object.
+
+    S3 reports a missing presigned object as 404 or 403. Any other failure, or
+    the bounded wait ending, stops the relay and therefore the whole task.
+    """
+    if not wait:
+        return transfer('GET', url, limit=64_000)
+    deadline = clock() + wait
+    while True:
+        try:
+            return transfer('GET', url, limit=64_000, pending=(403, 404))
+        except TransferPending:
+            if clock() >= deadline:
+                raise RuntimeError('task_bootstrap_unavailable') from None
+            sleep(min(.5, max(0, deadline - clock())))
 
 
 def unpack(data, root):
@@ -165,11 +199,14 @@ def main():
         if sys.argv[1] == 'relay':
             from .model_relay import serve
             url = os.environ.pop('PEASO_AI_BOOTSTRAP_URL')
-            config = json.loads(transfer('GET', url, limit=64_000))
+            wait = bootstrap_wait(os.environ.pop('PEASO_AI_BOOTSTRAP_WAIT_SECONDS', None))
+            config = json.loads(fetch_bootstrap(url, wait))
             serve(config)
         elif sys.argv[1] == 'agent':
             import requests
-            deadline = time.monotonic() + 120
+            # A prelaunched relay serves only after its later bootstrap object.
+            wait = bootstrap_wait(os.environ.pop('PEASO_AI_BOOTSTRAP_WAIT_SECONDS', None))
+            deadline = time.monotonic() + 120 + wait
             while True:
                 try:
                     response = requests.get('http://127.0.0.1:8765/bootstrap', timeout=2, proxies={'http': None})

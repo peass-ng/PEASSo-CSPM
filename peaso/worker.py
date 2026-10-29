@@ -376,6 +376,10 @@ def _restore_secret_capture(sink, artifacts, tenant, scan_id):
         sink.incomplete = bool(document.get("incomplete"))
 
 
+# Upper bound for an idle analyzer-start AI task to wait for its first invocation.
+_AI_PRELAUNCH_WAIT = 900
+
+
 def _reusable_stages(artifacts, tenant, sections, stage_results):
     """Accept only stage artifacts bound to a complete final data revision."""
     reused = {}
@@ -576,6 +580,7 @@ def _process(role, request, connection):
     runtime_metrics.configure(connection.send, role=role)
     aws_metrics = None
     detector_metrics = None
+    ai_prelaunch = None
     if role == "collector" and request.get("connector", {}).get("provider") == "aws":
         from peaso.aws_call_metrics import install as install_aws_metrics
         aws_metrics = install_aws_metrics(connection.send)
@@ -812,6 +817,15 @@ def _process(role, request, connection):
             with _runtime_span('worker.startup'):
                 from peaso.engine import evaluate_snapshot
             selectors = request["selectors"]
+            if selectors.get("ai_enabled", True) is not False:
+                from peaso.ai import isolation
+                if isolation.remote():
+                    from peaso.ai.pipeline import selected_stages, start_prelaunch
+                    if selected_stages(selectors):
+                        # Hosted agent image pull/startup overlaps snapshot load,
+                        # evaluation and publication. The task receives no
+                        # credential or input until its invocation is admitted.
+                        ai_prelaunch = start_prelaunch(_AI_PRELAUNCH_WAIT)
             from peaso.snapshot import frozen_view
             # Freeze the native items once; evaluation, publication and AI
             # review share them instead of each making a read-only copy.
@@ -881,7 +895,8 @@ def _process(role, request, connection):
                                         tenant=tenant, artifacts=artifacts, deadline=request.get("deadline"),
                                         context=request.get("ai_context"), reused_stages=early_stages,
                                         cancel_event=early_cancel, require_reused_network=True,
-                                        on_prepared=prepared.set)
+                                        on_prepared=prepared.set,
+                                        **({"prelaunch": ai_prelaunch} if ai_prelaunch is not None else {}))
                             except BaseException as exc:
                                 early_result['error'] = exc
                             finally:
@@ -937,7 +952,8 @@ def _process(role, request, connection):
                     with _runtime_span('worker.ai'):
                         value["ai"] = review_scan(value, snapshot, selectors, tenant=tenant, artifacts=artifacts,
                                                   deadline=request.get("deadline"), context=request.get("ai_context"),
-                                                  reused_stages=reused_stages)
+                                                  reused_stages=reused_stages,
+                                                  **({"prelaunch": ai_prelaunch} if ai_prelaunch is not None else {}))
                 from peaso.ai.network import with_findings
                 value = with_findings(value, value["ai"].get("network", {}).get("findings", []))
                 value["publication"] = {"state": "final", "phase": "completed", "sequence": native_sequence,
@@ -977,6 +993,9 @@ def _process(role, request, connection):
         runtime_metrics.close()
         connection.send((False, code, _safe_failure_details(exc), failure_reasons, resume_reference))
     finally:
+        if ai_prelaunch is not None:
+            # Stop an idle hosted task no admitted AI invocation took.
+            ai_prelaunch.close()
         if detector_metrics is not None:
             try:
                 detector_metrics.close()
