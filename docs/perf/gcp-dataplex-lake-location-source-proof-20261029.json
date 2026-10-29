@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "base_commit": "f617504f7015da4210d87da8dad18431c6314440",
+  "python_source_count": 1777,
+  "source_diff": {
+    "added": [
+      "peaso/collectors/gcp_dataplex_locations.py"
+    ],
+    "removed": [],
+    "changed": [
+      "peaso/collectors/gcp_dataplex_privesc.py",
+      "peaso/collectors/gcp_network_catalog.py"
+    ]
+  },
+  "direct_sdk_sites": 29,
+  "dynamic_client_error": null,
+  "reviewed_source_sha256": "87984d1fbc95c57b944d4f330e4235fff958a0cb679ffef6184801573fdab932",
+  "reversible_source_changes": [
+    {
+      "path": "peaso/collectors/gcp_dataplex_privesc.py",
+      "before_sha256": "c5ba4f75949b5c19faf52ffae07969fa88fd376a53fba723f5e642cd92f48873",
+      "after_sha256": "769269025ba5e94ef061ce9128dad192636c78e9b4a69e4023f0618ab3e99aeb",
+      "inverse_edits": [
+        {
+          "start": 8,
+          "end": 9,
+          "current": [
+            "from .gcp_dataplex_locations import LAKE_NON_REGIONAL_LOCATIONS\n"
+          ],
+          "predecessor": []
+        },
+        {
+          "start": 46,
+          "end": 47,
+          "current": [
+            "                if match[2] not in LAKE_NON_REGIONAL_LOCATIONS:\n"
+          ],
+          "predecessor": [
+            "                if match[2] != 'global':\n"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "peaso/collectors/gcp_network_catalog.py",
+      "before_sha256": "ddc35862eab9f095af0de716068cd12b791b9bf9357e3ebb254c87b061746e9e",
+      "after_sha256": "91bb0a64ef6ea7de60dcbc81add50ddeba84ad59159ddbcd1999fa5d22e8c7cc",
+      "inverse_edits": [
+        {
+          "start": 8,
+          "end": 9,
+          "current": [
+            "from .gcp_dataplex_locations import LAKE_NON_REGIONAL_LOCATIONS\n"
+          ],
+          "predecessor": []
+        },
+        {
+          "start": 126,
+          "end": 133,
+          "current": [
+            "            # Only lakes and inventories rooted under lakes require a region.\n",
+            "            # Explicit selections above and catalog multi-regions stay intact.\n",
+            "            if (service == 'dataplex' and\n",
+            "                    (plan.get('segment') == 'lakes' or any(\n",
+            "                        p.get('segment') == 'lakes' for p in plan.get('parents', []))) and\n",
+            "                    isinstance(location, str) and location in LAKE_NON_REGIONAL_LOCATIONS):\n",
+            "                continue\n"
+          ],
+          "predecessor": []
+        }
+      ]
+    }
+  ],
+  "new_source": {
+    "peaso/collectors/gcp_dataplex_locations.py": "e5bfa7135bde31ab828444eae3fbdbbe421bd396fb6f2eab738b8b1ef0be93b3"
+  },
+  "integration_requirement": "Root must refresh current API source manifest and reviewed current-successor fixture against combined snapshot/Filestore/BackupDR/Dataplex bytes; this branch preserves those shared paths and all historical pins."
+}

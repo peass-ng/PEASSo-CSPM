@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 from .gcp import ReadError
 from .gcp_fanout import location_fanout
+from .gcp_dataplex_locations import LAKE_NON_REGIONAL_LOCATIONS
 
 
 REGIONAL = {
@@ -123,6 +124,13 @@ def locations(collector, scope, kind):
             key='locations', page_size_key=None if service == 'bigqueryconnection' else 'pageSize'):
         for row in page:
             location = row.get('locationId') or row.get('name', '').rsplit('/', 1)[-1]
+            # Only lakes and inventories rooted under lakes require a region.
+            # Explicit selections above and catalog multi-regions stay intact.
+            if (service == 'dataplex' and
+                    (plan.get('segment') == 'lakes' or any(
+                        p.get('segment') == 'lakes' for p in plan.get('parents', []))) and
+                    isinstance(location, str) and location in LAKE_NON_REGIONAL_LOCATIONS):
+                continue
             if plan.get('location_kind') != 'zone' or re.fullmatch(r'.+-[a-z]', str(location)):
                 result.append(location)
         yield [], receipt

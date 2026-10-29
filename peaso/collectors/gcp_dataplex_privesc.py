@@ -6,6 +6,7 @@ import re
 
 from .gcp import ReadError
 from .gcp_fanout import location_fanout
+from .gcp_dataplex_locations import LAKE_NON_REGIONAL_LOCATIONS
 
 
 HOST = 'https://dataplex.googleapis.com/v1/'
@@ -43,7 +44,7 @@ def scope_jobs(collector, scope):
                 if not match:
                     raise ReadError('malformed', 'dataplex_location_invalid')
                 _project(collector, scope, match[1])
-                if match[2] != 'global':
+                if match[2] not in LAKE_NON_REGIONAL_LOCATIONS:
                     if match[2] in locations:
                         raise ReadError('malformed', 'dataplex_location_duplicate')
                     locations.add(match[2])
