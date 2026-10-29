@@ -59,6 +59,31 @@ def test_context_encoder_preserves_json_values_and_canonical_hash_inputs():
                                                              separators=(',', ':'), default=str, sort_keys=True)
 
 
+def test_all_record_pages_avoid_domain_sort_and_preserve_exact_reader_results(tmp_path):
+    platform, rows, reviews = fixture()
+    for i, row in enumerate(rows):
+        row['severity'] = ('low', 'critical', 'high')[i % 3]
+        row['status'] = ('PASS', 'FAIL', 'UNKNOWN')[i % 3]
+    # Source-only rows are inserted after the existing candidate-order index.
+    platform['source_inventory'] = platform['inventory']
+    build(tmp_path, platform, rows, reviews, private_json)
+    commands = [
+        ('list', domain, '--limit', '8', '--offset', str(offset), *flags)
+        for domain in ('findings', 'resources', 'source_resources', 'finding_groups')
+        for offset in (0, 8)
+        for flags in ((), ('--all',), ('--candidates',))
+    ]
+    commands += [('list', 'resources', '--type', 'bucket'),
+                 ('list', 'findings', '--query', 'native-detail-')]
+    indexed = [read(tmp_path, *command) for command in commands]
+    with sqlite3.connect(tmp_path / 'context.sqlite') as db:
+        plan = db.execute('EXPLAIN QUERY PLAN SELECT summary FROM records WHERE domain=? '
+                          'ORDER BY risk,id LIMIT ? OFFSET ?', ('resources', 8, 8)).fetchall()
+        assert not any('TEMP B-TREE' in row[3] for row in plan)
+        db.execute('DROP INDEX record_all_order')
+    assert [read(tmp_path, *command) for command in commands] == indexed
+
+
 def test_priorities_keeps_native_failed_hardening_and_exposure_in_every_lookup(tmp_path):
     platform, rows, reviews = fixture()
     findings, final = [], []
