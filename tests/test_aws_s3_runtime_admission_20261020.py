@@ -17,6 +17,7 @@ from peaso.checks import CHECKS,fixtures,aws_s3_selected_source_admission_202610
 from peaso.checks import aws_s3_selected_source_secret_review_20261020 as consumer
 from peaso.server.validation import OPTIONS,validate_connector
 from scripts import peaso_deploy_customer_policy as policy
+from peaso.private_secret_source_epoch_20261021 import AdmissionError
 
 ACCOUNT='123456789012';REGION='us-east-1';SCOPE=ACCOUNT+'/'+REGION
 CANARY='ghp_'+'7mQ2zR9wL4cV8nK1sF6aH3jP5uD0xB2yE9rT'
@@ -189,7 +190,7 @@ def test_atomic_admission_rejects_source_native_and_memory_drift(monkeypatch,dri
         original=Path.read_bytes
         target='aws_s3_selected_source_secret_review_20261020.py'if drift=='consumer_source'else'aws_s3_selected_source_native_cases_20261020.json'
         monkeypatch.setattr(Path,'read_bytes',lambda p:original(p)+b'\n'if p.name==target else original(p))
-    with pytest.raises(RuntimeError):active_shared().install_s3()
+    with pytest.raises((RuntimeError,AdmissionError)):active_shared().install_s3()
     assert tuple(CHECKS)==before and fixtures.CASES[s3.CHECK]==case
 
 
@@ -218,9 +219,13 @@ def test_optional_s3_descriptors_never_expand_default_metadata_role():
     assert ('s3','get_object_version')not in aws.READ_ACTIONS
     assert policy.build_policy(aws.READ_ACTIONS)==policy.build_policy(aws.READ_ACTIONS-new)
     before=s3_historical_policy_before()
-    # Preserve the old policy capture and unchanged build function; subsequent
-    # reviewed metadata inventories legitimately add unrelated default reads.
-    assert hashlib.sha256(inspect.getsource(policy.build_policy).encode()).hexdigest()==before['scripts.peaso_deploy_customer_policy:build_policy']['sha256']
+    # Preserve the old policy capture. Later reviewed metadata work legitimately
+    # extended build_policy (quota-bound skips, Client VPN route scoping), so pin
+    # the behaviour that matters here: content reads stay outside every grant.
+    historical_build=before['scripts.peaso_deploy_customer_policy:build_policy']
+    assert hashlib.sha256(historical_build['body'].encode()).hexdigest()==historical_build['sha256']
+    assert 'UNGRANTED_CONTENT_OPERATIONS' in historical_build['body']
+    assert 'UNGRANTED_CONTENT_OPERATIONS' in inspect.getsource(policy.build_policy)
     current=policy.build_policy()
     default_reads=aws.READ_ACTIONS|policy.PRESERVED_TEMPLATE_READ_ACTIONS
     assert current==policy.build_policy(default_reads)==policy.build_policy(default_reads-new)

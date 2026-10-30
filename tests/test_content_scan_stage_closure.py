@@ -27,8 +27,11 @@ def test_every_capability_is_active_owned_native_check_with_reviewed_tool_taxono
 @pytest.mark.parametrize('provider',['aws','gcp'])
 def test_all_automatic_native_readers_pass_real_engine_preflight_and_plan(provider):
  request={'connector':{'provider':provider,'scopes':SCOPES[provider],'auth':{},'options':{'content_secret_scans':True}},'categories':[],'checks':[],'leaks_enabled':True,'images_enabled':False}
- expected={cid for owner,opt,stage,cid in selection.ROWS if owner==provider and opt is None and stage=='leaks'}
+ # Unselected native readers plus the reviewed automatic-discovery readers whose selector is absent.
+ expected={cid for owner,opt,stage,cid in selection.ROWS if owner==provider and stage=='leaks'
+           and (opt is None or cid in selection._AUTOMATIC_NATIVE_CHECKS)}
  assert expected
+ assert {'aws.review.lambda.selected_environment_secret_indicators','aws.review.configuration.selected_content_secret_indicators'}<=expected or provider!='aws'
  effective=selection.normalize_request(request)
  actual=engine._request(effective)
  chosen=engine._selection(provider,[],[],[],content_checks=effective['content_checks'])[1]

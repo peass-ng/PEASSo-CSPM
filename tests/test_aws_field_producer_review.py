@@ -256,7 +256,9 @@ def test_sdk_bucket_object_lock_response_wrapper_reaches_retention_predicate(sdk
             stub.add_response(operation, response, params)
         else:
             stub.add_client_error(operation, service_error_code='AccessDenied', http_status_code=403, expected_params=params)
-    requests = aws.Requests({'retry_attempts': 1})
+    # One stubbed queue is consumed in request order: keep the per-bucket
+    # detail reads serial so each response reaches its own operation.
+    requests = aws.Requests({'retry_attempts': 1, 'service_concurrency': 1})
     result = aws._buckets(requests, session, REGION)
     assert result.status == 'collected'
     item, = result.items

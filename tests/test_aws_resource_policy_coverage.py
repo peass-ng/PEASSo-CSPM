@@ -249,6 +249,18 @@ def test_customer_role_expansion_preserves_grants_and_adds_only_reviewed_reads(t
     reviewed = set(receipt['mappings'].values()) | {a for actions in receipt['additional_actions'].values() for a in actions} | {'apigateway:GET'} | set(IAM_REPORT_READ_REFERENCES)
     from scripts.peaso_deploy_customer_policy import RECHECK_METADATA_READ_REFERENCES, NETWORK_SERVICE_READ_REFERENCES
     reviewed |= set(RECHECK_METADATA_READ_REFERENCES) | set(NETWORK_SERVICE_READ_REFERENCES)
+    # Later reviewed metadata waves each carry their own primary authorization references.
+    import scripts.peaso_deploy_customer_policy as customer_policy
+    for name in ('EXPOSURE_METADATA_READ_REFERENCES', 'BIG_WAVE_EXPOSURE_READ_REFERENCES', 'ADDITIONAL_PRIVESC_METADATA_REFERENCES',
+                 'EXPOSURE_SWEEP_READ_REFERENCES', 'NATIVE_METADATA_ACTIONS', 'WELLARCHITECTED_SHARE_READS',
+                 'EXACT_COLLECTOR_READ_REFERENCES', 'GAMELIFT_FLEET_METADATA_REFERENCES', 'DEVICEFARM_TEST_METADATA_REFERENCES',
+                 'ATHENA_SESSION_METADATA_REFERENCES', 'GAMELIFT_STREAM_SESSION_METADATA_REFERENCES', 'IOT_ROLE_ALIAS_METADATA_REFERENCE',
+                 'ACCESS_ANALYZER_CONFIGURATION_REFERENCE', 'SAGEMAKER_NOTEBOOK_LIFECYCLE_METADATA_REFERENCE',
+                 'SAGEMAKER_STUDIO_LIFECYCLE_METADATA_REFERENCE', 'BRAKET_DEVICE_METADATA_REFERENCE'):
+        reviewed |= set(getattr(customer_policy, name))
+    reviewed |= {'amplify:ListBranches', 'deadline:GetQueue', 'deadline:ListQueues', 'deadline:ListWorkers',
+                 'grafana:ListWorkspaceServiceAccounts', 'mediapackage:ListOriginEndpoints',
+                 'mediatailor:ListPlaybackConfigurations', 'sagemaker:DescribeSpace', 'sagemaker:ListSpaces'}
     from peaso.collectors import aws_network_catalog, aws_network_inventory
     from scripts.peaso_deploy_customer_policy import iam_action
     # Review the precise SDK operations declared by the network metadata plans.

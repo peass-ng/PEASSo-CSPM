@@ -9,7 +9,7 @@
     "covered_resource_types": 109,
     "authorization_ancestor_types": 3
   },
-  "families": 145,
+  "families": 152,
   "sdk_services": 86,
   "policy_api_candidates": 202,
   "explicit_exclusions": 108,
@@ -778,6 +778,17 @@
       "endpoint": "selected region"
     },
     {
+      "family": "glacier-vault-locks",
+      "service": "glacier",
+      "steps": [
+        "list_vaults"
+      ],
+      "policy_operation": "get_vault_lock",
+      "policy_path": "Policy",
+      "resource": "$VaultARN",
+      "endpoint": "selected region"
+    },
+    {
       "family": "api-gateway-apis",
       "service": "apigateway",
       "steps": [
@@ -1085,6 +1096,28 @@
       "endpoint": "us-east-1"
     },
     {
+      "family": "marketplace-Audience",
+      "service": "marketplace-catalog",
+      "steps": [
+        "list_entities"
+      ],
+      "policy_operation": "get_resource_policy",
+      "policy_path": "Policy",
+      "resource": "$EntityArn",
+      "endpoint": "us-east-1"
+    },
+    {
+      "family": "marketplace-BrandingSettings",
+      "service": "marketplace-catalog",
+      "steps": [
+        "list_entities"
+      ],
+      "policy_operation": "get_resource_policy",
+      "policy_path": "Policy",
+      "resource": "$EntityArn",
+      "endpoint": "us-east-1"
+    },
+    {
       "family": "marketplace-ContainerProduct",
       "service": "marketplace-catalog",
       "steps": [
@@ -1107,29 +1140,7 @@
       "endpoint": "us-east-1"
     },
     {
-      "family": "marketplace-SaaSProduct",
-      "service": "marketplace-catalog",
-      "steps": [
-        "list_entities"
-      ],
-      "policy_operation": "get_resource_policy",
-      "policy_path": "Policy",
-      "resource": "$EntityArn",
-      "endpoint": "us-east-1"
-    },
-    {
-      "family": "marketplace-Offer",
-      "service": "marketplace-catalog",
-      "steps": [
-        "list_entities"
-      ],
-      "policy_operation": "get_resource_policy",
-      "policy_path": "Policy",
-      "resource": "$EntityArn",
-      "endpoint": "us-east-1"
-    },
-    {
-      "family": "marketplace-ResaleAuthorization",
+      "family": "marketplace-Experience",
       "service": "marketplace-catalog",
       "steps": [
         "list_entities"
@@ -1151,7 +1162,73 @@
       "endpoint": "us-east-1"
     },
     {
+      "family": "marketplace-Offer",
+      "service": "marketplace-catalog",
+      "steps": [
+        "list_entities"
+      ],
+      "policy_operation": "get_resource_policy",
+      "policy_path": "Policy",
+      "resource": "$EntityArn",
+      "endpoint": "us-east-1"
+    },
+    {
       "family": "marketplace-OfferSet",
+      "service": "marketplace-catalog",
+      "steps": [
+        "list_entities"
+      ],
+      "policy_operation": "get_resource_policy",
+      "policy_path": "Policy",
+      "resource": "$EntityArn",
+      "endpoint": "us-east-1"
+    },
+    {
+      "family": "marketplace-ProcurementPolicy",
+      "service": "marketplace-catalog",
+      "steps": [
+        "list_entities"
+      ],
+      "policy_operation": "get_resource_policy",
+      "policy_path": "Policy",
+      "resource": "$EntityArn",
+      "endpoint": "us-east-1"
+    },
+    {
+      "family": "marketplace-ResaleAuthorization",
+      "service": "marketplace-catalog",
+      "steps": [
+        "list_entities"
+      ],
+      "policy_operation": "get_resource_policy",
+      "policy_path": "Policy",
+      "resource": "$EntityArn",
+      "endpoint": "us-east-1"
+    },
+    {
+      "family": "marketplace-SaaSProduct",
+      "service": "marketplace-catalog",
+      "steps": [
+        "list_entities"
+      ],
+      "policy_operation": "get_resource_policy",
+      "policy_path": "Policy",
+      "resource": "$EntityArn",
+      "endpoint": "us-east-1"
+    },
+    {
+      "family": "marketplace-Seller",
+      "service": "marketplace-catalog",
+      "steps": [
+        "list_entities"
+      ],
+      "policy_operation": "get_resource_policy",
+      "policy_path": "Policy",
+      "resource": "$EntityArn",
+      "endpoint": "us-east-1"
+    },
+    {
+      "family": "marketplace-Solution",
       "service": "marketplace-catalog",
       "steps": [
         "list_entities"

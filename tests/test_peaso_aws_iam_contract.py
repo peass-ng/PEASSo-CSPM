@@ -238,8 +238,14 @@ class Graph:
                 if name.startswith("DynamoStore.") and receiver == "self.client":
                     # Every own-table SDK call must carry the wired metadata TableName.
                     table = next((kw.value for kw in node.keywords if kw.arg == "TableName"), None)
-                    if table is None and any(kw.arg is None for kw in node.keywords):
-                        assert any(isinstance(value, ast.Dict) and any(isinstance(k, ast.Constant) and k.value == "TableName" and dotted(v) == "self.table" for k, v in zip(value.keys, value.values)) for value in nodes), f"Unresolved TableName at {path}:{node.lineno}"
+                    if method == "batch_get_item":
+                        # Batch reads name the table as the only RequestItems key.
+                        request = next(kw.value for kw in node.keywords if kw.arg == "RequestItems")
+                        assert isinstance(request, ast.Dict) and [dotted(key) for key in request.keys] == ["self.table"], f"Wrong RequestItems table at {path}:{node.lineno}"
+                    elif table is None and any(kw.arg is None for kw in node.keywords):
+                        assert any((isinstance(value, ast.Dict) and any(isinstance(k, ast.Constant) and k.value == "TableName" and dotted(v) == "self.table" for k, v in zip(value.keys, value.values)))
+                                   or (isinstance(value, ast.Call) and dotted(value.func) == "dict" and any(kw.arg == "TableName" and dotted(kw.value) == "self.table" for kw in value.keywords))
+                                   for value in nodes), f"Unresolved TableName at {path}:{node.lineno}"
                     elif method not in {"transact_write_items", "transact_get_items"}:
                         assert dotted(table) == "self.table", f"Wrong TableName at {path}:{node.lineno}"
                     require("dynamodb:" + operation(method), TABLE, node.lineno)

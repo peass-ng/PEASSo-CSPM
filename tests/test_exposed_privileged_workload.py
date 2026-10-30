@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 
 from peaso.snapshot import make_snapshot, resources
-from peaso.principal_exposure import exposed_privileged_findings
+from peaso.principal_exposure import exposed_privileged_findings, project
 from peaso.analysis.exposure_dedup import deduplicate_principal_exposure
 from peaso.analysis import analyze_findings
 from peaso.analysis import REQUIRED_TYPES as ANALYSIS_REQUIRED_TYPES
@@ -23,6 +23,17 @@ def findings(snap):
     return exposed_privileged_findings(snap, resources(snap))
 
 
+def public_function_url(name, role, account="111111111111", region="us-east-1"):
+    """Collected anonymous Function URL whose policy grants both public invoke actions."""
+    arn = f"arn:aws:lambda:{region}:{account}:function:{name}"
+    return {"FunctionName": name, "FunctionArn": arn, "Role": role,
+        "FunctionUrl": {"collection_status": "collected", "FunctionArn": arn,
+            "FunctionUrl": f"https://{name}.lambda-url.{region}.on.aws/", "AuthType": "NONE"},
+        "Policy": {"collection_status": "collected", "Policy": {"Statement": [{"Effect": "Allow",
+            "Principal": "*", "Action": ["lambda:InvokeFunctionUrl", "lambda:InvokeFunction"],
+            "Resource": arn}]}}}
+
+
 def assert_exposure_in_report(snap, monkeypatch):
     import peaso.remediation as remediation
     from peaso.engine import evaluate_snapshot
@@ -38,10 +49,7 @@ def test_aws_public_lambda_uses_administrator_role(monkeypatch):
     snap = snapshot("aws", {
         "iam_role": [{"Arn": arn, "RoleName": "app", "RolePolicyList": [{"PolicyName": "admin",
             "PolicyDocument": {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}}]}],
-        "lambda_function": [{"FunctionName": "web", "Role": arn,
-            "FunctionUrl": {"FunctionUrl": "https://web.lambda-url.us-east-1.on.aws/", "AuthType": "NONE"},
-            "Policy": {"Policy": {"Statement": [{"Effect": "Allow", "Principal": "*",
-                "Action": "lambda:InvokeFunctionUrl", "Resource": "*"}]}}}],
+        "lambda_function": [public_function_url("web", arn)],
     }, "111111111111/us-east-1")
     result = findings(snap)
     assert len(result) == 1 and result[0]["status"] == "FAIL"
@@ -65,10 +73,7 @@ def test_public_workloads_use_the_least_privilege_risk_catalog_for_specific_acti
         "iam_role": [{"Arn": role, "RolePolicyList": [{"PolicyName": "pass-role",
             "PolicyDocument": {"Statement": [{"Effect": "Allow", "Action": "iam:PassRole",
                 "Resource": "arn:aws:iam::111111111111:role/deployer"}]}}]}],
-        "lambda_function": [{"FunctionName": "web", "Role": role,
-            "FunctionUrl": {"FunctionUrl": "https://web.lambda-url.us-east-1.on.aws/", "AuthType": "NONE"},
-            "Policy": {"Policy": {"Statement": [{"Effect": "Allow", "Principal": "*",
-                "Action": "lambda:InvokeFunctionUrl", "Resource": "*"}]}}}],
+        "lambda_function": [public_function_url("web", role)],
     }, "111111111111/us-east-1")
     aws_result = findings(aws)
     assert len(aws_result) == 1
@@ -98,10 +103,7 @@ def test_grouped_view_keeps_each_public_workload_and_explains_the_shared_risk():
     snap = snapshot("aws", {
         "iam_role": [{"Arn": role, "RolePolicyList": [{"PolicyName": "admin",
             "PolicyDocument": {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}}]}],
-        "lambda_function": [{"FunctionName": name, "Role": role,
-            "FunctionUrl": {"FunctionUrl": f"https://{name}.lambda-url.us-east-1.on.aws/", "AuthType": "NONE"},
-            "Policy": {"Policy": {"Statement": [{"Effect": "Allow", "Principal": "*",
-                "Action": "lambda:InvokeFunctionUrl", "Resource": "*"}]}}} for name in ("web-one", "web-two")],
+        "lambda_function": [public_function_url(name, role) for name in ("web-one", "web-two")],
     }, "111111111111/us-east-1")
     individual = findings(snap)
     grouped = group_findings(individual, observations=True)
@@ -126,10 +128,7 @@ def test_aws_exposure_collects_attached_policy_and_reports_its_privilege(monkeyp
         "iam_role": [{"Arn": role, "RoleName": "web", "AttachedManagedPolicies": [{"PolicyArn": policy}]}],
         "iam_policy": [{"Arn": policy, "PolicyVersionList": [{"IsDefaultVersion": True,
             "Document": {"Statement": [{"Effect": "Allow", "Action": "s3:*", "Resource": "*"}]}}]}],
-        "lambda_function": [{"FunctionName": "web", "Role": role,
-            "FunctionUrl": {"FunctionUrl": "https://web.lambda-url.us-east-1.on.aws/", "AuthType": "NONE"},
-            "Policy": {"Policy": {"Statement": [{"Effect": "Allow", "Principal": "*",
-                "Action": "lambda:InvokeFunctionUrl", "Resource": "*"}]}}}],
+        "lambda_function": [public_function_url("web", role)],
     }, "111111111111/us-east-1")
     result = findings(snap)
     assert len(result) == 1 and result[0]["status"] == "FAIL"
@@ -144,35 +143,74 @@ def test_aws_custom_domain_maps_public_api_to_privileged_lambda():
         "iam_role": [{"Arn": role, "RoleName": "api", "RolePolicyList": [{"PolicyName": "admin",
             "PolicyDocument": {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}}]}],
         "lambda_function": [{"FunctionArn": arn, "FunctionName": "api", "Role": role}],
+        # The deployed method invokes the "live" alias, which resolves to published version 1.
+        "lambda_alias": [{"AliasArn": arn + ":live", "Name": "live", "FunctionArn": arn,
+            "FunctionVersion": "1"}],
+        "lambda_version": [{"FunctionArn": arn + ":1", "BaseFunctionArn": arn, "Version": "1",
+            "Role": role}],
         "rest_api": [{"id": "abc123", "disableExecuteApiEndpoint": True,
             "endpointConfiguration": {"types": ["REGIONAL"]},
+            "Stages": {"collection_status": "collected", "items": [
+                {"stageName": "live", "deploymentId": "dep1"}]},
             "Methods": [{"path": "/", "httpMethod": "GET", "authorizationType": "NONE",
                 "integrationLambdaArn": arn + ":live"}]}],
         "rest_api_method": [{"id": "deployed-get", "restApiId": "abc123", "resourcePath": "/",
-            "httpMethod": "GET", "stageArn": "arn:aws:apigateway:us-east-2::/restapis/abc123/stages/live"}],
+            "httpMethod": "GET", "stageArn": "arn:aws:apigateway:us-east-2::/restapis/abc123/stages/live",
+            "deploymentId": "dep1", "authorizationType": "NONE", "apiKeyRequired": False,
+            "_provenance": {"stage_deployment_join_verified": True}}],
         "apigateway_domain_name": [{"domainName": "api.example.com", "endpointConfiguration": {"types": ["REGIONAL"]}, "BasePathMappings": {
             "collection_status": "collected", "items": [{"restApiId": "abc123", "stage": "live"}]}}],
     }, "111111111111/us-east-2")
+    api = next(c for c in snap["collections"] if c["type"] == "rest_api")["items"][0]
+    domain = next(c for c in snap["collections"] if c["type"] == "apigateway_domain_name")
+
+    def rest_state():
+        return next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "rest_api")
+
+    def gaps(state):
+        return [gap["reason"] for gap in state.unresolved]
+
+    def api_paths():
+        rest_id = rest_state().resource["id"]
+        card = project(snap, resources(snap)).get(role, {"exposures": []})
+        return [(row["public_addresses"], row["state"]) for row in card["exposures"]
+                if row.get("endpoint_resource") == rest_id]
+
+    default_gap = "stage-applied default execute-api endpoint block is not observed"
+    # With the default endpoint disabled, the public custom domain is the only configured address.
+    # The live API flag does not record the stage-applied block, so the path stays unknown.
+    state = rest_state()
+    assert state.verdict() == "FAIL" and state.addresses == ["https://api.example.com"]
+    assert gaps(state) == [default_gap]
+    assert api_paths() == [(["https://api.example.com"], "unknown")]
+    assert findings(snap) == []
+    # With the default endpoint enabled, the mapped custom domain is reported with it.
+    api["disableExecuteApiEndpoint"] = False
     result = findings(snap)
     assert len(result) == 1
     assert "https://api.example.com" in result[0]["evidence_summary"]
+    assert "https://abc123.execute-api.us-east-2.amazonaws.com" in result[0]["evidence_summary"]
     assert result[0]["evidence"]["principal"] == role
-    assert "execute-api" not in result[0]["evidence_summary"]
-    domain = next(c for c in snap["collections"] if c["type"] == "apigateway_domain_name")
     domain["items"][0]["endpointConfiguration"] = {"types": ["PRIVATE"]}
-    assert findings(snap) == []
+    result = findings(snap)
+    assert len(result) == 1 and "api.example.com" not in result[0]["evidence_summary"]
+    api["disableExecuteApiEndpoint"] = True
+    # A private custom domain gives no public path to the function.
+    assert api_paths() == []
+    assert rest_state().verdict() == "UNKNOWN"
     domain["items"][0]["endpointConfiguration"] = {"types": ["REGIONAL"]}
     domain["items"][0]["BasePathMappings"]["items"][0]["restApiId"] = "another-api"
-    assert findings(snap) == []
-    state = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "rest_api")
-    assert state.verdict() == "PASS"
+    # A domain mapped to another API is not a path to this function.
+    assert api_paths() == []
+    state = rest_state()
+    assert state.verdict() == "UNKNOWN" and state.addresses == []
+    stage_gap = "stage-applied default execute-api endpoint state not observable from collected API/stage reads"
+    assert gaps(state) == [stage_gap]
     domain["status"] = "partial"
-    state = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "rest_api")
-    assert state.verdict() == "UNKNOWN"
+    assert gaps(rest_state()) == [stage_gap, "custom-domain mappings are not fully collected"]
     domain["status"] = "collected"
     domain["items"][0]["routingMode"] = "ROUTING_RULE_ONLY"
-    state = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "rest_api")
-    assert state.verdict() == "UNKNOWN"
+    assert gaps(rest_state()) == [stage_gap, "custom-domain routing rules are not collected"]
 
 
 def test_undeployed_api_method_does_not_link_to_lambda_role():
@@ -184,11 +222,19 @@ def test_undeployed_api_method_does_not_link_to_lambda_role():
         "lambda_function": [{"FunctionArn": arn, "Role": role}],
         "rest_api": [{"id": "abc123", "disableExecuteApiEndpoint": False,
             "endpointConfiguration": {"types": ["REGIONAL"]},
+            "Stages": {"collection_status": "collected", "items": [
+                {"stageName": "live", "deploymentId": "dep1"}]},
             "Methods": [{"path": "/new", "httpMethod": "GET", "integrationLambdaArn": arn}]}],
         "rest_api_method": [{"id": "deployed-get", "restApiId": "abc123", "resourcePath": "/old",
-            "httpMethod": "GET", "stageArn": "arn:aws:apigateway:us-east-2::/restapis/abc123/stages/live"}],
+            "httpMethod": "GET", "stageArn": "arn:aws:apigateway:us-east-2::/restapis/abc123/stages/live",
+            "deploymentId": "dep1", "authorizationType": "NONE", "apiKeyRequired": False,
+            "_provenance": {"stage_deployment_join_verified": True}}],
     }, "111111111111/us-east-2")
     assert findings(snap) == []
+    # Once the integrated method is in the deployed stage, the same API links to the role.
+    method = next(c for c in snap["collections"] if c["type"] == "rest_api_method")["items"][0]
+    method["resourcePath"] = "/new"
+    assert len(findings(snap)) == 1
 
 
 def test_aws_http_api_custom_domain_maps_to_autodeployed_privileged_lambda():
@@ -199,12 +245,18 @@ def test_aws_http_api_custom_domain_maps_to_autodeployed_privileged_lambda():
             "PolicyDocument": {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}}]}],
         "lambda_function": [{"FunctionArn": arn, "Role": role}],
         "http_api": [{"ApiId": "http123", "ProtocolType": "HTTP", "DisableExecuteApiEndpoint": True,
+            "Stages": {"collection_status": "collected", "items": [
+                {"StageName": "$default", "AutoDeploy": True}]},
             "Routes": {"collection_status": "collected", "items": [{"RouteKey": "GET /",
                 "AuthorizationType": "NONE", "Target": "integrations/int1"}]},
             "Integrations": {"collection_status": "collected", "items": [{"IntegrationId": "int1",
                 "integrationLambdaArn": arn}]}}],
         "http_api_stage": [{"id": "stage", "ParentApiId": "http123", "StageName": "$default",
             "AutoDeploy": True}],
+        "http_api_deployed_route": [{"id": "deployed-get", "apiId": "http123", "stageName": "$default",
+            "stageArn": "arn:aws:apigateway:us-east-2::/apis/http123/stages/$default",
+            "resourcePath": "/", "httpMethod": "GET", "authorizationType": "NONE",
+            "_provenance": {"stage_export": True}}],
         "apigatewayv2_domain_name": [{"DomainName": "api.example.com", "DomainNameConfigurations": [
             {"EndpointType": "REGIONAL"}], "ApiMappings": {"collection_status": "collected",
             "items": [{"ApiId": "http123", "Stage": "$default"}]}}],
@@ -227,11 +279,17 @@ def test_aws_http_api_custom_domain_maps_to_autodeployed_privileged_lambda():
     stages["items"][0]["AutoDeploy"] = False
     assert findings(snap) == []
     stages["items"][0]["AutoDeploy"] = True
+    # A JWT route in both the API config and the deployed stage export requires sign-in,
+    # so it is not an anonymous path to the function.
+    deployed = next(c for c in snap["collections"] if c["type"] == "http_api_deployed_route")["items"][0]
     api["Routes"]["items"][0]["AuthorizationType"] = "JWT"
-    assert len(findings(snap)) == 1
+    deployed["authorizationType"] = "AUTHENTICATED"
+    assert findings(snap) == []
     state = next(a for a in assess(snap, resources(snap)) if a.resource["type"] == "http_api")
     assert state.authenticated and state.verdict() == "PASS"
     api["Routes"]["items"][0]["AuthorizationType"] = "NONE"
+    deployed["authorizationType"] = "NONE"
+    assert len(findings(snap)) == 1
     domain["items"][0]["ApiMappings"]["items"] = []
     domain["status"] = "partial"
     assert findings(snap) == []
@@ -249,6 +307,13 @@ def test_healthy_public_alb_target_links_only_its_ecs_task_role():
             "PolicyDocument": {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}}]}],
         "vpc": [{"VpcId": "vpc-1"}],
         "subnet": [{"SubnetId": "subnet-1", "VpcId": "vpc-1"}],
+        "vpc_block_public_access_options": [{"VpcBlockPublicAccessOptions": {
+            "State": "default-state", "InternetGatewayBlockMode": "off"}}],
+        "internet_gateway": [{"InternetGatewayId": "igw-1", "Attachments": [
+            {"VpcId": "vpc-1", "State": "available"}]}],
+        "route_table": [{"RouteTableId": "rtb-1", "VpcId": "vpc-1", "Associations": [
+            {"SubnetId": "subnet-1", "AssociationState": {"State": "associated"}}], "Routes": [
+            {"DestinationCidrBlock": "0.0.0.0/0", "GatewayId": "igw-1", "State": "active"}]}],
         "security_group": [{"GroupId": "sg-lb", "VpcId": "vpc-1", "IpPermissions": [
             {"IpProtocol": "tcp", "FromPort": 443, "ToPort": 443, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]}],
         "network_acl": [{"NetworkAclId": "acl-1", "VpcId": "vpc-1",
@@ -256,6 +321,7 @@ def test_healthy_public_alb_target_links_only_its_ecs_task_role():
                 {"RuleNumber": 100, "Egress": False, "Protocol": "-1", "RuleAction": "allow", "CidrBlock": "0.0.0.0/0"},
                 {"RuleNumber": 100, "Egress": True, "Protocol": "-1", "RuleAction": "allow", "CidrBlock": "0.0.0.0/0"}]}],
         "load_balancer": [{"LoadBalancerArn": lb, "Type": "application", "Scheme": "internet-facing",
+            "State": {"Code": "active"}, "IpAddressType": "ipv4",
             "DNSName": "web.example.elb.amazonaws.com", "VpcId": "vpc-1", "SecurityGroups": ["sg-lb"],
             "AvailabilityZones": [{"SubnetId": "subnet-1"}], "Listeners": {"collection_status": "collected",
                 "items": [{"Port": 443, "Protocol": "HTTPS", "DefaultActions": [
@@ -369,7 +435,7 @@ def test_gcp_public_load_balancer_links_only_healthy_backend_vm():
         "service_account": [{"email": email}],
         "instance": [{"name": "web", "selfLink": vm, "status": "RUNNING",
             "serviceAccounts": [{"email": email}]}],
-        "forwarding_rule": [{"name": "front", "IPAddress": "203.0.113.10",
+        "forwarding_rule": [{"name": "front", "IPAddress": "34.120.0.10",
             "loadBalancingScheme": "EXTERNAL_MANAGED", "IPProtocol": "TCP", "portRange": "443",
             "target": base + "/global/targetHttpsProxies/web"}],
         "target_proxy": [{"name": "web", "selfLink": base + "/global/targetHttpsProxies/web",

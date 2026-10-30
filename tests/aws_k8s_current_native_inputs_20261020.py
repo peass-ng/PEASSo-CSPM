@@ -19,6 +19,22 @@ def case_state(value):
     return deepcopy(value)
 
 
+def replace_registry_checks(monkeypatch, rows):
+    """Rebind the check registry list everywhere it is imported by name.
+
+    Admission guards verify that modules which imported ``CHECKS`` still hold
+    the live registry list, so a test fault must replace every binding at once.
+    """
+    import sys
+    old = checks.CHECKS
+    for module in list(sys.modules.values()):
+        namespace = getattr(module, '__dict__', None)
+        if module is not checks and isinstance(namespace, dict) and namespace.get('CHECKS') is old:
+            monkeypatch.setattr(module, 'CHECKS', rows)
+    monkeypatch.setattr(checks, 'CHECKS', rows)
+    return rows
+
+
 def annotation_current_cases(check_id, historical):
     from peaso.checks import k8s_annotation_native_admission_20261020 as admission
     if check_id not in admission.IDS:
@@ -98,7 +114,7 @@ def assert_modern_psp_native_applicability(check_id, monkeypatch):
     assert all('podsecuritypolicies' not in str(call) for call in pool.calls)
 
 
-TEST_PREDECESSORS_SHA256 = 'd76f19635759ed3a7d443c773c58d5c1aca36c8223b03b4ead4d18a45bf08798'
+TEST_PREDECESSORS_SHA256 = '08023acc452a16b3fa8f65ff84702fa6a0c569d7e0aba12bbeb6ee57f93ed113'
 TEST_PREDECESSORS = 'tests/fixtures/aws_k8s_residual_test_predecessors_20261020.json.gz'
 OWNED_TESTS = frozenset('tests/' + name + '.py' for name in (
     'test_aws_content_scan_selection_review', 'test_peaso_collectors_aws',

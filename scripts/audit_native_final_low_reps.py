@@ -9,12 +9,34 @@ import ast
 import collections
 import gzip
 import hashlib
+import decimal
 import inspect
-import ijson
 import json
 from pathlib import Path
 import sys
 import textwrap
+
+try:
+    import ijson
+except ImportError:  # optional streaming parser; the stdlib path gives identical values
+    ijson = None
+
+
+def json_items(stream, prefix):
+    """Yield the elements of a top-level array, like ``ijson.items(stream, '<key>.item')``.
+
+    ijson streams large snapshots when it is installed. Without it the document is
+    parsed with the standard library using ijson's number types (int and Decimal), so
+    the audit sees the same values either way.
+    """
+    if ijson is not None:
+        yield from ijson.items(stream, prefix)
+        return
+    key, _, item = prefix.partition('.')
+    if item != 'item' or not key or '.' in key:
+        raise ValueError('unsupported JSON stream prefix: ' + prefix)
+    document = json.load(stream, parse_float=decimal.Decimal)
+    yield from (document.get(key) or []) if isinstance(document, dict) else []
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -366,7 +388,7 @@ def snapshot_completeness(path):
     second_counts = collections.Counter()
     third_counts = collections.Counter()
     with gzip.open(source, 'rb') as stream:
-        for collection in ijson.items(stream, 'collections.item'):
+        for collection in json_items(stream, 'collections.item'):
             if collection.get('type') == 'sqs_queue':
                 if collection.get('status') != 'collected':
                     raise ValueError('incomplete SQS collection')
@@ -713,7 +735,7 @@ def bind_fail_scopes(snapshot_path, pre_ai_path, rows, inventory_by_id):
     resources = collections.defaultdict(lambda: collections.defaultdict(list))
     excluded_empty_noncollected = 0
     with gzip.open(snapshot_path, 'rb') as stream:
-        for collection in ijson.items(stream, 'collections.item'):
+        for collection in json_items(stream, 'collections.item'):
             key = (collection.get('type'), collection.get('scope'))
             status = collection.get('status')
             if status == 'collected' and collection.get('items'):
@@ -738,7 +760,7 @@ def bind_fail_scopes(snapshot_path, pre_ai_path, rows, inventory_by_id):
     resource_bound = 0
     complete_scope_dependencies = 0
     with gzip.open(pre_ai_path, 'rb') as stream:
-        for group in ijson.items(stream, 'findings.item'):
+        for group in json_items(stream, 'findings.item'):
             for native in group.get('observations') or [group]:
                 ident = native.get('check_id')
                 if ident not in approved or native.get('status') != 'FAIL':

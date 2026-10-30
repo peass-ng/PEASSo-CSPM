@@ -367,7 +367,10 @@ def test_scan_resolves_once_and_passes_same_selection_to_network_and_priorities(
         return {'actions': [], 'limitations': [secret]}
     monkeypatch.setattr(pipeline, 'review_network', network_review)
     monkeypatch.setattr(pipeline, 'invoke_before_deadline', priorities)
-    result = pipeline.review_scan({'provider': 'aws', 'findings': [], 'graphs': {}}, {}, {}, tenant='alice', artifacts=None)
+    # Priorities runs only when an actionable native FAIL exists.
+    failed = {'id': 'f1', 'check_id': 'aws.example.hardening', 'category': 'hardening', 'status': 'FAIL',
+              'provider': 'aws', 'resource_id': 'bucket', 'scope': '123456789012/us-east-1', 'evidence': {'public': True}}
+    result = pipeline.review_scan({'provider': 'aws', 'findings': [failed], 'graphs': {}}, {}, {}, tenant='alice', artifacts=None)
     assert result['status'] == 'completed' and result['auth_source'] == 'personal'
     assert len(captured) == 2 and captured[0] is captured[1]
     assert captured[0].public() == {'provider': provider, 'model': model, 'thinking': 'high'}

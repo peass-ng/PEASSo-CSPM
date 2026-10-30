@@ -34,6 +34,18 @@ def synthetic_snapshot(workloads=1000, layout='distributed'):
     for collection in snapshot['collections']:
         if collection['type'] == 'instance':
             collection.update(items=[], status='empty')
+        elif collection['type'] == 'route_table':
+            # The ALB subnet path needs a confirmed association and an active IGW default route.
+            for table in collection['items']:
+                for association in table['Associations']:
+                    association['AssociationState'] = {'State': 'associated'}
+                for route in table['Routes']:
+                    route['State'] = 'active'
+    snapshot['collections'].extend([
+        {'type': 'vpc_block_public_access_options', 'scope': scope, 'status': 'collected', 'items': [
+            {'VpcBlockPublicAccessOptions': {'State': 'default-state', 'InternetGatewayBlockMode': 'off'}}]},
+        {'type': 'internet_gateway', 'scope': scope, 'status': 'collected', 'items': [
+            {'InternetGatewayId': 'igw-a', 'Attachments': [{'VpcId': 'vpc-a', 'State': 'available'}]}]}])
     facts = {kind: [] for kind in ('load_balancer', 'target_group', 'ecs_service', 'ecs_task',
                                   'ecs_task_definition', 'network_interface')}
     for i in range(workloads):
@@ -42,7 +54,8 @@ def synthetic_snapshot(workloads=1000, layout='distributed'):
         definition = f'arn:aws:ecs:us-east-1:111122223333:task-definition/web-{i}:1'
         ip, eni = f'10.{i // 62500 % 250}.{i // 250 % 250}.{i % 250 + 1}', f'eni-{i}'
         facts['load_balancer'].append({'LoadBalancerArn': lb, 'Type': 'application',
-            'Scheme': 'internet-facing', 'DNSName': f'web-{i}.example.elb.amazonaws.com',
+            'Scheme': 'internet-facing', 'State': {'Code': 'active'}, 'IpAddressType': 'ipv4',
+            'DNSName': f'web-{i}.example.elb.amazonaws.com',
             'VpcId': 'vpc-a', 'SecurityGroups': ['sg-a'], 'AvailabilityZones': [{'SubnetId': 'subnet-0'}],
             'Listeners': {'collection_status': 'collected', 'items': [{'Port': 400, 'Protocol': 'HTTP',
                 'DefaultActions': [{'Type': 'forward', 'TargetGroupArn': tg}]}]}})

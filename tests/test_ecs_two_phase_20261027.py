@@ -36,6 +36,9 @@ class Reader:
         module.initialize(self,self.options,[S]);self.configuration_content_metadata[module.KIND+'_capture']='configuration-capture:'+'a'*32
         self.denied=set(denied);self.oversized=set(oversized);self.delay=delay or{}
         self.calls=[];self._cache={};self.cached_by_index={};self.cache_samples=[];self.scan_seen_before_late=False
+        # Real Requests owns one scan-local raw read cache that canonical wrappers bind to.
+        from peaso.collectors.aws_request_pool import RawReadCache
+        self.raw_reads=RawReadCache()
     def check_deadline(self):
         if self.cancel_event.is_set()or time.monotonic()>=self.deadline:raise TimeoutError('fixture_deadline')
     def call(self,session,service,region,operation,**kwargs):
@@ -75,7 +78,8 @@ def native_fakes(monkeypatch):
     monkeypatch.setattr(scanner,'_trufflehog',lambda:'fixture-pinned')
     monkeypatch.setattr(scanner,'_scan_kingfisher',lambda payload,path,timeout:[(TOKEN,'synthetic',1)]if TOKEN.encode()in payload else[])
     def prepare(items,timeout):
-        assert 0<timeout<=30
+        # Combined ECS windows are bounded at 60 s; single groups at 30 s.
+        assert 0<timeout<=60
         calls.append(tuple(items));return{item:b''for item in items}
     monkeypatch.setattr(batch,'_prepare_trufflehog_batch',prepare)
     clear();return calls

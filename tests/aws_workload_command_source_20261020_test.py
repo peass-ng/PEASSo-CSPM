@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import subprocess
 import sys
 import time
 from types import SimpleNamespace
@@ -24,6 +25,16 @@ from botocore.stub import Stubber
 from peaso import secret_scanning as scanning
 
 ROOT = Path(__file__).resolve().parents[1]
+# Under pytest, tests/conftest.py loads the published registry before collection;
+# a direct-file run loads neither. The proof itself must never load more of either.
+REGISTRY_PREFIXES = ('peaso.collectors', 'peaso.checks')
+
+
+def registry_modules():
+    return {name for name in sys.modules if name.startswith(REGISTRY_PREFIXES)}
+
+
+PRELOADED_REGISTRY_MODULES = registry_modules()
 
 
 def load(name, relative):
@@ -34,6 +45,23 @@ def load(name, relative):
 
 
 source = load('workload_command_proof_producer', 'peaso/collectors/aws_workload_command_source_20261020.py')
+_SUCCESSOR_BINDING = []
+
+
+def successor_reviewed_sources():
+    """Production replaces the historical docs drift receipt with the packaged
+    successor binding (runtime.install_source_successor). Verify that binding in
+    a child process so this proof still never imports either shared registry."""
+    if not _SUCCESSOR_BINDING:
+        out = subprocess.run([sys.executable, '-B', '-c',
+            'from peaso.collectors import aws_workload_command_runtime_20261020 as r; print(r.reviewed_sources())'],
+            cwd=ROOT, env={**os.environ, 'PYTHONPATH': os.pathsep.join([str(ROOT)] + [p for p in [os.environ.get('PYTHONPATH')] if p])}, capture_output=True, text=True,
+            timeout=900, check=True)
+        _SUCCESSOR_BINDING.append(out.stdout.strip().splitlines()[-1])
+    return _SUCCESSOR_BINDING[0]
+
+
+source.reviewed_sources = successor_reviewed_sources
 consumer = load('workload_command_proof_consumer', 'peaso/checks/aws_workload_command_source_20261020.py')
 ACCOUNT, REGION = '123456789012', 'us-east-1'
 SCOPE = ACCOUNT + '/' + REGION
@@ -193,8 +221,7 @@ class CommandProof(unittest.TestCase):
         public = json.dumps(result) + json.dumps([consumer.evaluate(r, result) for r in result['items']])
         for value in (TOKEN, 'offline-key', 'local-review', 'AuditDefinition', 'valueFrom', 'environmentFiles'):
             self.assertNotIn(value, public)
-        self.assertNotIn('peaso.collectors', sys.modules)
-        self.assertNotIn('peaso.checks', sys.modules)
+        self.assertEqual(registry_modules(), PRELOADED_REGISTRY_MODULES)
 
     def test_02_explicit_empty_arrays_are_native_zero_not_missing(self):
         specs = [(target(s), response(target(s), [], [])) for s in ('ecs', 'batch')]

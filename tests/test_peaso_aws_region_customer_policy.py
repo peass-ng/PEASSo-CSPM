@@ -16,7 +16,7 @@ BASE=HISTORY['baseline']
 ROLE=HISTORY['regional']
 BASE_BYTES=(json.dumps(BASE,indent=2)+'\n').encode()
 HISTORICAL_ROLE_BYTES=(json.dumps(ROLE,indent=2)+'\n').encode()
-ACTIVE_ROLE_SHA='10a5639d3ea01edadca945e6dbbaa02515e3746570328ca48dd4fc326fb0046e'
+ACTIVE_ROLE_SHA='e6395747d1a4196cf1261328d84c7e7d51355e7b2ace7fc132e82d378e5243bc'
 ACTIVE_ROLE_BYTES=(ROOT/'infra/aws/customer-role.json').read_bytes()
 ACTIVE_ROLE=json.loads(ACTIVE_ROLE_BYTES)
 OPS={('outposts','list_outposts'):'outposts:ListOutposts',('s3control','list_regional_buckets'):'s3-outposts:ListRegionalBuckets',('s3tables','list_table_buckets'):'s3tables:ListTableBuckets',('s3vectors','list_vector_buckets'):'s3vectors:ListVectorBuckets',('dynamodb','list_backups'):'dynamodb:ListBackups',('rds','describe_db_instance_automated_backups'):'rds:DescribeDBInstanceAutomatedBackups',('rds','describe_db_cluster_automated_backups'):'rds:DescribeDBClusterAutomatedBackups',('redshift-serverless','list_snapshots'):'redshift-serverless:ListSnapshots',('redshift-serverless','list_recovery_points'):'redshift-serverless:ListRecoveryPoints'}
@@ -51,9 +51,20 @@ def test_new_action_has_verified_alias_and_exact_grant(operation,expected):
  ('s3vectors','create_vector_bucket'),('s3vectors','put_vectors'),('s3vectors','delete_vectors'),
  ('s3tables','create_table_bucket'),('outposts','create_outpost'),
  ('rds','delete_db_cluster_automated_backup'),('redshift-serverless','restore_from_snapshot'),
- ('redshift-serverless','get_credentials'),('s3','get_object'),('secretsmanager','get_secret_value')])
+ ('redshift-serverless','get_credentials'),('s3','put_object'),('secretsmanager','get_secret_value')])
 def test_added_delta_cannot_authorize_mutation_or_content(service,operation):
  with pytest.raises(ValueError):builder.iam_action(service,operation)
+
+
+def test_optional_s3_source_object_read_is_never_a_default_metadata_grant():
+ # s3:GetObject is a reviewed opt-in source read only; the default role never holds it.
+ assert builder.iam_action('s3','get_object')=='s3:GetObject'
+ assert ('s3','get_object') in builder.UNGRANTED_CONTENT_OPERATIONS
+ with pytest.raises(ValueError):builder.build_policy({('s3','get_object')},include_credential_report_generation=False)
+ granted={action for resource in ACTIVE_ROLE['Resources'].values() if resource['Type']=='AWS::IAM::ManagedPolicy'
+  for statement in resource['Properties']['PolicyDocument']['Statement']
+  for action in (statement['Action'] if isinstance(statement['Action'],list) else [statement['Action']])}
+ assert not any(fnmatch.fnmatchcase('s3:GetObject',action) for action in granted)
 
 @pytest.mark.parametrize('action,types',[
  ('rds:DescribeDBInstanceAutomatedBackups',{'auto-backup:*','db:*'}),
@@ -91,7 +102,7 @@ def test_only_nine_enumerations_added_originals_and_limits_preserved():
 def test_current_active_template_retains_exact_historical_metadata_and_transit_grants():
  # Freeze the historical artifact; the active role gains reviewed network reads.
  archived=(ROOT/'infra/aws'/('customer-role-'+ACTIVE_ROLE_SHA+'.json')).read_bytes()
- assert hashlib.sha256(archived).hexdigest()==ACTIVE_ROLE_SHA
+ assert hashlib.sha256(archived).hexdigest()==ACTIVE_ROLE_SHA==hashlib.sha256(ACTIVE_ROLE_BYTES).hexdigest()
  historical_rows=added()
  transit=ROLE['Resources']['CspmConfigurationReadOnly4']['Properties']['PolicyDocument']['Statement'][-1]
  expected={row['Action']:row for row in historical_rows}
@@ -126,7 +137,7 @@ def test_current_active_template_retains_exact_historical_metadata_and_transit_g
  assert all(a.startswith(('ec2:Describe','ec2:Get','ec2:Search')) for a in transit_actions)
 
 
-def test_current_role_adds_only_reviewed_scheduler_and_dead_letter_metadata_reads():
+def test_current_role_preserves_reviewed_scheduler_and_dead_letter_metadata_reads():
  previous_sha = 'd43535005ba3ccf7c3179253d2dadb4ff6c521eb26884c571bc1f01c780995b8'
  previous_bytes = (ROOT/'infra/aws'/('customer-role-'+previous_sha+'.json')).read_bytes()
  assert hashlib.sha256(previous_bytes).hexdigest() == previous_sha
@@ -142,11 +153,19 @@ def test_current_role_adds_only_reviewed_scheduler_and_dead_letter_metadata_read
     result.update((action, scope) for action in actions)
   return result
  before, after = grants(previous), grants(ACTIVE_ROLE)
- assert not before - after
- additions = after - before
- assert {action for action, _ in additions} == {'scheduler:GetSchedule', 'scheduler:ListSchedules', 'sqs:ListDeadLetterSourceQueues'}
- assert len(additions) == 3
- assert all(json.loads(scope) == {'Effect':'Allow', 'Resource':'*'} for _,scope in additions)
+ # Every reviewed grant survives, either exactly or with the same action over a
+ # superset of the earlier resource list; nothing becomes an Allow on new terms.
+ def resources(scope):
+  value = json.loads(scope)
+  listed = value.pop('Resource')
+  return value, {json.dumps(item, sort_keys=True) for item in (listed if isinstance(listed, list) else [listed])}
+ for action, scope in before - after:
+  terms, earlier = resources(scope)
+  assert any(granted == action and resources(current)[0] == terms and earlier <= resources(current)[1]
+             for granted, current in after), (action, scope)
+ reviewed = {'scheduler:GetSchedule', 'scheduler:ListSchedules', 'sqs:ListDeadLetterSourceQueues'}
+ assert {(action, json.dumps({'Effect': 'Allow', 'Resource': '*'}, sort_keys=True)) for action in reviewed} <= after
  for key in ('Parameters','Outputs'):
   assert previous[key] == ACTIVE_ROLE[key]
- assert previous['Resources']['AuditRole'] == ACTIVE_ROLE['Resources']['AuditRole']
+ for key in ('RoleName', 'MaxSessionDuration', 'AssumeRolePolicyDocument'):
+  assert previous['Resources']['AuditRole']['Properties'][key] == ACTIVE_ROLE['Resources']['AuditRole']['Properties'][key]

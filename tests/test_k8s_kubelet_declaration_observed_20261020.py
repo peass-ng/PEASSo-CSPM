@@ -1,9 +1,13 @@
 from copy import deepcopy
 import pytest
-from peaso.checks.k8s_kubelet_configmap_admission_20261020 import reviewed_inputs
+import sys
+from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as configmap_successor
 from peaso.checks import k8s_kubelet_configmap_review_20261020 as native
 from peaso.checks.k8s_kubelet_declaration_observed_20261020 import observation
 from peaso.checks.k8s_evidence_explanations import evidence_summary
+
+# Production replays the historical ConfigMap admission from archived sources.
+reviewed_inputs=sys.modules[configmap_successor.PRIVATE_NAME].reviewed_inputs
 
 @pytest.mark.parametrize('cid',native.IDS)
 @pytest.mark.parametrize('branch',['pass','fail'])
