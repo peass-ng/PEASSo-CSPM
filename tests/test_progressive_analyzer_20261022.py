@@ -213,18 +213,23 @@ def test_remote_invoke_cancellation_runs_hosted_cleanup(monkeypatch):
     monkeypatch.setattr(pipeline.isolation, "remote", lambda: True)
     monkeypatch.setattr("peaso.ai.fargate.configuration", lambda: {})
 
-    def hosted(stage, root, token, timeout, *, sleep):
+    def hosted(stage, root, token, timeout, *, sleep, prepare, **kwargs):
+        assert stage == "priorities"
         try:
             sleep(30)
         finally:
             cleaned.set()
 
     monkeypatch.setattr("peaso.ai.fargate.invoke", hosted)
+    # Hardening and Exposure have no hosted model agent; only Network and
+    # Priorities may start a task.
+    with pytest.raises(ValueError, match="unknown_ai_stage"):
+        pipeline.invoke("hardening", {"scan": {}, "resources": []}, [], "token", [], [], 40)
     timer = threading.Timer(.02, cancelled.set)
     timer.start()
     try:
         with pytest.raises(CancelledError):
-            pipeline.invoke("hardening", {"scan": {}, "resources": []}, [], "token", [], [], 40,
+            pipeline.invoke("priorities", {"scan": {}, "resources": []}, [], "token", [], [], 40,
                             cancel_event=cancelled)
     finally:
         timer.join()
@@ -254,14 +259,15 @@ def test_reused_review_skips_completed_ai_and_priorities_waits_for_reviewers(mon
 
     def invoke(stage, platform, entries, token, findings, reviews, timeout):
         calls.append(stage)
-        if stage == "priorities":
-            assert {row["finding_id"] for row in reviews} == {"h1", "e1"}
-            return {"actions": [], "limitations": []}
-        return {"items": [{"finding_id": row["id"], "verdict": "FAIL", "reason": ""} for row in findings]}
+        assert stage == "priorities"
+        assert {row["finding_id"] for row in reviews} == {"h1", "e1"}
+        return {"actions": [], "limitations": []}
 
     monkeypatch.setattr(pipeline, "invoke", invoke)
+    # A Hardening-only request starts no model agent: native FAILs are final.
     early = pipeline.review_scan(report, {}, {}, tenant="tenant", artifacts=None, stages=("hardening",))
-    assert calls == ["hardening"] and early["status"] == "completed", early
+    assert calls == [] and early["status"] == "skipped", early
+    assert early["reason"] == "no_ai_sections_selected"
     network_result = dict(pipeline.validate_network({"explanation": "One security group needs owner review.",
         "findings": [{"title": "Narrow source range", "description": "The group permits a broad source range.",
             "rationale": "The broad range weakens the intended tier boundary.", "resource_id": "r",
@@ -271,24 +277,28 @@ def test_reused_review_skips_completed_ai_and_priorities_waits_for_reviewers(mon
             "remediation": "Confirm client ranges and narrow the rule.",
             "verification": "Read the resulting rule and confirm required clients."}]}, network_context),
         status="completed")
-    calls.clear()
     final = pipeline.review_scan(report, {}, {}, tenant="tenant", artifacts=None,
         reused_stages={"hardening": early, "network": {"status": "completed",
             "network": network_result}})
-    assert calls == ["exposure", "priorities"]
+    # The completed Network result is reused; only Priorities runs, over the
+    # native-final Hardening and Exposure reviews.
+    assert calls == ["priorities"]
     assert final["status"] == "completed"
+    assert final["network"] == network_result
     assert [row["finding_id"] for row in final["reviews"]["hardening"]] == ["h1"]
+    assert [row["finding_id"] for row in final["reviews"]["exposure"]] == ["e1"]
+    assert final["coverage"]["model_reviewed"] == 0 and final["coverage"]["native_final"] == 2
     native = copy.deepcopy(report)
     def failing(stage, platform, entries, token, findings, reviews, timeout):
-        if stage == "exposure":
-            raise RuntimeError("isolated reviewer failed")
-        return {"actions": [], "limitations": []}
+        raise RuntimeError("isolated priorities agent failed")
     monkeypatch.setattr(pipeline, "invoke", failing)
     failed = pipeline.review_scan(report, {}, {}, tenant="tenant", artifacts=None,
         reused_stages={"hardening": early, "network": {"status": "completed",
             "network": network_result}})
     assert failed["status"] == "partial"
-    assert failed["reviews"]["exposure"][0]["verdict"] == "UNKNOWN"
+    assert failed["actions"] == []
+    assert "Prioritized recommendations could not be completed." in failed["limitations"]
+    assert [row["finding_id"] for row in failed["reviews"]["hardening"]] == ["h1"]
     assert report == native and all(row["status"] == "FAIL" for row in report["findings"])
 
 
@@ -308,62 +318,59 @@ def _exact_reuse_fixture(monkeypatch, tmp_path):
     monkeypatch.setattr("peaso.least_privilege.project", lambda *a, **kw: {"items": []})
     monkeypatch.setenv("PEASO_AI_MAX_CONCURRENCY", "1")
     calls = []
-    def invoke(stage, platform, entries, token, findings, reviews, timeout):
+    def invoke(stage, platform, entries, token, findings, reviews, timeout, **kwargs):
         calls.append((stage, [row["id"] for row in findings], copy.deepcopy(reviews)))
-        if stage == "priorities":
-            return {"actions": [], "limitations": []}
-        return {"items": [{"finding_id": row["id"], "verdict": "FAIL", "reason": ""}
-                           for row in findings]}
+        assert stage == "priorities"
+        return {"actions": [], "limitations": []}
     monkeypatch.setattr(pipeline, "invoke", invoke)
     return calls
 
 
+def _hardening_report(ids, *, stamp="2026-10-22T10:00:00Z"):
+    return {"provider": "aws", "snapshot_id": stamp, "created_at": stamp,
+            "findings": [{"id": ident, "check_id": ident, "category": "hardening",
+                          "status": "FAIL", "resource_id": "r", "scope": "123456789012/us-east-1"}
+                         for ident in ids], "graphs": {}}
+
+
 def test_exact_finding_reuse_reviews_only_six_new_rows(monkeypatch, tmp_path):
+    # Hardening rows are native-final: a checkpoint review never feeds a model
+    # Hardening agent, and the six new rows need no model review either.
     calls = _exact_reuse_fixture(monkeypatch, tmp_path)
-    def report(count):
-        return {"provider": "aws", "snapshot_id": "captured", "created_at": "2026-10-22T10:00:00Z",
-                "findings": [{"id": f"h{i:03}", "check_id": f"check{i:03}",
-                              "category": "hardening", "status": "FAIL", "resource_id": "r",
-                              "scope": "123456789012/us-east-1"} for i in range(count)], "graphs": {}}
     snapshot = {"resources": [{"id": "r", "scope": "123456789012/us-east-1",
                                "provider": "aws", "data": {"state": "captured"}}]}
-    early = pipeline.review_scan(report(140), snapshot, {}, tenant="tenant", artifacts=None,
-                                 stages=("hardening",))
-    assert early["status"] == "completed" and len(early["reviews"]["hardening"]) == 140, (early, calls)
-    assert [len(ids) for stage, ids, _ in calls if stage == "hardening"] == [35, 35, 35, 35]
+    early = pipeline.review_scan(_hardening_report([f"h{i:03}" for i in range(140)]), snapshot, {},
+                                 tenant="tenant", artifacts=None, stages=("hardening",))
+    assert early["status"] == "skipped" and calls == []
     saved_early = copy.deepcopy(early)
-    final_report = report(146)
-    final_report["snapshot_id"] = "final-view-of-same-section-revision"
-    final_report["created_at"] = "2026-10-22T10:05:00Z"
-    calls.clear()
+    final_report = _hardening_report([f"h{i:03}" for i in range(146)], stamp="2026-10-22T10:05:00Z")
     final = pipeline.review_scan(final_report, snapshot, {}, tenant="tenant", artifacts=None,
                                  reused_stages={"hardening": early})
-    assert [ids for stage, ids, _ in calls if stage == "hardening"] == [
-        [f"h{i:03}" for i in range(140, 146)]]
+    assert [stage for stage, _, _ in calls] == ["priorities"]
     assert len([row for row in final["reviews"]["hardening"] if row["verdict"] == "FAIL"]) == 146
-    reused_priority_input = next(rows for stage, _, rows in calls if stage == "priorities")
+    assert final["coverage"]["native_final"] == 146 and final["coverage"]["model_reviewed"] == 0
+    reused_priority_input = calls[0][2]
     calls.clear()
     reference = pipeline.review_scan(final_report, snapshot, {}, tenant="tenant", artifacts=None)
-    full_priority_input = next(rows for stage, _, rows in calls if stage == "priorities")
     assert final["reviews"] == reference["reviews"]
     assert final["coverage"] == reference["coverage"]
     assert final["actions"] == reference["actions"]
-    assert reused_priority_input == full_priority_input
+    assert reused_priority_input == calls[0][2]
     final["reviews"]["hardening"][0]["reason"] = "changed after reuse"
     assert early == saved_early
 
 
 @pytest.mark.parametrize("change", ["finding", "resource", "time", "provider", "identity", "legacy", "version", "unconcluded", "tampered"])
 def test_exact_finding_reuse_falls_back_without_matching_proof(monkeypatch, tmp_path, change):
+    # No prior Hardening artifact, however altered, replaces native-final reviews.
     calls = _exact_reuse_fixture(monkeypatch, tmp_path)
-    base = {"provider": "aws", "snapshot_id": "captured", "created_at": "2026-10-22T10:00:00Z",
-            "findings": [{"id": "h1", "check_id": "check", "category": "hardening",
-                          "status": "FAIL", "resource_id": "r", "scope": "123456789012/us-east-1"}],
-            "graphs": {}}
+    base = _hardening_report(["h1"])
     snapshot = {"resources": [{"id": "r", "scope": "123456789012/us-east-1",
                                "provider": "aws", "data": {"state": "old"}}]}
-    prior = pipeline.review_scan(base, snapshot, {}, tenant="tenant", artifacts=None, stages=("hardening",))
-    prior = copy.deepcopy(prior)
+    prior = copy.deepcopy(pipeline.review_scan(base, snapshot, {}, tenant="tenant", artifacts=None))
+    assert prior["status"] == "completed" and len(prior["reviews"]["hardening"]) == 1
+    prior["review_fingerprints"] = {"hardening": {"h1": "f" * 64}}
+    prior["review_fingerprint_version"] = 2
     report, current_snapshot = copy.deepcopy(base), copy.deepcopy(snapshot)
     if change == "finding":
         report["findings"][0]["evidence"] = {"changed": True}
@@ -383,31 +390,42 @@ def test_exact_finding_reuse_falls_back_without_matching_proof(monkeypatch, tmp_
         prior["reviews"]["hardening"][0]["verdict"] = "UNKNOWN"
     elif change == "tampered":
         prior["reviews"]["hardening"].append(copy.deepcopy(prior["reviews"]["hardening"][0]))
+        prior["reviews"]["hardening"][0]["reason"] = "tampered prior reason"
     calls.clear()
     result = pipeline.review_scan(report, current_snapshot, {}, tenant="tenant", artifacts=None,
-                                  stages=("hardening",), reused_stages={"hardening": prior})
-    assert result["status"] == "completed"
-    assert [ids for stage, ids, _ in calls if stage == "hardening"] == [["h1"]]
+                                  reused_stages={"hardening": prior})
+    reused_input = [rows for stage, _, rows in calls]
+    calls.clear()
+    reference = pipeline.review_scan(report, current_snapshot, {}, tenant="tenant", artifacts=None)
+    assert result["status"] == reference["status"] == "completed"
+    assert result["reviews"] == reference["reviews"]
+    assert [(row["finding_id"], row["verdict"]) for row in result["reviews"]["hardening"]] == [("h1", "FAIL")]
+    assert reused_input == [rows for stage, _, rows in calls]
+    assert "review_fingerprints" not in result
 
 
 def test_exact_finding_reuse_preserves_cancellation_for_new_rows(monkeypatch, tmp_path):
     calls = _exact_reuse_fixture(monkeypatch, tmp_path)
-    report = {"provider": "aws", "created_at": "2026-10-22T10:00:00Z", "findings": [
-        {"id": ident, "check_id": ident, "category": "hardening", "status": "FAIL",
-         "resource_id": "r", "scope": "123456789012/us-east-1"} for ident in ("old", "new")],
-        "graphs": {}}
+    report = _hardening_report(("old", "new"))
     prior = pipeline.review_scan(dict(report, findings=report["findings"][:1]), {}, {},
-                                 tenant="tenant", artifacts=None, stages=("hardening",))
+                                 tenant="tenant", artifacts=None)
     calls.clear()
     cancelled = threading.Event()
     cancelled.set()
+    def cancelled_invoke(stage, platform, entries, token, findings, reviews, timeout, *, cancel_event=None, **kwargs):
+        calls.append(stage)
+        assert cancel_event is cancelled and cancel_event.is_set()
+        raise CancelledError()
+    monkeypatch.setattr(pipeline, "invoke", cancelled_invoke)
     result = pipeline.review_scan(report, {}, {}, tenant="tenant", artifacts=None,
-                                  stages=("hardening",), reused_stages={"hardening": prior},
-                                  cancel_event=cancelled)
+                                  reused_stages={"hardening": prior}, cancel_event=cancelled)
+    # The cancelled Priorities agent yields a partial result; native-final
+    # Hardening rows stay FAIL for both the reused and the new finding.
     assert result["status"] == "partial"
+    assert result["actions"] == []
     assert [(row["finding_id"], row["verdict"]) for row in result["reviews"]["hardening"]] == [
-        ("old", "FAIL"), ("new", "UNKNOWN")]
-    assert calls == []
+        ("old", "FAIL"), ("new", "FAIL")]
+    assert calls == ["priorities"]
 
 
 def test_exact_review_artifact_requires_complete_authoritative_revision():
@@ -415,15 +433,19 @@ def test_exact_review_artifact_requires_complete_authoritative_revision():
     class Artifacts:
         def get(self, tenant, reference):
             assert (tenant, reference) == ("tenant", "review-ref")
-            return {"stage": "hardening", "data_revision": 9,
-                    "result": {"status": "completed", "review_fingerprint_version": 2}}
-    stages = {"hardening": {"data_revision": 9, "result_ref": "review-ref"}}
-    section = {"hardening": {"status": "complete", "data_revision": 9}}
-    assert "hardening" in _reusable_stages(Artifacts(), "tenant", section, stages)
-    section["hardening"]["data_revision"] = 10
+            return {"stage": "network", "data_revision": 9,
+                    "result": {"status": "completed", "network": {"status": "completed"}}}
+    stages = {"network": {"data_revision": 9, "result_ref": "review-ref"}}
+    section = {"network": {"status": "complete", "data_revision": 9}}
+    assert "network" in _reusable_stages(Artifacts(), "tenant", section, stages)
+    section["network"]["data_revision"] = 10
     assert _reusable_stages(Artifacts(), "tenant", section, stages) == {}
-    section["hardening"].update(status="running", data_revision=9)
+    section["network"].update(status="running", data_revision=9)
     assert _reusable_stages(Artifacts(), "tenant", section, stages) == {}
+    # Hardening has no model stage, so no stored Hardening artifact is reusable.
+    hardening = {"hardening": {"data_revision": 9, "result_ref": "review-ref"}}
+    assert _reusable_stages(Artifacts(), "tenant",
+                            {"hardening": {"status": "complete", "data_revision": 9}}, hardening) == {}
 
 
 def test_ready_restores_every_native_observation_with_mixed_statuses():
@@ -507,29 +529,26 @@ def test_access_reference_reuses_only_exact_bound_entries(monkeypatch, tmp_path)
 
 def test_partial_prior_reuses_conclusive_observations_only(monkeypatch, tmp_path):
     calls = _exact_reuse_fixture(monkeypatch, tmp_path)
-    def report(ids, *, stamp):
-        return {"provider": "aws", "created_at": stamp, "snapshot_id": stamp,
-                "findings": [{"id": ident, "check_id": ident, "category": "hardening",
-                              "status": "FAIL", "resource_id": "r", "scope": "123456789012/us-east-1"}
-                             for ident in ids], "graphs": {}}
-    prior = pipeline.review_scan(report(("old-a", "old-b"), stamp="checkpoint"), {}, {},
-                                 tenant="tenant", artifacts=None, stages=("hardening",))
+    prior = pipeline.review_scan(_hardening_report(("old-a", "old-b"), stamp="checkpoint"), {}, {},
+                                 tenant="tenant", artifacts=None)
     prior["status"] = "partial"
     prior["reviews"]["hardening"][1].update(verdict="UNKNOWN", reason="The prior reviewer timed out.")
     calls.clear()
-    current = report(("old-a", "old-b", "new"), stamp="final")
+    current = _hardening_report(("old-a", "old-b", "new"), stamp="final")
     result = pipeline.review_scan(current, {}, {}, tenant="tenant", artifacts=None,
                                   reused_stages={"hardening": prior})
-    assert [ids for stage, ids, _ in calls if stage == "hardening"] == [["old-b", "new"]]
+    assert [stage for stage, _, _ in calls] == ["priorities"]
+    assert [(row["finding_id"], row["verdict"]) for row in result["reviews"]["hardening"]] == [
+        ("old-a", "FAIL"), ("old-b", "FAIL"), ("new", "FAIL")]
     assert result["coverage"] == {"hardening": 3, "exposure": 0, "reviewed": 3,
-                                   "native_final": 0, "model_reviewed": 3, "total": 3}
-    reused_priority_input = next(rows for stage, _, rows in calls if stage == "priorities")
+                                   "native_final": 3, "model_reviewed": 0, "total": 3}
+    reused_priority_input = calls[0][2]
     calls.clear()
     reference = pipeline.review_scan(current, {}, {}, tenant="tenant", artifacts=None)
     assert result["reviews"] == reference["reviews"]
     assert result["actions"] == reference["actions"]
     assert result["coverage"] == reference["coverage"]
-    assert reused_priority_input == next(rows for stage, _, rows in calls if stage == "priorities")
+    assert reused_priority_input == calls[0][2]
 
 
 def test_grouped_checkpoint_and_raw_final_share_observation_fingerprint(monkeypatch, tmp_path):
@@ -548,17 +567,21 @@ def test_grouped_checkpoint_and_raw_final_share_observation_fingerprint(monkeypa
     artifacts.values["report-json"] = grouped
     progressive, _, _ = progressive_analyzer._ready({"partial_report": "partial-report",
         "partial_snapshot": "partial-snapshot"}, artifacts, "tenant")
-    snapshot = {}
-    early = pipeline.review_scan(progressive, snapshot, {}, tenant="tenant", artifacts=None,
-                                 stages=("hardening",))
     final_raw = dict(progressive, finding_grouping=None, findings=[copy.deepcopy(row)],
                      snapshot_id="final", created_at="final-time")
+    identity = {"ai_user": "tenant", "auth_source": "test", "access_reference": None}
+    def fingerprints(report):
+        return pipeline.review_fingerprints(report, {}, pipeline.inputs(report)[0],
+                                            identity=identity, entries=[])
+    assert fingerprints(progressive) == fingerprints(final_raw)
+    assert list(fingerprints(final_raw)) == ["asset-fail"]
+    early = pipeline.review_scan(progressive, {}, {}, tenant="tenant", artifacts=None)
+    early_input = calls[0][2]
     calls.clear()
-    final = pipeline.review_scan(final_raw, snapshot, {}, tenant="tenant", artifacts=None,
-                                 stages=("hardening",), reused_stages={"hardening": early})
-    assert early["review_fingerprints"]["hardening"] == final["review_fingerprints"]["hardening"]
+    final = pipeline.review_scan(final_raw, {}, {}, tenant="tenant", artifacts=None,
+                                 reused_stages={"hardening": early})
     assert final["reviews"]["hardening"] == early["reviews"]["hardening"]
-    assert calls == []
+    assert [stage for stage, _, _ in calls] == ["priorities"] and calls[0][2] == early_input
 
 
 def test_fingerprint_changes_with_identity_reference_and_access_epoch():
