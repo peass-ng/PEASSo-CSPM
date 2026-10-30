@@ -11,7 +11,9 @@ import inspect
 import json
 from pathlib import Path
 import re
+import struct
 import sys
+import zlib
 
 from peaso import engine
 from peaso.privesc import versioned_catalog as catalog
@@ -20,6 +22,19 @@ ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / 'peaso/rulepacks'
 FROZEN_SOURCES = ('peaso/privesc/schema.py', 'peaso/privesc/versioned_catalog.py',
                   'risk_rules/hacktricks-privesc-source.json')
+
+
+def deterministic_gzip(data):
+    """Platform-independent gzip member, matching peaso_compliance_materialize.
+
+    gzip.compress(mtime=0) lets zlib stamp its build's OS byte (macOS 19, Unix 3),
+    so the pinned gzip_sha256 differed between macOS and Linux CI for identical
+    content. The header is fixed (no name, mtime 0, XFL 2, OS 255).
+    """
+    compressor = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS, 8, zlib.Z_DEFAULT_STRATEGY)
+    body = compressor.compress(data) + compressor.flush()
+    return (b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\xff" + body
+            + struct.pack("<II", zlib.crc32(data), len(data) & 0xFFFFFFFF))
 
 
 def encoded(value):
@@ -311,7 +326,9 @@ def render_documents():
 
 def _documents(document, main_manifest):
     raw = encoded(document)
-    compressed = gzip.compress(raw, compresslevel=9, mtime=0)
+    compressed = deterministic_gzip(raw)
+    if gzip.decompress(compressed) != raw:
+        raise ValueError('display gzip round trip differs')
     gzip_digest = hashlib.sha256(compressed).hexdigest()
     manifest = {'schema_version': 1, 'catalog_document_sha256': main_manifest['document_sha256'],
                 'json_bytes': len(raw), 'json_sha256': hashlib.sha256(raw).hexdigest(),
