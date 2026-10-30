@@ -23,8 +23,8 @@ jobs:
       - name: Fetch canonical permissions with retries
         run: python scripts/fetch_hacktricks_permissions.py --destination .canonical-source
       - name: Install offline validation dependencies
-        # Sync, source-fetch fixtures, and native coverage use only these packages.
-        run: python -m pip install --retries 5 --timeout 30 'PyYAML>=6' 'requests>=2' 'pytest>=8'
+        # Collection imports require jmespath even for offline sync tests.
+        run: python -m pip install --retries 5 --timeout 30 'PyYAML>=6' 'requests>=2' 'pytest>=8' 'jmespath>=1'
       - name: Synchronize and verify canonical permissions
         run: |
           python scripts/sync_hacktricks_permissions.py --book-root .canonical-source --supplement risk_rules/reviewed-permission-supplement.json
@@ -61,7 +61,7 @@ jobs:
       - name: Fetch canonical privesc paths and cited pages with retries
         run: python scripts/fetch_hacktricks_permissions.py --destination .canonical-source --with-privesc --require-privesc --revision-file risk_rules/hacktricks-privesc-source.json
       - name: Install offline validation dependencies
-        run: python -m pip install --retries 5 --timeout 30 'PyYAML>=6' 'pytest>=8'
+        run: python -m pip install --retries 5 --timeout 30 'PyYAML>=6' 'pytest>=8' 'jmespath>=1'
       - name: Synchronize and verify canonical privesc paths
         # Upstream content is schema-validated before writing; conflicting edits and dropped
         # technique ids without a reviewed ledger fail this step and leave the branch unchanged.
