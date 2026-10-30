@@ -13,6 +13,7 @@ from kubernetes import config
 
 from peaso import engine
 import peaso.checks as registry
+from tests.aws_k8s_current_native_inputs_20261020 import replace_registry_checks
 from peaso.checks.fixtures import CASES
 from peaso.checks import k8s_annotation_native_source_successor_20261021 as current_successor
 admission = sys.modules[current_successor._PRIVATE_NAME]
@@ -155,7 +156,7 @@ def test_idempotence_accepts_fresh_factory_closures_without_replacing_checks():
 
 
 def predecessors(monkeypatch):
-    monkeypatch.setattr(registry, 'CHECKS', [admission._PREDECESSORS.get(c.id, c) for c in registry.CHECKS])
+    replace_registry_checks(monkeypatch, [admission._PREDECESSORS.get(c.id, c) for c in registry.CHECKS])
     return tuple(registry.CHECKS)
 
 
@@ -166,7 +167,7 @@ def test_wrong_successor_check_id_closure_rejected_without_mutation(monkeypatch,
     replacement = admission._clone(old.evaluate, leaf, candidate.evaluate_for(wrong_id), {})
     setattr(replacement, admission.MARK, cid)
     bad = replace(old, evaluate=replacement)
-    monkeypatch.setattr(registry, 'CHECKS', [bad if c.id == cid else c for c in registry.CHECKS])
+    replace_registry_checks(monkeypatch, [bad if c.id == cid else c for c in registry.CHECKS])
     before = tuple(registry.CHECKS)
     with pytest.raises(RuntimeError, match='closure|wrappers'):
         admission.install()
@@ -177,7 +178,7 @@ def test_wrong_successor_check_id_closure_rejected_without_mutation(monkeypatch,
 def test_predecessor_wrapper_drift_rejected_without_mutation(monkeypatch, cid):
     predecessors(monkeypatch)
     def forged(item, index): return 'PASS', {}
-    monkeypatch.setattr(registry, 'CHECKS', [replace(c, evaluate=forged) if c.id == cid else c for c in registry.CHECKS])
+    replace_registry_checks(monkeypatch, [replace(c, evaluate=forged) if c.id == cid else c for c in registry.CHECKS])
     before = tuple(registry.CHECKS)
     with pytest.raises(RuntimeError, match='predecessor changed'):
         admission.install()
@@ -206,7 +207,7 @@ def test_commit_failure_rolls_back_registry_and_originals(monkeypatch):
                 self.fired = True; super().__setitem__(key, value)
                 raise RuntimeError('injected commit failure')
             return super().__setitem__(key, value)
-    monkeypatch.setattr(registry, 'CHECKS', ThrowOnce(before))
+    replace_registry_checks(monkeypatch, ThrowOnce(before))
     with pytest.raises(RuntimeError, match='injected commit failure'):
         admission.install()
     assert all(a is b for a, b in zip(before, registry.CHECKS)) and admission._PREDECESSORS == originals

@@ -19,6 +19,22 @@ def case_state(value):
     return deepcopy(value)
 
 
+def replace_registry_checks(monkeypatch, rows):
+    """Rebind the check registry list everywhere it is imported by name.
+
+    Admission guards verify that modules which imported ``CHECKS`` still hold
+    the live registry list, so a test fault must replace every binding at once.
+    """
+    import sys
+    old = checks.CHECKS
+    for module in list(sys.modules.values()):
+        namespace = getattr(module, '__dict__', None)
+        if module is not checks and isinstance(namespace, dict) and namespace.get('CHECKS') is old:
+            monkeypatch.setattr(module, 'CHECKS', rows)
+    monkeypatch.setattr(checks, 'CHECKS', rows)
+    return rows
+
+
 def annotation_current_cases(check_id, historical):
     from peaso.checks import k8s_annotation_native_admission_20261020 as admission
     if check_id not in admission.IDS:

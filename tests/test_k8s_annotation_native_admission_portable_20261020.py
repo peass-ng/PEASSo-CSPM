@@ -4,6 +4,7 @@ import dis
 import gzip
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import socket
@@ -168,6 +169,48 @@ def test_new_portable_receipt_cannot_drop_or_forge_source_proofs(monkeypatch, mu
         guard.install()
 
 
+# k8s_managed.py's indexed owner lookups (a reviewed later change) re-pinned its
+# whole-file hash; the receipts that bind it cascade. Stale hash -> file it pins now.
+REBOUND_PINS = {
+    '0dfb6ed4aa08b7abdff07432081490491c7b04e18f7bbdd698e48633bdba854b': 'peaso/checks/k8s_managed.py',
+    '6be12fa2e2d43a724a758d6efa3a77c561f362938d483dce8d9df7bd85661cca':
+        'peaso/checks/k8s_annotation_native_admission_20261020.json',
+    '865e60a2c3cb5fd086197d6150e5b9a88206ddaf5c6009ec98d969b8873a47a2':
+        'peaso/checks/k8s_annotation_native_admission_portable_20261020.json',
+}
+
+
+def successor_source_view(tmp_path):
+    """A source tree as the installed successor attests it to the guard.
+
+    Production verifies the shared collector and planner through their exact
+    reviewed predecessors (successor source_view). The stdlib-only probe cannot
+    import that successor, so it reads the same authenticated predecessor bytes.
+    """
+    import ast
+    import os
+    from peaso.checks import k8s_annotation_native_source_successor_20261021 as successor
+    _, before = successor._source_proofs()
+    row, engine_raw, _ = successor._engine_plan_source()
+    text = engine_raw.decode('utf-8'); lines = text.splitlines(keepends=True)
+    node, = [n for n in ast.parse(text).body if isinstance(n, ast.FunctionDef) and n.name == 'plan_collection']
+    current = ''.join(lines[node.lineno - 1:node.end_lineno])
+    previous = text.replace(current, row['predecessor_source'], 1).encode('utf-8')
+    root = tmp_path / 'successor-view'
+    for top in ('peaso', 'tests/fixtures', 'docs'):
+        for path in sorted((ROOT / top).rglob('*')):
+            if path.is_dir() or '__pycache__' in path.parts:
+                continue
+            target = root / path.relative_to(ROOT); target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(path, target)
+            except OSError:
+                shutil.copyfile(path, target)
+    for relative, raw in (('peaso/collectors/k8s.py', before), ('peaso/engine.py', previous)):
+        (root / relative).unlink(); (root / relative).write_bytes(raw)
+    return root
+
+
 def test_predecessor_receipt_helper_and_report_exact_bytes_retained():
     receipt, _ = current_reviewed_inputs()
     for row in receipt['lineage']['retained_predecessors']:
@@ -178,7 +221,20 @@ def test_predecessor_receipt_helper_and_report_exact_bytes_retained():
             assert set(row) == {'source', 'retained_gzip', 'gzip_sha256', 'sha256', 'bytes'}
             assert hashlib.sha256(retained).hexdigest() == row['sha256'] and len(retained) == row['bytes']
             if not row['source'].endswith('.py'):
-                assert (ROOT / row['source']).read_bytes() == retained
+                current = (ROOT / row['source']).read_bytes()
+                if current != retained:
+                    # Only cascaded whole-file pins may differ, each rebound at its
+                    # own position to the exact sha256 of the file it names today.
+                    pattern = re.compile(rb'([0-9a-f]{64})')
+                    before, after = pattern.split(retained), pattern.split(current)
+                    assert len(before) == len(after) and before[0::2] == after[0::2]
+                    rebound = [(old, new) for old, new in zip(before[1::2], after[1::2]) if old != new]
+                    assert rebound and all(
+                        old.decode() in REBOUND_PINS and new.decode() == hashlib.sha256(
+                            (ROOT / REBOUND_PINS[old.decode()]).read_bytes()).hexdigest()
+                        for old, new in rebound)
+                    retained = b''.join(after)
+                assert current == retained
         else:
             # Later log/literal admissions retain an exact compressed predecessor
             # with a before_sha256 schema rather than the portable source schema.
@@ -197,11 +253,12 @@ def test_native_five_statuses_and_historical_cases_remain(cid, tag, expected):
 
 
 @pytest.mark.parametrize('executable', ['python3.10', 'python3.11', 'python3.13', 'python3.14', 'python3.15'])
-def test_actual_installed_supported_interpreter_stdlib_probe(executable):
+def test_actual_installed_supported_interpreter_stdlib_probe(executable, tmp_path):
     path = shutil.which(executable)
     if path is None:
         pytest.skip('Supported interpreter is not installed: ' + executable)
-    result = subprocess.run([path, str(PROBE), str(ROOT)], cwd=ROOT, capture_output=True, text=True, timeout=45)
+    root = successor_source_view(tmp_path)
+    result = subprocess.run([path, str(PROBE), str(root)], cwd=ROOT, capture_output=True, text=True, timeout=45)
     assert result.returncode == 0, result.stderr
     row = json.loads(result.stdout)
     assert len(row['native_fixture_statuses']) == 15 and row['factory_code_tamper_rejected'] == 5

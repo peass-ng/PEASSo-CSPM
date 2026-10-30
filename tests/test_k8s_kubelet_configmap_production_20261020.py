@@ -13,7 +13,7 @@ from kubernetes import client,config
 from peaso import engine
 import peaso.checks as registry
 from peaso.checks import fixtures
-from tests.aws_k8s_current_native_inputs_20261020 import case_state
+from tests.aws_k8s_current_native_inputs_20261020 import case_state, replace_registry_checks
 from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as successor
 from peaso.checks import k8s_kubelet_configmap_review_20261020 as candidate
 from peaso.collectors import k8s
@@ -159,7 +159,7 @@ def test_missing_receipt_fields_rejected(monkeypatch):
 
 
 def absent(monkeypatch):
-    monkeypatch.setattr(registry,'CHECKS',[c for c in registry.CHECKS if c.id not in candidate.IDS])
+    replace_registry_checks(monkeypatch, [c for c in registry.CHECKS if c.id not in candidate.IDS])
     monkeypatch.setattr(fixtures,'CASES',{k:deepcopy(v)for k,v in fixtures.CASES.items()if k not in candidate.IDS})
 
 

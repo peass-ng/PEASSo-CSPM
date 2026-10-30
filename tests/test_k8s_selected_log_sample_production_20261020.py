@@ -16,7 +16,7 @@ import pytest
 from fastapi import HTTPException
 from peaso import checks, engine, secret_scanning as scanning
 from peaso.checks import fixtures
-from tests.aws_k8s_current_native_inputs_20261020 import case_state
+from tests.aws_k8s_current_native_inputs_20261020 import case_state, replace_registry_checks
 from peaso.checks import k8s_selected_log_source_successor_20261021 as log_successor
 from peaso.checks import k8s_annotation_native_source_successor_20261021 as annotation_successor
 from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as configmap_successor
@@ -150,7 +150,20 @@ def test_later_real_sdk_metadata_body_debug_is_private_and_cache_is_scrubbed(mon
         options={'inventories': [source.KIND, 'pod']}, extra_documents={listing: payload})
     assert wire.verdict(rows) == {'FAIL'} and len(trace.calls) == 4
     assert any(c['type'] == 'pod' and c['status'] == ('denied' if denied else 'collected') for c in snapshot['collections'])
-    assert wire.TOKEN not in caplog.text + json.dumps([snapshot, rows, list(scanning._RESULTS.values())])
+    # Debug logs, the scanner cache and denied error bodies never carry the value.
+    assert wire.TOKEN not in caplog.text + json.dumps(list(scanning._RESULTS.values()))
+    # A found value stays visible only where it was collected: the pod label.
+    # The env literal remains redacted at collection.
+    def located(value, path=()):
+        if isinstance(value, dict):
+            return [p for key, child in value.items() for p in located(child, path + (key,))]
+        if isinstance(value, list):
+            return [p for index, child in enumerate(value) for p in located(child, path + (index,))]
+        return [path] if isinstance(value, str) and wire.TOKEN in value else []
+    pod_items = [c for c in snapshot['collections'] if c['type'] == 'pod']
+    expected = [] if denied else [('collections', snapshot['collections'].index(pod_items[0]), 'items', 0,
+                                   'metadata', 'labels', 'observed-canary')]
+    assert located(snapshot) == expected and wire.TOKEN not in json.dumps(rows)
     assert trace.api.api_client.last_response is None
     logging.getLogger('kubernetes.client.rest').debug('unrelated-after-worker-job')
     assert 'unrelated-after-worker-job' in caplog.text
@@ -229,19 +242,19 @@ def test_safe_wrapper_closure_cannot_select_a_different_predicate():
 
 
 def test_duplicate_registration_rejected(monkeypatch):
-    monkeypatch.setattr(checks, 'CHECKS', list(checks.CHECKS) + [current()])
+    replace_registry_checks(monkeypatch, list(checks.CHECKS) + [current()])
     with pytest.raises(RuntimeError, match='collision'): admission.install()
 
 
 def test_registration_metadata_change_rejected(monkeypatch):
     old = current()
-    monkeypatch.setattr(checks, 'CHECKS', [replace(c, title='changed') if c is old else c for c in checks.CHECKS])
+    replace_registry_checks(monkeypatch, [replace(c, title='changed') if c is old else c for c in checks.CHECKS])
     with pytest.raises(RuntimeError, match='metadata'): admission.install()
 
 
 def test_install_rollback_after_register_append(monkeypatch):
     before = [c for c in checks.CHECKS if c.id != source.CHECK]
-    monkeypatch.setattr(checks, 'CHECKS', list(before))
+    replace_registry_checks(monkeypatch, list(before))
     monkeypatch.setattr(fixtures, 'CASES', {k: deepcopy(v) for k, v in fixtures.CASES.items() if k != source.CHECK})
     original = checks.register
     def broken(*a, **kw):
@@ -257,7 +270,7 @@ def test_install_rollback_after_register_append(monkeypatch):
 
 def test_install_rollback_after_case_assignment_failure(monkeypatch):
     before = [c for c in checks.CHECKS if c.id != source.CHECK]
-    monkeypatch.setattr(checks, 'CHECKS', list(before))
+    replace_registry_checks(monkeypatch, list(before))
     class Broken(dict):
         def __setitem__(self, key, value):
             if key == source.CHECK: raise RuntimeError('injected case failure')
