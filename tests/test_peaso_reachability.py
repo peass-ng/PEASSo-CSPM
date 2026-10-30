@@ -3240,7 +3240,8 @@ def aws_transit_gateway_fixture():
                 "RouteInventory": {"collection_status": "collected", "queries": ["type=static", "type=propagated"],
                     "items": [{"DestinationCidrBlock": remote_prefix, "Type": "static", "State": "active",
                         "TransitGatewayAttachments": [{"TransitGatewayAttachmentId": remote_attachment,
-                            "ResourceType": "vpc", "ResourceId": "vpc-b" if scope == a else "vpc-a"}]}]}}]})
+                            "ResourceType": "vpc", "ResourceId": "vpc-b" if scope == a else "vpc-a"}]}]},
+                "SystemRouteInventory": {"collection_status": "empty", "queries": ["type=system"], "items": []}}]})
     collection(snapshot, "vpc_peering", a).update(status="empty", items=[])
     snapshot["collections"].append({"type": "transit_gateway", "scope": a, "service": "ec2", "status": "collected",
         "items": [{"id": gateway_id, "TransitGatewayId": gateway_id, "State": "available"}]})

@@ -10,7 +10,7 @@ from peaso.collectors.gcp_network_catalog import api_root
 
 def test_gcp_exposure_catalog_types_are_supported_and_scheduled():
     from peaso.analysis.internet_exposure import GCP_TYPES
-    from peaso.collectors.gcp import GCPCollector, SUPPORTED_TYPES
+    from peaso.collectors.gcp import DEPENDENCIES, GCPCollector, SUPPORTED_TYPES
     from peaso.collectors.gcp_network_catalog import TYPES, REGIONAL, PRIVATE_SERVICES
     from tests.test_peaso_collectors_gcp import FixtureTransport, connector
 
@@ -22,8 +22,10 @@ def test_gcp_exposure_catalog_types_are_supported_and_scheduled():
     collector = GCPCollector(connector(sorted(native_catalog)),
                              transport=FixtureTransport(lambda _: {}))
     jobs = [kind for kind, _, _, _ in collector.scope_jobs("projects/p-one")]
-    assert set(jobs) == native_catalog
-    assert len(jobs) == len(native_catalog)
+    # Checks on these kinds also need their declared supporting reads.
+    supporting = set().union(*(DEPENDENCIES.get(kind, set()) for kind in native_catalog))
+    assert set(jobs) == native_catalog | supporting
+    assert len(jobs) == len(set(jobs))
 
 
 def test_gcp_tpu_metadata_plan_includes_firewall_targets_and_endpoint_port():
@@ -40,9 +42,26 @@ def test_gcp_tpu_metadata_plan_includes_firewall_targets_and_endpoint_port():
     ("vertex_endpoint", "aiplatform", "endpoints"),
 ])
 def test_gcp_network_service_native_lists_are_paginated_and_metadata_only(kind, service, segment):
+    parent = api_root(service, "v1", "us-central1") + f"/projects/p-one/locations/us-central1/{segment}"
+    names = {f"projects/p-one/locations/us-central1/{segment}/{suffix}" for suffix in ("one", "two")}
+    # Reviewed per-item native reads: NetApp replication children, spoke IAM
+    # policies and the full Managed Kafka cluster view (all metadata only).
+    per_item = {"netapp_volume": "replications", "network_connectivity_spoke": "iam",
+                "managed_kafka_cluster": "detail"}.get(kind)
     def resolver(request):
         assert request["method"] == "GET"
-        assert request["url"] == api_root(service, "v1", "us-central1") + f"/projects/p-one/locations/us-central1/{segment}"
+        url = request["url"]
+        if per_item == "replications" and url.endswith("/replications"):
+            assert url.rsplit("/", 1)[0].split("/v1/", 1)[1] in names
+            return {"replications": []}
+        if per_item == "iam" and url.endswith(":getIamPolicy"):
+            assert url.split("/v1/", 1)[1].removesuffix(":getIamPolicy") in names
+            return {"bindings": []}
+        if per_item == "detail" and url != parent:
+            name = url.split("/v1/", 1)[1]
+            assert name in names and request["params"]["view"] == "CLUSTER_VIEW_FULL"
+            return {"name": name}
+        assert url == parent
         token = request.get("params", {}).get("pageToken")
         if kind == "batch_network_job":
             assert "allocationPolicy" in request["params"]["fields"]
@@ -51,19 +70,24 @@ def test_gcp_network_service_native_lists_are_paginated_and_metadata_only(kind, 
                 **({} if token else {"nextPageToken": "page-two"})}
     snap, transport = snapshot([kind], resolver, regions=["us-central1"])
     assert collection(snap, kind)["status"] == "collected"
-    assert len(collection(snap, kind)["items"]) == 2 and len(transport.requests) == 2
+    assert len(collection(snap, kind)["items"]) == 2
+    assert len(transport.requests) == (4 if per_item else 2)
+    assert {row["name"] for row in collection(snap, kind)["items"]} == names
 
 
 def test_gcp_api_gateway_native_list_feeds_public_endpoint_analysis():
     from peaso.analysis import analyze
     def resolver(request):
         assert request["method"] == "GET"
+        if request["url"].endswith(":getIamPolicy"):
+            assert request["url"] == "https://apigateway.googleapis.com/v1/projects/p-one/locations/us-central1/gateways/g:getIamPolicy"
+            return {"bindings": []}
         assert request["url"] == "https://apigateway.googleapis.com/v1/projects/p-one/locations/us-central1/gateways"
         return {"gateways": [{"name": "projects/p-one/locations/us-central1/gateways/g",
                               "defaultHostname": "g.gateway.dev", "state": "ACTIVE"}]}
     snap, transport = snapshot(["api_gateway"], resolver, regions=["us-central1"])
     assert collection(snap, "api_gateway")["status"] == "collected"
-    assert len(transport.requests) == 1
+    assert len(transport.requests) == 2
     assert any(f["check_id"] == "analysis.internet_exposure" and f["status"] == "FAIL"
                for f in analyze(snap)["findings"])
 
@@ -121,7 +145,7 @@ def test_gcp_identity_platform_config_reads_only_signup_controls():
     def resolver(request):
         assert request["method"] == "GET"
         assert request["url"] == "https://identitytoolkit.googleapis.com/admin/v2/projects/p-one/config"
-        assert request["params"]["fields"] == "name,signIn(anonymous(enabled)),client(permissions(disabledUserSignup))"
+        assert request["params"]["fields"] == "name,signIn(anonymous(enabled),email(enabled),phoneNumber(enabled)),client(permissions(disabledUserSignup))"
         return {"name": "projects/p-one/config", "signIn": {"anonymous": {"enabled": True}}}
     snap, transport = snapshot(["identityplatform_config"], resolver)
     assert collection(snap, "identityplatform_config")["status"] == "collected"
@@ -174,7 +198,17 @@ def test_gcp_firebase_database_rules_are_projected_before_snapshot():
     from tests.test_peaso_collectors_gcp import NativeDataFixtureTransport, connector
     source = {"rules": {"private": {".read": "auth != null"},
                         "public": {".read": True, ".write": "now < 2000000000000"}}}
+    # The Firebase checks also read project IAM (16bb81e0); answer those
+    # dependency reads empty and keep the Firebase reads exact.
+    dependency_reads = {
+        ("POST", "https://cloudresourcemanager.googleapis.com/v3/projects/p-one01:getIamPolicy"),
+        ("GET", "https://cloudasset.googleapis.com/v1/projects/p-one01:searchAllIamPolicies"),
+        ("GET", "https://iam.googleapis.com/v1/projects/p-one01/roles"),
+        ("GET", "https://compute.googleapis.com/compute/v1/projects/p-one01"),
+        ("GET", "https://monitoring.googleapis.com/v1/locations/global/metricsScopes:listMetricsScopesByMonitoredProject")}
     def resolver(request):
+        if (request["method"], request["url"]) in dependency_reads:
+            return {}
         assert request["method"] == "GET"
         if request["url"] == "https://cloudresourcemanager.googleapis.com/v3/projects/p-one01":
             return {"name": "projects/123", "projectId": "p-one01"}
@@ -189,7 +223,10 @@ def test_gcp_firebase_database_rules_are_projected_before_snapshot():
     row = collection(snap, "firebase_database_rules", scope="projects/p-one01")["items"][0]
     assert row["public_read"] is True and row["conditional_write"] is True
     assert "rules" not in row and json.dumps(source) not in json.dumps(snap)
-    assert len(transport.requests) == 3
+    firebase = [r["url"] for r in transport.requests if "firebasedatabase" in r["url"]]
+    assert firebase == ["https://firebasedatabase.googleapis.com/v1beta/projects/123/locations/-/instances",
+                        "https://db.europe-west1.firebasedatabase.app/.settings/rules.json"]
+    assert len(transport.requests) == 3 + len(dependency_reads) + 1
     assert any(a.resource["type"] == "firebase_database_rules" and a.verdict() == "FAIL"
                for a in assess(snap, resources(snap)))
 

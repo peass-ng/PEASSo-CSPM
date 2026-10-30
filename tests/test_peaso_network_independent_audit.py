@@ -33,6 +33,9 @@ def test_google_native_detail_metadata_reaches_map_and_actual_agent_database(tmp
     root = api_root(plan['service'], plan['version'], location)
     assert urlsplit(root).hostname in HOSTS
     def resolve(request):
+        if plan.get('iam_policy') and request['url'] == root + '/' + name + ':getIamPolicy':
+            assert request['method'] == ('POST' if plan.get('iam_method') in ('POST', 'POST_EMPTY') else 'GET')
+            return {'bindings': []}
         assert request['method'] == 'GET'
         if request['url'] == root + '/' + name.rsplit('/', 1)[0]:
             return {plan['key']: [{'name': name}]}
@@ -45,7 +48,7 @@ def test_google_native_detail_metadata_reaches_map_and_actual_agent_database(tmp
     snap, transport = snapshot([kind], resolve, regions=['us-central1'])
     result = collection(snap, kind)
     assert result['status'] == 'collected', result.get('error')
-    assert len(transport.requests) == 2
+    assert len(transport.requests) == (3 if plan.get('iam_policy') else 2)
     graph, ai = topology('gcp', [(kind, name, 'projects/p-one', result['items'][0])])
     assert expected in json.dumps(node(graph, kind, name)['network_attributes'])
     build(tmp_path, ai, [], private_json)

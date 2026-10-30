@@ -48,9 +48,13 @@ def synthetic_snapshot(provider, workloads=5000, selectors=1000, subnets=300):
             "security_group": [{"GroupId": "sg-a", "IpPermissions": [
                 {"IpProtocol": "tcp", "FromPort": p, "ToPort": p, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}
                 for p in range(400, 420)]}],
-            "route_table": [{"RouteTableId": f"rt-{i}", "VpcId": "vpc-a", "Associations": [{"SubnetId": f"subnet-{i}"}],
-                             "Routes": [{"DestinationCidrBlock": "0.0.0.0/0", "GatewayId": "igw-a"}]}
+            "route_table": [{"RouteTableId": f"rt-{i}", "VpcId": "vpc-a", "Associations": [
+                                 {"SubnetId": f"subnet-{i}", "AssociationState": {"State": "associated"}}],
+                             "Routes": [{"DestinationCidrBlock": "0.0.0.0/0", "GatewayId": "igw-a", "State": "active"}]}
                             for i in range(subnets)],
+            "internet_gateway": [{"InternetGatewayId": "igw-a", "Attachments": [{"VpcId": "vpc-a", "State": "available"}]}],
+            "vpc_block_public_access_options": [{"VpcBlockPublicAccessOptions": {
+                "State": "default-state", "InternetGatewayBlockMode": "off"}}],
             "network_acl": [{"NetworkAclId": f"acl-{i}", "VpcId": "vpc-a", "Associations": [{"SubnetId": f"subnet-{i}"}],
                              "Entries": [{"RuleNumber": 100, "Protocol": "-1", "CidrBlock": "0.0.0.0/0",
                                           "RuleAction": "allow", "Egress": direction} for direction in (False, True)]}

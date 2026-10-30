@@ -9,6 +9,11 @@ from tests.test_peaso_collectors_gcp import snapshot, collection
 from peaso.collectors.gcp_network_catalog import api_root
 
 
+def network_projection(ai):
+    """The network-only agent view; source_* keep the full original evidence by design."""
+    return {key: value for key, value in ai.items() if key not in ("source_inventory", "source_report")}
+
+
 def test_beanstalk_reads_real_vpc_options_and_filters_application_values_before_cache():
     from peaso.collectors.aws import Requests
     from peaso.collectors.aws_network_catalog import beanstalk_networks
@@ -93,7 +98,7 @@ def test_hsm_and_verified_access_native_network_fields_reach_graph_and_agent():
         ("verified_access_endpoint", "vae", "network_interface", "eni-one"), ("kms_external_key_store", "xks", "cloudhsm_cluster", "hsm")]:
         assert linked(graph, node(graph, source_kind, source_id), node(graph, target_kind, identity))
     assert "10.0.0.4" in json.dumps(ai)
-    assert "SECRET_SENTINEL" not in json.dumps(ai)
+    assert "SECRET_SENTINEL" not in json.dumps(network_projection(ai))
 
 
 @pytest.mark.parametrize("kind", ["lattice_listener", "lattice_listener_rule"])
@@ -162,7 +167,10 @@ def test_gcp_database_private_connectivity_native_and_project_qualified_attachme
     vpc = "projects/host/global/networks/net"
     attachment = "projects/host/regions/us-central1/networkAttachments/attachment"
     def resolver(request):
-        assert request["url"] == api_root(service, "v1", "us-central1") + "/projects/p-one/locations/us-central1/privateConnections"
+        listed = api_root(service, "v1", "us-central1") + "/projects/p-one/locations/us-central1/privateConnections"
+        if request["url"] == listed + "/private:getIamPolicy":
+            return {"bindings": []}
+        assert request["url"] == listed
         return {"privateConnections": [{"name": "projects/p-one/locations/us-central1/privateConnections/private", "vpcPeeringConfig": {"vpc": vpc, "subnet": "10.0.0.0/29"},
             "pscInterfaceConfig": {"networkAttachment": attachment}}]}
     snap, _ = snapshot([kind], resolver, regions=["us-central1"])
@@ -194,6 +202,8 @@ def test_gcp_global_policies_remain_available_when_location_discovery_is_denied(
     def resolver(request):
         if request["url"].endswith("/locations"):
             raise ReadError("denied", "locations_denied")
+        if request["url"].endswith("/locations/global/clientTlsPolicies/tls:getIamPolicy"):
+            return {"bindings": []}
         assert request["url"].endswith("/locations/global/clientTlsPolicies")
         return {"clientTlsPolicies": [{"name": "projects/p-one/locations/global/clientTlsPolicies/tls"}]}
     snap, _ = snapshot(["client_tls_policy"], resolver)
@@ -206,7 +216,7 @@ def test_composer_private_environment_configuration_is_network_data_in_agent_con
         "enablePrivateEnvironment": True, "cloudSqlIpv4CidrBlock": "10.20.0.0/24"}}, "environment": {"network": "SECRET_SENTINEL"}})])
     data = ai["inventory"][0]["data"]
     assert data["config"]["privateEnvironmentConfig"]["enablePrivateEnvironment"] is True
-    assert "SECRET_SENTINEL" not in json.dumps(ai)
+    assert "SECRET_SENTINEL" not in json.dumps(network_projection(ai))
 
 
 def test_gcp_mesh_routes_link_mesh_gateway_backend_and_security_policy():

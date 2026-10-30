@@ -54,9 +54,9 @@ def test_aws_shared_rules_are_parsed_once_and_full_findings_remain(monkeypatch):
     before = copy.deepcopy(snapshot)
     original, calls = internet_exposure._aws_group_rules, []
 
-    def counted(group):
+    def counted(group, *args, **kwargs):
         calls.append(group['id'])
-        return original(group)
+        return original(group, *args, **kwargs)
 
     monkeypatch.setattr(internet_exposure, '_aws_group_rules', counted)
     result = run_stage(snapshot)

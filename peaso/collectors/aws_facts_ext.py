@@ -2788,6 +2788,7 @@ FETCHERS = {
     'auditmanager_report_destination': _auditmanager_destinations,
     'cleanrooms_collaboration_exposure': _cleanrooms_collaborations,
     'eventbridge_pipe_exposure': _eventbridge_pipes,
+    'lightsail_distribution': _lightsail_distributions,
     "transit_gateway_peering_attachment": _transit_gateway_peering,
     "lambda_layer_version": _layer_versions,
     "lambda_version": _versions,
