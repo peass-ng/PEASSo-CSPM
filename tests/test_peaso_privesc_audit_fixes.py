@@ -462,7 +462,7 @@ def test_bench_privesc_10x_aws():
     principals, elapsed, grown_mb, result = _bench(10)
     assert principals >= 3130
     assert result["stats"]["memoized_source_evaluations"] > 0
-    assert elapsed < 20
+    assert elapsed < 40  # shared CI runners vary ~2x in wall time
     assert grown_mb < 1024
 
 

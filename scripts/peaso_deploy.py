@@ -490,7 +490,6 @@ REPRODUCTION_INPUT_PATTERNS = (
     'tests/test_peaso_trivy_download_monitor_20261021.py',
     'tests/test_peaso_trivy_packaging_20261021.py',
     'tests/test_provider_group_fixture_closure_20261021.py',
-    'tests/test_provider_group_finite_source_epoch_20261021.py',
     'tests/test_peaso_reference_titles.py',
     'tests/fixtures/remediation_reference_title_overlay.json',
     'tests/test_ai_device_flow_and_policy.py',
