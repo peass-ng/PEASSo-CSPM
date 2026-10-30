@@ -198,8 +198,12 @@ def test_ecs_task_definition_environment_names_only(sdk):
     from peaso.collectors.aws_b_services import ENRICHERS as base
     items = base["ecs_task_definition"](requests, session, REGION, [{"taskDefinitionArn": arn}])
     assert items[0]["Definition"]["collection_status"] == "collected"
-    assert "environment" not in items[0]["Definition"]["taskDefinition"]["containerDefinitions"][0]
-    assert status("aws.c2b.ecs.no_credential_named_env_vars", items[0]) == "UNKNOWN"
+    # The single ARN-bound native read already carries environment NAMES only;
+    # plaintext values never enter the collected view.
+    base_app, base_side = items[0]["Definition"]["taskDefinition"]["containerDefinitions"]
+    assert base_app["environment"] == [{"name": "AWS_SECRET_ACCESS_KEY"}] and base_side["environment"] == []
+    assert "hunter2" not in json.dumps(items)
+    assert requests.calls == 1
     item = edge.ENRICHERS["ecs_task_definition"](requests, session, REGION, items)[0]
     assert requests.calls == 1
     app, side = item["Definition"]["taskDefinition"]["containerDefinitions"]

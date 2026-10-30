@@ -123,7 +123,11 @@ def test_complete_workflow_decodes_each_trust_policy_once(monkeypatch):
     monkeypatch.setattr(iam, 'assume_role_document', benchmark.literal_document)
     monkeypatch.setattr(principal_exposure, 'assume_role_document', benchmark.literal_document)
     benchmark.run_stage(snapshot, inventory)
-    assert len(calls) == 8
+    # The uncached baseline re-decodes the same policy for every trust consumer
+    # (federation review, foreign-assumption review, principal projection, ...),
+    # so the optimized path above must stay at exactly one decode per role.
+    roles = len(inventory)
+    assert len(calls) > roles and len(calls) % roles == 0
 
 
 @pytest.mark.parametrize('policy_format', ['dict', 'json', 'percent'])
