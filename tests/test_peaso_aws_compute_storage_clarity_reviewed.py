@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 import pytest
-from peaso.checks import CHECKS
+from peaso.checks import CHECK_ALIASES,CHECKS
 from peaso.checks.catalog import _base_description_for
 from peaso.checks.fixtures import CASES
 from peaso.checks.aws_compute_storage_clarity_reviewed import ROWS,_digest,description,remediation
@@ -15,6 +15,14 @@ from peaso.checks.aws_compute_storage_finding_summary import evidence_summary
 CHECK_BY_ID={c.id:c for c in CHECKS}
 SELECTED=sorted(cid for cid,row in ROWS.items() if not os.getenv('PEASS_REVIEW_BATCH') or row['batch']==os.getenv('PEASS_REVIEW_BATCH'))
 PACK=Path(__file__).resolve().parents[1]/'peaso/rulepacks'
+# fe6f7901 (#104) retired overlapping ids as aliases of surviving natives;
+# their reviewed copy rows stay as history but no longer own a predicate.
+RETIRED=sorted(cid for cid in SELECTED if cid in CHECK_ALIASES)
+ACTIVE=[cid for cid in SELECTED if cid not in CHECK_ALIASES]
+
+@pytest.mark.parametrize('cid',RETIRED)
+def test_retired_reviewed_rows_resolve_to_registered_survivor(cid):
+    assert cid not in CHECK_BY_ID and CHECK_ALIASES[cid] in CHECK_BY_ID
 
 @pytest.fixture(scope='module')
 def originals():
@@ -50,7 +58,7 @@ def test_guarded_copy_preserves_source_contract_and_approved_instructions(cid,or
         assert actual.get('cli')==original.get('cli')
         assert actual.get('iac')==original.get('iac')
 
-@pytest.mark.parametrize('cid',SELECTED)
+@pytest.mark.parametrize('cid',ACTIVE)
 def test_review_binds_actual_predicate_and_source_severity(cid):
     row=ROWS[cid];check=CHECK_BY_ID[cid];fn=inspect.unwrap(check.evaluate)
     assert row['reviewed_binding']['kind']==check.kind
@@ -75,7 +83,7 @@ def test_review_binds_actual_predicate_and_source_severity(cid):
     assert row['reviewed_source_severity']==check.severity
     assert row['reviewed_severity'] in {'critical','high','medium','low','info'}
 
-@pytest.mark.parametrize('cid',SELECTED)
+@pytest.mark.parametrize('cid',ACTIVE)
 def test_actual_native_outcomes_and_concise_observations_do_not_mutate_evidence(cid):
     cases=CASES.get(cid) or json.loads((Path(__file__).parent/'fixtures/aws_compute_storage_signed_cases.json').read_text()).get(cid)
     if cid=='aws_g6_ecs_fargate_storage_encryption':
