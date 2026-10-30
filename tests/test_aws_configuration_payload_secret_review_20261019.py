@@ -161,11 +161,13 @@ def test_malformed_truncated_or_duplicate_json_does_not_receive_negative_scan(ki
 
 
 class Client:
-    def __init__(self, service, operation, response, item): self.service,self.operation,self.response,self.item=service,operation,response,item
+    def __init__(self, service, operation, response, item): self.service,self.operation,self.response,self.item,self.seen=service,operation,response,item,[]
     def can_paginate(self, operation): return False
     def __getattr__(self, operation):
         def call(**kwargs):
-            if operation == self.operation: return deepcopy(self.response)
+            if operation == self.operation:
+                self.seen.append(kwargs)
+                return deepcopy(self.response)
             if operation == 'describe_notebook_instance': return {**self.item, 'NotebookInstanceLifecycleConfigName': 'attached'}
             if operation == 'describe_document_permission': return {'AccountIds': []}
             raise AssertionError('unexpected operation ' + operation)
@@ -202,7 +204,11 @@ def test_actual_requests_cache_and_existing_or_new_enricher_chain(kind):
         assert raw_payload not in serialized
         assert hashlib.sha256(raw_payload.encode()).hexdigest() not in serialized
     before = requests.calls
-    requests.call(session, service, REGION, operation, **args)
+    # Repeat the exact payload read the enricher issued (it may add read-only
+    # selectors such as Step Functions includedData); it must be a cache hit.
+    sent = client.seen[0]
+    assert all(sent[key] == value for key, value in args.items())
+    requests.call(session, service, REGION, operation, **sent)
     assert requests.calls == before
 
 

@@ -1,9 +1,11 @@
 """Whole-page preparation preserves every admitted event and private source."""
 import json
+from collections import OrderedDict
 
 import pytest
 from peaso import secret_evidence as evidence
 from peaso import secret_scanning as scanning, secret_scanning_batch as batch
+from peaso import secret_scan_clean
 from peaso.collectors import aws_code_log_content_indicators as logs
 
 
@@ -33,6 +35,9 @@ def test_full_page_preserves_public_and_private_per_event_sources(monkeypatch, p
         serial.append(payload)
         return output(payload)
 
+    # Each case starts cold: the per-process clean-byte memo would otherwise
+    # skip the clean events an earlier case already scanned.
+    monkeypatch.setattr(secret_scan_clean, '_CLEAN', OrderedDict())
     monkeypatch.setattr(batch, '_prepare_trufflehog_batch', prepare)
     monkeypatch.setattr(scanning, '_trufflehog', lambda: '/synthetic-trufflehog')
     monkeypatch.setattr(scanning, '_run', run)

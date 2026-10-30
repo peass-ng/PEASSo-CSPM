@@ -125,6 +125,8 @@ def test_external_reads_owned_findings_inventory_coverage_and_reports(client):
     artifacts = http.app.state.artifacts
     connector = store.add_connector("alice", {"provider": "aws", "name": "Inventory", "options": {}, "input_mode": "offline_snapshot"}, cipher.encrypt({"auth": {}, "options": {}}))
     job = store.enqueue("alice", {"connector_id": connector["id"]}, now=time.time(), timeout=900)
+    # Collectors claim only scans that hold one of the durable scan slots.
+    assert store.admit("alice", job["id"])
     collected = store.claim("collector", tenant="alice", ident=job["id"])
     assert collected and store.finish(job["id"], collected["owner"], "collected", "fixture-snapshot")
     analyzing = store.claim("analyzer", tenant="alice", ident=job["id"])
