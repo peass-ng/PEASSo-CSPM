@@ -23,7 +23,7 @@ ASSESSMENT_PREDECESSOR_SUCCESSORS = {
 # helper outside the four assessment predicates; its exact bytes are pinned here.
 ASSESSMENT_EVALUATOR_SUCCESSORS = {
     'peaso/checks/claude_azure_data.py': {
-        'before_sha256': 'c4f7c866da5a0695500e6f1c0177febfea993247b1fcd77588ac16b02d1b2f22',
+        'before_sha256': 'e8fd6583fe2d61fd07a2001a3d91c1a7983998e0e76b33add898f8a097af377b',
         'after_sha256': 'c4f7c866da5a0695500e6f1c0177febfea993247b1fcd77588ac16b02d1b2f22',
     },
 }
