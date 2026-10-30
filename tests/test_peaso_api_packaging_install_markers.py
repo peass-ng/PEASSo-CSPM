@@ -49,6 +49,12 @@ class ApiInstallationMarkerTests(unittest.TestCase):
             patcher = patch.object(deploy, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        # The SDK model gate reviews the real source tree; it has its own tests.
+        from scripts import peaso_api_service_model_gate as gate
+        patcher = patch.object(gate, 'prune_api_service_models',
+                               lambda root: {'allowed_services': [], 'removed_models': 0})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         patcher = patch.object(socket, 'create_connection', side_effect=AssertionError('No network'))
         patcher.start()
         self.addCleanup(patcher.stop)

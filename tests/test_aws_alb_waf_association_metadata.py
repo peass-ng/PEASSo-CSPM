@@ -8,7 +8,6 @@ from peaso.collectors import aws_alb_waf_association_metadata as native
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot, validate
 from tests.test_peaso_collectors_aws import sdk, ACCOUNT, REGION, IDENTITY
-from tests.test_aws_field_producer_review import record_sdk_emission
 
 CID = 'aws_wafv2_request_validation_rules'
 SCOPE = ACCOUNT + '/' + REGION
@@ -143,7 +142,6 @@ def test_sdk_public_lb_pipeline_to_consumer_with_controlled_waf_inventory(sdk, m
     envelope = next(e for e in snapshot['collections'] if e['type'] == 'load_balancer_v2')
     assert envelope['status'] == 'collected'
     assert consumer(envelope['items']) == expected
-    record_sdk_emission(request, 'load_balancer_v2', envelope['items'], 'public-collector-with-controlled-waf-subject')
 
 
 @pytest.mark.parametrize('response', [{}, {'collection_status': 'collected'},
