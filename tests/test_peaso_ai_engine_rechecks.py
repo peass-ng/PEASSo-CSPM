@@ -151,9 +151,19 @@ def test_cognito_user_pool_audience_is_recognized_case_insensitively_but_require
     resource = {'data': {'AssumeRolePolicyDocument': {'Statement': [{'Effect': 'Allow',
         'Principal': {'Federated': 'arn:aws:iam::111111111111:oidc-provider/'+issuer}, 'Action': 'sts:AssumeRoleWithWebIdentity',
         'Condition': {'StringEquals': {issuer+':aud': 'client'}}}]}}}
-    assert aws_federated_trust({}, resource)[0] == 'MANUAL'
+    arn = 'arn:aws:iam::111111111111:oidc-provider/'+issuer
+    def snapshot():
+        return {'collections': [{'type': 'iam_oidc_provider', 'scope': '111111111111', 'status': 'collected', 'items': [
+            {'Arn': arn, 'Provider': {'collection_status': 'collected', 'Url': issuer, 'ClientIDList': ['client']}}]}]}
+    def codes(result):
+        return [problem['code'] for review in result[2]['federated_trusts'] for problem in review['problems']]
+    # Without the IAM OIDC provider inventory the trust stays a review item.
+    assert codes(aws_federated_trust({}, resource)) == ['oidc_provider_unknown']
+    result = aws_federated_trust(snapshot(), resource)
+    assert result[0] == 'MANUAL' and codes(result) == ['cognito_user_pool_audience_scope']
     resource['data']['AssumeRolePolicyDocument']['Statement'][0]['Condition']['StringEquals'][issuer+':sub'] = 'user'
-    assert aws_federated_trust({}, resource)[0] == 'PASS'
+    assert aws_federated_trust({}, resource)[0] == 'MANUAL'
+    assert aws_federated_trust(snapshot(), resource)[0] == 'PASS'
 
 
 def test_empty_dead_letter_source_response_is_supported_and_denied_metadata_is_unknown():

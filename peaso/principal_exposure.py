@@ -565,7 +565,8 @@ def _workloads(snapshot, resources, by_type, signal):
                 if health["scope"] == row["scope"] and health["data"].get("backendService")}
             services = {compute_path(item.get("backend_service")) for step in assessment.path
                 if step.get("layer") == "cloud_armor"
-                for item in step.get("unprotected", []) if isinstance(item, dict)}
+                for item in step.get("routes", [])
+                if isinstance(item, dict) and item.get("backend_service") and item.get("decision") == "allow"}
             for backend in cloud_workloads.candidates("backend_service", "gcp_backend_path",
                                                       [(row["scope"], service) for service in services]):
                 if backend["scope"] != row["scope"] or compute_path(backend["data"].get("selfLink")) not in services:

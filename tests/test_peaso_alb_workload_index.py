@@ -228,6 +228,12 @@ def test_classic_elb_instance_role_requires_health_and_backend_port(healthy, bac
         'classic_load_balancer': [lb], 'instance': [instance],
         'iam_instance_profile': [{'Arn': profile, 'Roles': [{'Arn': role}]}],
         'vpc': [{'VpcId': 'vpc-1'}], 'subnet': [{'SubnetId': 'subnet-1', 'VpcId': 'vpc-1'}],
+        'vpc_block_public_access_options': [{'VpcBlockPublicAccessOptions': {
+            'State': 'default-state', 'InternetGatewayBlockMode': 'off'}}],
+        'internet_gateway': [{'InternetGatewayId': 'igw-1', 'Attachments': [{'VpcId': 'vpc-1', 'State': 'available'}]}],
+        'route_table': [{'RouteTableId': 'rtb-1', 'VpcId': 'vpc-1', 'Associations': [
+            {'SubnetId': 'subnet-1', 'AssociationState': {'State': 'associated'}}], 'Routes': [
+            {'DestinationCidrBlock': '0.0.0.0/0', 'GatewayId': 'igw-1', 'State': 'active'}]}],
         'security_group': [sg('sg-lb', 443), sg('sg-target', 8080, backend_open)],
         'network_acl': [{'NetworkAclId': 'acl-1', 'VpcId': 'vpc-1',
                          'Associations': [{'SubnetId': 'subnet-1'}],
