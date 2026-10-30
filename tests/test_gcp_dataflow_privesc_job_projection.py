@@ -118,11 +118,11 @@ def test_active_batch_template_is_projected_without_parameters():
     assert module.project_pipeline(row, "projects/p1", "123") is None
 
 
-def test_pipeline_pages_enumerates_locations_and_active_batch_templates():
+def test_pipeline_pages_enumerates_locations_and_active_batch_templates(monkeypatch):
     module = projection()
     fake_gcp = ModuleType("peaso.collectors.gcp")
     fake_gcp.ReadError = type("ReadError", (Exception,), {})
-    sys.modules["peaso.collectors.gcp"] = fake_gcp
+    monkeypatch.setitem(sys.modules, "peaso.collectors.gcp", fake_gcp)
 
     class Collector:
         collections = {("project", "projects/p1"): {"items": [
