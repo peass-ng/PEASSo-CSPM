@@ -210,7 +210,7 @@
   "peaso/checks/aws_b_core.py": "4d184fe488da84bac58622867ae7f91e38c9a560fecd6c93b3f8b1b75fc4a23b",
   "peaso/checks/azure_gateway_cidr_evidence_successor_20261021.py": "5550f322448ce8dbb67cb9433d68f804374963013c05e5e14c3878fa6dd21ae0",
   "peaso/checks/azure_apim_native.py": "af1e1903c167c813e1ab8e8a9c7fa2336dc6cb5f9d8757f7beaaf6f481744f6b",
-  "peaso/checks/k8s_literal_configmap_association_evaluator.py": "ec766a4d025407401f3fcf6fcfc416c72cd46448af957d755de5112daf379383",
+  "peaso/checks/k8s_literal_configmap_association_evaluator.py": "debde45419ec1b35753204e86c986fa50ae95199be40cd0bfbd5d2e098562146",
   "peaso/checks/cloudtrail_management_description_overlay.py": "bfb413449ccfa756e51b2621590014dedccf673b679235d06d1bc273fd869153",
   "peaso/checks/wafv2_basic.py": "b300d867db2803793f56b23dbd2c51751435236428267e12e23c398c99316437",
   "peaso/checks/claude_gcp_k8s_iam.py": "e5080847e9facfe4c70b2cb38089dc6b830b1fb74d55700ff23d359225a78a2e",

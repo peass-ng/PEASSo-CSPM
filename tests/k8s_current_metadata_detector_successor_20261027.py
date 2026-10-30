@@ -9,7 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST = ROOT / 'tests/test_k8s_selected_metadata_production_20261020.py'
-SEALED_SHA256 = '47ec51b631616450bcb3c1fa5e135f1182532289f01ed975fff1c953fd64a3de'
+SEALED_SHA256 = '16904f90c856d65dd452006c792dfc0f6ba60d4f7dffea95d10a5aa9fbfb3b8f'
 
 
 @pytest.fixture(autouse=True)

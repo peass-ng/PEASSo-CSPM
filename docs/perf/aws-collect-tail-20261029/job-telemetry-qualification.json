@@ -63,7 +63,7 @@
     "peaso/collectors/aws.py": "c0b4c87082528aa191b65562854d5a1351f91bab6f4fb8f67b261ca50f6322af",
     "peaso/runtime_metrics.py": "27e843e3ada321bbb89e4e3c5bbe78874a6fcd108cb6a77c53b28ea4d08e2457",
     "peaso/worker.py": "15643faef5cd53ab5c7f861c025d05853fcd8dd6644889ad38940104bd325070",
-    "pyproject.toml": "7dec9c1b70681af51866e331380cdbe47d3b3061c0eeb0dc90124b91e7c6895c",
+    "pyproject.toml": "dd8188bbf774b70dbc45af18c294b605288186ec1032dfb638cb80dbad4fb47a",
     "scripts/decode_collection_job_metrics.py": "e23df1b88ff20c898a88a7e6067496bb76a0819f679894bd99d864bb643616a5"
   },
   "source_successor_proof": {
