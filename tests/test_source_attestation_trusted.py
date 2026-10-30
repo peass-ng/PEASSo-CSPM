@@ -1,9 +1,8 @@
 """Trusted mode skips pure source proofs but builds the same native runtime.
 
-The suite itself runs with PEASO_SOURCE_ATTESTATION=once (conftest), so the
-in-process registry here is the proven one.  A child process imports the
-package in the explicit immutable-image mode (``trusted``) and both sides fingerprint
-the registry and replay every signed native case.
+One child process imports the package in the proven ``once`` mode and another in
+the explicit immutable-image mode (``trusted``); both fingerprint the registry
+and replay every signed native case.
 """
 import json
 import os
@@ -98,9 +97,9 @@ def test_trusted_requires_explicit_opt_in_and_unknown_values_fail_closed():
 
 
 def test_trusted_import_builds_the_always_registry_and_evaluations():
-    namespace = {}
-    exec(compile(FINGERPRINT, '<fingerprint>', 'exec'), namespace)
-    proven = namespace['RESULT']
+    # Fingerprint the proven registry in a fresh process too: in this process
+    # other tests may already have registered extra checks and fixture cases.
+    proven = json.loads(_child('once', FINGERPRINT + '\nprint(json.dumps(RESULT))').splitlines()[-1])
     assert proven['checks'] > 4000 and proven['replayed'] > 1000
     trusted = json.loads(_child('trusted', FINGERPRINT + '\nprint(json.dumps(RESULT))').splitlines()[-1])
     assert trusted == proven

@@ -7,6 +7,7 @@ are exercised by actual GCPCollector/Transport, without injection or source rewr
 from copy import deepcopy
 from importlib.metadata import version
 import json
+import time
 from pathlib import Path
 import runpy
 import socket
@@ -409,6 +410,11 @@ def test_both_named_environment_and_source_checks_compose_on_native_metadata(mon
 @pytest.mark.parametrize('multi_page', [False, True])
 def test_source_limit_keeps_ordinary_native_inventory_and_environment_results(monkeypatch, multi_page):
     environment_check = admitted_environment_check()
+    # This covers the source-count limit, not the 30s page scan-time bound that
+    # 11 two-engine scans can exceed on a loaded CI runner. A slower monotonic
+    # clock keeps that bound out of reach without editing reviewed sources.
+    real_monotonic = time.monotonic
+    monkeypatch.setattr(time, 'monotonic', lambda: real_monotonic() / 10)
     rows = [function(NAME + str(i)) for i in range(native.MAX_FUNCTIONS + 1)]
     for row in rows: row['serviceConfig']['environmentVariables'] = {'CREDENTIAL': TOKEN}
     pages = [{'functions': rows[:6], 'nextPageToken': 'cursor'}, {'functions': rows[6:]}] if multi_page else None

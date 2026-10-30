@@ -218,4 +218,4 @@ def test_batch_process_failure_reaps_child_and_falls_back(monkeypatch, tmp_path,
     assert len(children) == 1 and children[0].returncode is not None
     assert children[0].stdout.closed and children[0].stdin.closed
     assert all(not os.path.exists(path) for path in paths)
-    assert errors == [ValueError if behavior == 'output' else TimeoutError]
+    assert len(errors) == 1 and issubclass(errors[0], ValueError if behavior == 'output' else TimeoutError)

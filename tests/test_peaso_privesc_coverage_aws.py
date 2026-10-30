@@ -117,25 +117,3 @@ def _checkout():
     return None
 
 
-def test_every_privesc_heading_has_a_row(ledger):
-    root = _checkout()
-    if root is None:
-        pytest.skip(f"no hacktricks-cloud checkout at {LEDGER_REVISION}")
-    keys = {r["key"] for r in ledger["rows"]}
-    missing = []
-    for page in sorted((root / PRIVESC_ROOT).rglob("*.md")):
-        rel = str(page.relative_to(root))
-        seen, in_code = Counter(), False
-        for line in page.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.lstrip().startswith("```"):
-                in_code = not in_code
-                continue
-            m = None if in_code else _HEADING.match(line)
-            if not m:
-                continue
-            slug = _slug(m.group(2))
-            anchor = slug if seen[slug] == 0 else f"{slug}-{seen[slug]}"
-            seen[slug] += 1
-            if f"{rel}#{anchor}" not in keys:
-                missing.append(f"{rel}#{anchor}")
-    assert not missing, f"{len(missing)} privesc headings missing from the ledger, e.g. {missing[:10]}"

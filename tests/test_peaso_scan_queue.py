@@ -142,12 +142,11 @@ def test_schedule_occurrence_waits_without_spending_execution_budget(store):
     assert store.job("alice", scheduled["id"])["deadline"] == pytest.approx(now + 132)
 
 
+@pytest.mark.parametrize("store", ["dynamodb"], indirect=True)
 def test_reconcile_recovers_workflow_failure_after_terminal_write(store):
     now = time.time()
     tenant, job = jobs(store, now, 1)[0]
     assert store.admit(tenant, job["id"], now=now + 1)
-    if not hasattr(store, "reconcile_admissions"):
-        pytest.skip("SQLite terminal transition releases its count in the same transaction")
     # Step Functions marks failure directly. The scheduler must release the
     # durable reservation even if the worker never reaches finish().
     from peaso.storage.dynamodb import attrs, row

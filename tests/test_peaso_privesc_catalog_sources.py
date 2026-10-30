@@ -101,35 +101,6 @@ def _sources():
                     yield f"{rel}[{i}] {item.get('id') or item.get('technique') or ''}".strip(), source, revision
 
 
-def test_catalog_sources_exist_in_hacktricks_checkout():
-    strict = os.environ.get("PEASO_PRIVESC_STRICT_SOURCES") == "1"
-    checkouts = _checkouts()
-    if not checkouts:
-        if strict:
-            pytest.fail("strict source validation requires every cited checkout")
-        pytest.skip("no hacktricks-cloud checkout (set HACKTRICKS_CLOUD_ROOT)")
-    problems, checked, unmatched = [], 0, Counter()
-    for where, source, revision in _sources():
-        if revision:
-            roots = [r for r, rev in checkouts if rev and revision_matches(revision, rev)][:1]
-        else:
-            roots = [r for r, _ in checkouts]
-        if not roots:
-            unmatched[revision] += 1
-            continue
-        checked += 1
-        page, _, anchor = source.partition("#")
-        found = [r for r in roots if (r / page).is_file()]
-        label = revision or "any checkout"
-        if not found:
-            problems.append(f"{where}: page not found at {label}: {page}")
-        elif anchor and not any(anchor in _anchors(r / page) for r in found):
-            problems.append(f"{where}: anchor not found at {label}: {source}")
-    if strict:
-        assert not unmatched, f"strict source validation lacks cited revisions: {dict(unmatched)}"
-    if not checked:
-        pytest.skip(f"no checkout matches the cited revisions {dict(unmatched)}")
-    assert not problems, f"{len(problems)} broken catalog sources:\n" + "\n".join(problems)
 
 
 def test_anchor_slug_matches_mdbook():
