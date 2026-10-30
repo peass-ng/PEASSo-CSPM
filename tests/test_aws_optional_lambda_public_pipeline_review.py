@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import base64
 import io
 import json
+import threading
 import zipfile
 
 import boto3
@@ -36,6 +37,7 @@ def public_pipeline(monkeypatch):
         def __init__(self, service, region):
             self.service = service
             self.sdk = session.client(service, region_name=region)
+            self.lock = threading.Lock()  # Stubber state is per client; collectors may use threads.
             self.meta = self.sdk.meta
         def can_paginate(self, operation):
             return self.sdk.can_paginate(operation)
@@ -45,7 +47,7 @@ def public_pipeline(monkeypatch):
             def invoke(**arguments):
                 calls.append((self.service, operation, deepcopy(arguments)))
                 response = native.get((self.service, operation))
-                with Stubber(self.sdk) as stub:
+                with self.lock, Stubber(self.sdk) as stub:
                     try:
                         if response is None:
                             stub.add_client_error(operation, 'AccessDeniedException', expected_params=arguments)

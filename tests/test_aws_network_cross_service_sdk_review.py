@@ -6,6 +6,7 @@ and emitted paths only; external S3 origin existence stays unresolved.
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
+import threading
 from pathlib import Path
 
 import boto3
@@ -61,6 +62,7 @@ def pipeline(monkeypatch):
                 self.service, self.region = service, region
                 self.sdk = session.client(service, region_name=region)
                 self.meta = self.sdk.meta
+                self.lock = threading.Lock()
 
             def can_paginate(self, operation):
                 return self.sdk.can_paginate(operation)
@@ -77,7 +79,8 @@ def pipeline(monkeypatch):
                     calls.append({'service': self.service, 'region': self.region,
                         'operation': operation, 'arguments': deepcopy(arguments),
                         'stub_result': 'denied' if response is None or isinstance(response, tuple) else 'response'})
-                    with Stubber(self.sdk) as stub:
+                    # Stubber state is per client; collectors may call it from several threads.
+                    with self.lock, Stubber(self.sdk) as stub:
                         try:
                             if response is None or isinstance(response, tuple):
                                 stub.add_client_error(operation, service_error_code=response[0] if isinstance(response, tuple) else 'AccessDeniedException',

@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
+import threading
 
 import boto3
 import pytest
@@ -38,6 +39,7 @@ def pipeline(monkeypatch):
             def __init__(self, service, region):
                 self.service = service
                 self.sdk = session.client(service, region_name=region)
+                self.lock = threading.Lock()  # Stubber state is per client; collectors may use threads.
                 self.meta = self.sdk.meta
             def can_paginate(self, operation):
                 return self.sdk.can_paginate(operation)
@@ -49,7 +51,7 @@ def pipeline(monkeypatch):
                     response = native.get((self.service, operation))
                     if callable(response):
                         response = response(arguments)
-                    with Stubber(self.sdk) as stub:
+                    with self.lock, Stubber(self.sdk) as stub:
                         try:
                             if response is None or isinstance(response, tuple):
                                 stub.add_client_error(operation, service_error_code=response[0] if isinstance(response, tuple) else 'AccessDeniedException', expected_params=arguments)
