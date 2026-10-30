@@ -174,6 +174,22 @@ def current_cases(check_id, historical):
         result.pop('pass', None)
         result.pop('pass_index', None)
         result['unknown'], result['unknown_index'] = row['item'], MemoIndex(row['index'])
+    if check_id == 'azure.htbp.sql.entra_only_authentication':
+        # The 2026-10-20 capture predates the dedicated azureADOnlyAuthentications
+        # child read (commit 66b47ab6). Its administrator row already recorded the
+        # same server flag, so supply that value in the collector's normalized shape.
+        for branch in ('pass', 'fail'):
+            item = result.get(branch)
+            if not (isinstance(item, dict) and 'azureADOnlyAuthentications' not in item
+                    and item.get('serverAdministrators')):
+                continue
+            flag = item['serverAdministrators'][0]['properties'].get('azureADOnlyAuthentication')
+            assert type(flag) is bool
+            item['azureADOnlyAuthentications'] = [{
+                'id': item['id'] + '/azureADOnlyAuthentications/Default', 'name': 'Default',
+                'type': 'Microsoft.Sql/servers/azureADOnlyAuthentications', 'parent_id': item['id'],
+                'properties': {'azureADOnlyAuthentication': flag}}]
+            item.setdefault('_coverage', {})['azureADOnlyAuthentications'] = {'status': 'collected'}
     if check_id == 'azure.claude.vm_windows_secure_boot' and 'not_applicable' in result:
         # A Windows SQL offer is not a Linux OS declaration. Retain that old
         # CASES value and use an actual native Linux field for the current N/A.
