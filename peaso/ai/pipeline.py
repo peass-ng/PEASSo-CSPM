@@ -1,6 +1,8 @@
 """Bounded post-scan agents. AI errors never discard deterministic results."""
+import contextvars
 import copy
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -59,20 +61,56 @@ def kill_tree(process):
     process.wait(timeout=5)
 
 
+class TaskChain:
+    """One scan's hosted task, kept after Network only to run its Priorities.
+
+    The chain lives for one review_scan call. Network may ask its fresh task
+    to stay up briefly after storing its result; Priorities then sends its own
+    complete invocation to that task once. Every other invocation, including a
+    fallback after the retained task cannot take Priorities, starts a fresh
+    task exactly as before.
+    """
+
+    def __init__(self, binding, *, retain=False, reuse=None):
+        self.binding = binding
+        self.retain = retain
+        self.sink = {}
+        self.reuse = reuse
+        self.consumed = False
+        self.handed_off = False
+
+    @property
+    def descriptor(self):
+        return self.reuse or self.sink.get('task')
+
+    def options(self, stage):
+        options = {'task_binding': self.binding}
+        if stage == 'network' and self.retain and self.descriptor is None:
+            options['retain'] = self.sink
+        elif stage == 'priorities' and self.descriptor is not None and not self.consumed:
+            # One attempt only: its Fargate invocation owns the task from here.
+            self.consumed = True
+            options['reuse'] = self.descriptor
+        return options
+
+    def release(self):
+        if self.descriptor is not None and not self.consumed and not self.handed_off:
+            self.consumed = True
+            from .fargate import release
+            release(self.descriptor)
+
+
+_TASK_CHAIN = contextvars.ContextVar('peaso_ai_task_chain', default=None)
+
+
 def invoke(stage, platform, entries, token, findings, reviews, timeout, *, cancel_event=None,
-           on_prepared=None, prelaunched=None):
-    try:
-        return _invoke(stage, platform, entries, token, findings, reviews, timeout,
-                       cancel_event=cancel_event, on_prepared=on_prepared, prelaunched=prelaunched)
-    finally:
-        # A taken task is owned and cleaned by its Fargate invocation; this
-        # only stops one that was never used, e.g. after an admission error.
-        if prelaunched is not None:
-            prelaunched.close()
+           on_prepared=None):
+    return _invoke(stage, platform, entries, token, findings, reviews, timeout,
+                   cancel_event=cancel_event, on_prepared=on_prepared)
 
 
 def _invoke(stage, platform, entries, token, findings, reviews, timeout, *, cancel_event=None,
-            on_prepared=None, prelaunched=None):
+            on_prepared=None):
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError()
     if any(entry.get('provider') == 'aws' for entry in entries):
@@ -121,8 +159,9 @@ def _invoke(stage, platform, entries, token, findings, reviews, timeout, *, canc
         if remote:
             from .fargate import invoke as invoke_remote
             kwargs = {'prepare': prepare_workspace}
-            if prelaunched is not None:
-                kwargs['prelaunched'] = prelaunched
+            chain = _TASK_CHAIN.get()
+            if chain is not None:
+                kwargs.update(chain.options(stage))
             if cancel_event is not None:
                 def cancellable_sleep(seconds):
                     if cancel_event.wait(seconds):
@@ -172,33 +211,36 @@ def _invoke(stage, platform, entries, token, findings, reviews, timeout, *, canc
 
 
 def invoke_before_deadline(stage, platform, entries, token, findings, reviews, end, limit,
-                           *, cancel_event=None, on_prepared=None, prelaunch=None):
-    from .fargate import TaskStartupError
+                           *, cancel_event=None, on_prepared=None):
+    from .fargate import TaskReuseError, TaskStartupError
     # Fixed labels only: no model input, task identity or exception text enters
     # the numeric recorder. Include startup retries in the stage's wall time.
     label = {'network': 'ai.network', 'priorities': 'ai.priorities'}.get(stage)
     with _runtime_span(label):
-        for attempt in range(2):
+        attempt = reuse_fallback = 0
+        while True:
             remaining = end - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError()
-            # Only the first attempt may use an already started idle task; a
-            # startup retry always launches a fresh one, exactly as before.
-            prelaunched = prelaunch.claim() if prelaunch is not None and not attempt else None
             try:
-                if cancel_event is None and on_prepared is None and prelaunched is None:
+                if cancel_event is None and on_prepared is None:
                     return invoke(stage, platform, entries, token, findings, reviews, min(limit, remaining))
                 kwargs = {}
                 if cancel_event is not None:
                     kwargs['cancel_event'] = cancel_event
                 if on_prepared is not None:
                     kwargs['on_prepared'] = on_prepared
-                if prelaunched is not None:
-                    kwargs['prelaunched'] = prelaunched
                 return invoke(stage, platform, entries, token, findings, reviews, min(limit, remaining), **kwargs)
+            except TaskReuseError:
+                # The retained Network task never took this invocation: launch
+                # a fresh task, as before, within the same stage deadline.
+                if reuse_fallback:
+                    raise
+                reuse_fallback = 1
             except TaskStartupError:
                 if attempt:
                     raise
+                attempt = 1
 
 
 def inputs(report):
@@ -481,28 +523,7 @@ def review_concurrency():
     return min(requested, capacity)
 
 
-def start_prelaunch(wait):
-    """Start one idle hosted agent task for a later invocation, or return None.
-
-    The task gets no credential or input until that invocation is admitted;
-    its own deadline is then computed exactly as for a fresh launch. Only
-    image pull and container start move earlier, never model work.
-    """
-    try:
-        if not isolation.remote():
-            return None
-        from .fargate import MAX_PRELAUNCH_WAIT, PRELAUNCH_MARGIN, Prelaunch, configuration
-        wait = min(MAX_PRELAUNCH_WAIT, int(wait))
-        if wait <= 2 * PRELAUNCH_MARGIN:
-            return None
-        configuration()
-        return Prelaunch(wait)
-    except Exception:
-        # Optional: the invocation then launches its own task as before.
-        return None
-
-
-def review_network(report, entries, token, network, end, *, cancel_event=None, prelaunch=None):
+def review_network(report, entries, token, network, end, *, cancel_event=None):
     """Run the sole pre-Priorities model stage within its memory and time budget."""
     unavailable = {'status': 'unavailable', 'explanation': '', 'findings': [],
                    'reason': 'network_review_unavailable'}
@@ -516,8 +537,7 @@ def review_network(report, entries, token, network, end, *, cancel_event=None, p
         access = review_credentials(entries, report['provider'], [], {'resources': network['inventory']})
         from .review_groups import stage_limit
         args = ('network', network, access, token, [], [], end, stage_limit('network', isolation.remote()))
-        kwargs = {key: value for key, value in (('cancel_event', cancel_event), ('prelaunch', prelaunch))
-                  if value is not None}
+        kwargs = {'cancel_event': cancel_event} if cancel_event is not None else {}
         data = invoke_before_deadline(*args, **kwargs)
         return dict(validate_network(data, network), status='completed'), False
     except Exception:
@@ -544,13 +564,15 @@ def selected_stages(selectors, stages=None):
 
 def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None, context=None,
                 stages=None, reused_stages=None, cancel_event=None,
-                require_reused_network=False, on_prepared=None, prelaunch=None):
+                require_reused_network=False, on_prepared=None, scan_id=None, task_handoff=None):
     """Run remaining AI stages with native FAILs as final Priorities inputs.
 
-    ``prelaunch`` is an optional idle hosted task for this scan's first model
-    invocation. When Network must run first, the Priorities task is started
-    while Network runs. Priorities still receives the complete accepted Network
-    output, and its full invocation budget starts only when its input is ready.
+    Hosted Priorities runs in the same role-free task as this scan's Network
+    stage when that task is still waiting: in this call, or, with ``scan_id``,
+    from a reused progressive Network result whose ``task_reuse`` descriptor
+    the Network stage call stored through ``task_handoff``. Priorities still
+    receives the complete accepted Network output and its own full budget,
+    credential validation and input; otherwise it starts a fresh task.
     """
     selected = selected_stages(selectors, stages)
     result = {'version': 1, 'status': 'skipped', 'actions': [],
@@ -575,7 +597,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
     result['coverage'] = {'hardening': len(hardening), 'exposure': len(exposure) + len(duplicates),
                           'reviewed': len(reviewed), 'native_final': len(reviewed),
                           'model_reviewed': 0, 'total': len(reviewed)}
-    priorities_prelaunch = None
+    chain = chain_token = None
     try:
         from peaso.storage.runtime import stores
         settings = Settings()
@@ -638,6 +660,18 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                             result['network'] = copy.deepcopy(prior['network'])
             except (KeyError, TypeError, ValueError):
                 pass
+        if isolation.remote():
+            from .fargate import binding as task_binding
+            bound = task_binding(tenant, scan_id)
+            descriptor = prior.get('task_reuse') if 'network' in result else None
+            if not (isinstance(descriptor, dict) and isinstance(descriptor.get('binding'), str)
+                    and scan_id and hmac.compare_digest(descriptor['binding'], bound)):
+                descriptor = None
+            follows = 'priorities' in selected or (
+                task_handoff is not None and 'priorities' in selected_stages(selectors))
+            chain = TaskChain(bound, retain=network is not None and 'network' not in result and follows,
+                              reuse=descriptor)
+            chain_token = _TASK_CHAIN.set(chain)
         failed_stage = False
         if require_reused_network and 'network' not in result:
             # Early Priorities must never launch a second Network task from a
@@ -647,17 +681,15 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             try:
                 review_end = end - min(600 if isolation.remote() else 60,
                     max(0, end - time.monotonic()) * (.3 if isolation.remote() else .2))
-                if 'priorities' in selected and isolation.remote():
-                    # Image pull/startup of the dependent stage overlaps Network.
-                    priorities_prelaunch = start_prelaunch(max(0, review_end - time.monotonic()) + 120)
-                kwargs = {key: value for key, value in (('cancel_event', cancel_event), ('prelaunch', prelaunch))
-                          if value is not None}
+                kwargs = {'cancel_event': cancel_event} if cancel_event is not None else {}
                 result['network'], failed_stage = review_network(report, entries, token, network,
                     review_end, **kwargs)
             except Exception:
                 failed_stage = True
-        else:
-            priorities_prelaunch = prelaunch
+            if chain is not None and task_handoff is not None and chain.descriptor is not None:
+                # A later Priorities call of this scan may take the waiting task.
+                task_handoff['network'] = chain.descriptor
+                chain.handed_off = True
         result['network'] = result.get('network') or {
             'status': 'not_available', 'explanation': '', 'findings': [],
             'reason': 'network_inventory_unavailable'}
@@ -685,8 +717,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                 data = invoke_before_deadline('priorities', platform, entries, token,
                     hardening + exposure, reviewed, end, stage_limit('priorities', isolation.remote()),
                     **({key: value for key, value in
-                        (('cancel_event', cancel_event), ('on_prepared', on_prepared),
-                         ('prelaunch', priorities_prelaunch)) if value is not None}))
+                        (('cancel_event', cancel_event), ('on_prepared', on_prepared)) if value is not None}))
                 recommendations = validate_actions(data, priorities_report, reviewed,
                                                     require_assessment=True)
                 result['actions'] = recommendations['actions']
@@ -709,7 +740,10 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         result['limitations'].append('AI authentication, runtime or scan context is unavailable. Native findings remain final.')
         return result
     finally:
-        # Stop any idle task that no admitted invocation took.
-        for handle in (prelaunch, priorities_prelaunch):
-            if handle is not None:
-                handle.close()
+        if chain is not None:
+            _TASK_CHAIN.reset(chain_token)
+            # Stop a retained task Priorities will not take; never wait idle.
+            try:
+                chain.release()
+            except Exception:
+                pass

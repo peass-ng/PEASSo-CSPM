@@ -21,7 +21,12 @@ def placeholder(account_id):
         'https://api.openai.com/auth': {'chatgpt_account_id': account_id}}), secrets.token_urlsafe(32)])
 
 
-def serve(config, *, server_class=ThreadingHTTPServer):
+def serve(config, *, server_class=ThreadingHTTPServer, stop_after_result=False):
+    """Serve one invocation until its deadline; True when its result was stored.
+
+    ``stop_after_result`` ends serving once the result is stored, so a retained
+    task can take the same scan's next invocation with a new capability.
+    """
     from .auth import claims
     token = config['token']
     selection = config.get('ai_configuration') or {}
@@ -33,13 +38,15 @@ def serve(config, *, server_class=ThreadingHTTPServer):
         raise ValueError('invalid_model_identity')
     capability = placeholder(account) if provider == 'codex' else secrets.token_urlsafe(48)
     public = {key: config[key] for key in ('stage', 'timeout')}
+    public['sequence'] = config.get('sequence', 1)
     public['ai_configuration'] = {key: selection[key] for key in ('provider', 'model', 'thinking') if key in selection}
     public['relay_token'] = capability
     duration = max(1, min(1800, config['timeout'], config.get('expires_at', time.time() + config['timeout']) - time.time()))
     public['timeout'] = max(1, int(duration))
     deadline = time.monotonic() + duration
     lock = threading.Lock()
-    state = {'calls': 0}
+    state = {'calls': 0, 'stored': False}
+    servers = []
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
@@ -86,12 +93,21 @@ def serve(config, *, server_class=ThreadingHTTPServer):
                     body = self.rfile.read(int(lengths[0]))
                     json.loads(body)
                     transfer('PUT', config['output_url'], body=body, limit=1024)
-                    return self.reply(200, {'stored': True})
+                    with lock:
+                        state['stored'] = True
+                    self.reply(200, {'stored': True})
+                    if stop_after_result:
+                        self.close_connection = True
+                        threading.Thread(target=servers[0].shutdown, daemon=True).start()
+                    return
                 except Exception:
                     return self.reply(502, {'error': 'result_transfer_failed'})
             self.forward()
 
         def authorized(self):
+            # A retained task's finished invocation loses its capability at once.
+            if stop_after_result and state['stored']:
+                return False
             return time.monotonic() < deadline and (
                 hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + capability)
                 or provider == 'anthropic' and hmac.compare_digest(self.headers.get('x-api-key', ''), capability))
@@ -224,6 +240,11 @@ def serve(config, *, server_class=ThreadingHTTPServer):
                 self.close_connection = True
 
     server = server_class(('127.0.0.1', PORT), Handler)
+    servers.append(server)
+    if stop_after_result:
+        # Never hold the next invocation behind an idle keep-alive handler.
+        server.daemon_threads = True
+        server.block_on_close = False
     timer = threading.Timer(max(1, deadline - time.monotonic()), server.shutdown)
     timer.daemon = True
     timer.start()
@@ -232,3 +253,4 @@ def serve(config, *, server_class=ThreadingHTTPServer):
     finally:
         timer.cancel()
         server.server_close()
+    return state['stored']

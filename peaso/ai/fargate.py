@@ -1,4 +1,4 @@
-"""One role-free Fargate task per agent; exact-object ephemeral transport."""
+"""One role-free Fargate task per scan stage chain; exact-object ephemeral transport."""
 import gzip
 import io
 import json
@@ -101,13 +101,17 @@ def pack_workspace(root):
     return data
 
 
-# A prelaunched task waits, with no model access or input, for one later
-# invocation. Its relay polls only for that invocation's exact bootstrap object.
-MAX_PRELAUNCH_WAIT = 1800
-# Minimum remaining relay bootstrap wait for a prelaunched task to be used.
-PRELAUNCH_MARGIN = 60
+# One retained task serves at most these two invocations, in this order.
+# A Network task may stay up only to take the same scan's Priorities stage.
+REUSE_IDLE_SECONDS = 90
+# Minimum remaining idle window for the invoker to hand a retained task work.
+REUSE_MARGIN = 15
+# The retained relay must acknowledge the second invocation within this bound.
+REUSE_ACCEPT_SECONDS = 30
 _LIVE_TASK_STATES = {'PROVISIONING', 'PENDING', 'ACTIVATING', 'RUNNING'}
 
+class TaskReuseError(RuntimeError):
+    """A retained task cannot take this invocation; launch a fresh one."""
 
 def _clients(ecs, s3):
     import boto3
@@ -117,19 +121,27 @@ def _clients(ecs, s3):
     s3 = s3 or boto3.client('s3', config=sdk.merge(Config(signature_version='s3v4')))
     return ecs, s3
 
+def _keys(ident, sequence=1):
+    prefix = 'invocations/' + ident + '/' + ('' if sequence == 1 else str(sequence) + '/')
+    names = ('input.tgz', 'relay.json', 'result.json') + (('accepted.json',) if sequence > 1 else ())
+    return {name: prefix + name for name in names}
 
-def _keys(ident):
-    prefix = 'invocations/' + ident + '/'
-    return {name: prefix + name for name in ('input.tgz', 'relay.json', 'result.json')}
+def binding(tenant, scan):
+    """Opaque tenant/scan binding carried by a task and every invocation it takes."""
+    import hashlib
+    return hashlib.sha256(('peaso-ai-task\0%s\0%s' % (tenant, scan or '')).encode()).hexdigest()
 
-
-def _run_task(ecs, config, definition, ident, bootstrap_url, wait=None):
-    environment = {'relay': [{'name': 'PEASO_AI_BOOTSTRAP_URL', 'value': bootstrap_url}]}
-    if wait is not None:
-        # Both containers wait for the later bootstrap; neither receives it here.
+def _run_task(ecs, config, definition, ident, bootstrap_url, *, task_binding=None, next_url=None):
+    relay = [{'name': 'PEASO_AI_BOOTSTRAP_URL', 'value': bootstrap_url}]
+    environment = {'relay': relay}
+    if task_binding is not None:
+        relay.append({'name': 'PEASO_AI_TASK_BINDING', 'value': task_binding})
+    if next_url is not None:
+        # Only the same scan's next stage may follow, for a short bounded time.
+        relay.append({'name': 'PEASO_AI_NEXT_BOOTSTRAP_URL', 'value': next_url})
         for name in ('relay', 'agent'):
             environment.setdefault(name, []).append(
-                {'name': 'PEASO_AI_BOOTSTRAP_WAIT_SECONDS', 'value': str(int(wait))})
+                {'name': 'PEASO_AI_REUSE_IDLE_SECONDS', 'value': str(REUSE_IDLE_SECONDS)})
     started = ecs.run_task(cluster=config['cluster'], taskDefinition=definition['taskDefinitionArn'],
         launchType='FARGATE', platformVersion='1.4.0', count=1,
         networkConfiguration={'awsvpcConfiguration': {'subnets': config['subnets'],
@@ -141,44 +153,6 @@ def _run_task(ecs, config, definition, ident, bootstrap_url, wait=None):
     if len(tasks) != 1:
         raise RuntimeError('ai_task_launch_failed')
     return tasks[0]['taskArn']
-
-
-class PrelaunchedTask:
-    """A role-free task started before its invocation is known.
-
-    It holds no model credential, relay configuration or input: its relay only
-    waits for one exact presigned bootstrap object that ``invoke`` writes when
-    the stage is actually admitted. ``invoke`` then computes the invocation's
-    deadline, model credential and transport exactly as for a fresh launch, so
-    the model's time budget starts when its input is ready, not at launch.
-    """
-
-    def __init__(self, ecs, s3, config, definition, ident, task, ready_until, clock):
-        self.ecs, self.s3, self.config, self.definition = ecs, s3, config, definition
-        self.ident, self.keys, self.task = ident, _keys(ident), task
-        self.ready_until, self.clock = ready_until, clock
-        self.taken = False
-
-    def usable(self):
-        """True only while the relay still waits and ECS reports a live task."""
-        if self.clock() + PRELAUNCH_MARGIN >= self.ready_until:
-            return False
-        try:
-            response = self.ecs.describe_tasks(cluster=self.config['cluster'], tasks=[self.task])
-        except Exception:
-            return False
-        rows = response.get('tasks', [])
-        return (len(rows) == 1 and not response.get('failures')
-                and rows[0].get('lastStatus') in _LIVE_TASK_STATES
-                and rows[0].get('desiredStatus', 'RUNNING') == 'RUNNING')
-
-    def close(self):
-        """Stop an unused task; an invocation that took it owns its cleanup."""
-        if self.taken:
-            return
-        self.taken = True
-        _cleanup(self.ecs, self.s3, self.config, self.task, self.keys)
-
 
 def _cleanup(ecs, s3, config, task, keys):
     # Also stop on caller errors/cancellation; tasks carry their own watchdog
@@ -193,13 +167,12 @@ def _cleanup(ecs, s3, config, task, keys):
     except Exception:
         pass  # Bucket lifecycle provides backstop cleanup after parent death.
 
-
 def _signing_lifetime(s3):
     """Seconds left on temporary signing credentials, or None when not expiring.
 
     A presigned URL stops working when its session credential expires, and S3
-    then answers 403 like a not-yet-written object. Never let a waiting relay
-    depend on a URL that could expire before it is used.
+    then answers 403 like a not-yet-written object. Never retain a task whose
+    next-invocation URL could expire before its idle window ends.
     """
     try:
         credentials = s3._request_signer._credentials
@@ -211,108 +184,91 @@ def _signing_lifetime(s3):
     import datetime
     return (expiry - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
 
-
-def prelaunch(wait, *, ecs=None, s3=None, clock=time.monotonic):
-    """Start one idle role-free task whose relay waits up to ``wait`` seconds."""
-    if not 0 < wait <= MAX_PRELAUNCH_WAIT:
-        raise ValueError('invalid_agent_prelaunch')
-    config = configuration()
-    ecs, s3 = _clients(ecs, s3)
-    lifetime = _signing_lifetime(s3)
-    if lifetime is not None:
-        wait = min(wait, int(lifetime) - 2 * PRELAUNCH_MARGIN)
-        if wait <= 2 * PRELAUNCH_MARGIN:
-            raise RuntimeError('ai_prelaunch_signing_lifetime')
-    definition = ecs.describe_task_definition(taskDefinition=config['task_definition'])['taskDefinition']
-    validate_task(definition)
-    ident = uuid.uuid4().hex
-    keys = _keys(ident)
-    ready_until = clock() + wait
-    bootstrap = s3.generate_presigned_url('get_object', Params={'Bucket': config['bucket'], 'Key': keys['relay.json']},
-                                          ExpiresIn=min(3600, int(wait) + PRELAUNCH_MARGIN))
-    task = None
+def _read_object(s3, bucket, key, *, missing_ok=False):
+    """Return an exact transport object, or None when ``missing_ok`` and absent."""
     try:
-        task = _run_task(ecs, config, definition, ident, bootstrap, wait=wait)
-    except BaseException:
-        _cleanup(ecs, s3, config, task, keys)
+        body = s3.get_object(Bucket=bucket, Key=key)['Body']
+    except Exception as error:
+        code = str(((getattr(error, 'response', None) or {}).get('Error') or {}).get('Code', ''))
+        if missing_ok and code in {'NoSuchKey', '404', 'NotFound', 'AccessDenied', '403'}:
+            return None
         raise
-    return PrelaunchedTask(ecs, s3, config, definition, ident, task, ready_until, clock)
+    try:
+        raw = body.read(MAX_OUTPUT + 1)
+    finally:
+        body.close()
+    if len(raw) > MAX_OUTPUT:
+        raise ValueError('agent_output_too_large')
+    return raw
 
+def _reusable(reuse, task_binding):
+    """Validate a retained-task descriptor before any credential is written for it."""
+    import hmac
+    if (not isinstance(reuse, dict) or reuse.get('version') != 1 or not isinstance(task_binding, str)
+            or not isinstance(reuse.get('binding'), str)
+            or not hmac.compare_digest(reuse['binding'], task_binding)
+            or not isinstance(reuse.get('ident'), str) or not re.fullmatch(r'[a-f0-9]{32}', reuse['ident'])
+            or not isinstance(reuse.get('task'), str)
+            or not re.fullmatch(r'arn:aws[a-z-]*:ecs:[a-z0-9-]+:[0-9]{12}:task/[A-Za-z0-9_-]+/[a-f0-9]{32}', reuse['task'])
+            or not isinstance(reuse.get('ready_until'), (int, float))
+            or time.time() + REUSE_MARGIN >= reuse['ready_until']):
+        raise TaskReuseError('ai_task_not_reusable')
+    return reuse
 
-class Prelaunch:
-    """Start a prelaunched task in the background and hand it out at most once.
-
-    Launch failures are not errors: the invocation then starts its own task
-    exactly as before. ``close`` stops a task that was never handed out,
-    including one whose launch completes after closing.
-    """
-
-    def __init__(self, wait, *, launcher=None):
-        import threading
-        self._lock = threading.Lock()
-        self._task = None
-        self._closed = False
-        launcher = launcher or prelaunch
-        def run():
-            try:
-                task = launcher(wait)
-            except Exception:
-                return
-            with self._lock:
-                if not self._closed:
-                    self._task = task
-                    return
-            task.close()
-        self._thread = threading.Thread(target=run, name='peaso-ai-prelaunch', daemon=True)
-        self._thread.start()
-
-    def claim(self, timeout=10):
-        """Return the started task once, or None; never wait for long."""
-        self._thread.join(timeout)
-        with self._lock:
-            task, self._task = self._task, None
-            if self._thread.is_alive():
-                self._closed = True
-        return task
-
-    def close(self):
-        with self._lock:
-            self._closed = True
-            task, self._task = self._task, None
-        if task is not None:
-            task.close()
-
+def release(reuse, *, ecs=None, s3=None):
+    """Stop a retained task that no invocation will take, without waiting idle."""
+    if not isinstance(reuse, dict) or not isinstance(reuse.get('task'), str) or not isinstance(reuse.get('ident'), str):
+        return
+    if not re.fullmatch(r'[a-f0-9]{32}', reuse['ident']):
+        return
+    try:
+        config = configuration()
+        ecs, s3 = _clients(ecs, s3)
+    except Exception:
+        return  # The task still exits by itself after its short idle window.
+    _cleanup(ecs, s3, config, reuse['task'], _keys(reuse['ident'], 2))
 
 def invoke(stage, root, token, timeout, *, prepare=None, ecs=None, s3=None,
-           clock=time.monotonic, sleep=time.sleep, prelaunched=None):
-    if stage not in STAGES or not 0 < timeout <= 1800:
-        if prelaunched is not None:
-            prelaunched.close()
+           clock=time.monotonic, sleep=time.sleep, task_binding=None, retain=None, reuse=None):
+    """Run one stage in a role-free task.
+
+    ``retain`` (a dict) asks a fresh task to stay up, for at most
+    REUSE_IDLE_SECONDS after its result, so the same scan's next stage can run
+    in it; on success ``retain['task']`` receives the task descriptor. ``reuse``
+    sends this invocation to such a retained task. Every invocation still gets
+    its own credential validation, relay configuration, input, output and
+    deadline. TaskReuseError means the retained task never took the invocation.
+    """
+    if stage not in STAGES or not 0 < timeout <= 1800 or (retain is not None or reuse is not None) and not task_binding:
         raise ValueError('invalid_agent_invocation')
     deadline = clock() + timeout
     from .providers import validate_before_launch
-    try:
-        token = validate_before_launch(token)
-    except BaseException:
-        if prelaunched is not None:
-            prelaunched.close()
-        raise
-    if prelaunched is not None and not prelaunched.usable():
-        prelaunched.close()
-        prelaunched = None
-    if prelaunched is not None:
-        prelaunched.taken = True
-        ecs, s3, config, definition = (prelaunched.ecs, prelaunched.s3,
-                                       prelaunched.config, prelaunched.definition)
-        ident, keys, task = prelaunched.ident, prelaunched.keys, prelaunched.task
+    token = validate_before_launch(token)
+    config = configuration()
+    ecs, s3 = _clients(ecs, s3)
+    task = None
+    if reuse is not None:
+        reuse = _reusable(reuse, task_binding)
+        ident, sequence, retain = reuse['ident'], 2, None
+        response = ecs.describe_tasks(cluster=config['cluster'], tasks=[reuse['task']])
+        rows = response.get('tasks', [])
+        agent = next((c for c in (rows[0].get('containers', []) if rows else []) if c.get('name') == 'agent'), {})
+        if (len(rows) != 1 or response.get('failures') or rows[0].get('lastStatus') not in _LIVE_TASK_STATES
+                or rows[0].get('desiredStatus', 'RUNNING') != 'RUNNING' or agent.get('lastStatus') == 'STOPPED'):
+            raise TaskReuseError('ai_task_not_reusable')
     else:
-        config = configuration()
-        ecs, s3 = _clients(ecs, s3)
         definition = ecs.describe_task_definition(taskDefinition=config['task_definition'])['taskDefinition']
         validate_task(definition)
-        ident = uuid.uuid4().hex
-        keys = _keys(ident)
-        task = None
+        ident, sequence = uuid.uuid4().hex, 1
+    keys = _keys(ident, sequence)
+    retained = False
+    next_url = None
+    if retain is not None:
+        lifetime = _signing_lifetime(s3)
+        next_lifetime = min(3600, int(timeout) + 30 + REUSE_IDLE_SECONDS + 2 * REUSE_MARGIN)
+        if lifetime is None or lifetime > next_lifetime + REUSE_MARGIN:
+            next_url = s3.generate_presigned_url('get_object', Params={
+                'Bucket': config['bucket'], 'Key': _keys(ident, 2)['relay.json']}, ExpiresIn=next_lifetime)
     try:
         def upload_input():
             data = pack_workspace(root)
@@ -329,24 +285,47 @@ def invoke(stage, root, token, timeout, *, prepare=None, ecs=None, s3=None,
                  'ai_configuration': authentication, 'input_url': url('get_object', 'input.tgz'),
                  'output_url': url('put_object', 'result.json'), 'timeout': max(1, int(deadline - clock())),
                  'expires_at': time.time() + max(1, deadline - clock() - 15)}
+        if task_binding:
+            relay.update(sequence=sequence, binding=task_binding)
+        if sequence > 1:
+            relay['accepted_url'] = url('put_object', 'accepted.json')
         s3.put_object(Bucket=config['bucket'], Key=keys['relay.json'], Body=json.dumps(relay).encode(), ServerSideEncryption='AES256')
         if clock() >= deadline:
             raise TimeoutError('agent_deadline')
-        if task is None:
-            task = _run_task(ecs, config, definition, ident, url('get_object', 'relay.json'))
+        if reuse is not None:
+            task = reuse['task']
+            accept_by = clock() + REUSE_ACCEPT_SECONDS
+        else:
+            task = _run_task(ecs, config, definition, ident, url('get_object', 'relay.json'),
+                             task_binding=task_binding, next_url=next_url)
         if prepare is not None:
             # Image pull and task startup overlap local context construction.
             # The relay waits for this exact input object before exposing it.
             prepare()
             upload_input()
+        accepted = reuse is None
+        if not accepted:
+            accept_by = max(accept_by, clock() + 5)
+        polled = time.time()
         while clock() < deadline:
+            checked = time.time()
             response = ecs.describe_tasks(cluster=config['cluster'], tasks=[task])
             rows = response.get('tasks', [])
             if len(rows) != 1 or response.get('failures'):
+                if not accepted:
+                    raise TaskReuseError('ai_task_not_reusable')
                 raise RuntimeError('ai_task_status_unavailable')
+            if not accepted:
+                try:
+                    accepted = _read_object(s3, config['bucket'], keys['accepted.json'], missing_ok=True) is not None
+                except Exception:
+                    accepted = False
             agent = next((c for c in rows[0].get('containers', []) if c.get('name') == 'agent'), {})
             agent_stopped = agent.get('lastStatus') == 'STOPPED' and agent.get('exitCode') is not None
             if rows[0].get('lastStatus') == 'STOPPED' or agent_stopped:
+                if not accepted:
+                    # The retained task stopped or rejected this invocation.
+                    raise TaskReuseError('ai_task_not_reusable')
                 if agent.get('exitCode') is None and rows[0].get('stopCode') == 'TaskFailedToStart':
                     raise TaskStartupError('ai_task_startup_failed')
                 if agent.get('exitCode') == 78:
@@ -354,15 +333,27 @@ def invoke(stage, root, token, timeout, *, prepare=None, ecs=None, s3=None,
                     raise launch_error(token)
                 if agent.get('exitCode') != 0:
                     raise RuntimeError('agent_failed')
-                body = s3.get_object(Bucket=config['bucket'], Key=keys['result.json'])['Body']
+                return json.loads(_read_object(s3, config['bucket'], keys['result.json']))
+            if not accepted and clock() >= accept_by:
+                raise TaskReuseError('ai_task_not_reusable')
+            if next_url is not None:
+                # A retained agent stays up after storing its validated result.
                 try:
-                    raw = body.read(MAX_OUTPUT + 1)
-                finally:
-                    body.close()
-                if len(raw) > MAX_OUTPUT:
-                    raise ValueError('agent_output_too_large')
-                return json.loads(raw)
+                    raw = _read_object(s3, config['bucket'], keys['result.json'], missing_ok=True)
+                except ValueError:
+                    raise
+                except Exception:
+                    raw = None  # A transient read error only delays this poll.
+                if raw is not None:
+                    data = json.loads(raw)
+                    # The relay starts its idle window only after this object
+                    # exists, so the previous poll bounds that window's start.
+                    retain['task'] = {'version': 1, 'task': task, 'ident': ident, 'binding': task_binding,
+                                      'ready_until': polled + REUSE_IDLE_SECONDS}
+                    retained = True
+                    return data
+            polled = checked
             sleep(min(2, max(0, deadline - clock())))
         raise TimeoutError('agent_deadline')
     finally:
-        _cleanup(ecs, s3, config, task, keys)
+        _cleanup(ecs, s3, config, None if retained else task, keys)
