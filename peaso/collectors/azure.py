@@ -3245,12 +3245,12 @@ class _MetadataOnlyCollection(Exception):
 def collect(connector, requirements=None, *, transport=None):
     """Return native facts with separate directory, inheritance and usage coverage."""
     options, auth = connector.get("options", {}), connector.get("auth", {})
+    if not isinstance(options, dict) or not isinstance(auth, dict):
+        raise ValueError("auth and options must be objects")
     package_grant = package_source.authorize(options, connector.get('scopes', []))
     azure_devops_git_native.normalize(options, auth)
     azure_devops_pipeline_native.normalize(options, auth)
     azure_aks_workloads_native.normalize(options, auth)
-    if not isinstance(options, dict) or not isinstance(auth, dict):
-        raise ValueError("auth and options must be objects")
     from .azure_resource_logging_policy import normalize as normalize_resource_logging
     resource_logging_owner = normalize_resource_logging(options)
     nsg_owner = azure_nsg_ingress_native.normalize(options)
