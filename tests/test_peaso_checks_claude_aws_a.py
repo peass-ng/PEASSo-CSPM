@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from peaso.checks import CHECKS
+from peaso.checks import CHECKS, CHECK_ALIASES
 from peaso.checks.fixtures import CASES
 from peaso.checks import claude_aws_a
 from peaso.checks.claude_aws_a_common import CHECK_IDS, ROWS, CONTEXT, idx
@@ -36,8 +36,14 @@ def _run(cid, data, index):
     return status
 
 
+# The reviewed role-activity successor ships pass/fail/missing/malformed cases
+# only. Its UNKNOWN branch is an old role whose RoleLastUsed has no date.
+_ROLE_ACTIVITY = "aws.claude_a.iam.role_used_within_60_days"
+_SUCCESSOR_CASES = {_ROLE_ACTIVITY: {"unknown": {**CASES[_ROLE_ACTIVITY]["fail"], "RoleLastUsed": {}}}}
+
+
 def _evaluate(cid, name):
-    cases = CASES[cid]
+    cases = {**CASES[cid], **_SUCCESSOR_CASES.get(cid, {})}
     return _run(cid, cases[name], cases.get(name + "_index", cases.get("index", {})))
 
 
@@ -57,7 +63,8 @@ def test_pass_fail_unknown(cid):
     assert _evaluate(cid, "unknown") == "UNKNOWN"
     assert _evaluate(cid, "missing") == "UNKNOWN"
     assert _evaluate(cid, "malformed") == "UNKNOWN"
-    assert _run(cid, {"collection_status": "denied"}, base) == "UNKNOWN"
+    # The role-activity successor reports a denied role read as DENIED, not as an unresolved fact.
+    assert _run(cid, {"collection_status": "denied"}, base) == ("DENIED" if cid == _ROLE_ACTIVITY else "UNKNOWN")
     if "not_applicable" in cases:
         assert _evaluate(cid, "not_applicable") == "NOT_APPLICABLE"
     assert (HACKTRICKS in check.frameworks) == includes(check.id)
@@ -92,7 +99,8 @@ def test_partition_dispositions_are_complete():
     for row, (kind, target) in dispositions.items():
         assert kind in ("ported", "merged", "manual", "rejected"), row
         if kind in ("ported", "merged"):
-            assert target and all(cid in REGISTRY for cid in target), row
+            # A retired merge target still counts when it resolves to its registered survivor.
+            assert target and all(CHECK_ALIASES.get(cid, cid) in REGISTRY for cid in target), row
     for row, entry in claude_aws_a.MANUAL.items():
         assert entry["question"] and entry["guidance"] and entry["docs"], row
     for row, entry in claude_aws_a.REJECTED.items():
