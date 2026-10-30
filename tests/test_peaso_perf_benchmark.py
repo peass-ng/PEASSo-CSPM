@@ -35,8 +35,10 @@ PROFILES = {
 # Fresh-process measurements: Linux/3.12 3.93 CPU s, 313 MB; macOS/3.13
 # 2.57 CPU s, 340 MB. Rebaseline the small profile for that catalog growth;
 # keep the 10x limits and per-finding/report bounds unchanged.
+# The combined native registry now loads at startup: main (48b70bc2) peaks at
+# 528 MB and Linux CI at 514 MB, so the 1x process budget is 600 MB.
 BUDGETS = {
-    "1x": {"cpu_sec": 6, "wall_sec": 60, "maxrss_mb": 400},
+    "1x": {"cpu_sec": 6, "wall_sec": 60, "maxrss_mb": 600},
     "10x": {"cpu_sec": 90, "wall_sec": 600, "maxrss_mb": 1000},
 }
 # Report size is budgeted on principle instead of as a fixed constant. The old fixed 12 MB came from a
