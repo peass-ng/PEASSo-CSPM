@@ -170,10 +170,22 @@ def test_mapping_preserves_all_previous_iam_grants():
     reviewed=[s for r in historical['Resources'].values() if r['Type']=='AWS::IAM::ManagedPolicy'
               for s in r['Properties']['PolicyDocument']['Statement'] if s['Sid'].startswith('NativeCodeCommit')]
     statements=[s for d in updated for s in d['Statement']]
-    assert [s for s in statements if s['Sid'].startswith('NativeCodeCommit')]==reviewed
+    # b72d527e packs whole oversized companion statements largest-first into
+    # spare partition space, so document order can move; IAM statement order
+    # carries no meaning, but each reviewed statement must survive exactly once.
+    by_sid=lambda rows:sorted(rows,key=lambda s:s['Sid'])
+    assert by_sid([s for s in statements if s['Sid'].startswith('NativeCodeCommit')])==by_sid(reviewed)
     # Later metadata reviews may add partitions, but adding these five reads
-    # must preserve every previous document and statement exactly.
-    assert [{**d,'Statement':[s for s in d['Statement'] if s not in reviewed]} for d in updated]==previous
+    # must preserve every previous statement exactly, add no attachment, and
+    # keep each ordinary read partition in place. Since b72d527e, whole scoped
+    # companion statements are packed into spare space, so they may move
+    # between documents without any action or resource changing.
+    assert len(updated)==len(previous)
+    assert [d['Statement'][0] for d in updated]==[d['Statement'][0] for d in previous]
+    kept=[s for d in updated for s in d['Statement'] if s not in reviewed]
+    before=[s for d in previous for s in d['Statement']]
+    assert len({s['Sid'] for s in kept})==len(kept)
+    assert by_sid(kept)==by_sid(before)
     assert len(updated)<=policy.IAM_MANAGED_POLICIES_PER_ROLE
     assert all(policy.policy_size(d)<=6144 for d in updated)
     for service,operation in READ_ACTIONS:
