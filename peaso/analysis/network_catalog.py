@@ -28,13 +28,13 @@ NETWORK_SERVICE_GROUPS = {
             "spring_cloud_service", "integration_service_environment", "logic_app_workflow", "app_service_slot", "ml_compute", "datafactory_managed_vnet", "datafactory_managed_private_endpoint"},
         "data_platform": {"hdinsight_cluster", "healthcare_fhir_service", "hpc_cache", "iot_hub", "bot_service",
             "postgresql_single_server", "mysql_single_server", "mariadb_server", "netapp_account",
-            "netapp_capacity_pool", "netapp_volume", "disk_access", "log_analytics_workspace", "application_insights", "redis_enterprise_cluster", "automation_account", "iot_dps", "storage_sync_service", "log_analytics_cluster",
+            "netapp_capacity_pool", "netapp_volume", "disk_access", "log_analytics_workspace", "application_insights", "redis_enterprise_cluster", "redis_enterprise_database", "automation_account", "iot_dps", "storage_sync_service", "log_analytics_cluster",
             "monitor_private_link_scope", "monitor_scoped_resource", "monitor_data_collection_endpoint"},
         "dns_hybrid": {"synapse_managed_private_endpoint", "load_test_network_test", "hub_bgp_connection", "hub_route_table", "hub_route_map", "hub_vpn_connection", "hub_vpn_link_connection", "hub_expressroute_connection",
             "flow_log", "private_dns_zone", "private_dns_link", "dns_zone", "bastion_host", "local_network_gateway",
             "network_connection", "expressroute_circuit", "virtual_wan", "virtual_hub", "hub_vnet_connection",
             "hub_vpn_gateway", "hub_expressroute_gateway", "vpn_site", "dns_resolver", "dns_inbound_endpoint",
-            "dns_outbound_endpoint", "dns_forwarding_ruleset", "dns_forwarding_rule", "dns_forwarding_vnet_link", "private_dns_record_set", "dns_record", "network_watcher", "web_application_firewall_policy", "frontdoor_waf_policy"},
+            "dns_outbound_endpoint", "dns_forwarding_ruleset", "dns_forwarding_rule", "dns_forwarding_vnet_link", "private_dns_record_set", "dns_record", "network_watcher", "web_application_firewall_policy", "frontdoor_waf_policy", "traffic_manager_profile"},
     },
     "gcp": {
         "application_compute": {"app_engine_application", "app_engine_service", "app_engine_network_version",
@@ -55,7 +55,7 @@ NETWORK_SERVICE_GROUPS = {
 CONTROL_TYPES = {"aws": {"resolver_firewall_rule"}, "k8s": {"cilium_networkpolicy", "cilium_clusterwide_networkpolicy", "calico_networkpolicy",
     "calico_global_networkpolicy", "admin_networkpolicy", "baseline_admin_networkpolicy", "cluster_networkpolicy"},
     "gcp": {"service_perimeter", "security_policy", "firewall_policy_association", "effective_firewall", "policy_based_route", "authorization_policy"},
-    "azure": {"web_application_firewall_policy", "frontdoor_waf_policy", "security_admin_rule"}}
+    "azure": {"web_application_firewall_policy", "frontdoor_waf_policy", "security_admin_rule", "ip_group"}}
 
 # The SDK schema audit also finds aliases, historical resources and evidence
 # inventories that reuse a network API. They do not represent additional live
@@ -63,12 +63,15 @@ CONTROL_TYPES = {"aws": {"resolver_firewall_rule"}, "k8s": {"cilium_networkpolic
 AWS_SCHEMA_EXCLUSIONS = {
     **dict.fromkeys({"client_vpn_endpoint", "load_balancer_v2", "vpc_peering_connection"},
         "Legacy/import aliases; the canonical native network inventory is requested."),
-    **dict.fromkeys({"rds_cluster_snapshot", "rds_snapshot", "redshift_snapshot"},
+    **dict.fromkeys({"rds_cluster_snapshot", "rds_snapshot", "redshift_snapshot", "docdb_cluster_snapshot", "neptune_cluster_snapshot"},
         "Historical backup metadata; its VPC is not a current workload attachment."),
     **dict.fromkeys({"aws_tagged_resource", "ec2_effective_ingress", "environment_boundary_link", "environment_workload_resource",
         "recovery_group", "resolver_firewall", "securityhub_finding", "vpc_account_inventory", "msk_compatible_version"},
         "Derived findings, coverage or compliance evidence; native assets are collected separately."),
     "lambda_selected_environment": "Opt-in application-content inspection; native Lambda network configuration is collected separately.",
+    **dict.fromkeys({"client_vpn_routing", "ds_directory_share"},
+        "Exposure join views over the same native read as the mapped ec2_client_vpn_endpoint and directory_service_directory inventories."),
+    "lambda_version": "Published-version records read for invoke-permission exposure; the function's VPC attachment is mapped from lambda_function.",
 }
 
 NETWORK_SERVICE_LABELS = {
@@ -105,7 +108,7 @@ NETWORK_SERVICE_LABELS = {
         **dict.fromkeys(NETWORK_SERVICE_GROUPS["azure"]["dns_hybrid"], "Microsoft.Network"),
         "synapse_managed_private_endpoint": "Microsoft.Synapse", "load_test_network_test": "Microsoft.LoadTestService",
         "container_app": "Microsoft.App", "container_app_environment": "Microsoft.App", "vm_scale_set": "Microsoft.Compute",
-        "container_app_job": "Microsoft.App", "registry_agent_pool": "Microsoft.ContainerRegistry", "redis_enterprise_cluster": "Microsoft.Cache",
+        "container_app_job": "Microsoft.App", "registry_agent_pool": "Microsoft.ContainerRegistry", "redis_enterprise_cluster": "Microsoft.Cache", "redis_enterprise_database": "Microsoft.Cache",
         "service_fabric_cluster": "Microsoft.ServiceFabric", "spring_cloud_service": "Microsoft.AppPlatform",
         "integration_service_environment": "Microsoft.Logic", "logic_app_workflow": "Microsoft.Logic", "app_service_slot": "Microsoft.Web",
         "hdinsight_cluster": "Microsoft.HDInsight", "healthcare_fhir_service": "Microsoft.HealthcareApis", "hpc_cache": "Microsoft.StorageCache",

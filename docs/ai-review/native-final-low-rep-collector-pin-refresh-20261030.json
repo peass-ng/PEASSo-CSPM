@@ -1,0 +1,273 @@
+{
+  "audit_commit": "a9d62a01",
+  "audit_script": "scripts/audit_native_final_low_reps.py",
+  "ranges": [
+    {
+      "new_lines": "964-973",
+      "new_range_sha256": "3429a6146623c52e1542d98d1e5fcaecaf27b3ee2bac469c70ac9894259be3c0",
+      "old_lines": "952-961",
+      "old_range_sha256": "3429a6146623c52e1542d98d1e5fcaecaf27b3ee2bac469c70ac9894259be3c0",
+      "path": "peaso/collectors/aws.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "1072-1142",
+      "new_range_sha256": "c457f25c10b7751ecb8871c31cffcd13863f3831248be68eff51c7bddf07803a",
+      "old_lines": "1060-1130",
+      "old_range_sha256": "c457f25c10b7751ecb8871c31cffcd13863f3831248be68eff51c7bddf07803a",
+      "path": "peaso/collectors/aws.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "1246-1520",
+      "new_range_sha256": "b47eee50dd1fcc64cf4bd9daaf74ce524c0caaf72d9364905fb48dad245be3a7",
+      "old_lines": "1234-1500",
+      "old_range_sha256": "0f47b826b7d1fbb26dcdfe411a145a03dbbc7229a2e6085afce3ddedc1aa7f75",
+      "path": "peaso/collectors/aws.py",
+      "review_note": "Adds only the DescribeLoadBalancers State.Code enum as LoadBalancerStateCode; no audited kind or predicate field changes.",
+      "status": "reviewed_additive"
+    },
+    {
+      "new_lines": "1333-1336",
+      "new_range_sha256": "00295919941139a6c11537eab9c3bc0f5c2a185fbccc1485036e2a89a44f9b6f",
+      "old_lines": "1321-1324",
+      "old_range_sha256": "00295919941139a6c11537eab9c3bc0f5c2a185fbccc1485036e2a89a44f9b6f",
+      "path": "peaso/collectors/aws.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "1436-1442",
+      "new_range_sha256": "eabbf492c4161af7d0df8dd5b4ca25017b1cfd76a4adaebcddf24c4ae50851bd",
+      "old_lines": "1424-1430",
+      "old_range_sha256": "eabbf492c4161af7d0df8dd5b4ca25017b1cfd76a4adaebcddf24c4ae50851bd",
+      "path": "peaso/collectors/aws.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "1504-1523",
+      "new_range_sha256": "e19c4d1d1a4794a10f68e7b5cb4bf3118b200b8052dc3ea8dca276e43111bac6",
+      "old_lines": "1484-1503",
+      "old_range_sha256": "e19c4d1d1a4794a10f68e7b5cb4bf3118b200b8052dc3ea8dca276e43111bac6",
+      "path": "peaso/collectors/aws.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "1545-1578",
+      "new_range_sha256": "6aff014559c569b8684116f7caa6c29e2446c7f63033f54993a30108b677df5d",
+      "old_lines": "1525-1558",
+      "old_range_sha256": "6aff014559c569b8684116f7caa6c29e2446c7f63033f54993a30108b677df5d",
+      "path": "peaso/collectors/aws.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "1674-1722",
+      "new_range_sha256": "e5530188e17cd49efd0c8f1d28c75fed40c72328621be097d06046c65b5d6351",
+      "old_lines": "1654-1701",
+      "old_range_sha256": "863573dbcb51a9ceafc802e5e3268c1a11097ec0b9836e05f717dc688c4c3fd4",
+      "path": "peaso/collectors/aws.py",
+      "review_note": "GetBucketPolicy now sends ExpectedBucketOwner for the scanned account; the audited S3 detail reads, absent codes and status recording are unchanged.",
+      "status": "reviewed_additive"
+    },
+    {
+      "new_lines": "2820-2941",
+      "new_range_sha256": "be469d12fc74403daed58454978e41ba780f4e62f26c47844ba65f6d39f06fde",
+      "old_lines": "2799-2920",
+      "old_range_sha256": "b56f9d06868f8be3459c9c32745964371fcf73e01bf7bf270a1e1b1e4f063264",
+      "path": "peaso/collectors/aws.py",
+      "review_note": "Passes the scanned account to _buckets and labels the runtime span; job dispatch for audited kinds is unchanged.",
+      "status": "reviewed_additive"
+    },
+    {
+      "new_lines": "2929-2932",
+      "new_range_sha256": "175fd9d603d1ae4ced2f54292cc57378a9e1b09182391ac579eba5723fcb3f45",
+      "old_lines": "2908-2911",
+      "old_range_sha256": "175fd9d603d1ae4ced2f54292cc57378a9e1b09182391ac579eba5723fcb3f45",
+      "path": "peaso/collectors/aws.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "2968-2978",
+      "new_range_sha256": "1b204c8f3d7280956fbbd9b343e9c51c6dfd4cf47b82b4145d96153fc80a3ec2",
+      "old_lines": "2947-2957",
+      "old_range_sha256": "1b204c8f3d7280956fbbd9b343e9c51c6dfd4cf47b82b4145d96153fc80a3ec2",
+      "path": "peaso/collectors/aws.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "141-312",
+      "new_range_sha256": "c8ce63a2438d95c91da4bf7f487419b689de57818e3c0f53b94cb433ca2f3ed0",
+      "old_lines": "129-275",
+      "old_range_sha256": "1fec7eaeded9e79e300a1eabd9c3a7a0464ab96c00df7fb05789d59e8d7ce4c5",
+      "path": "peaso/collectors/aws_b_services.py",
+      "review_note": "_detail carries only admitted ECS container environment names into DescribeTaskDefinition output; ACM, Cognito, CodeBuild and stage reads are unchanged.",
+      "status": "reviewed_additive"
+    },
+    {
+      "new_lines": "289-301",
+      "new_range_sha256": "c13489cde3c55af626d160653aa5165459e5c5a230d16f3a13c3437d2a7343a2",
+      "old_lines": "252-264",
+      "old_range_sha256": "c13489cde3c55af626d160653aa5165459e5c5a230d16f3a13c3437d2a7343a2",
+      "path": "peaso/collectors/aws_b_services.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "494-602",
+      "new_range_sha256": "62eede7b0e1420b0dd75a65bbeba17bf074a5b112723e5f4c6a0587636ea23cd",
+      "old_lines": "447-535",
+      "old_range_sha256": "a08a118b11a1a7b1c195aba518bcc7c3e2c00693594db2287072358f4b222469",
+      "path": "peaso/collectors/aws_b_services.py",
+      "review_note": "Adds Backup restore-access, MQ shared-resource and ActiveMQ revision reads for other kinds; task definitions keep their single Definition projection.",
+      "status": "reviewed_additive"
+    },
+    {
+      "new_lines": "505-512",
+      "new_range_sha256": "3d4219350a823105d37f697fb2e2d1855144588e980e12a21826fdc46f720554",
+      "old_lines": "458-465",
+      "old_range_sha256": "3d4219350a823105d37f697fb2e2d1855144588e980e12a21826fdc46f720554",
+      "path": "peaso/collectors/aws_b_services.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "505-528",
+      "new_range_sha256": "423ff70b84a58d8934e9bf029ce2c63d9e0f44a300dd72e54f996ddd0b8d29f5",
+      "old_lines": "458-481",
+      "old_range_sha256": "22ed67fbe1148fdb34e3eddf862dc2c37aab6011303e91976963f8864053d956",
+      "path": "peaso/collectors/aws_b_services.py",
+      "review_note": "Each DescribeTaskDefinition revision is still read; _ecs_definition_metadata avoids a second filter that dropped environment names. Mount fields are unchanged.",
+      "status": "reviewed_additive"
+    },
+    {
+      "new_lines": "522-523",
+      "new_range_sha256": "9c774fc55506921b33e4c5cd1061438b2b403c1d2e4be3fb60dc1d88bb8dd440",
+      "old_lines": "475-476",
+      "old_range_sha256": "9c774fc55506921b33e4c5cd1061438b2b403c1d2e4be3fb60dc1d88bb8dd440",
+      "path": "peaso/collectors/aws_b_services.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "527-537",
+      "new_range_sha256": "1293da8999ed4bb20593f871702f5a26dc56e361293e5470fcd52232996b803b",
+      "old_lines": "480-490",
+      "old_range_sha256": "1293da8999ed4bb20593f871702f5a26dc56e361293e5470fcd52232996b803b",
+      "path": "peaso/collectors/aws_b_services.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "875-891",
+      "new_range_sha256": "c07f686319eaf670a58ec91f3f614946b9c801ace66d0873b80f852373605852",
+      "old_lines": "821-837",
+      "old_range_sha256": "c07f686319eaf670a58ec91f3f614946b9c801ace66d0873b80f852373605852",
+      "path": "peaso/collectors/aws_facts_cb_ca.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "908-914",
+      "new_range_sha256": "ec138d59fb4b6e88acf2b7937533302b9edfe8c5cabefac3fb349c996cdc458d",
+      "old_lines": "854-860",
+      "old_range_sha256": "ec138d59fb4b6e88acf2b7937533302b9edfe8c5cabefac3fb349c996cdc458d",
+      "path": "peaso/collectors/aws_facts_cb_ca.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "941-957",
+      "new_range_sha256": "955a417cb822bd47d90c10972e5bb87b7fbfc9842611e82d521ea973a3d7837d",
+      "old_lines": "887-903",
+      "old_range_sha256": "955a417cb822bd47d90c10972e5bb87b7fbfc9842611e82d521ea973a3d7837d",
+      "path": "peaso/collectors/aws_facts_cb_ca.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "1069-1079",
+      "new_range_sha256": "c4c8b2a11f8f8e753ba7e862457049565c4c875fc628c8523b23a23550835f7a",
+      "old_lines": "965-975",
+      "old_range_sha256": "c4c8b2a11f8f8e753ba7e862457049565c4c875fc628c8523b23a23550835f7a",
+      "path": "peaso/collectors/aws_facts_cb_ca.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "1198-1209",
+      "new_range_sha256": "793a08dc8f686e2b6c2ee7db10e753a339c390078101dff9fa5cfef32e4da2e1",
+      "old_lines": "1092-1103",
+      "old_range_sha256": "793a08dc8f686e2b6c2ee7db10e753a339c390078101dff9fa5cfef32e4da2e1",
+      "path": "peaso/collectors/aws_facts_cb_ca.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "1198-1211",
+      "new_range_sha256": "09a845580d08b74e229fce02f2654dbf911928f4477674f2e2b7a0e310cb1850",
+      "old_lines": "1092-1105",
+      "old_range_sha256": "09a845580d08b74e229fce02f2654dbf911928f4477674f2e2b7a0e310cb1850",
+      "path": "peaso/collectors/aws_facts_cb_ca.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "1422-1436",
+      "new_range_sha256": "95615867511323eb4aac2b304a03c9d44953435972c9c1164c83034e631db813",
+      "old_lines": "1316-1330",
+      "old_range_sha256": "95615867511323eb4aac2b304a03c9d44953435972c9c1164c83034e631db813",
+      "path": "peaso/collectors/aws_facts_cb_ca.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    },
+    {
+      "new_lines": "752-864",
+      "new_range_sha256": "bf81d65fbfb2eaa2c3ac98a6aabb8690b4137b0bf5d797b591d4cc6b7cb3477e",
+      "old_lines": "554-569",
+      "old_range_sha256": "91d6d160903b9b687cdacab4fac749acdb6aaf307645bdaa1064d4603118a1d0",
+      "path": "peaso/collectors/aws_facts_compute_edge.py",
+      "review_note": "Adds CloudFront tenant, connection-group, continuous-deployment, OAC and OAI detail fields; the LogDeliveries projection lines are byte-identical.",
+      "status": "reviewed_additive"
+    },
+    {
+      "new_lines": "1124-1132",
+      "new_range_sha256": "f3eb926b83676637b9882626ab1cc6a5abbe769773178de89cfaab05f1fbb6a6",
+      "old_lines": "714-722",
+      "old_range_sha256": "f3eb926b83676637b9882626ab1cc6a5abbe769773178de89cfaab05f1fbb6a6",
+      "path": "peaso/collectors/aws_facts_data_identity.py",
+      "review_note": null,
+      "status": "byte_identical_moved"
+    }
+  ],
+  "schema_version": 1,
+  "scope": "whole-file collector pin refresh; evaluators, field specs, snapshot and decisions unchanged",
+  "sources": {
+    "peaso/collectors/aws.py": {
+      "new_source_sha256": "c0b4c87082528aa191b65562854d5a1351f91bab6f4fb8f67b261ca50f6322af",
+      "old_source_sha256": "6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5"
+    },
+    "peaso/collectors/aws_b_services.py": {
+      "new_source_sha256": "aeb5c966748e643ccebb295c63199fa530c83fd94a248a19524c1d5e4e086e4e",
+      "old_source_sha256": "5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3"
+    },
+    "peaso/collectors/aws_facts_cb_ca.py": {
+      "new_source_sha256": "d79a2d9da77baaf107d685dd9c5bc4bdad8c6e0abdd34fa65987c616c733e355",
+      "old_source_sha256": "6d0e922b4bd80b371a0ff51bbd0efb1337e309c2c38564163fc4ab1a3b5fe3fe"
+    },
+    "peaso/collectors/aws_facts_compute_edge.py": {
+      "new_source_sha256": "87e958773f8d4ef0f0f4b94931806643ca5e3de07cf0edc1553ebcb0822c84fb",
+      "old_source_sha256": "33132a9fd900a55e6e7a259abcbb9af7b9a978a3ceb1cc589d78c4e754de2671"
+    },
+    "peaso/collectors/aws_facts_data_identity.py": {
+      "new_source_sha256": "3224e106e158ff3628c29b93365ab968e9e8fbcd88a86d57fec8fac7e60ca739",
+      "old_source_sha256": "0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0"
+    }
+  }
+}

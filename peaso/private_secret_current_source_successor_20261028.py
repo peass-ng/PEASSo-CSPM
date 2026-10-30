@@ -134,6 +134,8 @@ def unchanged_callable_projection(function: FunctionType, row: dict, root: str |
     constants = epoch._constants(tree, str(source_path))
     epoch._check_defaults(function, node, constants, function.__code__.co_filename)
     epoch._check_globals(function, tree, compiled, constants, module, root)
+    if relative == "peaso/collectors/aws_code_log_content_indicators.py":
+        _log_fanout_bindings(epoch, module, tree, compiled, constants, root)
     proof = {
         "historical": {"path": relative, "name": key[1], "module": key[0],
                        "file_sha256": source_row["before_sha256"],
@@ -149,3 +151,33 @@ def unchanged_callable_projection(function: FunctionType, row: dict, root: str |
                              epoch.callable_projection.__name__,
                              epoch.callable_projection.__defaults__)
     return projector(function, row, root)
+
+
+def _log_fanout_bindings(epoch, module, tree, compiled, constants, root) -> None:
+    """Keep the epoch's live log fanout bindings for the current log source."""
+    for helper_name in ("_enricher", "scan_logs", "scan_repository"):
+        helper = vars(module).get(helper_name)
+        helper_node = next(x for x in tree.body if isinstance(x, ast.FunctionDef) and x.name == helper_name)
+        if (type(helper) is not FunctionType or helper.__globals__ is not vars(module)
+                or helper.__module__ != module.__name__ or helper.__qualname__ != helper_name
+                or not epoch._code_equal(helper.__code__, epoch._code_from(compiled, helper_name))):
+            raise epoch.AdmissionError("log fanout helper binding changed")
+        epoch._check_defaults(helper, helper_node, constants, helper.__code__.co_filename)
+        if helper_name == "_enricher":
+            epoch._check_globals(helper, tree, compiled, constants, module, root)
+    callbacks = vars(module).get("ENRICHERS")
+    if type(callbacks) is not dict or set(callbacks) != {"codecommit_repository", "log_group"}:
+        raise epoch.AdmissionError("log fanout callback roster changed")
+    expected = epoch._code_from(epoch._code_from(compiled, "_enricher"), "enrich")
+    for key, scanner_name, parallel in (("codecommit_repository", "scan_repository", False),
+                                        ("log_group", "scan_logs", True)):
+        callback = callbacks[key]
+        if (type(callback) is not FunctionType or callback.__globals__ is not vars(module)
+                or callback.__module__ != module.__name__ or callback.__qualname__ != "_enricher.<locals>.enrich"
+                or callback.__defaults__ is not None or callback.__kwdefaults__ is not None
+                or not epoch._code_equal(callback.__code__, expected)
+                or callback.__closure__ is None or callback.__code__.co_freevars != ("parallel_logs", "scanner")
+                or callback.__closure__[0].cell_contents is not parallel
+                or callback.__closure__[1].cell_contents is not vars(module)[scanner_name]):
+            raise epoch.AdmissionError("log fanout callback closure changed")
+        epoch._check_globals(callback, tree, compiled, constants, module, root)

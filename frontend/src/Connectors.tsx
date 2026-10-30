@@ -541,6 +541,12 @@ function GuideCommand({ label, value }: { label: string; value: string }) {
 type PreparedSetup = { prepared_id: string; external_id?: string; collector_role_arn?: string; template_url?: string; service_account_email?: string; project_label_key?: string; project_label_value?: string };
 type AccessScope = { scope: string; status: string; principals: string[]; issues: { severity: "critical" | "advisory"; scope: string; message: string }[] };
 type AccessCheck = { scope_summary?: { unit: string; total: number; accessible: number; blocked: number; warning: number; not_checked: number }; scope_results?: AccessScope[]; status: "pass" | "warning" | "blocked"; check_token?: string; issues: { severity: "critical" | "advisory"; scope: string; message: string }[]; principals: { scope: string; principal: string }[] };
+// CloudFormation accepts at most 51,200 bytes as an inline TemplateBody, and the
+// generated customer role is larger. A local template file therefore goes through
+// `deploy`, which stages it in the customer's own S3 bucket (TemplateURL, up to 1 MB).
+function awsTemplateFileDeploy(externalId: string, collectorArn: string) {
+  return `aws cloudformation deploy --stack-name HackTricksCspmReadOnly --template-file hacktricks-cspm-customer-role.json --s3-bucket REPLACE_WITH_YOUR_S3_BUCKET --capabilities CAPABILITY_NAMED_IAM --parameter-overrides ExternalId=${externalId} CollectorRoleArn=${collectorArn}`;
+}
 function AuthSetupGuide({ provider, method, label, hosted, prepared }: { provider: Provider; method: string; label: string; hosted: boolean; prepared?: PreparedSetup | null }) {
   const guide = authGuides[provider][method];
   const hostedAwsRole = hosted && provider === "aws" && method === "assume_role";
@@ -549,7 +555,7 @@ function AuthSetupGuide({ provider, method, label, hosted, prepared }: { provide
   const collectorArn = prepared?.collector_role_arn || COLLECTOR_ROLE_ARN;
   const hostedAwsAccess = { label: "AWS CLI: create role and grant access", value: [
     `curl -fsSL '${prepared?.template_url || TEMPLATE_URL}' -o hacktricks-cspm-customer-role.json`,
-    `aws cloudformation create-stack --stack-name HackTricksCspmReadOnly --template-body file://hacktricks-cspm-customer-role.json --capabilities CAPABILITY_NAMED_IAM --parameters ParameterKey=ExternalId,ParameterValue=${externalId} ParameterKey=CollectorRoleArn,ParameterValue=${collectorArn}`,
+    awsTemplateFileDeploy(externalId, collectorArn),
   ].join("\n") };
   const gcpEmail = prepared?.service_account_email || "REPLACE_WITH_SERVICE_ACCOUNT_FROM_PREPARATION";
   const gcpKey = prepared?.project_label_key || "REPLACE_WITH_CONNECTOR_APPROVAL_LABEL";
@@ -602,7 +608,9 @@ function HostedOnboarding({ details }: { details: NonNullable<Connector["onboard
   const quickCreate = details.quick_create_template_url
     ? `https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=${encodeURIComponent(details.quick_create_template_url)}&stackName=HackTricksCspmReadOnly&param_ExternalId=${encodeURIComponent(details.external_id)}&param_CollectorRoleArn=${encodeURIComponent(details.collector_role_arn || COLLECTOR_ROLE_ARN)}`
     : null;
-  const cli = `curl -fsSL '${template}' -o hacktricks-cspm-customer-role.json\naws cloudformation create-stack --stack-name HackTricksCspmReadOnly --template-body file://hacktricks-cspm-customer-role.json --capabilities CAPABILITY_NAMED_IAM --parameters ParameterKey=ExternalId,ParameterValue=${details.external_id} ParameterKey=CollectorRoleArn,ParameterValue=${details.collector_role_arn || COLLECTOR_ROLE_ARN}`;
+  const cli = details.quick_create_template_url
+    ? `aws cloudformation create-stack --region us-east-1 --stack-name HackTricksCspmReadOnly --template-url '${details.quick_create_template_url}' --capabilities CAPABILITY_NAMED_IAM --parameters ParameterKey=ExternalId,ParameterValue=${details.external_id} ParameterKey=CollectorRoleArn,ParameterValue=${details.collector_role_arn || COLLECTOR_ROLE_ARN}`
+    : `curl -fsSL '${template}' -o hacktricks-cspm-customer-role.json\n${awsTemplateFileDeploy(details.external_id, details.collector_role_arn || COLLECTOR_ROLE_ARN)}`;
   return <div className="form">
     <p>In each AWS account you want to scan, create a role that trusts the PEASS'o CSPM role below. Use this workspace's External ID.</p>
     <CopyValue label="Collector role ARN" value={details.collector_role_arn || COLLECTOR_ROLE_ARN} />

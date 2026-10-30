@@ -128,6 +128,18 @@ def assert_description_preserves_contract(check_id):
         assert set(expected) == {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when'}
         assert {key: current[key] for key in expected} == expected
         changed_fields.update(expected)
+    if check_id == 'aws.claude_a.vpc.sg_in_use_anywhere':
+        # Reviewed unused-network successor (120406f2): peaso/unused_network_aws.py
+        # rebinds the evaluator to the complete reference inventory and replaces
+        # exactly these criterion fields; the remediation binding is unchanged.
+        expected = {
+            'description': 'Reviews current non-default security-group references in complete scoped ENI, Lambda, Batch and security-group inventories, including both ingress and egress group rules. This is structural configuration evidence, not measured traffic inactivity.',
+            'evaluated': ['same-scope ENI security groups, Lambda VPC groups and Batch compute-resource groups', 'other security-group ingress and egress references', 'complete dependency inventory before reporting no recognized reference'],
+            'pass_when': 'A captured scoped network declaration references this group.',
+            'fail_when': 'Complete supported reference inventories contain no recognized consumer of this non-default group.',
+        }
+        assert {key: current[key] for key in expected} == expected
+        changed_fields.update(expected)
     assert {key:value for key,value in current.items() if key not in changed_fields}=={
         key:value for key,value in original.items() if key not in changed_fields}
     assert 0<len(current['description'].split())<=45

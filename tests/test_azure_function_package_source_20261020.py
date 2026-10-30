@@ -329,7 +329,7 @@ def test_beforeauth_exact_selection_rejected(change):
     if change == 'crossscope':
         opts[source.OPTION][0]['blob']['resource_id'] = ACCOUNT.replace(SCOPE, OTHER)
     elif change == 'slot':
-        opts[source.OPTION][0]['site_resource_id'] += '/slots/production'
+        opts[source.OPTION][0]['site_resource_id'] += '/slots/private/config'
     elif change == 'duplicate':
         opts[source.OPTION].append(deepcopy(t))
     elif change == 'extra':
@@ -396,6 +396,13 @@ def test_unavailable_second_engine_never_complete(monkeypatch, hit):
     def unavailable():
         raise RuntimeError('scanner unavailable')
     monkeypatch.setattr(secret_scanning, '_trufflehog', unavailable)
+    # Clean outcomes are reused per process; an earlier complete clean scan of
+    # identical bytes must not stand in for this simulated engine outage.
+    from peaso import secret_scan_clean
+    with secret_scanning._RESULT_LOCK:
+        monkeypatch.setattr(secret_scanning, '_RESULTS', type(secret_scanning._RESULTS)())
+    with secret_scan_clean._LOCK:
+        monkeypatch.setattr(secret_scan_clean, '_CLEAN', type(secret_scan_clean._CLEAN)())
     out = io.BytesIO()
     with zipfile.ZipFile(out, 'w') as z:
         z.writestr('main.py', ('TOKEN=' + SECRET if hit else 'mode=ready').encode())

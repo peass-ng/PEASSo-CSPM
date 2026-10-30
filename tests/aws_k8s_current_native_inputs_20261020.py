@@ -39,7 +39,18 @@ def annotation_current_cases(check_id, historical):
     from peaso.checks import k8s_annotation_native_admission_20261020 as admission
     if check_id not in admission.IDS:
         return historical
-    receipt, native = admission._reviewed_inputs()
+    # Production runs the historical guard from the source successor's private
+    # namespace, whose narrower attestor maps current k8s.py/engine.py through
+    # their exact reviewed predecessor transitions. Use that installed guard;
+    # the canonical historical attestor alone still rejects the current bytes.
+    import sys
+    from peaso.checks import k8s_annotation_native_source_successor_20261021 as successor
+    namespace = sys.modules[successor._PRIVATE_NAME]
+    assert (namespace.__file__ == admission.__file__ and namespace is not admission
+            and namespace._trusted_definition.__qualname__ == 'install.<locals>.trusted_definition'
+            and namespace._verified_source.__qualname__ == 'install.<locals>.source_view'
+            and namespace._trusted_definition.__module__ == successor.__name__)
+    receipt, native = namespace._reviewed_inputs()
     import hashlib, json
     assert hashlib.sha256(json.dumps(historical, sort_keys=True).encode()).hexdigest() == receipt['historical_case_sha256'][check_id]
     result = deepcopy(historical)

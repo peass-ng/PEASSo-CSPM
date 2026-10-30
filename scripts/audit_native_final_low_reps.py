@@ -77,7 +77,7 @@ BOUND_REGISTRATIONS = frozenset({
 })
 MANUAL_RETAIN = {
     'aws.cb.trustedadvisor.premium_support':
-        'peaso/collectors/aws_facts_cb_ca.py:854-860 derives PremiumSupport from '
+        'peaso/collectors/aws_facts_cb_ca.py:908-914 derives PremiumSupport from '
         'support:DescribeSeverityLevels success or SubscriptionRequiredException; '
         'the current manifest schema has no collector-derivation evidence type '
         'and the raw API response status is not retained in the snapshot.',
@@ -101,31 +101,31 @@ SPECIAL_SOURCE_PINS = {
     'peaso/checks/aws_a_iam.py': '87eb85344dfae79d426809f9b711ff06ff5accbecbeb27d879fc2f46a8373168',
     'peaso/checks/aws_a_facts.py': '6499b70ab725fe55edafa8adf436ffd50aab99cd5c105e67dcfdb15e615d339d',
     'peaso/checks/claude2_aws_b_edge.py': '7302840c0c26e9967f88fc0b2e057c9bbdd46a18920ace663ae2337d52dbc54e',
-    'peaso/collectors/aws_b_services.py': '5fb58e5f02d8a05f41a70258a2a5108b88334bc165f59b443e5910b7689c10a3',
+    'peaso/collectors/aws_b_services.py': 'aeb5c966748e643ccebb295c63199fa530c83fd94a248a19524c1d5e4e086e4e',
     'peaso/checks/hacktricks_bp_aws.py': '2b1752f0d615a63966fccc4173dbbb04d5e0178c9252e0f4790ac22ccd563d45',
     'peaso/checks/hacktricks_bp_common.py': 'a7f127c0ecd1a2876c4ea1124304709cf68feff80c5a9d8564b62193d0226b5e',
     'peaso/checks/aws.py': '18b513e7e115dfcff6869e20bb2c776c9c979ac2ad4b7662c6179acb146debbd',
     'peaso/checks/aws_a_s3.py': 'ff02961210c23380ae79b3ea983e7734f5205ef49acb0a3e00bbb5f7eea3916d',
     'peaso/checks/claude_aws_a_s3.py': '154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf',
-    'peaso/collectors/aws.py': '6ddea9d93b1a925503c712660dd9df98e63e460833d156deac9bd8a00ba3fde5',
+    'peaso/collectors/aws.py': 'c0b4c87082528aa191b65562854d5a1351f91bab6f4fb8f67b261ca50f6322af',
     'peaso/checks/aws_extended.py': 'aac21cb7a83d89836beb374e72746d9f1f1e3b8de42137d5915397e7a0ea8f4b',
     'peaso/checks/aws_b_ecr.py': '552b98f0e65964ceff93530c4b08f017874bdce2c219055afc9c98e489cb678a',
     'peaso/checks/aws_a_cloudwatch.py': '7cae38304bca4ec34d34d7604f44af5f07c084a49987c204e63988276c5b67f9',
     'peaso/checks/claude_aws_b_messaging.py': '3c01e5e55f6bb580757ad65dd8239f0edd21943b3539f1d2ae4d4c9168fb4084',
     'peaso/checks/claude2_aws_b_devtools.py': '6434e604a4f39fe952b97826c9b4d4e81b969e5ad6aab6196108d4d2b6918caf',
     'peaso/checks/claude_aws_b_common.py': '0755fcb591a940e3e9d4b0483701f7aff2416038f5990f22f7098f95c60079b3',
-    'peaso/collectors/aws_facts_data_identity.py': '0f71935bc917f2bce269f5158e68e8a7adedb84fc289aca86a7bda058deca1a0',
+    'peaso/collectors/aws_facts_data_identity.py': '3224e106e158ff3628c29b93365ab968e9e8fbcd88a86d57fec8fac7e60ca739',
     'peaso/checks/aws_b_compute.py': '136f48264836bc8a8a43b495ff71af02cbdafb008358cca8d2ffa162620e3a2e',
     'peaso/checks/claude2_aws_b_compute.py': '8b061001de6711d59ac584c15f09a703fa2f41b8455838bba714d862634db4ed',
     'peaso/checks/aws_b_core.py': '4d184fe488da84bac58622867ae7f91e38c9a560fecd6c93b3f8b1b75fc4a23b',
     'peaso/checks/claude_aws_b_compute.py': '969058175c791c7b7e16c60483ab0e51a09cd7d1567171e961d4f02c015fc8c1',
     'peaso/checks/aws_b_cloudfront.py': 'd84100a1052473bbb5fcba81d36b33d1fdf1b774e2141a6fc6ec815c061853df',
     'peaso/checks/compliance_new_aws.py': '631a322dcfbd561bfbf4ec5cda53949c1030328b42462255e045e9c8cf0a5bce',
-    'peaso/collectors/aws_facts_compute_edge.py': '33132a9fd900a55e6e7a259abcbb9af7b9a978a3ceb1cc589d78c4e754de2671',
+    'peaso/collectors/aws_facts_compute_edge.py': '87e958773f8d4ef0f0f4b94931806643ca5e3de07cf0edc1553ebcb0822c84fb',
     'peaso/checks/claude_aws_a_iam.py': '5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687',
     'peaso/checks/claude_aws_a_common.py': '42218f329b77e55cd56c2f46de0a82ab260c849ca1ae1e89ac95a54e201a87d8',
     'peaso/checks/claude_aws_b_security.py': '47bee249deb92a199d95c1ab027347593261ba336ead84505b8862d1fdd0f394',
-    'peaso/collectors/aws_facts_cb_ca.py': '6d0e922b4bd80b371a0ff51bbd0efb1337e309c2c38564163fc4ab1a3b5fe3fe',
+    'peaso/collectors/aws_facts_cb_ca.py': 'd79a2d9da77baaf107d685dd9c5bc4bdad8c6e0abdd34fa65987c616c733e355',
     'peaso/checks/aws_b_regional.py': 'e1facce323da71cbe0596bbe151b38419e6062aeec5bb093a93fb71ea051cad5',
     'peaso/checks/aws_b_storage.py': '93943011991f833f90926b65d2f9dbe58d55983828ddb9a87930c940c9b0338a',
     'peaso/checks/aws_a_cloudtrail.py': '00da31c7b56e6a546dd5f89446428b1682c704a2a0beec3909a47a384ee5a5a0',
@@ -334,21 +334,21 @@ FOLLOWUP_FIELDS = {
         ('TrainingJobArn', 'EnableInterContainerTrafficEncryption'),
 }
 FINAL_COLLECTOR_REFS = {
-    'acm_certificate': ('peaso/collectors/aws_b_services.py', '129-275,447-535'),
-    'http_api_stage': ('peaso/collectors/aws_b_services.py', '129-275,447-535'),
-    'codebuild_project': ('peaso/collectors/aws_b_services.py', '129-275,447-535'),
-    'cognito_user_pool': ('peaso/collectors/aws_b_services.py', '129-275,447-535'),
-    'rds_instance': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
-    'sagemaker_training_job': ('peaso/collectors/aws_facts_cb_ca.py', '887-909,965-975,1092-1105,1316-1330'),
-    'ssmincidents_account': ('peaso/collectors/aws_facts_cb_ca.py', '887-909,965-975,1092-1105,1316-1330'),
-    'ebs_volume': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
-    'ec2_image': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
-    'network_interface': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
-    'instance': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
-    'ec2_launch_template': ('peaso/collectors/aws_facts_cb_ca.py', '887-909,965-975,1092-1105,1316-1330'),
-    'guardduty_detector': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
-    'iam_credential_report': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
-    'kms_key': ('peaso/collectors/aws.py', '1060-1130,1234-1500,2799-2920'),
+    'acm_certificate': ('peaso/collectors/aws_b_services.py', '141-312,494-602'),
+    'http_api_stage': ('peaso/collectors/aws_b_services.py', '141-312,494-602'),
+    'codebuild_project': ('peaso/collectors/aws_b_services.py', '141-312,494-602'),
+    'cognito_user_pool': ('peaso/collectors/aws_b_services.py', '141-312,494-602'),
+    'rds_instance': ('peaso/collectors/aws.py', '1072-1142,1246-1520,2820-2941'),
+    'sagemaker_training_job': ('peaso/collectors/aws_facts_cb_ca.py', '941-957,1069-1079,1198-1211,1422-1436'),
+    'ssmincidents_account': ('peaso/collectors/aws_facts_cb_ca.py', '941-957,1069-1079,1198-1211,1422-1436'),
+    'ebs_volume': ('peaso/collectors/aws.py', '1072-1142,1246-1520,2820-2941'),
+    'ec2_image': ('peaso/collectors/aws.py', '1072-1142,1246-1520,2820-2941'),
+    'network_interface': ('peaso/collectors/aws.py', '1072-1142,1246-1520,2820-2941'),
+    'instance': ('peaso/collectors/aws.py', '1072-1142,1246-1520,2820-2941'),
+    'ec2_launch_template': ('peaso/collectors/aws_facts_cb_ca.py', '941-957,1069-1079,1198-1211,1422-1436'),
+    'guardduty_detector': ('peaso/collectors/aws.py', '1072-1142,1246-1520,2820-2941'),
+    'iam_credential_report': ('peaso/collectors/aws.py', '1072-1142,1246-1520,2820-2941'),
+    'kms_key': ('peaso/collectors/aws.py', '1072-1142,1246-1520,2820-2941'),
 }
 S3_EXPECTED = {
     'Encryption': {'collected': 148}, 'Versioning': {'collected': 148},
@@ -1200,7 +1200,7 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
         decision, reason = ('native_final_source_proven',
             f'Evaluator {relative}:{start}-{start + len(raw) - 1} reads '
             'typed S3 configuration. Exact 992 bucket detail states and '
-            'peaso/collectors/aws.py:1654-1701 prove complete success, '
+            'peaso/collectors/aws.py:1674-1722 prove complete success, '
             'documented absence, or denied/UNKNOWN before optional defaults.')
     elif reviewed_other_snapshot:
         decision, reason = ('native_final_source_proven',
@@ -1421,74 +1421,74 @@ def proof(check, inventory, field_specs, *, s3_coverage=None):
                               + ([{'path': 'peaso/checks/aws_a_iam.py', 'lines': '12-20',
                                    'purpose': 'fixed password-policy acceptable value predicates'}]
                                  if reviewed_scope else [])
-                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '1321-1324',
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '1333-1336',
                                    'purpose': 'GetLifecyclePolicy response or exact absent marker'}]
                                  if structured else [])
-                              + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '475-476',
+                              + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '522-523',
                                    'purpose': 'GetDistributionConfig complete response'}]
                                  if check['check_id'] == 'aws.c2b.cloudfront.custom_ssl_certificate' else [])
                               + ([{'path': 'peaso/checks/hacktricks_bp_common.py', 'lines': '38-61',
                                    'purpose': 'wrapper only validates native row and invokes evaluator'},
                                   {'path': 'peaso/checks/hacktricks_bp_aws.py', 'lines': '220-260',
                                    'purpose': 'fixed sensitive host path list and exact volume/mount join'},
-                                  {'path': 'peaso/collectors/aws_b_services.py', 'lines': '458-465',
+                                  {'path': 'peaso/collectors/aws_b_services.py', 'lines': '505-512',
                                    'purpose': 'complete DescribeTaskDefinition enrichment'}]
                                  if reviewed_ecs_mount else [])
-                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '952-961',
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '964-973',
                                    'purpose': 'successful API response marked collected; documented absent/denied distinct'},
-                                  {'path': 'peaso/collectors/aws.py', 'lines': '1654-1701',
+                                  {'path': 'peaso/collectors/aws.py', 'lines': '1674-1722',
                                    'purpose': 'per-bucket S3 detail API reads'},
                                   {'path': 'peaso/checks/claude_aws_a_s3.py', 'lines': '57-72',
                                    'purpose': 'absent S3 section requires exact empty marker and no payload'}]
                                  if reviewed_s3 else [])
-                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '2908-2911',
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '2929-2932',
                                    'purpose': 'complete DescribeLogGroups response provenance'},
                                   {'path': 'peaso/checks/aws_a_facts.py', 'lines': '70-80',
                                    'purpose': 'optional omission requires matching operation and complete native response'}]
                                  if check['check_id'] == 'aws.a.cloudwatch.log_kms_encryption' else [])
-                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '1321-1324',
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '1333-1336',
                                    'purpose': 'ECR GetLifecyclePolicy explicit collected or absent response'}]
                                  if check['check_id'] == 'aws.ecr.lifecycle_policy' else [])
-                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '1424-1430',
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '1436-1442',
                                    'purpose': 'GetQueueAttributes(All) complete response and explicit KMS omission'},
                                   {'path': 'peaso/checks/claude_aws_b_common.py', 'lines': '91-106',
                                    'purpose': 'QueueArn sentinel and coverage-checked optional field'}]
                                  if check['check_id'].startswith('aws.cb.sqs.') else [])
-                              + ([{'path': 'peaso/collectors/aws_facts_data_identity.py', 'lines': '714-722',
+                              + ([{'path': 'peaso/collectors/aws_facts_data_identity.py', 'lines': '1124-1132',
                                    'purpose': 'DescribeStacks projection retains RootId and NotificationARNs'},
                                   {'path': 'peaso/checks/claude_aws_b_common.py', 'lines': '91-106',
                                    'purpose': 'StackName sentinel and coverage-checked omission'}]
                                  if check['check_id'].startswith('aws.c2b.cloudformation.') else [])
-                              + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '458-481',
+                              + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '505-528',
                                    'purpose': 'complete DescribeTaskDefinition enrichment for every revision'},
                                   {'path': 'peaso/checks/facts.py', 'lines': '127-132',
                                    'purpose': 'coverage-checked API optional member default'}]
                                  if reviewed_ecs else [])
-                              + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '480-490',
+                              + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '527-537',
                                    'purpose': 'GetFunctionConfiguration collected detail'},
-                                  {'path': 'peaso/collectors/aws.py', 'lines': '2947-2957',
+                                  {'path': 'peaso/collectors/aws.py', 'lines': '2968-2978',
                                    'purpose': 'Lambda documented optional VpcConfig projection'}]
                                  if reviewed_lambda else [])
-                              + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '475-476',
+                              + ([{'path': 'peaso/collectors/aws_b_services.py', 'lines': '522-523',
                                    'purpose': 'complete GetDistributionConfig response'},
-                                  {'path': 'peaso/collectors/aws_facts_compute_edge.py', 'lines': '554-569',
+                                  {'path': 'peaso/collectors/aws_facts_compute_edge.py', 'lines': '752-864',
                                    'purpose': 'collected CloudFront v2 LogDeliveries fact'}]
                                  if reviewed_cloudfront else [])
-                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '1484-1503',
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '1504-1523',
                                    'purpose': 'per-user access key and MFA device collections'},
-                                  {'path': 'peaso/collectors/aws.py', 'lines': '1525-1558',
+                                  {'path': 'peaso/collectors/aws.py', 'lines': '1545-1578',
                                    'purpose': 'complete IAM authorization details and managed policy projection'}]
                                  if reviewed_iam_user else [])
-                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '952-961',
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '964-973',
                                    'purpose': 'recorded collected/empty detail status'},
-                                  {'path': 'peaso/collectors/aws_facts_cb_ca.py', 'lines': '821-837',
+                                  {'path': 'peaso/collectors/aws_facts_cb_ca.py', 'lines': '875-891',
                                    'purpose': 'Route53 domain detail projection and contact omission'}]
                                  if reviewed_second else [])
-                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '952-961',
+                              + ([{'path': 'peaso/collectors/aws.py', 'lines': '964-973',
                                    'purpose': 'per-scope API status and explicit absent response'},
-                                  {'path': 'peaso/collectors/aws_b_services.py', 'lines': '252-264',
+                                  {'path': 'peaso/collectors/aws_b_services.py', 'lines': '289-301',
                                    'purpose': 'GetStages complete response'},
-                                  {'path': 'peaso/collectors/aws_facts_cb_ca.py', 'lines': '1092-1103',
+                                  {'path': 'peaso/collectors/aws_facts_cb_ca.py', 'lines': '1198-1209',
                                    'purpose': 'DescribeLaunchTemplateVersions default-version projection'}]
                                  if reviewed_third else [])
                               + ([{'path': 'peaso/checks/aws_b_loadbalancing.py', 'lines': '9-17',

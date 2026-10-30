@@ -4,7 +4,7 @@ Generated from the two source hashes below. Tests preserve all four service
 projection ASTs and compare the complete registered-check/label cross product.
 """
 SOURCE_SHA256 = '5e448646dda797aa321bd28a0bf7c64bae02468ccb79e70f5353d4df5c4b2585'
-NETWORK_SOURCE_SHA256 = 'c79933bd82af050757878ceebd46dd0e82dfcd75e3eb95c8b2fe7bc4f5a964ce'
+NETWORK_SOURCE_SHA256 = 'aac71941d12e40f33d80feac7ae974b8f05e088aa3d3ae1d32c209b00552ebe8'
 MANIFEST_SHA256 = '7a927e4511750cd215da9dd7474fde6e030f77b72589f1d81f8814f750f52831'
 from functools import lru_cache
 import json
@@ -722,6 +722,7 @@ NETWORK_SERVICE_LABELS = {'aws': {'agentcore_agent_runtime': 'bedrock-agentcore-
            'private_dns_record_set': 'Microsoft.Network',
            'private_dns_zone': 'Microsoft.Network',
            'redis_enterprise_cluster': 'Microsoft.Cache',
+           'redis_enterprise_database': 'Microsoft.Cache',
            'registry_agent_pool': 'Microsoft.ContainerRegistry',
            'relay_namespace': 'Microsoft.Relay',
            'service_fabric_cluster': 'Microsoft.ServiceFabric',
@@ -734,6 +735,7 @@ NETWORK_SERVICE_LABELS = {'aws': {'agentcore_agent_runtime': 'bedrock-agentcore-
            'traffic_controller': 'Microsoft.ServiceNetworking',
            'traffic_controller_association': 'Microsoft.ServiceNetworking',
            'traffic_controller_frontend': 'Microsoft.ServiceNetworking',
+           'traffic_manager_profile': 'Microsoft.Network',
            'video_indexer_account': 'Microsoft.VideoIndexer',
            'virtual_hub': 'Microsoft.Network',
            'virtual_wan': 'Microsoft.Network',
@@ -779,6 +781,7 @@ NETWORK_SERVICE_LABELS = {'aws': {'agentcore_agent_runtime': 'bedrock-agentcore-
          'cloudrun_worker_pool': 'run',
          'config_delivery_fleet_package': 'configdelivery',
          'contact_center': 'contactcenteraiplatform',
+         'contact_center_authorized_view': 'contactcenterinsights',
          'data_fusion_instance': 'datafusion',
          'data_pipeline': 'datapipelines',
          'dataflow_network_job': 'dataflow',
@@ -801,11 +804,17 @@ NETWORK_SERVICE_LABELS = {'aws': {'agentcore_agent_runtime': 'bedrock-agentcore-
          'domains_registration': 'domains',
          'eventarc_pipeline': 'eventarc',
          'eventarc_trigger': 'eventarc',
+         'fleet_member_rbac_binding': 'gkehub',
          'fleet_membership': 'gkehub',
          'gke_baremetal_admin_cluster': 'gkeonprem',
          'gke_baremetal_cluster': 'gkeonprem',
          'gke_vmware_admin_cluster': 'gkeonprem',
          'gke_vmware_cluster': 'gkeonprem',
+         'healthcare_consent_store': 'healthcare',
+         'healthcare_dataset': 'healthcare',
+         'healthcare_dicom_store': 'healthcare',
+         'healthcare_fhir_store': 'healthcare',
+         'healthcare_hl7v2_store': 'healthcare',
          'hypercompute_cluster': 'hypercomputecluster',
          'infra_manager_deployment': 'config',
          'instance_group_manager': 'compute',

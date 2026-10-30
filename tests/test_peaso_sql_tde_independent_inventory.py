@@ -70,10 +70,10 @@ def test_public_readonly_native_tde_with_other_provider_inventory_denied(monkeyp
             return {'value': [{'id': database, 'name': 'db', 'properties': {'status': 'Online'}}]}
         if '/providers/Microsoft.Sql/servers?' in url:
             if family != 0: raise azure.AzureReadError('denied', 403)
-            return {'value': [{'id': server, 'properties': {}}]}
+            return {'value': [{'id': server, 'name': 's', 'type': 'Microsoft.Sql/servers', 'properties': {}}]}
         if '/providers/Microsoft.Sql/managedInstances?' in url:
             if family != 1: raise azure.AzureReadError('denied', 403)
-            return {'value': [{'id': managed, 'properties': {}}]}
+            return {'value': [{'id': managed, 'name': 'm', 'type': 'Microsoft.Sql/managedInstances', 'properties': {}}]}
         if url.split('?', 1)[0] == azure.ARM + available:
             return {'id': available, 'properties': {}}
         return {'value': []}

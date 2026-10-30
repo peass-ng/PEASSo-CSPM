@@ -9,7 +9,9 @@ import argparse
 import hashlib
 import gzip
 import os
+import struct
 import tempfile
+import zlib
 import json
 from pathlib import Path
 import sys
@@ -20,6 +22,21 @@ sys.path.insert(0, str(ROOT))
 PACK = ROOT / "peaso/rulepacks"
 FRONTEND = ROOT / "frontend/src/frameworkCatalog.json"
 LEDGER = ROOT / "docs/compliance-ledgers"
+
+
+def deterministic_gzip(data: bytes) -> bytes:
+    """Platform-independent RFC 1952 member for a committed, hash-pinned file.
+
+    gzip.compress(mtime=0) delegates the header to zlib, which stamps its build
+    platform's OS code (macOS 19, Unix 3), so identical content produced different
+    bytes and gzip_sha256 on each platform. The header here is fixed: no name or
+    mtime, XFL 2 (maximum compression) and OS 255 (unknown); the deflate stream
+    is zlib's level-9 output, identical across the supported zlib releases.
+    """
+    compressor = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS, 8, zlib.Z_DEFAULT_STRATEGY)
+    body = compressor.compress(data) + compressor.flush()
+    return (b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\xff" + body
+            + struct.pack("<II", zlib.crc32(data), len(data) & 0xFFFFFFFF))
 
 
 def render_documents() -> dict[Path, bytes]:
@@ -248,7 +265,9 @@ def render_documents() -> dict[Path, bytes]:
                         "framework_expansion": {key: sorted(values) for key, values in sorted(framework_selector_index().items())},
                         "framework_display": framework_display_names(), "framework_aliases": FRAMEWORK_ALIASES,
                         "summary": compact_summary, "frameworks": frameworks, "selectors": selectors}, compact=True)
-    compressed = gzip.compress(document, compresslevel=9, mtime=0)
+    compressed = deterministic_gzip(document)
+    if gzip.decompress(compressed) != document:
+        raise ValueError("Materialized API catalog gzip round trip differs")
     if (len(document) > MAX_DOCUMENT_BYTES or len(compressed) > MAX_COMPRESSED_BYTES
             or any(not wire_fits(encoded(view, compact=True)) for view in (compact_summary, frameworks))):
         raise ValueError("Materialized API catalog exceeds bounded package/wire budgets")

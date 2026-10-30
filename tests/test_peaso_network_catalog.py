@@ -76,7 +76,10 @@ def test_gcp_jobs_keep_worker_networks_but_not_job_payloads():
     assert linked(graph, node(graph, "batch_network_job", "batch"), node(graph, "network", network))
     projected = next(r for r in ai["inventory"] if r["type"] == "dataflow_network_job")["data"]
     assert projected["environment"]["workerPools"][0]["subnetwork"] == subnet
-    assert "SECRET_SENTINEL" not in json.dumps(ai)
+    # First reads are network-only projections; the complete native record is
+    # handed over separately as the full source lookup (full AI evidence).
+    assert "SECRET_SENTINEL" not in json.dumps({"report": ai["report"], "inventory": ai["inventory"]})
+    assert "SECRET_SENTINEL" in json.dumps(ai["source_inventory"])
 
 
 @pytest.mark.parametrize("kind,data", [
@@ -150,7 +153,10 @@ def test_azure_container_app_environment_and_nested_dns_endpoint_link():
     assert linked(graph, node(graph, "container_app_environment", env), node(graph, "subnet", subnet))
     assert linked(graph, node(graph, "dns_inbound_endpoint", endpoint), node(graph, "dns_resolver", resolver))
     assert linked(graph, node(graph, "dns_inbound_endpoint", endpoint), node(graph, "subnet", subnet))
-    assert "SECRET_SENTINEL" not in json.dumps(ai)
+    # First reads are network-only projections; the complete native record is
+    # handed over separately as the full source lookup (full AI evidence).
+    assert "SECRET_SENTINEL" not in json.dumps({"report": ai["report"], "inventory": ai["inventory"]})
+    assert "SECRET_SENTINEL" in json.dumps(ai["source_inventory"])
     app = next(r for r in ai["inventory"] if r["type"] == "container_app")
     assert app["data"]["properties"]["managedEnvironmentId"] == env
     assert app["data"]["properties"]["configuration"]["ingress"]["targetPort"] == 8080
@@ -172,7 +178,10 @@ def test_k8s_owners_gateway_routes_and_legacy_endpoints_are_not_dropped():
     for sk, sn, dk, dn in [("replicaset", "rs", "deployment", "deployment"), ("pod", "pod", "replicaset", "rs"),
             ("httproute", "route", "gateway", "gw"), ("httproute", "route", "service", "svc"), ("endpoint", "ep", "pod", "pod")]:
         assert linked(graph, node(graph, sk, sn), node(graph, dk, dn))
-    assert "SECRET_SENTINEL" not in json.dumps(ai)
+    # First reads are network-only projections; the complete native record is
+    # handed over separately as the full source lookup (full AI evidence).
+    assert "SECRET_SENTINEL" not in json.dumps({"report": ai["report"], "inventory": ai["inventory"]})
+    assert "SECRET_SENTINEL" in json.dumps(ai["source_inventory"])
     dep = next(r for r in ai["inventory"] if r["type"] == "deployment")["data"]
     assert dep["spec"]["template"]["spec"]["containers"][0]["ports"][0]["containerPort"] == 8080
 
