@@ -337,7 +337,8 @@ def test_pinned_codex_cli_and_chack_use_only_private_relay(tmp_path,monkeypatch,
     routes=[]
     requests=[]
     prefix = '/openai/v1' if provider == 'openai' else '/codex'
-    item={'id':'msg_fixture','type':'message','role':'assistant','content':[{'type':'output_text','text':'{"items":[]}'}]}
+    expected={'explanation':'The captured network graph holds one VPC and no reachable path.','findings':[]}
+    item={'id':'msg_fixture','type':'message','role':'assistant','content':[{'type':'output_text','text':json.dumps(expected)}]}
     events=[{'type':'response.created','response':{'id':'resp_fixture'}},
         {'type':'response.output_item.done','output_index':0,'item':item},
         {'type':'response.completed','response':{'id':'resp_fixture','output':[item],
@@ -362,8 +363,14 @@ def test_pinned_codex_cli_and_chack_use_only_private_relay(tmp_path,monkeypatch,
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     bindir=tmp_path/'bin';bindir.mkdir();(bindir/'codex').symlink_to(Path(binary).resolve())
     root=tmp_path/'work';root.mkdir()
+    # Hardening/Exposure have no model agent; Network is the stage that runs
+    # Chack with only native evidence, through the private relay.
+    from peaso.ai import network
+    from peaso.ai.pipeline import private_json
+    inventory=[{'id':'vpc-1','native_id':'vpc-1','type':'vpc','scope':'123456789012/us-east-1','provider':'aws','data':{}}]
+    report={'provider':'aws','findings':[],'graphs':{'network':{'nodes':[{'id':'vpc-1','type':'vpc'}],'edges':[]}}}
+    network.build(root,network.prepare(report,inventory,{}),[],private_json)
     (root/'credentials.json').write_text('{"entries":[]}')
-    (root/'findings.json').write_text('{"scan":{},"items":[]}')
     authentication = {'access_token': model_relay.placeholder('account')}
     if provider:
         authentication.update(provider=provider, model='gpt-5.3-codex', thinking='high')
@@ -372,10 +379,10 @@ def test_pinned_codex_cli_and_chack_use_only_private_relay(tmp_path,monkeypatch,
          'PYTHONPATH':str(Path(__file__).resolve().parents[1]),'CODEX_HOME':str(root/'.codex'),
          'PEASO_AI_MODEL_RELAY':'http://127.0.0.1:'+str(server.server_port),'CHACK_CODEX_DIRECT_CACHE_TRANSPORT':'off'}
     try:
-        process=subprocess.run([sys.executable,'-m','peaso.ai.runner','hardening'],cwd=root,env=env,
+        process=subprocess.run([sys.executable,'-m','peaso.ai.runner','network'],cwd=root,env=env,
                                capture_output=True,text=True,timeout=60)
         assert process.returncode==0,process.stderr[-2000:]
-        assert json.loads((root/'result.json').read_text())=={'items':[]}
+        assert json.loads((root/'result.json').read_text())==expected
         assert ('POST',prefix+'/responses') in routes
         if provider:
             assert requests[-1]['model'] == 'gpt-5.3-codex'
