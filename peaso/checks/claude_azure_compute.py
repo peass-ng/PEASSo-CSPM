@@ -982,7 +982,9 @@ def databricks_subnet_nsg(item, index):
 _DBX_VNET = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/dbx"
 _dbx_ws = {"properties": {"parameters": {"customVirtualNetworkId": {"value": _DBX_VNET}, "customPrivateSubnetName": {"value": "priv"},
                                          "customPublicSubnetName": {"value": "pub"}}}}
-_sub = lambda name, nsg: {"name": name, "properties": {"addressPrefix": "10.0.0.0/24", **({"networkSecurityGroup": {"id": "/nsg"}} if nsg else {})}}
+_DBX_NSG = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Network/networkSecurityGroups/dbx-nsg"
+_sub = lambda name, nsg: {"id": _DBX_VNET + "/subnets/" + name, "name": name,
+                          "properties": {"addressPrefix": "10.0.0.0/24", **({"networkSecurityGroup": {"id": _DBX_NSG}} if nsg else {})}}
 CASES[cid("databricks_subnet_nsg")] = {
     "pass": _dbx_ws, "pass_index": scope_index({"vnet": [{"id": _DBX_VNET, "properties": {"subnets": [_sub("priv", True), _sub("pub", True)]}}]}),
     "fail": _dbx_ws, "fail_index": scope_index({"vnet": [{"id": _DBX_VNET, "properties": {"subnets": [_sub("priv", True), _sub("pub", False)]}}]}),

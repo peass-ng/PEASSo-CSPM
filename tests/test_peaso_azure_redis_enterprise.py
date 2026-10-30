@@ -49,9 +49,16 @@ def test_redis_enterprise_parent_and_database_are_read_once():
     assert child["status"] == "collected" and child["items"][0]["properties"]["port"] == 10000
     assert sum(urlsplit(url).path == CLUSTER + "/databases" for url in transport.calls) == 1
     assert sum(urlsplit(url).path == CLUSTER + "/privateEndpointConnections" for url in transport.calls) == 1
+    # The parent LIST/GET use the first version with cluster firewallRules;
+    # the database and private endpoint children keep the stable version.
+    redis = [url for url in transport.calls if "redisEnterprise" in urlsplit(url).path
+             and "diagnosticSettings" not in urlsplit(url).path]
+    parents = [url for url in redis if urlsplit(url).path.endswith(("/redisEnterprise", CLUSTER))]
+    assert sum(urlsplit(url).path == CLUSTER for url in transport.calls) == 1
+    assert parents and all(parse_qs(urlsplit(url).query).get("api-version") == ["2026-10-01-preview"]
+                           for url in parents)
     assert all(parse_qs(urlsplit(url).query).get("api-version") == ["2025-07-01"]
-               for url in transport.calls if "redisEnterprise" in urlsplit(url).path
-               and "diagnosticSettings" not in urlsplit(url).path)
+               for url in redis if url not in parents)
 
 
 def _private(remote, status="Approved", provisioning="Succeeded"):

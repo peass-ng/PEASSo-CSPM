@@ -46,7 +46,8 @@ def _scan(remote=FOREIGN, allowed=True, acl_present=True, public="Disabled", con
     transport = Transport()
     snapshot = azure.collect({"scopes": [SCOPE], "auth": {}, "options": {"concurrency": 1, "retries": 0}},
                              requirements=["signalr_service"], transport=transport)
-    findings = assess(snapshot, resources(snapshot))
+    # Serverless upstream delivery is a separate ``external_event_delivery`` assessment.
+    findings = [a for a in assess(snapshot, resources(snapshot)) if a.kind != "external_event_delivery"]
     return snapshot, findings, transport
 
 

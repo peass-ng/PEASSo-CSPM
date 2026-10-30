@@ -26,6 +26,34 @@ def _current_acr_stream_predecessor(name, raw):
     return raw
 
 
+def _sql_entra_only_native_successor(record):
+    """Project the retained admin-level flag onto the native authentication-mode child.
+
+    The sealed capture predates the separate ``azureADOnlyAuthentications``
+    child read; the check now uses that child (one ``Default`` resource) as its
+    only source.  The recorded administrator flag is that same server setting.
+    """
+    record = deepcopy(record)
+    item = record['item']
+    coverage = item.get('_coverage') or {}
+    admins = item.get('serverAdministrators')
+    if coverage.get('serverAdministrators', {}).get('status') != 'collected' or not isinstance(admins, list):
+        return record
+    flags = [admin['properties']['azureADOnlyAuthentication'] for admin in admins
+             if admin.get('properties', {}).get('administratorType') == 'ActiveDirectory']
+    assert len(flags) == 1 and isinstance(flags[0], bool), record['mode']
+    server = item['id']
+    item['azureADOnlyAuthentications'] = [{
+        'id': server + '/azureADOnlyAuthentications/Default', 'name': 'Default',
+        'type': 'Microsoft.Sql/servers/azureADOnlyAuthentications',
+        'properties': {'azureADOnlyAuthentication': flags[0]}, 'parent_id': server}]
+    coverage['azureADOnlyAuthentications'] = {'status': 'collected'}
+    for row in record['index'].get('sql_server', []):
+        if row.get('native_id') == server:
+            row['data'] = deepcopy(item)
+    return record
+
+
 @lru_cache(maxsize=1)
 def _native_rows():
     rows = json.loads(PATH.read_text())['cases']
@@ -66,6 +94,8 @@ def _native_rows():
     database2 = PATH.with_name('azure_database_crypto_backup_2_evaluator_inputs_20261020.json')
     for record in json.loads(database2.read_text())['records']:
         cid, branch = record['check_id'], 'database2/' + record['mode']
+        if cid == 'azure.htbp.sql.entra_only_authentication':
+            record = _sql_entra_only_native_successor(record)
         cases = rows.setdefault(cid, {})
         assert branch not in cases, (cid, branch)
         cases[branch] = record

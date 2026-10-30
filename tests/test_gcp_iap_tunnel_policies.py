@@ -43,8 +43,13 @@ def test_collects_project_zone_and_instance_iap_policies():
         return {**row, "iamPolicy": {"bindings": []},
                 "_coverage": {"iamPolicy": {"status": "collected",
                                              "source_requests": ["receipt"]}}}
+    listed = []
+    def pages(url, scope, **kwargs):
+        # 16bb81e0 also lists tunnel destination groups; none exist here.
+        listed.append((url, scope, kwargs))
+        yield [], "groups-receipt"
     collector = SimpleNamespace(collections={('instance', PROJECT): {
-        "coverage_status": "collected", "items": [INSTANCE]}}, hydrate=hydrate)
+        "coverage_status": "collected", "items": [INSTANCE]}}, hydrate=hydrate, pages=pages)
     rows = [item for page, _ in collection_pages(collector, PROJECT) for item in page]
     assert [row["name"] for row in rows] == [
         PROJECT + "/iap_tunnel", PROJECT + "/iap_tunnel/zones/us-central1-a",
@@ -52,3 +57,5 @@ def test_collects_project_zone_and_instance_iap_policies():
     assert all(url == "https://iap.googleapis.com/v1/" + name + ":getIamPolicy"
                and options == {"method": "POST", "body": {"options": {
                    "requestedPolicyVersion": 3}}} for name, url, options in requests)
+    assert listed == [("https://iap.googleapis.com/v1/" + PROJECT + "/iap_tunnel/locations/-/destGroups",
+                       PROJECT, {"key": "tunnelDestGroups"})]

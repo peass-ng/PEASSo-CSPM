@@ -51,11 +51,17 @@ class Fake:
         elif url.endswith(":searchAllIamPolicies"):
             data = {"results": []}
         elif url.endswith("/v3/" + PROJECT):
-            data = {"name": PROJECT, "projectId": "sw52-project", "parent": self.project_parent or (FOLDER if self.folder else ORG)}
+            # Native CRM v3 projects.get names the project by number.
+            data = {"name": "projects/505052", "projectId": "sw52-project", "parent": self.project_parent or (FOLDER if self.folder else ORG)}
         elif url.endswith("/compute/v1/" + PROJECT):
             data = {"commonInstanceMetadata": {"fingerprint": "fp"}}
         elif url.endswith("/v3/" + ORG):
             data = {"name": ORG, "directoryCustomerId": self.customer}
+        elif "/v3/organizations/" in url and not url.endswith(":getIamPolicy"):
+            # A foreign organization in the ancestry is not readable.
+            error = ReadError("denied", "api_error", http_status=403)
+            error.request_id = request_id
+            raise error
         elif url.endswith("/v3/" + FOLDER):
             data = {"name": FOLDER, "parent": self.folder_parent or ORG}
         elif url.endswith("/directory/v1/users"):

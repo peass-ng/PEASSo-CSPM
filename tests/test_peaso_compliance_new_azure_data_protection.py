@@ -18,7 +18,8 @@ NOW = datetime(2026, 10, 12, tzinfo=timezone.utc)
 
 
 def account(name, backup):
-    return {"id": BASE + name, "name": name, "properties": {"backupPolicy": backup}}
+    return {"id": BASE + name, "name": name, "type": "Microsoft.DocumentDB/databaseAccounts",
+            "properties": {"backupPolicy": backup}}
 
 
 def periodic(hours):
