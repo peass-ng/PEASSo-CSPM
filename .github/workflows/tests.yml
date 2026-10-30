@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Check out the pinned HackTricks Cloud pages
@@ -145,7 +145,7 @@ jobs:
           python - <<'PYTHON' >> "$GITHUB_OUTPUT"
           from pathlib import Path
           from scripts.pytest_shard import partition, test_files
-          shards = partition(test_files(), 19)
+          shards = partition(test_files(), 32)
           selected = Path('tests/test_k8s_annotation_native_admission_portable_20261020.py') in shards[${{ matrix.shard }}]
           print(f"selected={str(selected).lower()}")
           PYTHON
@@ -184,6 +184,11 @@ jobs:
         id: benchmark
         if: ${{ matrix.shard == 0 }}
         # Measure before the large suite imports its fixtures and allocates worker heaps.
+        # The budgets are production startup bounds. Without this, the
+        # test-only "always" mode from tests/conftest.py leaks into the
+        # measured child process (240 CPU s instead of ~25 on CI).
+        env:
+          PEASO_SOURCE_ATTESTATION: once
         run: >-
           python -m pytest -q -s -p no:cacheprovider -rs --junitxml=benchmark-report.xml
           tests/test_peaso_perf_benchmark.py
@@ -205,7 +210,7 @@ jobs:
         # Each shard collects its assigned files; split modules select disjoint node IDs.
         # loadfile keeps module fixtures on one worker within each job.
         run: >-
-          python scripts/pytest_shard.py --shard ${{ matrix.shard }} --shards 19 --
+          python scripts/pytest_shard.py --shard ${{ matrix.shard }} --shards 32 --
           -q -p no:cacheprovider -n auto --dist loadfile -rs --durations=25
           --ignore=tests/test_peaso_perf_benchmark.py
           --deselect=tests/test_peaso_privesc.py::test_perf_10k_principals

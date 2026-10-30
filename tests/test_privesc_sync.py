@@ -428,15 +428,15 @@ def test_tests_workflow_runs_full_suite_and_gates_skips():
     assert triggers['push'] == {'branches': ['main']} and 'pull_request' in triggers
     assert workflow['permissions'] == {'contents': 'read'}
     shards, python, frontend = (workflow['jobs'][name] for name in ('python_shards', 'python', 'frontend'))
-    assert shards['strategy'] == {'fail-fast': False, 'matrix': {'shard': list(range(19))}}
+    assert shards['strategy'] == {'fail-fast': False, 'matrix': {'shard': list(range(32))}}
     assert python['needs'] == 'python_shards'
     assert "needs.python_shards.result" in python['steps'][0]['run']
     run = '\n'.join(s.get('run', '') for s in shards['steps'])
-    assert re.search(r'python scripts/pytest_shard\.py --shard \$\{\{ matrix\.shard \}\} --shards 19 -- '
+    assert re.search(r'python scripts/pytest_shard\.py --shard \$\{\{ matrix\.shard \}\} --shards 32 -- '
                      r'-q -p no:cacheprovider -n auto --dist loadfile -rs .*--junitxml=pytest-report\.xml', run, re.S)
     from scripts import pytest_shard
     files = pytest_shard.test_files()
-    assigned = pytest_shard.partition(files, 19)
+    assigned = pytest_shard.partition(files, pytest_shard.SHARDS)
     assert files and all(assigned)
     owners = {path: [i for i, group in enumerate(assigned) if path in group] for path in files}
     assert all(len(owners[path]) == pytest_shard.SPLIT_COUNTS.get(path.name, 1) for path in files)
