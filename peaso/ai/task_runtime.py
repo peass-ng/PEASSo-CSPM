@@ -58,15 +58,14 @@ def transfer(method, url, *, body=None, limit=MAX_INPUT, pending=()):
             return bytes(data)
 
 
-def bootstrap_wait(value):
-    """Seconds a prelaunched task may wait for its invocation; 0 when absent."""
+def reuse_idle(value):
+    """Seconds a retained task may wait for the same scan's next stage; 0 when absent."""
     if value is None:
         return 0
-    from .fargate import MAX_PRELAUNCH_WAIT
-    if not value.isdigit() or not 0 < int(value) <= MAX_PRELAUNCH_WAIT:
-        raise ValueError('invalid_bootstrap_wait')
+    from .fargate import REUSE_IDLE_SECONDS
+    if not value.isdigit() or not 0 < int(value) <= REUSE_IDLE_SECONDS:
+        raise ValueError('invalid_reuse_idle')
     return int(value)
-
 
 def fetch_bootstrap(url, wait, *, clock=time.monotonic, sleep=time.sleep):
     """Fetch the relay configuration, waiting only for a not-yet-written object.
@@ -85,6 +84,115 @@ def fetch_bootstrap(url, wait, *, clock=time.monotonic, sleep=time.sleep):
                 raise RuntimeError('task_bootstrap_unavailable') from None
             sleep(min(.5, max(0, deadline - clock())))
 
+def admit(config, sequence, task_binding):
+    """Accept only this task's expected invocation for its own tenant/scan."""
+    import hmac
+    if not isinstance(config, dict) or config.get('sequence', 1) != sequence:
+        raise ValueError('invalid_task_invocation')
+    if task_binding or sequence > 1:
+        if (not task_binding or not isinstance(config.get('binding'), str)
+                or not hmac.compare_digest(config['binding'], task_binding)):
+            raise ValueError('task_binding_mismatch')
+    return config
+
+def run_relay(*, serve=None):
+    """Serve one invocation, then at most the same scan's next one."""
+    if serve is None:
+        from .model_relay import serve
+    url = os.environ.pop('PEASO_AI_BOOTSTRAP_URL')
+    next_url = os.environ.pop('PEASO_AI_NEXT_BOOTSTRAP_URL', None)
+    idle = reuse_idle(os.environ.pop('PEASO_AI_REUSE_IDLE_SECONDS', None))
+    task_binding = os.environ.pop('PEASO_AI_TASK_BINDING', None)
+    retain = bool(next_url and idle and task_binding)
+    config = admit(json.loads(transfer('GET', url, limit=64_000)), 1, task_binding)
+    if not serve(config, stop_after_result=retain) or not retain:
+        return
+    del config
+    try:
+        raw = fetch_bootstrap(next_url, idle)
+    except RuntimeError:
+        return  # No next stage arrived: exit, which stops the whole task.
+    config = admit(json.loads(raw), 2, task_binding)
+    # Acknowledge only after the binding check, before any model access.
+    transfer('PUT', config['accepted_url'], body=b'{}', limit=1024)
+    serve(config)
+
+def wait_bootstrap(sequence, wait, *, get=None, clock=time.monotonic, sleep=time.sleep):
+    """Read the local relay's public configuration for one exact invocation."""
+    if get is None:
+        import requests
+        get = lambda: requests.get('http://127.0.0.1:8765/bootstrap', timeout=2, proxies={'http': None})
+    deadline = clock() + wait
+    while True:
+        try:
+            response = get()
+            response.raise_for_status()
+            config = response.json()
+            if isinstance(config, dict) and config.get('sequence', 1) == sequence:
+                return config
+        except Exception:
+            pass
+        if clock() >= deadline:
+            raise RuntimeError('relay_unavailable')
+        sleep(.5)
+
+def scrub(root='/tmp'):
+    """Remove every process and file a finished stage left in this container.
+
+    Fails closed: if anything survives, the task must not take another stage.
+    """
+    import shutil
+    import psutil
+    me = psutil.Process()
+    children = me.children(recursive=True)
+    for child in reversed(children):
+        try:
+            child.kill()
+        except psutil.NoSuchProcess:
+            pass
+    psutil.wait_procs(children, timeout=5)
+    while True:
+        try:
+            if os.waitpid(-1, os.WNOHANG)[0] == 0:
+                break
+        except ChildProcessError:
+            break
+    def alive(child):
+        try:
+            return child.status() != psutil.STATUS_ZOMBIE
+        except psutil.NoSuchProcess:
+            return False
+    if any(alive(child) for child in me.children(recursive=True)):
+        raise RuntimeError('task_scrub_failed')
+    root = Path(root)
+    for path in root.iterdir():
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    if any(root.iterdir()):
+        raise RuntimeError('task_scrub_failed')
+    import gc
+    gc.collect()
+
+def run_agent_task(*, run=None, wait=None, clean=None):
+    """Run the first invocation, then at most the same scan's next one."""
+    run, wait, clean = run or run_agent, wait or wait_bootstrap, clean or scrub
+    idle = reuse_idle(os.environ.pop('PEASO_AI_REUSE_IDLE_SECONDS', None))
+    run(wait(1, 120))
+    if not idle:
+        return
+    # A fresh, empty /tmp and no surviving process for the next stage. The
+    # first result is already stored: a failed scrub only ends the task.
+    try:
+        clean()
+    except Exception:
+        return
+    try:
+        config = wait(2, idle + 60)
+    except RuntimeError:
+        return  # The relay ended the task's short idle window.
+    run(config)
 
 def unpack(data, root):
     import re
@@ -197,27 +305,9 @@ def main():
     try:
         reject_ambient_aws_credentials()
         if sys.argv[1] == 'relay':
-            from .model_relay import serve
-            url = os.environ.pop('PEASO_AI_BOOTSTRAP_URL')
-            wait = bootstrap_wait(os.environ.pop('PEASO_AI_BOOTSTRAP_WAIT_SECONDS', None))
-            config = json.loads(fetch_bootstrap(url, wait))
-            serve(config)
+            run_relay()
         elif sys.argv[1] == 'agent':
-            import requests
-            # A prelaunched relay serves only after its later bootstrap object.
-            wait = bootstrap_wait(os.environ.pop('PEASO_AI_BOOTSTRAP_WAIT_SECONDS', None))
-            deadline = time.monotonic() + 120 + wait
-            while True:
-                try:
-                    response = requests.get('http://127.0.0.1:8765/bootstrap', timeout=2, proxies={'http': None})
-                    response.raise_for_status()
-                    config = response.json()
-                    break
-                except Exception:
-                    if time.monotonic() >= deadline:
-                        raise RuntimeError('relay_unavailable') from None
-                    time.sleep(.5)
-            run_agent(config)
+            run_agent_task()
         else:
             raise ValueError('invalid_task_mode')
     except (TimeoutError, subprocess.TimeoutExpired):

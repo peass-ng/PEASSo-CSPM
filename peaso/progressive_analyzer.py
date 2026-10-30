@@ -145,11 +145,19 @@ def _stage_child(config, tenant, ident, stage, revision, report_ref, snapshot_re
         if (stage != "network" or section.get("status") != "complete"
                 or section.get("data_revision") != revision):
             return
+        handoff = {}
         output = review_scan(report, snapshot, selectors, tenant=tenant, artifacts=artifacts,
                              deadline=deadline, context=context, stages=("network",),
-                             cancel_event=cancelled)
+                             cancel_event=cancelled, scan_id=ident, task_handoff=handoff)
         if cancelled.is_set() or time.time() >= deadline:
+            if handoff.get("network") is not None:
+                from peaso.ai.fargate import release
+                release(handoff["network"])
             return
+        if handoff.get("network") is not None and isinstance(output, dict):
+            # Private, tenant-scoped stage artifact only: this scan's final
+            # analyzer may run Priorities in the same still-waiting task.
+            output = dict(output, task_reuse=handoff["network"])
         # Even unavailable stage responses are useful to the public overlay;
         # final analysis only reuses completed stages and can retry failures.
         document = {"stage": stage, "data_revision": revision, "result": output}
