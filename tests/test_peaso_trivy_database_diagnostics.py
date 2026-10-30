@@ -113,7 +113,7 @@ def test_control_flow_not_swallowed(db):
 
 
 def test_real_runtime_transport_has_only_fixed_rows_and_counts(db,monkeypatch):
-    metrics=load('diagnostic_runtime','peaso/runtime_metrics.py')
+    metrics=load('peaso.runtime_metrics','peaso/runtime_metrics.py')
     monkeypatch.setitem(sys.modules,'peaso.runtime_metrics',metrics)
     frames=[]
     metrics.configure(frames.append,role='collector',interval_seconds=60)
@@ -132,7 +132,7 @@ def test_real_runtime_transport_has_only_fixed_rows_and_counts(db,monkeypatch):
 
 
 def test_runtime_handler_failure_nonfatal(db,monkeypatch):
-    metrics=load('failed_diagnostic_runtime','peaso/runtime_metrics.py')
+    metrics=load('peaso.runtime_metrics','peaso/runtime_metrics.py')
     @contextmanager
     def fail(stage):raise RuntimeError('SECRET');yield
     monkeypatch.setattr(metrics,'span',fail)

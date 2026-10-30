@@ -12,6 +12,7 @@ import pytest
 from peaso import secret_scanning as scanning
 from peaso import secret_scanning_batch as batch
 from peaso import secret_evidence as evidence
+from peaso import secret_scan_clean
 from peaso.collectors import aws_package_content_indicators as package
 from peaso.collectors import aws_code_log_content_indicators as code_log
 from peaso.collectors import gcp_image_secret_indicators as gcp_image
@@ -43,9 +44,10 @@ class Requests:
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    scanning._RESULTS.clear()
+    # Both process memos hold detector outcomes from earlier mocked runs.
+    scanning._RESULTS.clear(); secret_scan_clean._CLEAN.clear()
     yield
-    scanning._RESULTS.clear()
+    scanning._RESULTS.clear(); secret_scan_clean._CLEAN.clear()
 
 
 def test_tar_batches_exact_files_and_keeps_both_engine_positives(monkeypatch):
