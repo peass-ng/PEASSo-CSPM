@@ -121,7 +121,7 @@ def route(*, grant=GROUP, status="ACTIVE", group=GROUP, session=SESSION, role_na
 def test_catalog_route_accepts_a_grant_scoped_to_the_exact_stream_group(monkeypatch):
     # Principal-exposure annotations are outside this route's permission proof.
     exposure = types.ModuleType("peaso.principal_exposure")
-    exposure.annotate_privesc = lambda *args: None
+    exposure.annotate_privesc = lambda snapshot, graph, findings, model, inventory=None: None
     monkeypatch.setitem(sys.modules, exposure.__name__, exposure)
     row = {"Arn": SESSION, "Status": "ACTIVE", "RoleArn": TARGET,
            "StreamGroupArn": GROUP, "StreamGroupStatus": "ACTIVE"}
@@ -152,7 +152,7 @@ def test_missing_session_inventory_is_not_a_confirmed_route():
 
 def test_passrole_without_controlled_application_is_unresolved(monkeypatch):
     exposure = types.ModuleType("peaso.principal_exposure")
-    exposure.annotate_privesc = lambda *args: None
+    exposure.annotate_privesc = lambda snapshot, graph, findings, model, inventory=None: None
     monkeypatch.setitem(sys.modules, exposure.__name__, exposure)
     technique = "aws-gameliftstreams-passrole-startstreamsession"
     snap = aws_snap([user("alice", allow("gameliftstreams:StartStreamSession"),
