@@ -6,8 +6,11 @@ from tests.test_peaso_aws_typed_finding_summary import actual
 
 @pytest.mark.parametrize('row',REVIEWED_SCOPES,ids=lambda r:r['id']+'-'+r['status'])
 def test_each_scope_sentence_uses_the_actual_registered_evaluator_witness(row):
- finding=actual(row['id'],row['case']);before=deepcopy(finding)
- if row['id']=='aws.cb.sns.policy_prohibit_public_access_perimeter' and row['case']=='not_applicable':
+ retired_sns=row['id']=='aws.cb.sns.policy_prohibit_public_access_perimeter' and row['case']=='not_applicable'
+ # The retired id (fe6f7901) resolves to its surviving native, whose fixture
+ # names the same policy-less topic witness 'no_policy'.
+ finding=actual(row['id'],'no_policy' if retired_sns else row['case']);before=deepcopy(finding)
+ if retired_sns:
   # GetTopicAttributes may omit Policy due to caller authorization. The old
   # applicability witness is historical, not proof of an absent policy now.
   assert finding['status']=='UNKNOWN'

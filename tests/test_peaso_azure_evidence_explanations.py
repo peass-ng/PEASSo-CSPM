@@ -200,7 +200,30 @@ def _reviewed_description_digest(cid, description):
     return _digest(successor['current'])
 
 
+SQL_ROUTE_SUCCESSOR_ID = 'azure.htbp.sql.entra_only_authentication'
+
+
+def _sql_route_successor(historical):
+    """66b47ab6 reads azureADOnlyAuthentications/Default, not the flag on the
+    administrator row. Move only the recorded flag to that child; the
+    historical verdict and evidence must stay exactly the same."""
+    row = deepcopy(historical)
+    item = row['item']
+    admin, = item['serverAdministrators']
+    flag = admin['properties'].pop('azureADOnlyAuthentication')
+    assert type(flag) is bool and flag is (historical['status'] == 'PASS')
+    assert 'azureADOnlyAuthentications' not in item
+    assert historical['evidence'] == {'azure_ad_only_authentication': [flag]}
+    item['azureADOnlyAuthentications'] = [{
+        'id': item['id'] + '/azureADOnlyAuthentications/Default', 'name': 'Default',
+        'type': 'Microsoft.Sql/servers/azureADOnlyAuthentications',
+        'properties': {'azureADOnlyAuthentication': flag}}]
+    return row
+
+
 def _current_case(cid, number, historical):
+    if cid == SQL_ROUTE_SUCCESSOR_ID and historical['status'] in ('PASS', 'FAIL'):
+        return _sql_route_successor(historical)
     witness = CURRENT_WITNESS_SUCCESSORS.get(cid + '|' + str(number))
     if witness is not None:
         assert _digest(historical) == witness['historical_case_sha256']
@@ -330,7 +353,8 @@ def test_retired_aks_authorized_ranges_archive_and_active_alias():
     active = 'azure.aks.api_server_restricted'
     assert CHECK_ALIASES[retired] == active and retired not in CHECK_BY_ID
     for path in ('docs/evidence-reviews/azure.json', 'tests/fixtures/azure_evidence_review.json.gz'):
-        assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == PINNED_SUCCESSOR_INPUTS[path]
+        # Epoch pin, or the exact reviewed later edit recorded for that path.
+        _checked_json(path)
     assert LEDGER[retired]['source'] == 'peaso/checks/claude_azure_identity.py'
     assert LEDGER[retired]['source_sha256'] == '478f1dd3f0ca38ecabed31c4b4772ea3ffbc0b584bee165cb93d87f1577ce5fc'
     assert {row['status'] for row in CASES[retired]} == {'PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE'}
@@ -1826,7 +1850,7 @@ PINNED_SUCCESSOR_INPUTS = json.loads(r'''
   "docs/check-review/azure-network-audit-admission-20261020.json": "1a1712d90f1a7086b12501115b8be5fd43b62f32ef182eda6ac456efb6e4d11f",
   "docs/check-review/azure-provider-integration-acceptance-20261020.json": "38e933aacafdc11eb01980cb22e0cb632ff06a21b683c358d8e566c6d2ad733f",
   "docs/check-review/azure-storage-compute-integration-20261020.json": "9c488a9c22c2b770c915a8f5df547f9a655379fc68aa128ba262012053f669dc",
-  "docs/evidence-reviews/azure.json": "cff6a2c23e6300b7d22b7cf14ff251df4ad065b1a8a0d867cae8b0c7b07d5d87",
+  "docs/evidence-reviews/azure.json": "394f162863c92b9734fbd92305bc45cb12f99ff582aae0f0c3cb4b72b0905090",
   "peaso/checks/azure.py": "616d104fce5d17c8ec66f74b62855b56a04678f1f224cf15d2d79e7c2dfcdd4e",
   "peaso/checks/azure_acr_image_secret_review_20261020.py": "11821a6a2d2366602d993d79c58844d6f0c14b1a766ffd19c43894bef8f2dd39",
   "peaso/checks/azure_acr_image_secret_review_20261020_fixtures.json": "6920da6da7d3ef871ecccfd06bf3db9326891d6bcfdc0c37799dbcf9e6580af7",

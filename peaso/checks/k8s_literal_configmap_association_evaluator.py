@@ -105,8 +105,12 @@ def _check(item, index):
 
 def evaluate(item, index):
     """Keep the legacy branch byte-for-byte unless references need new proof."""
+    legacy = getattr(original, '_evaluate_legacy', original.evaluate)
+    if not isinstance(item, dict) or not isinstance(item.get(MARKER), dict):
+        # A missing or malformed workload record carries no ConfigMap
+        # reference, so it keeps the legacy unbound-literal UNKNOWN wording.
+        return legacy(item, index)
     try:
-        legacy = getattr(original, '_evaluate_legacy', original.evaluate)
         marker = item[MARKER]
         ledger = index['context']['metadata'].get(KIND + '_configmap_receipts', [])
         if 'association' not in marker:

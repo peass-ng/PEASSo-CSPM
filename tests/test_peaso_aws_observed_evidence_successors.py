@@ -550,6 +550,37 @@ REVIEWED_NATIVE_SOURCE_DELTAS = {
             ),
         ),
     ),
+    # fe6f7901 (#104): the overlapping ElastiCache subnet id is retired as an
+    # alias of its surviving Prowler-semantics native check.
+    'claude2_aws_b_data.py': (
+        (
+            'from . import result, unknown\n',
+            'from . import alias_check, result, unknown\n',
+        ),
+        (
+            (
+                '_ec_public("aws.c2b.elasticache.cluster_public_subnet", "ElastiCache cluster has no subnet routed to an internet gateway",\n'
+                '    [C + "elasticache_cluster_no_public_subnet"], subnet_is_public_prowler,\n'
+                '    "Semantic correction to pinned Steampipe SQL: its NAT default-route branch describes outbound access, not public ingress; classify only an effective 0.0.0.0/0 route to igw-.")\n'
+            ),
+            'alias_check("aws.c2b.elasticache.cluster_public_subnet", "aws.c2b.elasticache.cluster_public_subnet_prowler")\n',
+        ),
+    ),
+    # a9d62a01: S3 ownership controls are decided only from collected detail.
+    'claude_aws_a_s3.py': (
+        (
+            (
+                '        return result(True, ownership=None)\n'
+                '    rules = list_of_objects(get(controls, "OwnershipControls.Rules", list))\n'
+            ),
+            (
+                '        return result(True, ownership=None)\n'
+                '    if get(controls, "collection_status", str) != "collected":\n'
+                '        raise Unavailable("ownership controls detail unavailable")\n'
+                '    rules = list_of_objects(get(controls, "OwnershipControls.Rules", list))\n'
+            ),
+        ),
+    ),
 }
 
 BY_ID={check.id:check for check in CHECKS}

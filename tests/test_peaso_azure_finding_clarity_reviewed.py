@@ -142,6 +142,32 @@ def test_private_endpoint_existence_does_not_claim_approval(source_rows):
     assert next(c for c in CHECKS if c.id == cid).evaluate(item, {})[0] == "PASS"
 
 
+def _current_route_cases(check_id, cases):
+    """Add only the SQL authentication-mode child read by the current route.
+
+    66b47ab6 reads azureADOnlyAuthentications/Default instead of the flag on
+    the administrator row. The sealed native capture predates that route, so
+    the child is supplied exactly as tests/azure_current_native_route_successor
+    _20261027.py serves it: from the captured administrator flag, which the
+    current collector no longer projects on the administrator row.
+    """
+    if check_id != "azure.htbp.sql.entra_only_authentication":
+        return cases
+    for branch in ("pass", "fail"):
+        item = cases.get(branch)
+        if not isinstance(item, dict) or "azureADOnlyAuthentications" in item:
+            continue
+        admin, = item["serverAdministrators"]
+        flag = admin["properties"].pop("azureADOnlyAuthentication")
+        assert type(flag) is bool and flag is (branch == "pass")
+        item["azureADOnlyAuthentications"] = [{
+            "id": item["id"] + "/azureADOnlyAuthentications/Default", "name": "Default",
+            "type": "Microsoft.Sql/servers/azureADOnlyAuthentications", "parent_id": item["id"],
+            "properties": {"azureADOnlyAuthentication": flag}}]
+        item["_coverage"]["azureADOnlyAuthentications"] = {"status": "collected"}
+    return cases
+
+
 @pytest.mark.parametrize("check_id", sorted(ROWS))
 def test_reviewed_copy_matches_real_positive_negative_and_missing_facts(check_id):
     from peaso.checks.fixtures import CASES
@@ -151,7 +177,7 @@ def test_reviewed_copy_matches_real_positive_negative_and_missing_facts(check_id
         assert check_id not in CASES
         return
     check = next(c for c in CHECKS if c.id == check_id)
-    cases = current_cases(check_id, CASES.get(check_id) or json.loads((Path(__file__).parent / "fixtures/azure_core6.json").read_text())[check_id])
+    cases = _current_route_cases(check_id, current_cases(check_id, CASES.get(check_id) or json.loads((Path(__file__).parent / "fixtures/azure_core6.json").read_text())[check_id]))
     for state in ("pass", "fail", "unknown", "not_applicable"):
         if state not in cases:
             continue

@@ -16,6 +16,15 @@ from tests.test_peaso_k8s_observed_configuration import (
     recorded_observation, SELECTED_SECRET_IDS, AUTHORIZATION_FIXTURE_IDS)
 
 K8S = {c.id: c for c in CHECKS if c.provider == 'k8s'}
+# 45112721 made component Unavailable reasons per container, so one malformed
+# container no longer hides another container's FAIL. The frozen receipt keeps
+# the earlier whole-check reason; this is the exact reviewed later evidence.
+KUBELET_UNKNOWN_SUCCESSOR = {
+    'historical_evidence_sha256': 'eb2a517018de735a62d31a52d4b67bc2823cd0530423bba3ec452c92342a4e25',
+    'historical_evidence': {'reason': 'malformed native authorization mode declaration'},
+    'current_evidence': {'containers': ['component'],
+                         'reason': 'component applicability/configuration declarations unavailable'},
+}
 STATES = ('pass', 'fail', 'unknown', 'malformed', 'missing', 'manual', 'not_applicable')
 
 
@@ -221,7 +230,13 @@ def test_review_ledger_accounts_for_each_id_and_replays_every_saved_explanation(
             for state, finding in replay.items():
                 assert finding['status'] == current[state]['status']
                 assert evidence_summary(finding) == current[state]['generic_summary']
-                assert hashlib.sha256(json.dumps(finding['evidence'], sort_keys=True).encode()).hexdigest() == current[state]['evidence_sha256']
+                recorded = current[state]['evidence_sha256']
+                if state == 'unknown' and recorded == KUBELET_UNKNOWN_SUCCESSOR['historical_evidence_sha256']:
+                    historical = KUBELET_UNKNOWN_SUCCESSOR['historical_evidence']
+                    assert hashlib.sha256(json.dumps(historical, sort_keys=True).encode()).hexdigest() == recorded
+                    assert finding['evidence'] == KUBELET_UNKNOWN_SUCCESSOR['current_evidence']
+                    continue
+                assert hashlib.sha256(json.dumps(finding['evidence'], sort_keys=True).encode()).hexdigest() == recorded
             continue
         assert entry['disposition'] == 'rewritten'
         assert entry['missing_fixtures'] == []
@@ -419,5 +434,13 @@ def test_kubelet_webhook_fixture_is_decisive_and_old_rbac_mode_is_unknown(cid):
         cases = reviewed_cases(cid)
         status, _ = K8S[cid].evaluate(deepcopy(cases[state]), deepcopy(cases.get(state + '_index', cases.get('index', {}))))
         assert status == expected
-    assert K8S[cid].evaluate(deepcopy(CASES[cid]['pass']), deepcopy(CASES[cid].get('pass_index', CASES[cid].get('index', {}))))[0] == 'UNKNOWN'
+    # 45112721 changed the registry fixture to the valid kubelet Webhook mode;
+    # the old API-server-only RBAC input stays an UNKNOWN witness.
+    registry = deepcopy(CASES[cid]['pass'])
+    index = deepcopy(CASES[cid].get('pass_index', CASES[cid].get('index', {})))
+    assert K8S[cid].evaluate(deepcopy(registry), deepcopy(index))[0] == 'PASS'
+    old_mode = json.loads(json.dumps(registry).replace('"authorization-mode": "Webhook"', '"authorization-mode": "RBAC"'))
+    assert old_mode != registry
+    status, evidence = K8S[cid].evaluate(old_mode, index)
+    assert (status, evidence) == ('UNKNOWN', KUBELET_UNKNOWN_SUCCESSOR['current_evidence'])
     assert CASES[cid] == before

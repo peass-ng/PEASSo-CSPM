@@ -52,6 +52,25 @@ def _stable(v):
     if hasattr(v,'pattern') and hasattr(v,'flags'):return {'regex':v.pattern,'flags':v.flags}
     return {'type':type(v).__name__}
 
+def _closure_digest(value):
+    return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+# 334b8376 memoized the sw46 inventory joins (_items now delegates to
+# _validated_items, _resource reuses a per-index lookup) and shifted later
+# callback line numbers; every other callback body hash is unchanged.
+BINDING_SUCCESSORS={
+    'aws_nist_sns_topic_notification_delivery_status_enabled':{
+        'historical_predicate_sources':'e866c03c80996d786c81166599bd2a92379806454521350113cd082067d9e479',
+        'historical_constants':'3732e2e665c4ae7db552be8e89506c8cfe3878a198f9a98643c0d7e3a1c168ce',
+        'current_predicate_sources':'56409bd070a0947e61480248239601f858334c003959ebe62a86b4ae9ad08da2',
+        'current_constants':'48017d284b97d753604309aabbe565e5ed0b058a45262f9415787c5b827aa5d2'},
+    'aws_shield_ddos_detected_alarm':{
+        'historical_predicate_sources':'abf717caa44284910561687ec81385050cde56c09e37645f59bb7f24fce98f93',
+        'historical_constants':'bfa1d75e683bd2e2df425c4e661adea290a4385a0a8ec5c6d1c8a4f46f14a096',
+        'current_predicate_sources':'bdf9b152e76b59c2d91251f6e040342d506998691e58e82d7faf14788a9d683a',
+        'current_constants':'a4e12c6f9c4ba504acf5263344752abb3695f11e514e3d27f8248faec1a56b2c'},
+}
+
 @pytest.mark.parametrize('cid',sorted(ROWS))
 def test_real_default_callbacks_dispatch_closures_constants_and_severities_are_pinned(cid):
     c=CHECK_BY_ID[cid];binding=ROWS[cid]['reviewed_binding'];f=inspect.unwrap(c.evaluate)
@@ -70,13 +89,23 @@ def test_real_default_callbacks_dispatch_closures_constants_and_severities_are_p
         values.extend(fn.__globals__.get(k) for k in fn.__code__.co_names)
         for value in values:
             if inspect.isfunction(value) and ('_bulk_pending_' in value.__module__ or (cid=='aws_cis_aws_resource_policy_unrestricted_principal' and value.__module__==f.__module__)):pending.append(value)
-    assert binding['predicate_sources']=={k:hashlib.sha256(inspect.getsource(v).encode()).hexdigest() for k,v in sorted(funcs.items())}
+    sources={k:hashlib.sha256(inspect.getsource(v).encode()).hexdigest() for k,v in sorted(funcs.items())}
     constants={}
     for key,fn in funcs.items():
         for name in fn.__code__.co_names:
             value=fn.__globals__.get(name)
             if name.isupper() and value is not None and not inspect.ismodule(value) and not inspect.isclass(value) and not inspect.isfunction(value):constants[key+'::'+name]=_stable(value)
-    assert binding['constants']==constants
+    successor=BINDING_SUCCESSORS.get(cid)
+    if successor is None:
+        assert binding['predicate_sources']==sources
+        assert binding['constants']==constants
+    else:
+        # The reviewed binding stays historical; only this exact current
+        # callback closure and constant set is admitted after the edit.
+        assert _closure_digest(binding['predicate_sources'])==successor['historical_predicate_sources']
+        assert _closure_digest(binding['constants'])==successor['historical_constants']
+        assert _closure_digest(sources)==successor['current_predicate_sources']
+        assert _closure_digest(constants)==successor['current_constants']
     assert severity_review(cid,c.severity)==ROWS[cid]['reviewed_severity']
     with pytest.raises(ValueError):severity_review(cid,'changed')
 
