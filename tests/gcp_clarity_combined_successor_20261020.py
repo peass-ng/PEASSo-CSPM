@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # Current pins (scripts/peaso_repin_sources.py CURRENT_PIN_CONSTANTS keeps them
 # equal to the reviewed current files).
 CURRENT_EXPLANATIONS_SHA256 = 'b08287d78760fa0d7ce90da2098dcc3ff0ba66984272d2c15bd2f7f60299d06f'
-CURRENT_EXPLANATIONS_SUCCESSOR_SHA256 = '2ea4c9e8b8a0efb7343b67be6b55c6990b27c98f2f277b5c898d02fbcbd98007'
+CURRENT_EXPLANATIONS_SUCCESSOR_SHA256 = '6b47bb6104debf65bb5ec8c7178547ec0d57da044d73153ae72587ed6a0addfb'
 FUNCTION_ID = 'gcp.review.function.literal_environment_secret_indicators'
 JOB_ID = 'gcp.review.cloudrun_job.declared_image_secret_indicators'
 

@@ -21858,7 +21858,7 @@
       "evaluator_line": 218,
       "evaluator_sha256": "0ea06a66dd59194c2c24a410618476349c80337e5e4643976e76ba99d64b6c8d",
       "observation_contract": "typed check-bound native observation; selected current source and incomplete evidence remain explicit",
-      "purpose": "Recorded successful API key requests inform an age-based cleanup review; the selected metric window cannot establish universal use.",
+      "purpose": "A leaked API key could let anyone call the Google APIs it allows.",
       "branch_coverage": {
         "PASS": {
           "case": "pass",
@@ -21878,7 +21878,7 @@
             "latest_recorded_successful_interval",
             "summary"
           ],
-          "example": "API key synthetic-key-uid has recorded successful requests in the interval ending 2026-10-20. The matching metric identifies this credential in projects/usage-project. The recorded activity is within the 90-day review period. Recorded successful API key requests inform an age-based cleanup review; the selected metric window cannot establish universal use."
+          "example": "API key synthetic-key-uid has recorded successful requests in the interval ending 2026-10-20. The matching metric identifies this credential in projects/usage-project. The recorded activity is within the 90-day review period. A leaked API key could let anyone call the Google APIs it allows."
         },
         "FAIL": {
           "case": "fail",
@@ -21899,7 +21899,7 @@
             "days_since_recorded_successful_interval",
             "summary"
           ],
-          "example": "API key synthetic-key-uid has no newer successful request record after the interval ending 2026-01-02, 292 days before capture. The Service Runtime metric query covers the stated project scopes and observation period. This old recorded activity makes the credential a cleanup-review candidate; other activity may exist outside these metrics. Recorded successful API key requests inform an age-based cleanup review; the selected metric window cannot establish universal use."
+          "example": "API key synthetic-key-uid has no newer successful request record after the interval ending 2026-01-02, 292 days before capture. The Service Runtime metric query covers the stated project scopes and observation period. This old recorded activity makes the credential a cleanup-review candidate; other activity may exist outside these metrics. A leaked API key could let anyone call the Google APIs it allows."
         },
         "UNKNOWN": {
           "case": "missing",
@@ -21907,7 +21907,7 @@
             "reason",
             "summary"
           ],
-          "example": "The current API key request metrics do not establish recent successful activity. Recorded successful API key requests inform an age-based cleanup review; the selected metric window cannot establish universal use."
+          "example": "The current API key request metrics do not establish recent successful activity. A leaked API key could let anyone call the Google APIs it allows."
         }
       },
       "fixture_source": "peaso/checks/unused_iam_gcp_keys_cases.json",
@@ -22024,7 +22024,7 @@
       "evaluator_line": 222,
       "evaluator_sha256": "b80a917c3a50eaa18fcf7306f6e20c63032768f0760138257b8580630ea22bec",
       "observation_contract": "typed check-bound native observation; selected current source and incomplete evidence remain explicit",
-      "purpose": "Recorded successful HMAC requests inform an age-based cleanup review; the selected metric window cannot establish universal use.",
+      "purpose": "A leaked HMAC key could let anyone reach the Cloud Storage data it allows.",
       "branch_coverage": {
         "PASS": {
           "case": "pass",
@@ -22044,7 +22044,7 @@
             "latest_recorded_successful_interval",
             "summary"
           ],
-          "example": "HMAC key GOOG1syntheticPublicAccessId has recorded successful requests in the interval ending 2026-10-20. The matching metric identifies this credential in projects/usage-project. The recorded activity is within the 90-day review period. Recorded successful HMAC requests inform an age-based cleanup review; the selected metric window cannot establish universal use."
+          "example": "HMAC key GOOG1syntheticPublicAccessId has recorded successful requests in the interval ending 2026-10-20. The matching metric identifies this credential in projects/usage-project. The recorded activity is within the 90-day review period. A leaked HMAC key could let anyone reach the Cloud Storage data it allows."
         },
         "FAIL": {
           "case": "fail",
@@ -22065,7 +22065,7 @@
             "days_since_recorded_successful_interval",
             "summary"
           ],
-          "example": "HMAC key GOOG1syntheticPublicAccessId has no newer successful request record after the interval ending 2026-01-02, 292 days before capture. The Cloud Storage authentication metric query covers the stated project scopes and observation period. This old recorded activity makes the credential a cleanup-review candidate; other activity may exist outside these metrics. Recorded successful HMAC requests inform an age-based cleanup review; the selected metric window cannot establish universal use."
+          "example": "HMAC key GOOG1syntheticPublicAccessId has no newer successful request record after the interval ending 2026-01-02, 292 days before capture. The Cloud Storage authentication metric query covers the stated project scopes and observation period. This old recorded activity makes the credential a cleanup-review candidate; other activity may exist outside these metrics. A leaked HMAC key could let anyone reach the Cloud Storage data it allows."
         },
         "UNKNOWN": {
           "case": "missing",
@@ -22073,7 +22073,7 @@
             "reason",
             "summary"
           ],
-          "example": "The current HMAC request metrics do not establish recent successful activity. Recorded successful HMAC requests inform an age-based cleanup review; the selected metric window cannot establish universal use."
+          "example": "The current HMAC request metrics do not establish recent successful activity. A leaked HMAC key could let anyone reach the Cloud Storage data it allows."
         }
       },
       "fixture_source": "peaso/checks/unused_iam_gcp_keys_cases.json",
@@ -22088,7 +22088,7 @@
       "evaluator_line": 219,
       "evaluator_sha256": "e2173ed485b34e45eaa66131efc5f08020a28b1947a3da70f2aca26256fb3e2c",
       "observation_contract": "typed check-bound native observation; selected current source and incomplete evidence remain explicit",
-      "purpose": "Observed permission use can justify reviewing this grant; unused permissions and activity outside the insight window remain unproven.",
+      "purpose": "Unused permissions could let this principal reach more data.",
       "branch_coverage": {
         "PASS": {
           "case": "pass",
@@ -22106,7 +22106,7 @@
             "source_endpoint",
             "summary"
           ],
-          "example": "serviceAccount:worker@usage-project.iam.gserviceaccount.com has recorded permission use through roles/viewer on //cloudresourcemanager.googleapis.com/projects/usage-project. The provider insight lists 1 exercised permission(s) in its observation window. Other permissions in the role may still need a separate least-privilege review. Observed permission use can justify reviewing this grant; unused permissions and activity outside the insight window remain unproven."
+          "example": "serviceAccount:worker@usage-project.iam.gserviceaccount.com has recorded permission use through roles/viewer on //cloudresourcemanager.googleapis.com/projects/usage-project. The provider insight lists 1 exercised permission(s) in its observation window. Other permissions in the role may still need a separate least-privilege review. Unused permissions could let this principal reach more data."
         },
         "FAIL": {
           "case": "fail",
@@ -22124,7 +22124,7 @@
             "source_endpoint",
             "summary"
           ],
-          "example": "serviceAccount:worker@usage-project.iam.gserviceaccount.com has no recorded permission use through roles/viewer on //cloudresourcemanager.googleapis.com/projects/usage-project. The ACTIVE Google insight covers 90 days ending 2026-10-20 and lists no exercised or inferred permissions. This current grant could preserve access after its original purpose has ended. Observed permission use can justify reviewing this grant; unused permissions and activity outside the insight window remain unproven."
+          "example": "serviceAccount:worker@usage-project.iam.gserviceaccount.com has no recorded permission use through roles/viewer on //cloudresourcemanager.googleapis.com/projects/usage-project. The ACTIVE Google insight covers 90 days ending 2026-10-20 and lists no exercised or inferred permissions. This current grant could preserve access after its original purpose has ended. Unused permissions could let this principal reach more data."
         },
         "UNKNOWN": {
           "case": "missing",
@@ -22132,7 +22132,7 @@
             "reason",
             "summary"
           ],
-          "example": "The current IAM insight does not establish permission use for this exact role grant. Observed permission use can justify reviewing this grant; unused permissions and activity outside the insight window remain unproven."
+          "example": "The current IAM insight does not establish permission use for this exact role grant. Unused permissions could let this principal reach more data."
         }
       },
       "fixture_source": "peaso/checks/unused_iam_gcp_authorization_cases.json",

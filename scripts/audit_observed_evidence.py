@@ -26,6 +26,9 @@ def audit():
         path = ROOT / 'peaso/checks' / f'{provider}_evidence_explanations.json'
         ledger_path = ROOT / 'docs/evidence-reviews' / f'{provider}.json'
         rows = json.loads(path.read_text()) if path.exists() else {}
+        # Providers load later reviewed copy from dated overlay files.
+        for overlay in sorted(path.parent.glob(f'{provider}_evidence_explanations_current_*.json')):
+            rows.update(json.loads(overlay.read_text()))
         ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else {}
         tracked = ledger.get('checks', ledger)
         missing_copy = sorted((native | aliases) - rows.keys())

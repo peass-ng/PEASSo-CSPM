@@ -16,12 +16,12 @@
       "ledger": "docs/evidence-reviews/aws.json"
     },
     "gcp": {
-      "registered_checks": 536,
-      "active_checks": 429,
+      "registered_checks": 559,
+      "active_checks": 452,
       "historical_or_excluded_checks": 107,
       "retired_aliases": 2,
-      "explicit_copy_entries": 538,
-      "review_ledger_entries": 538,
+      "explicit_copy_entries": 561,
+      "review_ledger_entries": 561,
       "missing_copy": [],
       "missing_review": [],
       "invalid_copy": [],
@@ -59,7 +59,7 @@
     }
   },
   "errors": [],
-  "registered_check_count": 4115,
+  "registered_check_count": 4138,
   "alias_count": 5,
   "shared_analysis": {
     "check_count": 7,

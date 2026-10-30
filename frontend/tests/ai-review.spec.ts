@@ -17,7 +17,7 @@ test('AI defaults on and can be disabled for a scan', async ({ page }) => {
   });
   await page.goto('/#Scans');
   await page.getByRole('button', { name: 'Launch scan', exact: true }).click();
-  const toggle = page.getByLabel('Use AI to review failed findings');
+  const toggle = page.getByLabel('Use AI for Network analysis and prioritized actions');
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
   await page.getByRole('dialog').getByRole('button', { name: 'Start scan', exact: true }).click();
