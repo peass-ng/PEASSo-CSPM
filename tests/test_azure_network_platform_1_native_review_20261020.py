@@ -33,6 +33,18 @@ def offline(monkeypatch):
     monkeypatch.setattr(azure,'urlopen',blocked)
     monkeypatch.setattr(azure.time,'sleep',lambda seconds:None)
 
+_HISTORICAL_TRANSPORT=azure.AzureTransport
+_EXPOSURE_TRANSPORT=azure.AzureTransportExposure
+
+@pytest.fixture(autouse=True)
+def exposure_transport_seam(monkeypatch):
+    # collect() constructs AzureTransportExposure; keep this module's
+    # AzureTransport replacements (fakes and guards) authoritative for it.
+    def construct(*args,**kwargs):
+        current=azure.AzureTransport
+        return (_EXPOSURE_TRANSPORT if current is _HISTORICAL_TRANSPORT else current)(*args,**kwargs)
+    monkeypatch.setattr(azure,'AzureTransportExposure',construct)
+
 @pytest.mark.parametrize('kind',['vnet',identity_native.KIND])
 @pytest.mark.parametrize('mode',['constructor_denied','hosted_missing','hosted_ambient','hosted_file'])
 def test_early_auth_rejection_never_invokes_native_tail(monkeypatch,kind,mode):

@@ -14958,13 +14958,78 @@ def _azure_service_tag_ranges(inventory, scope):
     return inventory.network_cache[key]
 
 
-def _nsg_allowed(nsg, address=None, groups=(), service_tags=None):
+def _nsg_dependencies(rules):
+    """Conservative target dependencies of one successfully evaluated NSG.
+
+    Destination selectors other than ``*``/``Any`` can depend on the target
+    address (CIDRs, and ``VirtualNetwork``/``Internet`` for public addresses);
+    destination ASGs depend on the target groups.
+    """
+    address, groups = False, False
+    for rule in rules:
+        p = rule.get("properties") or {}
+        if p.get("direction", "Inbound") != "Inbound":
+            continue
+        if any(isinstance(x, dict) for x in as_list(p.get("destinationApplicationSecurityGroups"))):
+            groups = True
+        destinations = as_list(p.get("destinationAddressPrefixes")) + as_list(p.get("destinationAddressPrefix"))
+        if any(d not in ("*", "Any") for d in destinations):
+            address = True
+    return address, groups
+
+
+def _copy_nsg_matches(matched):
+    # Only these containers are built by the evaluator; native rule values
+    # keep their original snapshot references.
+    return [dict(item, ports=list(item["ports"])) if "ports" in item else dict(item) for item in matched]
+
+
+def _nsg_allowed(nsg, address=None, groups=(), service_tags=None, *, cache=None):
+    """Shared, bounded NSG decisions equal to ``_nsg_allowed_rules`` per target."""
+    cache = {} if cache is None else cache
+    # Unsupported caller values keep the literal evaluator and its errors.
+    eligible = (address is None or isinstance(address, str) and len(address) <= 256) and isinstance(groups, (list, tuple))
+    eligible = eligible and len(groups) <= 256 and all(isinstance(g, str) and len(g) <= 2048 for g in groups)
+    eligible = eligible and sum(len(g) for g in groups) <= 8192
+    state = cache.setdefault("azure_nsg_decisions", {"entries": {}, "dependencies": {}, "weight": 0}) if eligible else None
+    if state is not None and id(nsg) not in state["dependencies"] and len(state["dependencies"]) >= 1024:
+        state = None
+    dependencies = state["dependencies"].get(id(nsg)) if state is not None else None
+
+    def decision_key():
+        return (id(nsg), id(service_tags), address if dependencies[0] else None,
+                tuple(sorted({g.lower() for g in groups})) if dependencies[1] else ())
+    key = None
+    if dependencies is not None:
+        key = decision_key()
+        cached = state["entries"].get(key)
+        if cached is not None:
+            return dict(cached[0]), _copy_nsg_matches(cached[1])
+    allowed, matched = _nsg_allowed_rules(nsg, address, groups, service_tags, cache=cache)
+    if state is not None and len(state["entries"]) < 1024:
+        if dependencies is None:
+            dependencies = _nsg_dependencies(cache[("azure_nsg_rules", id(nsg))])
+            state["dependencies"][id(nsg)] = dependencies
+        if key is None:
+            key = decision_key()
+        weight = sum(1 + len(item.get("ports", ())) for item in matched) + sum(len(v) for v in allowed.values()) + 1
+        if state["weight"] + weight <= 20_000:
+            state["entries"][key] = dict(allowed), _copy_nsg_matches(matched)
+            state["weight"] += weight
+    return allowed, matched
+
+
+def _nsg_allowed_rules(nsg, address=None, groups=(), service_tags=None, *, cache=None):
+    cache = {} if cache is None else cache
     props = _props(nsg)
-    rules = [r for r in as_list(props.get("securityRules")) + as_list(props.get("defaultSecurityRules")) if isinstance(r, dict)]
-    if not any((r.get("properties") or {}).get("priority", 0) >= 65000 for r in rules):
-        rules.append({"name": "DenyAllInBound(default)", "properties": {"priority": 65500, "direction": "Inbound", "access": "Deny",
-                      "protocol": "*", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*", "destinationPortRange": "*"}})
-    ordered = sorted(rules, key=lambda r: int((r.get("properties") or {}).get("priority", 4096)))
+    rules_key = ("azure_nsg_rules", id(nsg))
+    if rules_key not in cache:
+        rules = [r for r in as_list(props.get("securityRules")) + as_list(props.get("defaultSecurityRules")) if isinstance(r, dict)]
+        if not any((r.get("properties") or {}).get("priority", 0) >= 65000 for r in rules):
+            rules.append({"name": "DenyAllInBound(default)", "properties": {"priority": 65500, "direction": "Inbound", "access": "Deny",
+                          "protocol": "*", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*", "destinationPortRange": "*"}})
+        cache[rules_key] = sorted(rules, key=lambda r: int((r.get("properties") or {}).get("priority", 4096)))
+    ordered = cache[rules_key]
     candidates = {ipaddress.ip_address(value) for value in ("8.8.8.8", "1.1.1.1", "2606:4700:4700::1111")}
     source_nets, unresolved_sources, unresolved_destinations = {}, set(), set()
     for rule in ordered:
@@ -15088,7 +15153,8 @@ def _azure_nsg_path(inventory, a, nic_nsg_id, subnet_id, ports, address=None, gr
             continue
         present += 1
         allowed, matched = _nsg_allowed(nsg, address, groups,
-                                        _azure_service_tag_ranges(inventory, nsg["scope"]))
+                                        _azure_service_tag_ranges(inventory, nsg["scope"]),
+                                        cache=inventory.network_cache)
         unknown_here = any(row.get("unresolved_public_source") or row.get("unresolved_public_destination")
                            for row in matched)
         if unknown_here:
@@ -16632,46 +16698,6 @@ def _azure_sql_virtual_network_subnets(inventory, server):
 def _azure_sql(snapshot, inventory, resource, rules, ipv6_rules):
     props = _props(resource)
     public_access = props.get("publicNetworkAccess")
-    if str(public_access).lower() == "disabled":
-        a = Assessment(resource, "database")
-        a.step("public_network_access", "block", value=public_access)
-        # That gate blocks public SQL, but it is not a block on Private Link.
-        a.blocked_by = None
-        connections = props.get("privateEndpointConnections")
-        coverage = (props.get("_coverage") or {}).get("privateEndpointConnections") or {}
-        if not isinstance(connections, list) or coverage.get("status") == "malformed":
-            a.gap("inventory", "SQL private endpoint connection inventory is unavailable or malformed",
-                  "Microsoft.Sql/servers GET privateEndpointConnections")
-            return a
-        approved, unresolved = [], False
-        server_id = str(resource["data"].get("id", ""))
-        for connection in connections:
-            cp = connection.get("properties") if isinstance(connection, dict) else None
-            state = cp.get("privateLinkServiceConnectionState") if isinstance(cp, dict) else None
-            endpoint = cp.get("privateEndpoint") if isinstance(cp, dict) else None
-            endpoint_id = endpoint.get("id") if isinstance(endpoint, dict) else None
-            valid = (isinstance(connection, dict) and isinstance(connection.get("id"), str) and
-                     re.fullmatch(re.escape(server_id + "/privateEndpointConnections/") + r"[^/?#%\\\s]+",
-                                  connection["id"], re.I) is not None and
-                     isinstance(endpoint_id, str) and re.fullmatch(
-                         r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Network/privateEndpoints/[^/]+",
-                         endpoint_id, re.I) is not None and isinstance(state, dict))
-            if not valid:
-                unresolved = True
-                continue
-            if (state.get("status") == "Approved" and cp.get("provisioningState") == "Ready"):
-                approved.append(endpoint_id)
-            elif state.get("status") not in ("Rejected", "Disconnected"):
-                unresolved = True
-        if approved:
-            a.step("private_endpoint", "unknown", approved_endpoint_ids=sorted(set(approved)))
-            a.gap("authorization", "SQL private endpoint consumer ownership, route and database login are not joined")
-            a.ports = pset("tcp", 1433, 1433)
-        elif unresolved:
-            a.gap("inventory", "SQL private endpoint connection state is incomplete")
-        else:
-            return None
-        return a
     a = Assessment(resource, "database")
     a.addresses = [props.get("fullyQualifiedDomainName")] if props.get("fullyQualifiedDomainName") else []
     private_coverage = (resource["data"].get("_coverage") or {}).get("privateEndpointConnections") or {}

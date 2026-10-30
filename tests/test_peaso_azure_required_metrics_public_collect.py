@@ -44,7 +44,7 @@ def test_hosted_required_metrics_collect_native_inventory_and_declarations(monke
             if parsed.path in {rid + '/providers/Microsoft.Insights/diagnosticSettings' for rid in (RESOURCE, alert['id'])}:
                 return {'value': []}
             raise AssertionError('Unexpected endpoint: ' + parsed.path)
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport())
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: Transport())
     options = {'concurrency': 1, 'retries': 1, 'compliance_policy': {'sw25': {
         'status': 'collected', 'scope': SCOPE, 'checks': {REQUIRED_ID: {'requiredMetrics': [{
             'resourceId': RESOURCE, 'metricName': 'Percentage CPU', 'metricNamespace': 'Microsoft.Compute/virtualMachines'}]}}}}}

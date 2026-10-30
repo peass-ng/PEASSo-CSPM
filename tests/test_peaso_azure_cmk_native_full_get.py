@@ -61,7 +61,7 @@ class API:
 
 def capture(monkeypatch, mode):
     api = API(mode)
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: api)
     now = datetime.now(timezone.utc)
     authority = {'status': 'collected', 'scope': SUB, 'authorized_by': 'security-owner',
                  'document_id': 'cmk-policy', 'observed_at': (now-timedelta(days=1)).isoformat(),

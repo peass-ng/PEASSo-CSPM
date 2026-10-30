@@ -114,7 +114,7 @@ def run(monkeypatch, mode="ok", *, state="enabled", capable=True, role=False, se
                 return {"id": SUB, "subscriptionId": SUB.rsplit("/", 1)[-1], "tenantId": TENANT}
             return {"value": []}
 
-    monkeypatch.setattr(azure, "AzureTransport", lambda auth: Transport())
+    monkeypatch.setattr(azure, "AzureTransportExposure", lambda auth: Transport())
     connector = {"provider": "azure", "scopes": [SUB],
                  "auth": {"method": "token", "arm_token": "mock", "graph_token": "mock"},
                  "options": {"retries": 0}}

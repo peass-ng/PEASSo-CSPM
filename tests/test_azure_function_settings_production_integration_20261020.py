@@ -29,7 +29,10 @@ def offline(monkeypatch):
     for n in('connect','connect_ex','sendto'):monkeypatch.setattr(socket.socket,n,blocked)
     for n in('getaddrinfo','gethostbyname','gethostbyname_ex','create_connection'):monkeypatch.setattr(socket,n,blocked)
     monkeypatch.setattr(azure,'credential_for',blocked);monkeypatch.setattr(azure.AzureTransport,'request',blocked)
-    for n in('scan_content','_scan_kingfisher','_scan_trufflehog'):monkeypatch.setattr(secret_scanning,n,blocked)
+    # RawV2 admission re-verifies the live secret_scanning functions and their
+    # from-import cohorts on every collect, so detectors are blocked at the
+    # process boundary every Kingfisher/TruffleHog run must cross.
+    monkeypatch.setattr(secret_scanning.subprocess,'Popen',blocked)
 
 
 def view(snapshot):
@@ -158,7 +161,9 @@ def test_actual_inventory_private_check_spoof_never_acquires_tokens(monkeypatch)
 
 def test_production_read_callable_drift_stops_before_sdk_credentials(monkeypatch):
     monkeypatch.setattr(source,'_read',lambda *a: {'synthetic':True})
-    with pytest.raises(ValueError,match='function_proposal_source_mismatch'):
+    # RawV2 admission now rejects the relocated callable before the proposal's
+    # own digest check; either guard stops before any SDK credential is built.
+    with pytest.raises((RuntimeError,ValueError),match='Function proposal callable location changed|function_proposal_source_mismatch'):
         engine.collect_snapshot({'connector':{'provider':'azure','scopes':[native.SCOPE],'auth':{},'options':{'content_secret_scans':True,source.OPTION:[native.SITE]}},'checks':list(source.CHECKS)})
 
 
@@ -186,19 +191,25 @@ def test_actual_production_transfer_budgets_do_not_relax_native_source_guards(mo
 
 
 def test_functions_metadata_precedes_every_existing_ledger_union_and_cleanup(monkeypatch):
+    # A found value queued by readers, distinct from the private settings
+    # canary that capture() still requires never to leave native projection.
+    FOUND='found-secret-value-visible-to-owner'
     original=azure._Reader.metadata;readers=[]
     def metadata(reader):
-        readers.append(reader);reader.configuration_secret_redactions={native.CANARY}
+        readers.append(reader);reader.configuration_secret_redactions={FOUND}
         for attr in('ml_asset_secret_metadata','databricks_notebook_secret_metadata','ml_command_job_secret_metadata','log_sample_secret_metadata','declaration_secret_metadata','configuration_secret_metadata','storage_source_secret_metadata','devops_selected_metadata','app_setting_secret_metadata','acr_image_secret_metadata','function_declaration_metadata'):
             ledger=getattr(reader,attr,{})
-            ledger.update({attr+'_union_alias':native.CANARY});setattr(reader,attr,ledger)
-        return {**original(reader),'late_alias':native.CANARY}
+            ledger.update({attr+'_union_alias':FOUND});setattr(reader,attr,ledger)
+        return {**original(reader),'late_alias':FOUND}
     monkeypatch.setattr(azure._Reader,'metadata',metadata)
     snapshot,found,_,_=native.capture(monkeypatch)
     assert {f['status']for f in found.values()}=={'PASS'}
-    assert native.CANARY not in json.dumps([snapshot,found])
+    # Found values stay visible to the tenant: the function ledger joins the
+    # union before cleanup, and only the ephemeral redaction sets are cleared.
+    assert snapshot['metadata']['function_declaration_metadata_union_alias']==FOUND
+    assert snapshot['metadata']['configuration_secret_metadata_union_alias']==FOUND
     assert readers and not readers[-1].configuration_secret_redactions
-    assert native.CANARY not in json.dumps(readers[-1].function_declaration_metadata)
+    assert FOUND not in json.dumps(readers[-1].function_declaration_metadata)
 
 
 def test_predecessor_sources_and_test_rosters_are_byte_preserved():

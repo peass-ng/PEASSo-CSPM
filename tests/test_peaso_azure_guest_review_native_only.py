@@ -19,7 +19,7 @@ def test_guest_review_controls_are_in_default_native_selection():
 ])
 def test_automatic_guest_review_without_company_input(monkeypatch, mode, expected):
     api = API(mode)
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: api)
     connector = {'provider': 'azure', 'scopes': [SUB], 'options': {'retries': 0}}
     required = engine.plan_collection({'connector': connector, 'checks': CHECKS})
     snapshot = collect_live(connector, required)

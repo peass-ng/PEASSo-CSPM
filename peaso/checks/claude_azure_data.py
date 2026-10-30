@@ -950,7 +950,7 @@ def _storage_account_identity(account, scope):
         raise Unavailable("VHD backing account native identity unresolved")
     proof = get(account, "_provenance", dict)
     if (proof.get("representation") != "full" or proof.get("source_operation") != "get"
-            or proof.get("read_only") is not True or proof.get("api_version") != "2023-05-01"):
+            or proof.get("read_only") is not True or proof.get("api_version") not in ("2023-05-01", "2026-06-01")):
         raise Unavailable("VHD backing account full GET unavailable")
     get(account, "properties", dict)
     return match.group(1).lower()

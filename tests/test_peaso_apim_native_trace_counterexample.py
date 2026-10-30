@@ -82,7 +82,7 @@ def test_normal_hosted_native_configuration_counterexamples(monkeypatch, mode, e
                 if mode == 'diag_denied': raise azure.AzureReadError('fixture_denied', 403)
                 return {'value': deepcopy(diagnostics)}
             raise AssertionError('Unexpected endpoint: ' + path)
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport())
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: Transport())
     auth, options = {'method': 'token', 'arm_token': 'inert-fixture'}, {'concurrency': 1, 'retries': 1}
     validate_connector('azure', auth, options, SimpleNamespace(auth_mode='cognito'))
     connector = {'provider': 'azure', 'scopes': [SCOPE], 'auth': auth, 'options': options}

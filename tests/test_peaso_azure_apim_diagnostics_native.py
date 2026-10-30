@@ -84,7 +84,7 @@ def capture(monkeypatch,mode='ok',selected_check=None):
     return {'value':[]if mode=='no_route'else[route,copy.deepcopy(route)]if mode=='duplicate_route'else[route]}
    if path.casefold()==WORKSPACE.casefold():return {'id':WORKSPACE+'other'if mode=='wrong_workspace_get'else WORKSPACE,'properties':{'customerId':WGUID}}
    return {'value':[]}
- transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+ transport=Transport();monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
  connector={'provider':'azure','scopes':[SUB],'auth':{'method':'token','arm_token':'fixture','logs_token':'fixture'},'options':{'retries':0,'compliance_policy':{'sw24':policy}}}
  if selected_check:
   from tests.archived_check_contract import collect_snapshot

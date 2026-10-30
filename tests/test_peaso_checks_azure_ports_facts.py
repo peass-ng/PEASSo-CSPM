@@ -88,6 +88,8 @@ def test_embedded_children_have_native_values_and_explicit_unavailable_coverage(
     rid = SUB + '/resourceGroups/group/providers/' + endpoint + '/parent'
     parent = {'id': rid, 'name': 'parent', 'type': endpoint, 'sku': {'name': 'Premium'}, 'properties': {}}
     if field == 'longTermRetentionBackups': parent['location'] = 'eastus'
+    # Storage perimeter associations are read only for perimeter-secured accounts.
+    if field == 'networkSecurityPerimeterConfigurations': parent['properties']['publicNetworkAccess'] = 'SecuredByPerimeter'
     native_path = azure_sql_ltr_native.binding(parent)[0] if field == 'longTermRetentionBackups' else rid + '/' + path
     reader = azure._Reader({'retries': 0})
     def request(url, body=None, audience=azure.ARM):
@@ -99,7 +101,9 @@ def test_embedded_children_have_native_values_and_explicit_unavailable_coverage(
         if mode == 'malformed': return {'value': [None]} if is_list else None
         if is_list:
             if mode == 'empty': return {'value': []}
-            child_name = 'require_secure_transport' if field == 'configurations' else 'default' if field == 'workspaceVulnerabilityAssessments' else 'child'
+            child_name = ('require_secure_transport' if field == 'configurations' else
+                          'default' if field in ('workspaceVulnerabilityAssessments', 'azureADOnlyAuthentications') else
+                          'ActiveDirectory' if field in ('serverAdministrators', 'instanceAdministrators') else 'child')
             native_type = {'resources': 'Microsoft.Compute/virtualMachines/extensions',
                            'flowLogs': 'Microsoft.Network/networkWatchers/flowLogs',
                            'extensions': 'Microsoft.KubernetesConfiguration/extensions',
@@ -107,6 +111,15 @@ def test_embedded_children_have_native_values_and_explicit_unavailable_coverage(
                            'vulnerabilityAssessmentScans': 'Microsoft.Sql/servers/databases/vulnerabilityAssessments/scans'}.get(field, endpoint + '/' + path)
             value = {'id': rid + '/' + path + '/' + child_name, 'name': child_name, 'type': native_type,
                      'properties': {'value': 'ON', 'publisher': 'Microsoft.GuestConfiguration', 'type': 'ConfigurationForLinux', 'settings': {'password': 'INERT_PRIVATE'}}}
+            # Children with field-specific native contracts carry their deciding properties.
+            if field == 'httpRouteConfigs':
+                value['properties'].update(fqdn='route.example.test', rules=[{'targets': [{'containerApp': 'app'}]}])
+            if field == 'authorizationRules': value['properties']['rights'] = ['Listen']
+            if field == 'azureADOnlyAuthentications': value['properties']['azureADOnlyAuthentication'] = True
+            if field == 'streamOutputs':
+                value['properties']['datasource'] = {'type': 'Microsoft.Storage/Blob', 'properties': {'storageAccounts': [{'accountName': 'account'}]}}
+            if field in ('vmssNetworkInterfaces', 'vmssPublicIPAddresses'):
+                value['id'] = rid + '/virtualMachines/0/networkInterfaces/nic' + ('/ipConfigurations/ip/publicIPAddresses/pip' if field == 'vmssPublicIPAddresses' else '')
             if field == 'longTermRetentionBackups':
                 value = {'id': native_path + '/child', 'type': azure_sql_ltr_native.NATIVE_TYPE,
                          'properties': {'serverName': 'server', 'databaseName': 'parent',
@@ -122,9 +135,11 @@ def test_embedded_children_have_native_values_and_explicit_unavailable_coverage(
     azure._embed(reader, request, [(kind, parent)])
     coverage = parent['_coverage'][field]['status']
     expected = 'partial' if mode == 'partial' and is_list else 'collected' if mode in ('pass', 'partial') or mode == 'empty' and not is_list else mode
+    # Every SQL server/managed instance has exactly one native authentication-mode row.
+    if field == 'azureADOnlyAuthentications' and mode == 'empty': expected = 'malformed'
     assert coverage == expected
-    if mode in ('denied', 'malformed'): assert field not in parent
-    if mode == 'empty' and is_list: assert parent[field] == []
+    if expected in ('denied', 'malformed'): assert field not in parent
+    elif mode == 'empty' and is_list: assert parent[field] == []
     if mode == 'pass' and field == 'resources': assert 'settings' not in parent[field][0]['properties']
     if mode == 'pass' and field == 'configurations': assert parent[field][0]['properties']['value'] == 'ON'
     assert 'INERT_PRIVATE' not in json.dumps(parent)

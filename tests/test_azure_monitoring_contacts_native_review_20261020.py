@@ -39,7 +39,7 @@ MODES=('good','bad','empty','denied','partial','foreign','malformed','wrong-type
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
  def blocked(*a,**k):pytest.fail('Native monitoring review forbids sockets, DNS and auth')
- for obj,name in ((socket,'create_connection'),(socket,'getaddrinfo'),(socket.socket,'connect'),(socket.socket,'connect_ex'),(azure,'AzureTransport')):monkeypatch.setattr(obj,name,blocked)
+ for obj,name in ((socket,'create_connection'),(socket,'getaddrinfo'),(socket.socket,'connect'),(socket.socket,'connect_ex'),(azure,'AzureTransport'),(azure,'AzureTransportExposure')):monkeypatch.setattr(obj,name,blocked)
 
 
 def capture(spec,mode):
@@ -96,4 +96,8 @@ def test_native_monitoring_deciding_fields_and_collection_boundaries(spec,mode):
  elif mode=='partial' and kind in ('log_analytics_workspace','security_contact') and cid in ('azure.claude.defender_attack_path_notifications','azure.claude.defender_contact_has_email','azure.port.defender_alert_severity_contact','azure.port.defender_notify_owner_contact','azure.claude.log_analytics_local_auth_disabled','azure.claude.log_analytics_public_ingestion_query_disabled','azure_log_analytics_workspace_10_5_1_4_8c74ccb'):expected={'PASS','UNKNOWN'}
  else:expected={'UNKNOWN'}
  assert {f['status'] for f in findings}==expected,(spec,mode,findings)
- assert api.calls and all(urlsplit(u).hostname=='management.azure.com' for u in api.calls)
+ # Selected security contacts also read the tenant's Entra domain list so
+ # recipient domains can be classified; every other read stays on ARM.
+ domains=[u for u in api.calls if urlsplit(u).hostname=='graph.microsoft.com']
+ assert domains==([azure.GRAPH+'/v1.0/'+azure.DIRECTORY['directory_domain']] if kind=='security_contact' or 'attack_path_setting' in cid else [])
+ assert api.calls and all(urlsplit(u).hostname=='management.azure.com' for u in api.calls if u not in domains)

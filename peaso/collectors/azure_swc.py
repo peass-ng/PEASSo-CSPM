@@ -34,7 +34,7 @@ def authorized_storage_service_scopes(snapshot, scope):
         if (str(row.get('type', '')).casefold() == 'microsoft.storage/storageaccounts'
                 and isinstance(row.get('properties'), dict) and isinstance(proof, dict)
                 and proof.get('representation') == 'full' and proof.get('source_operation') == 'get'
-                and proof.get('read_only') is True and proof.get('api_version') == '2023-05-01'):
+                and proof.get('read_only') is True and proof.get('api_version') in ('2023-05-01', '2026-06-01')):
             accounts.add(rid.casefold())
     candidates = [c for c in snapshot['collections'] if c['type'] == 'storage_service']
     counts = {}

@@ -36,7 +36,7 @@ def pci_finding(monkeypatch, *, mode="complete", record_operation=OPERATION,
     # The approved native read and PCI record share one inert scan capture.
     api_mode = native_result_mode if native_result_mode in ("missing_result", "denied") else mode
     api = AlteredPatchAPI(api_mode)
-    monkeypatch.setattr(azure, "AzureTransport", lambda auth: api)
+    monkeypatch.setattr(azure, "AzureTransportExposure", lambda auth: api)
     config = options()
     config["compliance_policy"]["checks"][CHECK]["requirePciCompliance"] = True
     config["compliance_policy"]["checks"][CHECK]["requireActualInstallation"] = require_actual
@@ -180,7 +180,7 @@ def test_native_result_approval_gate_preserves_policy_authority(
     monkeypatch, policy_shape, expected_arg_read,
 ):
     api = AlteredPatchAPI("complete")
-    monkeypatch.setattr(azure, "AzureTransport", lambda auth: api)
+    monkeypatch.setattr(azure, "AzureTransportExposure", lambda auth: api)
     config = options()
     policy = config["compliance_policy"]
     review = policy["checks"][CHECK]

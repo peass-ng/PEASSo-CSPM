@@ -3,7 +3,8 @@
 An ancillary resource absent from a fixture uses the ARM list envelope
 {"value": []}; existing explicit resource DTOs and denied reads take precedence.
 Partial-read scenarios retain their exact fixture-authored continuation tokens.
-Versions match azure_storage_backup_native, azure.ENDPOINTS and the reviewed
+Versions match azure_storage_backup_native, azure_containerapp_jobs (native
+Container Apps Job/environment lists), azure.ENDPOINTS and the reviewed
 azure_network_private_services catalog. Unknown paths, details, child lists,
 other subscriptions and other API versions remain unsupported by this helper.
 """
@@ -15,6 +16,8 @@ def empty_inventory_versions(scope):
         scope + '/providers/Microsoft.DataProtection/backupVaults': '2025-07-01',
         scope + '/providers/Microsoft.ContainerService/fleets': '2026-06-01',
         scope + '/providers/Microsoft.Kubernetes/connectedClusters': '2024-01-01',
+        scope + '/providers/Microsoft.App/jobs': '2025-07-01',
+        scope + '/providers/Microsoft.App/managedEnvironments': '2025-07-01',
     }
 
 

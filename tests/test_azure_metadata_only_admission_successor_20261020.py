@@ -31,7 +31,7 @@ class Inert:
 def test_supplied8_metadata_only_cases_through_normal_admitted_collect(case, monkeypatch):
     constructions = []
     def forbidden(*a, **k): constructions.append((a, k)); raise AssertionError('Transport construction forbidden')
-    monkeypatch.setattr(azure, 'AzureTransport', forbidden)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', forbidden)
     supplied = options() if case in ('tls', 'namespaces', 'scope') else {'activity_days': 0} if case == 'window' else {'hosted': True} if case == 'hosted' else {}
     raw_policy = {'sw03': {'status': 'collected', 'scope': SCOPE, 'legacyAgentBaseline': {'required': False}}, 'sw33': {'status': 'collected', 'scope': SCOPE, 'databricksAccount': {'accountId': TENANT}}}
     if case == 'namespaces': supplied['compliance_policy'] = copy.deepcopy(raw_policy)
@@ -56,7 +56,7 @@ def test_empty_ungranted_selection_cannot_expand_into_dependency_reads(requireme
     from peaso.collectors import azure_disclosure_native
     monkeypatch.setattr(azure_disclosure_native, 'required_types', lambda options: {'subscription', 'app_service'})
     def forbidden(*a, **k): raise AssertionError('No dependency or credential IO')
-    monkeypatch.setattr(azure, 'AzureTransport', forbidden)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', forbidden)
     supplied = {}
     value = azure.collect({'auth': {}, 'scopes': [SCOPE], 'options': supplied}, requirements=requirements)
     assert value['metadata']['calls'] == 0 and value['collections'] == [] and supplied == {}

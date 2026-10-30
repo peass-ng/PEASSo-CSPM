@@ -108,6 +108,9 @@ SCALARS = {
 UNSUPPORTED = {
  'azure_storage_account_10_3_4_7_02943e9': 'storage_immutability_evidence requires explicit retention review; no owner approval fabricated',
 }
+# storage_immutability_native_successor decides the native container default
+# retention built for positive/negative below; other modes stay unknown.
+NATIVE_SUCCESSOR_DECIDES = {'azure_storage_account_10_3_4_7_02943e9'}
 
 
 def assign(row, path, value, *, omit=False):
@@ -342,7 +345,7 @@ def capture(monkeypatch, cid, mode='positive', mutate=None):
 
 def expected(cid, mode):
     if mode == 'denied': return 'DENIED'
-    if cid in UNSUPPORTED: return 'UNKNOWN'
+    if cid in UNSUPPORTED and not (cid in NATIVE_SUCCESSOR_DECIDES and mode in ('positive','negative')): return 'UNKNOWN'
     if mode == 'foreign': return 'UNKNOWN'
     if mode == 'partial':
         return 'UNKNOWN' if cid in ('azure_storage_account_defender_ensure_defender_for_keyvault_is_on_2cabbc3','azure.cis.legacy_vhds_encrypted','azure.cis.resource_manager_delete_locks_applied_storage_accounts','azure.claude.activity_log_storage_cmk','azure.claude.activity_log_storage_private','azure.claude.storage_vhd_accounts_cmk') else 'PASS'

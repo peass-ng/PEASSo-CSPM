@@ -107,7 +107,7 @@ def test_normal_hosted_native_compute_pipeline(monkeypatch, mode, expected):
     from peaso.collectors import azure, collect_live
     from tests.archived_check_contract import evaluate_snapshot, plan_collection
     api = NativeAPI(mode)
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: api)
     config = options()
     if mode == 'unapproved':
         config.pop('compliance_policy')

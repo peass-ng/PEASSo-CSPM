@@ -72,7 +72,7 @@ class API:
 
 def observed(monkeypatch, mode='enabled', validity=None, selected=True):
     api = API(mode, validity or {})
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: api)
     now = datetime.now(timezone.utc)
     policy = {'status': 'collected', 'scope': SUB, 'authorized_by': 'owner', 'document_id': 'policy',
               'observed_at': (now-timedelta(days=1)).isoformat(),
