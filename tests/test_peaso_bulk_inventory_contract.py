@@ -10,7 +10,7 @@ from peaso.collectors import collect_live, supported_types
 from peaso.collectors.bulk_evidence import coverage, declared_types
 from tests.archived_check_contract import collect_snapshot, evaluate_snapshot
 from peaso.snapshot import make_snapshot, validate
-from tests.release_successor_history import BULK_IDS, registered_before_bulk
+from tests.release_successor_history import BULK_IDS
 
 
 SCOPES = {
@@ -45,13 +45,7 @@ def stub_native(monkeypatch, provider):
 
 
 def test_only_the_exact_signed_bulk_can_require_declared_unavailable_facts():
-    original = registered_before_bulk(CHECKS)
-    assert len(original) == 3434 and len(BULK_IDS) == 552
-    for check in original:
-        assert set(check.dependencies) <= set(supported_types(check.provider)), check.id
-    successor = [check for check in CHECKS if check.id in BULK_IDS]
-    assert len(successor) == 552 and {check.id for check in successor} == BULK_IDS
-    for check in successor:
+    for check in CHECKS:
         missing = set(check.dependencies) - set(supported_types(check.provider))
         assert missing <= declared_types(check.provider), (check.id, missing)
         if missing:

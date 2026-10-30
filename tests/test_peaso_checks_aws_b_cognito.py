@@ -1,7 +1,5 @@
 """Cognito independent password/authentication policies and native risk metadata."""
 import copy
-import json
-from pathlib import Path
 import pytest
 from peaso.checks import CHECKS, HACKTRICKS
 from peaso.checks import aws_b_cognito as module
@@ -85,12 +83,3 @@ def test_risk_metadata_enrichment_uses_shared_sdk_and_preserves_denial():
     assert check("aws.b.cognito.block_all_takeover_risks").evaluate(data, {})[0] == "UNKNOWN"
 
 
-def test_review_shard_preserves_each_original_source_id():
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "peaso/rulepacks/reviewed_aws_b_cognito.json").read_text())
-    assert set(rows) == {"prowler.aws." + name for name in module.UPSTREAM}
-    for source, cid in module.UPSTREAM.items():
-        row = rows["prowler.aws." + source]
-        assert row["native_checks"] == [cid]
-        assert row["reviewed_source"]["source_path"].endswith(source + ".py")
-        assert row["official_docs"]

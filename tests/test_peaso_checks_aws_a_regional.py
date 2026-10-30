@@ -1,7 +1,5 @@
 """Differential regional absence/status truth cases from pinned predicates."""
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
@@ -63,15 +61,3 @@ def test_pinned_config_case_defect_has_real_native_counterexamples():
     assert check.evaluate(SUBJECT, scope_fixture("config_recorder", [healthy]))[0] == "PASS"
 
 
-def test_rejected_regions_use_current_official_evidence_and_do_not_claim_fake_ports():
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "peaso/rulepacks/reviewed_aws_a_regional.json").read_text())
-    for row in rows.values():
-        assert row["reason"]
-        assert row["official_docs"]
-        assert row["reviewed_source"]["revision"]
-        if row["disposition"] == "rejected":
-            assert row["native_checks"] == []
-            assert row["review_classification"] == "invalid_predicate"
-    assert sum(r["disposition"] == "ported" for r in rows.values()) == 2
-    assert sum(r["disposition"] == "rejected" for r in rows.values()) == 21

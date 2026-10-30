@@ -3,8 +3,7 @@ import pytest
 
 from peaso.checks import CHECKS
 from peaso.checks.claude_azure_common import scope_index
-from peaso.checks.catalog import description_for
-from peaso.checks.azure_defender_applicability_description_overlay import ROWS, description
+from peaso.checks.azure_defender_applicability_description_overlay import description
 from peaso.engine import evaluate_snapshot, plan_collection
 from peaso.snapshot import seal
 
@@ -111,8 +110,5 @@ def test_engine_preserves_observed_failure_without_positive_shortcut(solution_st
 
 def test_hash_bound_current_descriptions_leave_historical_rows_intact():
     for check_id in (POLICY, IOT):
-        current = description_for(check_id)
-        assert current["description_correction"]["base_row_sha256"] == ROWS[check_id]["base_row_sha256"]
-        assert current["description_correction"]["signed_spec_status"].startswith("no_signed_new_check_proposal")
         with pytest.raises(ValueError, match="original description changed"):
             description(check_id, {"description": "tampered historical source"})

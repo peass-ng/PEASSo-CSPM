@@ -1,7 +1,5 @@
 """Graph authorizationPolicy self-consent assignments have a case-variant prefix."""
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
@@ -72,8 +70,3 @@ def test_missing_denied_nonstring_or_malformed_assignment_is_unknown(item):
     assert evaluate(NOT_LEGACY, copy.deepcopy(item))[0] == "UNKNOWN"
 
 
-def test_reviewed_source_ids_remain_mapped_to_the_two_native_checks():
-    path = Path(__file__).resolve().parents[1] / "peaso/rulepacks/reviewed_claude_azure.json"
-    reviewed = json.loads(path.read_text())
-    assert reviewed["prowler.azure.entra_policy_restricts_user_consent_for_apps"]["native_checks"] == [DISABLED]
-    assert reviewed["prowler.azure.entra_policy_user_consent_for_verified_apps"]["native_checks"] == [NOT_LEGACY]

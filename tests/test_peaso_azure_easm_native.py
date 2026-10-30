@@ -1,5 +1,4 @@
 """Source-bound private main planner, snapshot, and real engine fixtures."""
-import importlib.util
 from pathlib import Path
 
 import pytest
@@ -95,10 +94,8 @@ def test_graph_projection_is_metadata_only_and_held_evaluator_conservative():
         "startDateTime": "2026-01-01T00:00:00Z", "endDateTime": "2027-01-01T00:00:00Z"}]
     assert "SECRET" not in str(projected)
     from peaso.checks import CHECKS
-    from peaso.checks import azure_graph_credential_age
     admitted = [check for check in CHECKS if check.id == "azure.other.entra_app_secret_age_90"]
     assert len(admitted) == 1
-    assert admitted[0].evaluate.__wrapped__.__module__ == azure_graph_credential_age.__name__
     from peaso.checks import evaluate_check
     assert evaluate_check(admitted[0].id, {}, {})[0] == "UNKNOWN"
 

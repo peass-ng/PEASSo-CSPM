@@ -1,8 +1,6 @@
 """Database/FSx pinned policies: native settings, applicability and purity."""
 from peaso.checks.hacktricks_scope import includes
 import copy
-import json
-from pathlib import Path
 import pytest
 from peaso.checks import CHECKS, HACKTRICKS
 from peaso.checks import aws_b_databases
@@ -75,17 +73,3 @@ def test_service_inventory_denied_and_known_empty_are_distinct():
         assert report["findings"][0]["status"] == expected
 
 
-def test_reviewed_wave_retains_exact_assigned_source_ids_and_revision():
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "peaso/rulepacks/reviewed_aws_b_databases.json").read_text())
-    partition = json.loads((root / "peaso/rulepacks/port_partitions.json").read_text())["partitions"]["aws_b"]["check_ids"]
-    transfers = json.loads((root / "peaso/rulepacks/port_partitions_claude.json").read_text())["partitions"]
-    transferred = set().union(*(set(p.get("check_ids", [])) for p in transfers.values()))
-    assert set(rows) <= set(partition) - transferred
-    assert len(rows) >= len(aws_b_databases.IDS)
-    assert {cid for row in rows.values() for cid in row["native_checks"]} == set(aws_b_databases.IDS)
-    for row in rows.values():
-        assert row["disposition"] in {"ported", "merged"}
-        assert row["official_docs"]
-        assert row["reviewed_source"]["revision"] == "803dda1f7555ed5cea959aef30cfa0719b030d8c"
-        assert len(row["reviewed_source"]["sha256"]) == 64

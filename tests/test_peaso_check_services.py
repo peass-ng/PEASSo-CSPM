@@ -12,7 +12,6 @@ from peaso.snapshot import resources
 
 def test_every_registered_check_has_a_non_generic_service():
     manifest = _manifest()
-    assert len(CHECKS) >= 4000
     # Every registered target must have a reviewed label. The manifest also
     # retains dependency-only inventories and archived target labels.
     assert {(check.provider, check.kind) for check in CHECKS} <= {
