@@ -29,7 +29,10 @@ def test_current_body_reconstructs_exact_predecessor_and_unknown_epoch_is_red(mo
     with pytest.raises(RuntimeError, match='Unknown requested shared source epoch'):
         compatibility.source_at_epoch(engine._request, 'engine._request', '0' * 64)
     original = inspect.getsource
-    monkeypatch.setattr(inspect, 'getsource', lambda function: original(function) + '\n# unreviewed change\n')
+    # Tamper only the shared callable under test; the content-cohort guard
+    # independently rejects any other executing callable whose source drifts.
+    monkeypatch.setattr(inspect, 'getsource', lambda function: original(function) + (
+        '\n# unreviewed change\n' if function in (engine._request, inspect.unwrap(engine._request)) else ''))
     with pytest.raises(RuntimeError, match='Unreviewed shared source changed|Deployed AI current source changed'):
         compatibility.source_at_epoch(engine._request, 'engine._request', expected)
 

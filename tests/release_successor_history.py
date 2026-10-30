@@ -92,6 +92,11 @@ def retained_ledger_inputs():
     return result
 
 
+def _historical_alias_not_runnable(item, index):
+    # One shared callable keeps repeated historical projections equal.
+    raise AssertionError('Historical alias metadata is not a runnable current predicate')
+
+
 def registered_before_bulk(checks):
     from scripts.peaso_compliance_compile import REVIEWED_NATIVE_ALIASES_20261021
     from peaso.checks import CHECK_ALIASES
@@ -113,12 +118,10 @@ def registered_before_bulk(checks):
         survivor = REVIEWED_NATIVE_ALIASES_20261021[ident]
         assert CHECK_ALIASES.get(ident) == survivor and survivor in current
         metadata = prior[ident]
-        def not_runnable(item, index):
-            raise AssertionError('Historical alias metadata is not a runnable current predicate')
         current[ident] = replace(current[survivor], id=ident, provider=metadata['provider'],
             category=metadata['category'], kind=metadata['type'], title=metadata['title'],
             severity=metadata['severity'], target=metadata['target'], remediation=metadata['remediation'],
-            declared_dependencies=tuple(metadata.get('dependencies', [])), evaluate=not_runnable)
+            declared_dependencies=tuple(metadata.get('dependencies', [])), evaluate=_historical_alias_not_runnable)
     # Preserve the digest-verified ancestor order; never insert aliases into live CHECKS.
     old = [current[ident] for ident in prior]
     assert len(old) == 3434

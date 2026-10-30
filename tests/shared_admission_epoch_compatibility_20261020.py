@@ -178,6 +178,11 @@ def snapshot_cases(value):
 def _reverse(text, row):
     if digest(text) != row['current_sha256']:
         raise RuntimeError('Unreviewed shared source changed')
+    if 'exact_delta_zlib' in row:
+        # Compacted private receipt rows carry the same exact delta, zlib-packed.
+        import base64, zlib
+        delta = json.loads(zlib.decompress(base64.b64decode(row['exact_delta_zlib'], validate=True)))
+        row = dict(row, exact_additions=delta['exact_additions'], exact_replacements=delta['exact_replacements'])
     for before, after in row.get('exact_replacements', []):
         if text.count(after) != 1:
             raise RuntimeError('Reviewed shared replacement changed')

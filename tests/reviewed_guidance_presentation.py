@@ -91,6 +91,43 @@ def assert_description_preserves_contract(check_id):
         assert fields == expected
         assert {key: current[key] for key in expected} == expected
         changed_fields.update(expected)
+    # The reviewed credential-report successors (120406f2) replace the
+    # criterion prose for exactly these six IDs; evaluator binding is unchanged.
+    credential_successors = {
+        'aws.a.iam.unused_credentials_45_days': (45, 'console passwords and access keys'),
+        'aws.a.iam.unused_credentials_90_days': (90, 'console passwords and access keys'),
+        'aws.gap.iam.active_keys_used_within_45_days': (45, 'access keys'),
+        'aws.claude_a.iam.console_password_used_45': (45, 'console passwords'),
+        'aws.claude_a.iam.prowler_console_password_used_45': (45, 'console passwords'),
+        'aws.claude_a.iam.access_keys_used_45': (45, 'access keys'),
+    }
+    if check_id in credential_successors:
+        days, population = credential_successors[check_id]
+        expected = {
+            'description': f'Reviews enabled {population} from a current identity-bound AWS credential report against a {days}-day threshold. Recorded use, current credential lifetime and documented tracking limits must agree; recent creation without recorded use remains unresolved.',
+            'evaluated': ['credential report generated within four hours of its bound native read', 'same-account user identity, current credential dates and enabled state', f'{days}-day recorded-use or documented no-use interval for {population}'],
+            'pass_when': 'All assessed enabled credentials have current, consistent recent recorded use.',
+            'fail_when': f'At least one assessed enabled credential has recorded use older than {days} days, or a documented no-use marker covering that interval within its current lifetime.',
+            'not_applicable_when': 'No credential in the assessed family is enabled; root handling remains separate. Missing, stale, denied, inconsistent or insufficient observation is unresolved.',
+        }
+        assert {key: current[key] for key in expected} == expected
+        changed_fields.update(expected)
+    if check_id == 'aws.claude_a.iam.role_used_within_60_days':
+        # Reviewed role-activity successor (120406f2): the exact signed review
+        # file binds the prior row and the replacement criterion fields.
+        import hashlib, json
+        from pathlib import Path
+        raw = (Path(__file__).resolve().parents[1] / 'peaso/checks/unused_iam_aws_activity_review.json').read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == '34043a417ec73b98256dbb6c3400c9cda0ebbb53e69314fd7697eafed137d1fd'
+        review = json.loads(raw)
+        assert review['check_id'] == check_id
+        # The prior row differs from the base only by the reviewed clarity description.
+        assert {key: value for key, value in review['prior_description'].items() if key != 'description'} == {
+            key: value for key, value in original.items() if key != 'description'}
+        expected = review['updated_description_fields']
+        assert set(expected) == {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when'}
+        assert {key: current[key] for key in expected} == expected
+        changed_fields.update(expected)
     assert {key:value for key,value in current.items() if key not in changed_fields}=={
         key:value for key,value in original.items() if key not in changed_fields}
     assert 0<len(current['description'].split())<=45

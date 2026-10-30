@@ -49,12 +49,14 @@ def test_prepared_guard_rejects_each_changed_source_or_ast_contract(field):
 
 @pytest.mark.parametrize('field', ('predecessor_sha256', 'predecessor_ast', 'exact_additions'))
 def test_dataflow_guard_rejects_each_changed_source_or_ast_contract(field):
+    # The active shared successor carries the reviewed current GCP collector transitions.
+    current = active_shared()
     receipt = json.loads((ROOT / 'peaso/checks' / ADMISSION.RECEIPT).read_bytes())
-    bridge._dataflow_gcp_delta(ROOT, receipt)
+    current._dataflow_gcp_delta(ROOT, receipt)
     changed = deepcopy(receipt)
     changed['gcp_function_deltas']['__init__'][field] = ['unreviewed'] if field == 'exact_additions' else 'unreviewed'
     with pytest.raises(RuntimeError):
-        bridge._dataflow_gcp_delta(ROOT, changed)
+        current._dataflow_gcp_delta(ROOT, changed)
 
 
 @pytest.mark.parametrize('attribute', ('reviewed_inputs', 'shared'))

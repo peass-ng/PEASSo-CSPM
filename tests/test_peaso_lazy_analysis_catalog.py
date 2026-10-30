@@ -77,8 +77,11 @@ def test_moved_catalog_initialization_matches_reviewed_predecessor_ast():
     import hashlib
     from pathlib import Path
     source = (Path(__file__).resolve().parents[1] / 'peaso/analysis/catalog.py').read_text()
+    import sys
     body = ast.parse(source[source.index('REQUIRED_TYPES = {'):])
-    assert hashlib.sha256(ast.dump(body).encode()).hexdigest() == 'c165ad4d70141a0c7b5f4bd3187f01b207af964f0c926c569a10a2abf3cd5110'
+    # Python 3.13 omits empty AST fields by default; keep one dump format across versions.
+    options = {'show_empty': True} if sys.version_info >= (3, 13) else {}
+    assert hashlib.sha256(ast.dump(body, **options).encode()).hexdigest() == 'f59be80226e8274ca35c8c93250f52612ce593a7c0b4ba014cd19ffd771f8446'
 
 
 def test_analysis_findings_use_reviewed_presentation_without_native_import():

@@ -46,7 +46,8 @@ def test_shared_inventory_keeps_full_projection_and_filtered_download(tmp_path):
         reference = reports.publish_report(artifacts, 'tenant', 'f' * 32, report, snapshot)
     finally:
         sys.setprofile(previous)
-    assert calls == ['_publish_report']
+    # One lazy inventory build inside publication is shared by every projection.
+    assert calls == ['get_inventory']
     bundle = artifacts.get('tenant', reference)
     assert artifacts.get('tenant', bundle['least_privilege']) == expected
     rows = [row for chunk in bundle['resource_chunks']

@@ -17,7 +17,7 @@ from peaso.checks.claude_aws_a_network import ENDPOINT_SERVICES, SG_PORTS
 from peaso.remediation import template
 from tests.release_successor_history import (historical_bytes, _source414_reviewed_baseline,
     _IAM_EVIDENCE_ONLY_REVERSE_HUNKS, _IAM_HISTORICAL_BASELINE_SHA256,
-    _IAM_SECURITY_SUCCESSOR_SHA256)
+    _IAM_UNUSED_ACCESS_SUCCESSOR_SHA256)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,17 +69,25 @@ def _registered_iam_helper_matches_historical(check, helper_path, helper_line):
 
 
 def test_ids_are_assigned_and_no_approved_template_is_overridden():
-    registered = {check.id for check in CHECKS if check.id.startswith(("aws.claude_a.", "aws.cb."))}
+    from peaso.checks import CHECK_ALIASES
+    prefixes = ("aws.claude_a.", "aws.cb.")
+    checks = {check.id: check for check in CHECKS}
+    # A retired duplicate keeps its reviewed remediation entry; stored findings
+    # resolve to the surviving check, whose kind and target bind the entry.
+    retired = {cid: survivor for cid, survivor in CHECK_ALIASES.items() if cid.startswith(prefixes)}
+    assert retired == {"aws.cb.sns.policy_prohibit_public_access_perimeter": "aws.cb.sns.policy_no_unrestricted_wildcard"}
+    checks.update({cid: checks[survivor] for cid, survivor in retired.items()})
+    registered = {check.id for check in CHECKS if check.id.startswith(prefixes)} | set(retired)
     assert OTHER_AWS_SHARD_IDS <= registered
     assigned = registered - OTHER_AWS_SHARD_IDS
     central = json.loads(CENTRAL.read_text())
-    checks = {check.id: check for check in CHECKS}
     entries = reviewed()
     iam_path = "peaso/checks/claude_aws_a_iam.py"
     # The accepted helper is pinned independently; the unpublished local
     # 706b archive is not a portable historical-release fixture.
     iam_current=(ROOT / iam_path).read_text()
-    assert hashlib.sha256(iam_current.encode()).hexdigest()==_IAM_SECURITY_SUCCESSOR_SHA256
+    # Current source is the reviewed Access Analyzer unused-access successor (72249e32).
+    assert hashlib.sha256(iam_current.encode()).hexdigest()==_IAM_UNUSED_ACCESS_SUCCESSOR_SHA256
     assert tuple(IAM_EVIDENCE_ONLY_SUCCESSOR)==_IAM_EVIDENCE_ONLY_REVERSE_HUNKS
     # Reconstruct the exact old source through both pinned successor layers.
     iam_frozen=_source414_reviewed_baseline(iam_path,iam_current.encode(),

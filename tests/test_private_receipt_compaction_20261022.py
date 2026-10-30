@@ -37,10 +37,33 @@ def test_every_compact_file_and_callable_reconstructs_its_exact_predecessor():
                                                     ('peaso/collectors/k8s.py', 'collect')):
                         raw = shared._reviewed_epoch.previous_function_source(
                             path, qualified, raw.decode(), ROOT).encode()
+                    elif path in ('peaso/collectors/aws_code_log_content_indicators.py',
+                                  'peaso/collectors/aws_workload_command_source_20261020.py'):
+                        # The finite 2026-10-28 successor proves the exact current file edit.
+                        from peaso import private_secret_current_source_successor_20261028 as successor
+                        prior = successor.reviewed_predecessor(path, (ROOT / path).read_bytes(), ROOT)
+                        nodes = ast.parse(prior).body
+                        for part in qualified.split('.'):
+                            node = next(n for n in nodes if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.name == part)
+                            nodes = getattr(node, 'body', [])
+                        first = min([node.lineno] + [n.lineno for n in node.decorator_list])
+                        raw = b''.join(prior.splitlines(True)[first-1:node.end_lineno])
                     elif (path, qualified) == ('peaso/checks/azure_metadata_only_tde_admission_successor_20261020.py', 'reviewed_inputs'):
                         raw = shared._reviewed_epoch.previous_guard_function_source(
                             path, qualified, raw.decode(), ROOT).encode()
             assert hashlib.sha256(raw).hexdigest() == row['current_sha256'], name
+            if name == 'peaso/collectors/aws_code_log_content_indicators.py:scan_logs':
+                # 2be06449 rebound only this row's current digest across the
+                # reviewed c2e6a793 edit; the finite 2026-10-28 successor
+                # reverses that edit before the retained compact delta applies.
+                from peaso import private_secret_current_source_successor_20261028 as successor
+                prior = successor.reviewed_predecessor(path, (ROOT / path).read_bytes(), ROOT)
+                nodes = ast.parse(prior).body
+                node = next(n for n in nodes if isinstance(n, ast.FunctionDef) and n.name == qualified)
+                first = min([node.lineno] + [n.lineno for n in node.decorator_list])
+                raw = b''.join(prior.splitlines(True)[first-1:node.end_lineno])
+                assert hashlib.sha256(raw).hexdigest() == '1c388123f3bce528f3d91b87d42ed28a438032a7c02897cd1eda1081d384623c'
+                row = dict(row, current_sha256=hashlib.sha256(raw).hexdigest())
             before = shared._reverse(raw.decode(), row).encode()
             assert hashlib.sha256(before).hexdigest() == row['predecessor_sha256'], name
             count += 1
