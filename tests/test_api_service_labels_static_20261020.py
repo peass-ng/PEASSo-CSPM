@@ -3,12 +3,18 @@ import ast
 import hashlib
 import json
 from pathlib import Path
+import os
 import subprocess
 import sys
 
 from peaso.server import service_labels_static_20261020 as static
 
 ROOT = Path(__file__).resolve().parents[1]
+# The native reference child needs only native label values, not source attestation. The shipped
+# default proves every pinned source once per process; conftest's repeat-every-proof mode
+# re-proves on each nested call during the cold peaso.checks import (minutes of CPU).
+NATIVE_ENV = {key: value for key, value in os.environ.items() if key != 'PEASO_SOURCE_ATTESTATION'}
+NATIVE_ENV['PEASO_SOURCE_ATTESTATION'] = 'once'
 FUNCTIONS = ('service_for', 'canonical_observed_service', 'service_for_check', 'finding_service')
 CONSTANTS = ('CHECK_SERVICE_OVERRIDES', 'CHECK_SERVICE_PREFIXES', 'SERVICE_ALIASES', 'ANALYSIS_KIND_SERVICES', 'NETWORK_SERVICE_LABELS')
 
@@ -47,7 +53,7 @@ for provider in ('aws','gcp','azure','k8s','unknown',None):
 print(json.dumps({'cases':cases,'constants':{name:getattr(native,name)for name in ('CHECK_SERVICE_OVERRIDES','CHECK_SERVICE_PREFIXES','SERVICE_ALIASES','ANALYSIS_KIND_SERVICES','NETWORK_SERVICE_LABELS')}}))
 '''
     result = subprocess.run([sys.executable, '-B', '-c', program], cwd=ROOT,
-                            capture_output=True, text=True, check=True, timeout=180)
+                            capture_output=True, text=True, check=True, timeout=180, env=NATIVE_ENV)
     reference = json.loads(result.stdout)
     assert len(reference['cases']) > 17000
     for name in CONSTANTS:
