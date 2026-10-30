@@ -335,7 +335,15 @@ def run_case(spec, mode, record_property, **overrides):
     api = NativeAPI(spec, mode, scope, **overrides)
     collector = gcp.GCPCollector({'provider': 'gcp', 'scopes': [scope], 'options': options}, requirements=kinds, transport=api)
     collector.read_time = CAPTURED
-    captured = collector.collect()
+    import peaso.snapshot
+    make_snapshot = peaso.snapshot.make_snapshot
+    with pytest.MonkeyPatch.context() as patch:
+        # Provider activity windows are dated against CAPTURED; seal the
+        # snapshot on that same clock so the three-day lag gate does not
+        # expire as wall time passes.
+        patch.setattr(peaso.snapshot, 'make_snapshot',
+                      lambda *args, **kwargs: make_snapshot(*args, **{**kwargs, 'created_at': CAPTURED}))
+        captured = collector.collect()
     assert not api.contract_errors, (api.contract_errors, api.requests)
     assert validate(captured) == captured
     before = deepcopy(captured)

@@ -34,6 +34,9 @@ def collect_pages(monkeypatch, positive=True, unavailable_second=False):
             if kwargs.get('params', {}).get('pageToken'):
                 return Response({'error': {'message': TOKEN}}, 503)
             return Response({'functions': [deepcopy(source)], 'nextPageToken': 'page-two'})
+        if url == 'https://cloudfunctions.googleapis.com/v2/' + SCOPE + '/locations':
+            # 75087001: ``function`` depends on the project's Functions regions.
+            return Response({'locations': [{'name': SCOPE + '/locations/us-central1', 'locationId': 'us-central1'}]})
         assert url == 'https://cloudfunctions.googleapis.com/v2/' + NAME + ':getIamPolicy'
         return Response({'bindings': []})
     transport = gcp.Transport(SimpleNamespace(headers=lambda: {}, close=lambda: None),
@@ -48,7 +51,7 @@ def collect_pages(monkeypatch, positive=True, unavailable_second=False):
     row, = envelope['items']
     assert row['FunctionSecretIndicators']['complete'] is (not unavailable_second)
     assert bool(row['FunctionSecretIndicators']['leaks']) is positive
-    assert len(calls) == 3
+    assert len(calls) == 4  # locations listing, two function pages, one getIamPolicy
     assert TOKEN not in json.dumps([snapshot, transport.evidence,
         [entry.get('data') for entry in transport.cache.values()]]) + repr(scanning._RESULTS)
     index = {'context': {'provider': 'gcp', 'scope': SCOPE, 'metadata': snapshot['metadata']},
@@ -183,10 +186,12 @@ def test_final_source_alias_and_isolated_file_substitution_rejected_restored(pos
     assert evaluate_check(base.CHECK_ID, row, index)[0] == 'FAIL'
     root = Path(base.__file__).resolve().parents[2]
     shutil.copytree(root / 'peaso', tmp_path / 'peaso', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-    reviewed_inputs(tmp_path)
+    # b7134a7d binds the private source proof to the loaded checkout, so an isolated
+    # copy is refused before and after substitution; the loaded checkout still proves.
+    with pytest.raises(RuntimeError, match='location changed'): reviewed_inputs(tmp_path)
     path = tmp_path / 'peaso/checks/gcp_function_secret_partial_page_20261020.py'
     original = path.read_bytes()
     path.write_bytes(original + b'\n# substituted successor source\n')
     with pytest.raises(RuntimeError): reviewed_inputs(tmp_path)
     path.write_bytes(original)
-    reviewed_inputs(tmp_path)
+    reviewed_inputs(root)

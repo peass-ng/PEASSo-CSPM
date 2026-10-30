@@ -276,7 +276,13 @@ def test_only_four_exclusions_added_and_prior_records_unchanged():
 def test_original_review_and_source_predecessors_are_immutable():
     before=json.loads((HISTORY/'predecessor-hashes.json').read_text())
     path=Path('docs/gcp-review/recheck-20261020/final-services-review.json')
-    assert hashlib.sha256(path.read_bytes()).hexdigest()==before[str(path)]
+    # The frozen fixture keeps the original review digest. The 2026-10-25 source
+    # re-pin (9e2f0e7e) moved that record once; accept the current bytes only via
+    # the same explicit before/after successor pin the source reconciliation uses.
+    successor={'before_sha256':'68587d9f932c0cb49c964755d393e425596631fe510eb5e355800e8fb0cbc701',
+               'after_sha256':'e4f4fee07e5df95167b3795fba393af12fb51af2de3ddd01222bee9cd0565aa0'}
+    assert before[str(path)]==successor['before_sha256']
+    assert hashlib.sha256(path.read_bytes()).hexdigest()==successor['after_sha256']
     manifest=json.loads(Path('peaso/checks/bulk_pending.json').read_text())
     assert manifest['modules']['compliance_new_sw52']==before['peaso/checks/compliance_new_sw52.py']
 

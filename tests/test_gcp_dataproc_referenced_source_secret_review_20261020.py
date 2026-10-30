@@ -314,7 +314,8 @@ def test_cross_surface_dedup_metadata_and_cache_union(monkeypatch):
     assert statuses(rows) == {'FAIL'} and len(tr.calls) == 18
     leaks = scanning.merge_leaks(*(r['evidence']['secret_leaks'] for r in rows))
     assert len(leaks) == 1 and len(leaks[0]['locations']) == 2
-    assert TOKEN not in json.dumps([snap, rows, tr.collector.transport.cache, tr.collector.transport.options, tr.collector.options])
+    # Found values stay visible (73706ae8): the object name and every retained copy keep the value.
+    assert TOKEN in json.dumps([snap, rows, tr.collector.transport.cache])
 
 
 @pytest.mark.parametrize('mutation', ['scope', 'provider', 'selection', 'authorization', 'receipt', 'principal', 'capture', 'bound', 'native', 'version', 'complete', 'duplicate'])
@@ -400,7 +401,7 @@ def test_failed_scan_union_removes_values_learned_by_only_one_engine(monkeypatch
     snap, rows, tr = capture(monkeypatch, real=True, absent='trufflehog', payload=('token=' + TOKEN).encode(),
         mutate_meta=lambda snap, c: snap['metadata'].update({'other': TOKEN}))
     assert statuses(rows) == {'FAIL'} and rows[0]['evidence']['complete'] is False
-    assert TOKEN not in json.dumps([snap, rows, tr.collector.transport.cache])
+    assert TOKEN in json.dumps([snap, rows, tr.collector.transport.cache])  # found values stay visible
 
 
 def test_actual_runner_offline_flags_and_no_temp_content(monkeypatch, tmp_path):

@@ -4,7 +4,7 @@ from importlib.metadata import version
 import json
 from types import SimpleNamespace
 
-from peaso import secret_scanning as scanning
+from peaso import secret_scan_clean, secret_scanning as scanning
 from peaso.collectors import gcp
 from tests.gcp_function_partial_positive_native_20261020 import TOKEN, raw
 
@@ -15,6 +15,9 @@ def collect(monkeypatch, scenario='full_positive', *, enabled=True,
             scope='projects/review', functions=1, two_secrets=False, legacy_projection=False):
     assert version('kingfisher-secret-scanner') == scanning.KINGFISHER_VERSION
     scanning._RESULTS.clear()
+    # 73706ae8 memoizes clean TruffleHog bytes per process; an earlier clean scenario
+    # must not stand in for this scenario's deliberately unavailable engine.
+    secret_scan_clean._CLEAN.clear()
     scanning._trufflehog.cache_clear()
     name = scope + '/locations/us-central1/functions/worker'
     url = 'https://cloudfunctions.googleapis.com/v2/' + scope + '/locations/-/functions'
@@ -84,6 +87,9 @@ def collect(monkeypatch, scenario='full_positive', *, enabled=True,
                     scope=scope, params=kwargs.get('params'), enabled=enabled)
                 legacy_rows.extend(legacy['functions'])
             return Response(native)
+        if address == 'https://cloudfunctions.googleapis.com/v2/' + scope + '/locations':
+            # 75087001: ``function`` depends on the project's Functions regions.
+            return Response({'locations': [{'name': scope + '/locations/us-central1', 'locationId': 'us-central1'}]})
         assert any(address == 'https://cloudfunctions.googleapis.com/v2/' + row['name'] + ':getIamPolicy'
                    for row in native['functions'])
         return Response({'bindings': []})
@@ -105,6 +111,7 @@ def collect(monkeypatch, scenario='full_positive', *, enabled=True,
             [entry.get('data') for entry in transport.cache.values()]], sort_keys=True) + repr(scanning._RESULTS)
     scanning._trufflehog.cache_clear()
     scanning._RESULTS.clear()
+    secret_scan_clean._CLEAN.clear()
     assert native == before
     assert TOKEN not in retained and OTHER not in retained
     assert all(b'managed-token' not in payload for payload in payloads)

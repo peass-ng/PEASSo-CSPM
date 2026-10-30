@@ -216,6 +216,9 @@ def collect_native_pipeline(monkeypatch, kind, row=None, options=None, denied=Fa
         if url == 'https://cloudresourcemanager.googleapis.com/v3/' + SCOPE:
             return Response({'name': 'projects/10001', 'projectId': 'review', 'state': 'ACTIVE'})
         if url == 'https://compute.googleapis.com/compute/v1/' + SCOPE: return Response({'name': 'review', 'id': '10001'})
+        if kind == a.WORKBENCH and url == 'https://' + a.SPEC[kind][0] + '/v2/' + row['name'] + ':getIamPolicy':
+            # 75087001 hydrates each Workbench instance's IAM policy.
+            return Response({'bindings': []})
         assert url == kwargs(kind)['url']
         return Response({a.SPEC[kind][2]: [row]}, 403 if denied else 200)
     transport = gcp.Transport(SimpleNamespace(headers=lambda: {'Authorization': 'Bearer fake-token'}, close=lambda: None), opts)
@@ -233,7 +236,7 @@ def test_actual_collector_installed_precache_hook_real_offline_tools(monkeypatch
     row, = e['items']
     assert c.evaluate(row, index, kind)[0] == 'FAIL'
     assert a.MARKER in row
-    assert len([url for _, url, _ in calls if a.SPEC[kind][0] in url]) == 1
+    assert len([url for _, url, _ in calls if a.SPEC[kind][0] in url and not url.endswith(':getIamPolicy')]) == 1
     assert TOKEN not in json.dumps([snapshot, transport.evidence]) + repr(transport.cache)
     with pytest.raises(AssertionError, match='forbidden'): socket.create_connection(('example.invalid', 443))
 
@@ -296,7 +299,7 @@ def test_actual_default_scrub_same_existing_call_count_no_tools(monkeypatch, kin
         options={'content_secret_scans': False, '_content_secret_scan_kinds': []})
     row, = e['items']
     assert c.evaluate(row, index, kind)[0] == 'UNKNOWN'
-    assert len([url for _, url, _ in calls if a.SPEC[kind][0] in url]) == 1
+    assert len([url for _, url, _ in calls if a.SPEC[kind][0] in url and not url.endswith(':getIamPolicy')]) == 1
     assert TOKEN not in json.dumps(snapshot) + repr(transport.cache)
 
 

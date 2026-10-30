@@ -91,13 +91,18 @@ def test_composer_regions_bounded_and_env_values_dropped():
 
 def test_workbench_wildcard_list_and_metadata_values_allowlisted():
     def resolve(request):
+        if request["url"].endswith(":getIamPolicy"):
+            # Each listed instance's IAM policy is hydrated (75087001).
+            assert request["url"] == "https://notebooks.googleapis.com/v2/projects/p-one/locations/us-central1-a/instances/nb:getIamPolicy"
+            return {"bindings": []}
         assert request["url"] == "https://notebooks.googleapis.com/v2/projects/p-one/locations/-/instances"
         return {"instances": [{"name": "projects/p-one/locations/us-central1-a/instances/nb", "gceSetup": {
             "serviceAccounts": [{"email": "1-compute@developer.gserviceaccount.com"}],
             "metadata": {"notebook-disable-root": "true", "post-startup-script": "gs://do-not-store/s.sh"}}}]}
     result, _ = snapshot(["workbench_instance"], resolve)
-    metadata = collection(result, "workbench_instance")["items"][0]["gceSetup"]["metadata"]
-    assert metadata == {"notebook-disable-root": "true", "post-startup-script": None}
+    instance = collection(result, "workbench_instance")["items"][0]
+    assert instance["gceSetup"]["metadata"] == {"notebook-disable-root": "true", "post-startup-script": None}
+    assert instance["iamPolicy"] == {"bindings": []}
     unavailable = snapshot(["workbench_instance"], lambda r: (_ for _ in ()).throw(gcp.ReadError("unavailable", "api_error", http_status=400)))[0]
     assert collection(unavailable, "workbench_instance")["status"] == "unknown"
 
@@ -126,15 +131,25 @@ def test_location_option_is_bounded():
 
 
 def test_domains_registrations_global_name_and_state_only():
+    listing = "https://domains.googleapis.com/v1/projects/p-one/locations/global/registrations"
     def resolve(request):
+        if not request["url"].startswith("https://domains.googleapis.com/"):
+            # 16bb81e0 also reads the project and its IAM policy/roles for the
+            # registration-owner join; none of them touches registrant contacts.
+            assert "registrations" not in request["url"], request
+            return {}
+        if request["url"].endswith(":getIamPolicy"):
+            assert request["url"] == listing + "/example.com:getIamPolicy" and request["method"] == "GET"
+            return {"bindings": []}
         assert request["method"] == "GET"
-        assert request["url"] == "https://domains.googleapis.com/v1/projects/p-one/locations/global/registrations"
-        assert request["params"]["fields"] == "registrations(name,domainName,state,expireTime),nextPageToken"
+        assert request["url"] == listing
+        assert request["params"]["fields"] == "registrations(name,domainName,state,expireTime,dnsSettings),nextPageToken"
         return {"registrations": [{"name": "projects/p-one/locations/global/registrations/example.com", "domainName": "example.com",
                                    "state": "ACTIVE", "contactSettings": {"registrantContact": {"email": "do-not-store"}}}]}
     result, transport = snapshot(["domains_registration"], resolve)
     registrations = collection(result, "domains_registration")
-    assert registrations["status"] == "collected" and transport.calls == 1
+    assert registrations["status"] == "collected"
+    assert [r["url"] for r in transport.requests if r["url"].startswith(listing)] == [listing, listing + "/example.com:getIamPolicy"]
     assert registrations["items"][0]["domainName"] == "example.com" and "do-not-store" not in json.dumps(result)
     assert collection(snapshot(["domains_registration"], denied)[0], "domains_registration")["status"] == "denied"
 

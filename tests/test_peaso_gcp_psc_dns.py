@@ -63,6 +63,9 @@ def test_native_collector_to_engine_preserves_policy_and_scores_one_project(appr
  def resolve(request):
   if request['url'].endswith('/managedZones'):
    return {'managedZones':[{'name':'googleapis','dnsName':'googleapis.com.','visibility':'private','privateVisibilityConfig':{'networks':[{'networkUrl':VPC}]}}]}
+  if request['url'].endswith('/managedZones/googleapis:getIamPolicy'):
+   # 16bb81e0 hydrates each managed zone's IAM policy.
+   return {'version':3,'bindings':[]}
   if request['url'].endswith('/rrsets'):
    return {'rrsets':[{'name':'*.googleapis.com.','type':'A','rrdatas':['10.0.0.1']}]}
   if request['url'].endswith('/aggregated/forwardingRules'):

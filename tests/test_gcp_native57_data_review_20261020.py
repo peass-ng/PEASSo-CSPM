@@ -22,7 +22,8 @@ DATASET='native_dataset'
 TABLE='native_table'
 KEY='projects/review-project/locations/us-central1/keyRings/review/cryptoKeys/data'
 AUTH='synthetic-offline-header'
-TABLE_MASK='id,tableReference,type,encryptionConfiguration,timePartitioning,rangePartitioning,expirationTime,creationTime,lastModifiedTime,labels,requirePartitionFilter,resourceTags,schema(fields(name,fields,policyTags(names)))'
+# 75087001 added column type/mode to the reviewed tables.get mask.
+TABLE_MASK='id,tableReference,type,encryptionConfiguration,timePartitioning,rangePartitioning,expirationTime,creationTime,lastModifiedTime,labels,requirePartitionFilter,resourceTags,schema(fields(name,type,mode,fields,policyTags(names)))'
 ROSTER=['gcp.claude.sql_instance.private_ip_only', 'gcp.claude.sql_instance.second_gen_no_public_ip', 'gcp.claude2.bigquery_dataset.default_cmek', 'gcp.claude2.sql_instance.only_private_ip_addresses', 'gcp.ports.bigquery_dataset_not_publicly_accessible', 'gcp.ports.bigquery_table_encrypted_with_cmk', 'gcp.ports.sql_instance_mysql_binary_log_enabled', 'gcp.ports.sql_instance_not_open_to_internet', 'gcp.ports.sql_instance_not_publicly_accessible', 'gcp.ports.sql_instance_with_no_public_ips', 'gcp.ports.sql_no_primary_address', 'gcp.ports.sql_private_ip_assignments', 'gcp.reviewed.bigquery.cmek', 'gcp.reviewed.sql.cmek', 'gcp.reviewed.sql.high_availability', 'gcp.sql.backups', 'gcp.sql.deletion_protection', 'gcp.sql.iam_database_authentication', 'gcp.sql.mysql_admin_account_posture', 'gcp.sql.no_public_ip', 'gcp.sql.restrict_authorized_networks', 'gcp_pci_bigquery_dataset_6017267cdf32', 'gcp_pci_bigquery_dataset_fb9fcc01d5b7', 'gcp_sql_instance_sql_instance_does_have_iam_4b5fe00566e6', 'gcp_sql_trace3625_off']
 SQL_IDS=[i for i in ROSTER if 'bigquery' not in i and i!='gcp.sql.mysql_admin_account_posture']
 BQ_IDS=[i for i in ROSTER if 'bigquery' in i and 'table_' not in i]
@@ -313,8 +314,11 @@ def test_native_table_explicit_cmek_value_and_real_mask(monkeypatch,good):
     if not good:obj.pop('encryptionConfiguration')
     snapshot,trace=native_capture(monkeypatch,kinds=['bigquery_table'],tables=[obj])
     assert_one(snapshot,TABLE_ID,'PASS' if good else 'UNKNOWN')
-    assert trace.collector.needed=={'bigquery_dataset','bigquery_table'} and len(trace.calls)==4
-    assert trace.calls[-1]['params']=={'fields':TABLE_MASK}
+    # 75087001 hydrates table IAM after the masked tables.get read.
+    assert trace.collector.needed=={'bigquery_dataset','bigquery_table'} and len(trace.calls)==5
+    assert trace.calls[-2]['params']=={'fields':TABLE_MASK}
+    assert trace.calls[-1]['method']=='POST' and trace.calls[-1]['url'].endswith(':getIamPolicy')
+    assert trace.calls[-1]['url'].startswith('https://bigquery.googleapis.com/bigquery/v2/'+SCOPE+'/datasets/')
     row=next(c for c in snapshot['collections'] if c['type']=='bigquery_table')['items'][0]
     assert row['_provenance'].get('representation')!='full' and row['_provenance']['schema_full'] is True
 

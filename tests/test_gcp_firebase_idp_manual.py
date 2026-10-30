@@ -15,7 +15,9 @@ def test_blocking_function_credential_path_is_excluded_from_scan_and_ui():
     active = {entry["id"] for entry in privesc.catalog()["entries"]}
     assert MANUAL_ID not in active
     assert "gcp-firebase-signblob-exact-custom-token-user" in active
-    excluded = (ROOT / "peaso/privesc/catalog/gcp/_excluded.yaml").read_text()
+    # PR #181 recorded these exclusions in _excluded_main_reconciliation.yaml; every
+    # catalog/gcp/_excluded*.yaml file is part of the excluded catalog.
+    excluded = "\n".join(path.read_text() for path in sorted((ROOT / "peaso/privesc/catalog/gcp").glob("_excluded*.yaml")))
     assert MANUAL_ID in excluded and "Manual-only path" in excluded
     for name in ("finding_explanation.json", "gcp_observed_impact.json"):
         assert MANUAL_ID not in json.loads((ROOT / "peaso/privesc" / name).read_text())

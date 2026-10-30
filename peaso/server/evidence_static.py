@@ -20,7 +20,7 @@ from types import ModuleType, SimpleNamespace
 ROOT = Path(__file__).resolve().parent
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_MANIFEST_SHA256 = 'd2180217732e500f7730be06d2aef6672bb53a1a9f0bd406b5331eed4366cc9d'
-DATA_MANIFEST_SHA256 = 'c1484a119b8103386868b9fd6213720ae4d8200554bb203d260cd34f90853340'
+DATA_MANIFEST_SHA256 = '9ac6ed579775d1e2070a91244eb4eced7f07d971b8663162ad3f37beb094345e'
 
 
 def _load_pinned_manifest(name, expected):

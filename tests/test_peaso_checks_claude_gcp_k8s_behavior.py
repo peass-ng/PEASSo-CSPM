@@ -15,6 +15,8 @@ from peaso.checks.fixtures import CASES
 
 REGISTRY = {check.id: check for check in CHECKS}
 GROUP = sorted(COMPUTE_IDS + IAM_IDS + K8S_IDS)
+# Native activity checks whose dependency proof is bound to the identity item.
+RESOURCE_BOUND = {'gcp.claude.service_account.recently_used', 'gcp.claude.service_account_key.recently_used'}
 
 
 def run(check_id, item, index=None):
@@ -44,7 +46,17 @@ def test_documented_outcomes(check_id, monkeypatch):
             branch = row['expected_status'].lower()
             cases[branch] = copy.deepcopy(row['item'])
             cases[branch + '_index'] = copy.deepcopy(row['index'])
-    assert "index" not in cases, "scope fixtures must use <case>_index"
+    if check_id == 'gcp.claude.firewall.default_rules_not_open':
+        # 45112721 binds default-named rules to the evaluated project's default VPC.
+        # The reviewed successor supplies the projects/p scope those items declare.
+        from tests.generic_k8s_behavior_successors_20261020 import current_cases
+        cases = current_cases(REGISTRY[check_id], cases)
+    if "index" in cases:
+        # 120406f2 native cases keep a generic index only for the missing item;
+        # every evaluated state still carries its own <case>_index.
+        assert check_id in RESOURCE_BOUND, "scope fixtures must use <case>_index"
+        assert all(name + "_index" in cases for name in ("pass", "fail", "unknown", "not_applicable", "manual")
+                   if name in cases), "scope fixtures must use <case>_index"
     for name, expected in (("pass", "PASS"), ("fail", "FAIL"), ("manual", "MANUAL"), ("unknown", "UNKNOWN"),
                            ("not_applicable", "NOT_APPLICABLE")):
         if name in cases:
@@ -58,7 +70,7 @@ def test_documented_outcomes(check_id, monkeypatch):
                 assert run(check_id, cases[name], index) == expected, name
     for name in ("missing", "malformed"):
         if name in cases:
-            assert run(check_id, cases[name], cases.get("pass_index")) == "UNKNOWN", name
+            assert run(check_id, cases[name], cases.get("index", cases.get("pass_index"))) == "UNKNOWN", name
     for unknown in ({}, None, [], {"collection_status": "denied"}, {"_provenance": {"x": 1}}):
         assert REGISTRY[check_id].evaluate(unknown, {})[0] == "UNKNOWN"
 
@@ -66,6 +78,19 @@ def test_documented_outcomes(check_id, monkeypatch):
 @pytest.mark.parametrize("check_id", [c for c in GROUP if "pass_index" in CASES[c] and "pass" in CASES[c]])
 def test_uncollected_dependency_is_unknown(check_id):
     cases = CASES[check_id]
+    if check_id in RESOURCE_BOUND:
+        # 120406f2 binds activity to the identity's own _coverage and request
+        # references; a resource-only evaluation needs no scope index. An
+        # uncollected activity read is the dependency and must not pass.
+        item = copy.deepcopy(cases["pass"])
+        item["_coverage"]["_activity"]["status"] = "denied"
+        assert run(check_id, item, {}) == "DENIED"
+        assert run(check_id, item, cases["pass_index"]) == "DENIED"
+        del item["_coverage"]["_activity"]
+        assert run(check_id, item, cases["pass_index"]) == "UNKNOWN"
+        # Its pass_index only shares the insight inventory, which is not a dependency.
+        assert set(cases["pass_index"].get("collections", {})).isdisjoint(REGISTRY[check_id].dependencies)
+        return
     assert run(check_id, cases["pass"], {}) == "UNKNOWN"
     partial = copy.deepcopy(cases["pass_index"])
     if partial.get("collections"):

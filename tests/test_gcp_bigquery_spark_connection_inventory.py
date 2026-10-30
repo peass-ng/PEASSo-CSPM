@@ -44,6 +44,9 @@ def collect(monkeypatch, *, denied_policy=False, bad_identity=False, denied_rout
                     "datasetId": "private", "routineId": "existing_spark"},
                     "routineType": "PROCEDURE", "language": "PYTHON",
                     "definitionBody": "private code must not enter metadata"}]}, "routine-list"
+            if url.endswith("/routines/existing_spark:getIamPolicy"):
+                # Routine IAM is hydrated for the public-routine join (02d8d6d5).
+                return {"bindings": []}, "routine-policy"
             raise AssertionError(url)
 
     transport = Transport()
@@ -84,6 +87,7 @@ def test_routine_inventory_keeps_only_bound_metadata(monkeypatch):
     assert routine["routineType"] == "PROCEDURE"
     assert routine["datasetLocation"] == "US"
     assert "definitionBody" not in routine
+    assert routine["_coverage"]["iamPolicy"]["status"] == "collected"
     denied, _ = collect(monkeypatch, denied_routines=True)
     row = next(c for c in denied["collections"] if c["type"] == "bigquery_routine_metadata")
     assert row["status"] == "denied"

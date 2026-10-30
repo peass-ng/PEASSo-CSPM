@@ -106,8 +106,16 @@ def test_builtin_role_definitions_remain_available_in_each_referencing_project()
         return {"roles": [], "results": []}
     reader = FixtureTransport(resolve)
     snapshot = GCPCollector(connector(["iam_policy", "iam_role"], scopes=["projects/p-one", "projects/p-two"]), transport=reader).collect()
+    # fe3de60a reads a referenced role once per scan and keeps one definition in
+    # the snapshot; the engine index is snapshot-wide, so both projects' bindings
+    # resolve against it (see test_referenced_external_owner_role_is_read_once...).
     for scope in snapshot["scopes"]:
-        assert collection(snapshot, "iam_role", scope)["items"][0]["includedPermissions"] == ["compute.instances.get"]
+        assert collection(snapshot, "iam_role", scope)["status"] in ("collected", "empty")
+    viewer = [row for envelope in snapshot["collections"] if envelope["type"] == "iam_role"
+              for row in envelope["items"] if row.get("name") == "roles/viewer"]
+    assert len(viewer) == 1 and viewer[0]["includedPermissions"] == ["compute.instances.get"]
+    assert viewer[0]["_provenance"]["scope"] in snapshot["scopes"]
+    assert sum(request["url"].endswith("/roles/viewer") for request in reader.requests) == 1
     assert all(request["url"].endswith("/roles/viewer") for request in reader.requests if "/v1/roles/" in request["url"])
 
 
@@ -301,8 +309,7 @@ def test_workspace_directory_reads_only_explicit_metadata_and_paginates_with_sel
         "https://cloudresourcemanager.googleapis.com/v3/organizations/123",
         "https://admin.googleapis.com/admin/directory/v1/users",
         "https://admin.googleapis.com/admin/directory/v1/users",
-        "https://cloudresourcemanager.googleapis.com/v3/projects/p-one",
-        "https://cloudresourcemanager.googleapis.com/v3/organizations/123",
+        # c1eba0e4 reuses the proven Directory ancestry for roles and assignments.
         "https://admin.googleapis.com/admin/directory/v1/customer/C123/roles",
         "https://admin.googleapis.com/admin/directory/v1/customer/C123/roleassignments"]
 

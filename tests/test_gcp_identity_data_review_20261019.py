@@ -161,18 +161,35 @@ def test_native_bigquery_full_omission_and_denied_details(mode, expected):
     assert statuses[cid] == [expected]
 
 
+# Since 120406f2 an unproven project-to-customer binding never lists Directory
+# users; the user collection carries the binding failure instead.
+BINDING_FAILURES = {"binding_denied": "forbidden", "foreign_customer": "project_directory_customer_not_selected",
+                    "foreign_project": "directory_project_identity_mismatch", "cycle": "directory_hierarchy_cycle"}
+
+
+def directory_users(snapshot, api, mode):
+    users = next(c for c in snapshot["collections"] if c["type"] == "workspace_user")
+    if mode not in BINDING_FAILURES:
+        return users["items"][0]
+    assert users["items"] == [] and users["error"]["code"] == BINDING_FAILURES[mode]
+    assert not any(url.endswith("/directory/v1/users") for _, url, _ in api.requests)
+    return None
+
+
 @pytest.mark.parametrize("mode,expected", [("normal", "FAIL"), ("enforced", "PASS"),
     ("missing_enforcement", "UNKNOWN"), ("malformed_enforcement", "UNKNOWN"),
-    ("binding_denied", "UNKNOWN"), ("foreign_customer", "UNKNOWN"), ("foreign_project", "UNKNOWN"),
+    ("binding_denied", "DENIED"), ("foreign_customer", "UNKNOWN"), ("foreign_project", "UNKNOWN"),
     ("cycle", "UNKNOWN"), ("archived", "NOT_APPLICABLE")])
 def test_native_directory_enrollment_and_enforcement_require_customer_binding(mode, expected):
     cid = "gcp.identity.non_service_account_mfa"
     snapshot, statuses, api = scan("workspace", ["workspace_user", "iam_policy"], [cid], mode)
-    user = next(c for c in snapshot["collections"] if c["type"] == "workspace_user")["items"][0]
+    user = directory_users(snapshot, api, mode)
+    assert statuses[cid] == [expected]
+    if user is None:
+        return
     assert "identityProvider" not in user and "inDomain" not in user
     assert user["_coverage"]["directoryProjection"]["projection"] == "full"
     assert user["_provenance"].get("representation") != "full"
-    assert statuses[cid] == [expected]
     assert any(kw.get("params", {}).get("projection") == "full" for _, url, kw in api.requests if url.endswith("/directory/v1/users"))
 
 
@@ -185,13 +202,13 @@ def test_native_directory_partial_user_inventory_remains_unknown():
 @pytest.mark.parametrize("mode,expected", [("normal", "PASS"), ("one_member", "FAIL"),
     ("missing_recovery", "FAIL"), ("external_member", "UNKNOWN"), ("members_denied", "UNKNOWN"),
     ("expired_member", "UNKNOWN"),
-    ("foreign_customer", "UNKNOWN"), ("binding_denied", "UNKNOWN")])
+    ("foreign_customer", "UNKNOWN"), ("binding_denied", "DENIED")])
 def test_native_directory_recovery_joins_cloud_identity_members_to_active_users(mode, expected):
     cid = "gcp.identity.super_admin_recovery_group"
     kinds = ["workspace_user", "workspace_role", "workspace_role_assignment", "group", "group_membership"]
-    snapshot, statuses, _ = scan("recovery", kinds, [cid], mode)
-    user = next(c for c in snapshot["collections"] if c["type"] == "workspace_user")["items"][0]
-    assert user["_coverage"]["directoryProjection"]["fields"]
+    snapshot, statuses, api = scan("recovery", kinds, [cid], mode)
+    user = directory_users(snapshot, api, mode)
+    assert user is None or user["_coverage"]["directoryProjection"]["fields"]
     # Only the super-admin has an applicable result; the other Directory users do not.
     assert statuses[cid] and expected in statuses[cid]
     assert set(statuses[cid]) <= {expected, "NOT_APPLICABLE", "UNKNOWN"}

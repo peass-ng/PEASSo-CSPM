@@ -22,7 +22,12 @@ class Collector:
         self.hl7v2_store = HL7V2_STORE
         self.urls = []
 
-    def pages(self, url, scope, *, key=None, single=False, params=None):
+    def pages(self, url, scope, *, key=None, single=False, params=None, transform=None):
+        # Mirrors GCPCollector.pages, which projects each row before yielding it.
+        for rows, receipt in self._pages(url, scope, key=key, single=single, params=params):
+            yield ([transform(row) for row in rows] if transform else rows), receipt
+
+    def _pages(self, url, scope, *, key=None, single=False, params=None):
         self.urls.append(url)
         assert scope == PROJECT
         if single:

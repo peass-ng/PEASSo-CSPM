@@ -36,6 +36,10 @@ def test_google_native_detail_metadata_reaches_map_and_actual_agent_database(tmp
         assert request['method'] == 'GET'
         if request['url'] == root + '/' + name.rsplit('/', 1)[0]:
             return {plan['key']: [{'name': name}]}
+        if plan.get('iam_policy') and request['url'] == root + '/' + name + ':getIamPolicy':
+            # Self-grant inventories also read the exact resource policy.
+            assert request['params'] == {'options.requestedPolicyVersion': 3}
+            return {'bindings': []}
         assert request['url'] == root + '/' + name
         assert request['params']['fields'] == plan['get_fields']
         assert 'environmentVariables' not in request['params']['fields']
@@ -45,7 +49,7 @@ def test_google_native_detail_metadata_reaches_map_and_actual_agent_database(tmp
     snap, transport = snapshot([kind], resolve, regions=['us-central1'])
     result = collection(snap, kind)
     assert result['status'] == 'collected', result.get('error')
-    assert len(transport.requests) == 2
+    assert len(transport.requests) == (3 if plan.get('iam_policy') else 2)
     graph, ai = topology('gcp', [(kind, name, 'projects/p-one', result['items'][0])])
     assert expected in json.dumps(node(graph, kind, name)['network_attributes'])
     build(tmp_path, ai, [], private_json)

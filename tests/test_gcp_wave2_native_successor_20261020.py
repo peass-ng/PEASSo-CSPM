@@ -14,7 +14,7 @@ from peaso.collectors import gcp_function_secret_pairs_20261020 as paired
 
 # Reviewed successor bodies outside proposal_boundary, and the whole reviewed outside text.
 OUTSIDE_SUCCESSORS = {
-    'SOURCES': '7bf9b71fade78c361d8084fbdfe2d8dd3fede0a62b28aadd2ad86f48bd810941',
+    'SOURCES': 'd1a58bc8750fd416b0c2147d9d2f763e76677b12c21545b47048b361a9fdb90e',
     'from contextlib import contextmanager': '016e3498fc697063e429feb2c6b2cdc896c1f8ae199399a95139047372af6885',
     'SOURCE_SUCCESSORS': '32704e09328d76b2776f0190f4b3f48fc8fd8f9089aba1a8de50fdf3fcc90047',
     '_successor_digest': '2f68260c97645ae234ed76c03f3e63afbf866e75458f0e08bf8d9a2ae8baf5ec',
@@ -24,7 +24,7 @@ OUTSIDE_SUCCESSORS = {
     'admitted': 'b98f93c76ee0a5eb93164eff8a26354bcb2f0aec34a947a8d0c6314a73ac70de',
     'prepare_current': 'e45f781d002ac494705f577bc50d19f81c04ffbee72cd193fbb3412bea5a7588',
 }
-OUTSIDE_SUCCESSOR_SHA256 = 'a6fd4e44d3a79659fdd5a4be36d14ca0f3e84210eb6e3486ab7639ff1590ab38'
+OUTSIDE_SUCCESSOR_SHA256 = '3f67fb62c5574628f3a0aa7302ec6af39d16d504cdfd1d3f9c7b926168c7e847'
 from tests.gcp_function_partial_positive_native_20261020 import TOKEN, collect_native, index_for, raw
 from tests.gcp_wave2_historical_native_20261020 import collect_historical_native
 

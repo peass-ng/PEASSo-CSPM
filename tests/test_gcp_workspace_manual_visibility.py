@@ -17,8 +17,10 @@ MANUAL_IDS = {
 
 def test_unverifiable_workspace_pivots_are_documented_but_not_loaded():
     root = Path(__file__).resolve().parents[1]
-    excluded = yaml.safe_load((root / "peaso/privesc/catalog/gcp/_excluded.yaml").read_text())
-    documented = {item.get("id") for item in excluded if isinstance(item, dict)}
+    # PR #181 recorded these exclusions in _excluded_main_reconciliation.yaml; every
+    # catalog/gcp/_excluded*.yaml file is part of the excluded catalog.
+    documented = {item.get("id") for path in sorted((root / "peaso/privesc/catalog/gcp").glob("_excluded*.yaml"))
+                  for item in yaml.safe_load(path.read_text()) or [] if isinstance(item, dict)}
     active = {item["id"] for item in privesc.catalog()["entries"]}
     assert MANUAL_IDS <= documented
     assert MANUAL_IDS.isdisjoint(active)

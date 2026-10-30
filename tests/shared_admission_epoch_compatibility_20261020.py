@@ -20,7 +20,7 @@ RECEIPTS = {
     'gcp_dataflow_batch_shared_hook_successor_20261020': 'c6085a12b2468c039c605d314748f02a4963ee01cdf2edbc072f254aa73dc460',
     'gcp_workbench_shared_hook_successor_20261020': 'd6dc0461e17473bc437eb9a9f68c7e39103c6e6dcdccbc84ef469eda88002593',
     'gcp_dataflow_batch_source_runtime_admission_20261020': '8277fadb5c0f67131c47755e10ac06f48454e40730088aba09234b92dd3451a1',
-    'gcp_workbench_source_runtime_admission_20261020': '5ef240b2946f092bc36e20d8a4bac421b9c4544b6e7ad2f21d6d6eb0c9fbd87e',
+    'gcp_workbench_source_runtime_admission_20261020': 'fe6b2cc40cf9ecdf07e2e556b90a1658ea6e5b454061f87635e81022d655b39e',
 }
 
 

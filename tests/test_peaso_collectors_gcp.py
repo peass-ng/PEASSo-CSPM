@@ -101,14 +101,20 @@ def test_psc_and_neg_inventories_include_global_and_aggregated_native_resources(
 ])
 def test_managed_network_metadata_uses_location_pagination_without_iam_reads(kind, service, key, option):
     assert f"{service}.googleapis.com" in gcp.HOSTS
+    listing = f"https://{service}.googleapis.com/v1/projects/p-one/locations/us-central1/{key}"
     def resolver(request):
+        if request["url"] != listing:
+            # Filestore also reads its project, backups and project IAM/roles
+            # (dependencies added by 16bb81e0); none of them is an instance read.
+            assert kind == "filestore_instance" and f"/{key}/" not in request["url"], request
+            return {}
         assert request["method"] == "GET"
-        assert request["url"] == f"https://{service}.googleapis.com/v1/projects/p-one/locations/us-central1/{key}"
         token = request.get("params", {}).get("pageToken")
         name = f"projects/p-one/locations/us-central1/{key}/{'two' if token else 'one'}"
         return {key: [{"name": name, "network": "net"}], **({} if token else {"nextPageToken": "next"})}
     result, transport = snapshot([kind], resolver, **{option: ["us-central1"]})
-    assert len(transport.requests) == 2
+    assert len([r for r in transport.requests if r["url"] == listing]) == 2
+    assert not any(":getIamPolicy" in r["url"] and f"/{key}/" in r["url"] for r in transport.requests)
     assert len(collection(result, kind)["items"]) == 2
     assert collection(result, kind)["status"] == "collected"
 
@@ -558,7 +564,7 @@ def test_native_service_coverage_and_configuration_fixture():
         if url.endswith("/zones"):
             return {"items": [{"name": "r-a", "region": "projects/p-one/regions/r"}]}
         if url.endswith("/clusters"):
-            if 'dataproc.googleapis.com' in url:
+            if 'dataproc.googleapis.com' in url or 'visionai.googleapis.com' in url:
                 return {'clusters': []}
             return {"clusters": [{"name": "gke", "location": "europe-west1",
                 "selfLink": "https://container.googleapis.com/v1/projects/p-one/locations/europe-west1/clusters/gke", "privateClusterConfig": {"enablePrivateNodes": True},
@@ -605,11 +611,14 @@ def test_native_service_coverage_and_configuration_fixture():
         return json.loads(json.dumps(response).replace("p-one", "p-one01"))
     # PAB policy ownership is organization-level, so it is exercised in the
     # dedicated org-scope fixture rather than asserted as an empty project API.
-    # Perimeters need project ancestry (include_inherited), tested separately.
+    # Perimeters, access policies and access levels need project ancestry
+    # (include_inherited, 16bb81e0), tested separately.
     # Content-only inventories require a separately named, opted-in request.
     from peaso.collectors.gcp_network_catalog import PRIVATE_SERVICES
     organization_network_types = {kind for kind, plan in PRIVATE_SERVICES.items() if plan.get('scope_kind') == 'organizations'}
-    kinds = sorted(gcp.SUPPORTED_TYPES - CONTENT_ONLY_TYPES - gcp.CONTENT_ONLY_TYPES - organization_network_types - {"project", "organization", "folder", "workforce_pool", "workforce_provider", "kms_key", "kms_key_ring", "activity", "principal_access_boundary_policy", "firewall_policy_association", "service_perimeter", "audit_log", "scc_finding", "scc_notification_config", "provider_access_event", "asset_previous", "asset_audit_log", "deployed_image", "effective_firewall", "folder_policy_grant_constraints", "organization_policy_grant_constraints", "service_catalog_version", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_httproute", "gke_exposure_endpointslice", "gke_exposure_multiclusteringress"})
+    # Assured Workloads partner exposure is read only at organization scope.
+    organization_network_types.add('sovereign_partner_exposure')
+    kinds = sorted(gcp.SUPPORTED_TYPES - CONTENT_ONLY_TYPES - gcp.CONTENT_ONLY_TYPES - organization_network_types - {"project", "organization", "folder", "workforce_pool", "workforce_provider", "kms_key", "kms_key_ring", "activity", "principal_access_boundary_policy", "firewall_policy_association", "service_perimeter", "access_policy", "access_level", "audit_log", "scc_finding", "scc_notification_config", "provider_access_event", "asset_previous", "asset_audit_log", "deployed_image", "effective_firewall", "folder_policy_grant_constraints", "organization_policy_grant_constraints", "service_catalog_version", "gke_exposure_service", "gke_exposure_ingress", "gke_exposure_pod", "gke_exposure_node", "gke_exposure_gateway", "gke_exposure_httproute", "gke_exposure_endpointslice", "gke_exposure_multiclusteringress"})
     transport = NativeDataFixtureTransport(resolve)
     result = gcp.GCPCollector(connector(kinds, scopes=["projects/p-one01"], cloud_identity_customers=["Cfixture"], regions=["r"],
         sw51_policy={'scope': 'projects/p-one01', 'status': 'collected', 'approved_asset_types': ['compute.googleapis.com/Instance']}),
@@ -1514,7 +1523,8 @@ def test_claude2_logging_facts_channels_metrics_scopes_and_bucket_name():
     def resolve(request):
         url = request["url"]
         if url.endswith("/notificationChannels"):
-            assert request["params"]["fields"] == "notificationChannels(name,type,enabled,verificationStatus),nextPageToken"
+            # 16bb81e0 also reads labels, projected to a safe destination summary.
+            assert request["params"]["fields"] == "notificationChannels(name,type,enabled,verificationStatus,labels),nextPageToken"
             return {"notificationChannels": [{"name": "projects/p-one/notificationChannels/1", "type": "email",
                                               "enabled": True, "verificationStatus": "VERIFIED"}]}
         if url.endswith("/metrics"):

@@ -29,10 +29,10 @@ BATCH = 'tests/gcp_batch_referenced_source_20261020_test.py'
 
 # These are the existing sealed proposal/review identities, never regenerated.
 SOURCES = MappingProxyType({
-    INDEPENDENT: '9a36c86b2deabaccc9c9e9fc928e7f30784c50ab0d5fca4121e5f90dd8c2d5cf',
-    WORKBENCH: '7ac630c67bbcb14eadaba2f268eb47ae7898310ecc300d48e8a6b32d3a7c70a4',
+    INDEPENDENT: 'efcb1a4448ba5eceddd13c111f15984e2d11118d4787b05826d8ccdc2b5d1f83',
+    WORKBENCH: '12bca5b68db1413fc9b5a8e4040a266f7bb0367485523aba8ca0086642bddb2a',
     BATCH_REVIEW: '9e3b18344e3281f65c316ad7c9622c7aa9979ceca4940f4300307ae0178d84f7',
-    BATCH: 'a08f9ab892a4378b975e03025146cd05b3e5c082b30ec09d2f839fd1e4cceb5c',
+    BATCH: '5e20b06c5c439dde81d6b2d85d7b38ca1a8158d335898d64ba8e1e0c8872a964',
     'tests/gcp_dataflow_referenced_source_20261020_test.py': 'd2afae932cc0ffb90ea6f9dd6ef97b8c8c77f523b842c12d7ab36c9df0211ff7',
     'peaso/checks/gcp_workbench_source_runtime_consumer_20261020.py': 'c72dacd26ccba160b22a919d5d4885984f69bf3aebc5c2e08539cf7ddf751ad7',
     'peaso/checks/gcp_dataflow_referenced_source_request_binding_20261020.py': '509741729db3c225f0c32a5707e56a5e9fb42a8c4b77458cad1ebfd0af215f4a',

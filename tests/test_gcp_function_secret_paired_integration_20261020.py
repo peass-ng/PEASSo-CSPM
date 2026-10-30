@@ -72,7 +72,10 @@ def test_normal_native_engine_and_saved_json_roundtrip(monkeypatch, tmp_path, sc
     assert all(finding['status'] == expected for finding in findings)
     finding = findings[0]
     assert finding['status'] == expected, finding
-    assert len(receipt['calls']) == (1 if scenario == 'denied' else 2)
+    # 75087001 added one Functions locations listing before the list and getIamPolicy reads.
+    locations = ['GET', 'https://cloudfunctions.googleapis.com/v2/projects/review/locations']
+    assert receipt['calls'].count(locations) == 1
+    assert len(receipt['calls']) == (2 if scenario == 'denied' else 3)
     if expected == 'FAIL':
         assert finding['linked_check_ids'] == [original.CHECK_ID]
         assert len(finding['evidence']['secret_leaks']) == 1

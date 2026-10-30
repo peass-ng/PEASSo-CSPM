@@ -39,13 +39,17 @@ class FakeTransport:
             data = {"metricsScopes": []}
         elif url.endswith("/metrics"):
             data = {"metrics": [{"name": "m", "filter": logging_check.CIS_FILTERS["route_changes"],
-                     "metricDescriptor": {"type": "logging.googleapis.com/user/m"}}]}
+                     "metricDescriptor": {"type": "logging.googleapis.com/user/m", "metricKind": "DELTA",
+                                          "valueType": "INT64"}}]}
         elif url.endswith("/alertPolicies"):
             data = {"alertPolicies": [{"name": SCOPE + "/alertPolicies/a", "enabled": True,
                      "notificationChannels": [CHANNEL if row["name"].startswith("projects/foreign/") else row["name"]
                                               for row in self.channels],
+                     # The reviewed event contract binds a positive-count DELTA threshold on
+                     # the audited resource type (gcp_metric_alert_native, 2026-10-20).
                      "conditions": [{"conditionThreshold": {
-                         "filter": 'metric.type="logging.googleapis.com/user/m" resource.type="global"'}}]}]}
+                         "filter": 'metric.type="logging.googleapis.com/user/m" resource.type="gce_route"',
+                         "comparison": "COMPARISON_GT", "duration": "0s"}}]}]}
         elif url.endswith("/notificationChannels"):
             if self.deny_channels or (self.partial_channels and kwargs.get("params", {}).get("pageToken")):
                 error = gcp.ReadError("denied", "PERMISSION_DENIED", http_status=403)
@@ -76,7 +80,8 @@ def collect(channels, *, deny_channels=False, partial_channels=False):
     channel_reads = [r for r in transport.requests if r[1].endswith("/notificationChannels")]
     assert channel_reads and channel_reads[0][0] == "GET"
     assert channel_reads[0][2]["params"]["fields"] == (
-        "notificationChannels(name,type,enabled,verificationStatus),nextPageToken")
+        # 16bb81e0 also reads labels, projected to a safe destination summary.
+        "notificationChannels(name,type,enabled,verificationStatus,labels),nextPageToken")
     return snapshot
 
 

@@ -9,6 +9,7 @@ import types
 
 import pytest
 from peaso.checks import gcp_positive_conservation_shared_source_successor_20261020 as bridge
+from peaso.checks import private_secret_shared_source_successor_20261021 as live
 from peaso import gcp_positive_conservation_source_admission_successor_20261020 as source
 
 ROOT = Path(bridge.__file__).resolve().parents[2]
@@ -62,43 +63,45 @@ def test_signed_source_artifact_corruption_rejected(sample, mutation):
 
 
 def test_repeated_historical_proof_reuses_fragments_but_rechecks_live_code(monkeypatch):
+    # The private successor proves the live initializer; this bridge is its canonical predecessor.
     counts = {}
     native_getsource = inspect.getsource
     def counted(fn):
-        if fn.__module__ == bridge.historical_bridge.__name__:
+        if fn.__module__ == live.historical_bridge.__name__:
             counts[fn.__qualname__] = counts.get(fn.__qualname__, 0) + 1
         return native_getsource(fn)
     monkeypatch.setattr(inspect, 'getsource', counted)
-    token = bridge._COMPILED_TRANSACTION.set(bridge._transaction_compiler())
+    token = live._COMPILED_TRANSACTION.set(live._transaction_compiler())
     try:
-        bridge._verify_bridge(ROOT)
+        live._verify_bridge(ROOT)
         first = counts.copy()
-        assert len(first) == len(bridge._FUNCTIONS)
+        assert len(first) == len(live._FUNCTIONS)
         assert set(first.values()) == {1}
-        bridge._verify_bridge(ROOT)
+        live._verify_bridge(ROOT)
         assert counts == first
-        function = bridge.historical_bridge.reviewed_delta
+        function = live.historical_bridge.reviewed_delta
         old = function.__defaults__
         try:
             function.__defaults__ = ('unreviewed',)
-            with pytest.raises(RuntimeError): bridge._verify_bridge(ROOT)
+            with pytest.raises(RuntimeError): live._verify_bridge(ROOT)
         finally:
             function.__defaults__ = old
     finally:
-        bridge._COMPILED_TRANSACTION.reset(token)
+        live._COMPILED_TRANSACTION.reset(token)
 
 @pytest.mark.parametrize('mutation', ['historical_carrier', 'historical_callable', 'current_carrier', 'own_code'])
 def test_real_bridge_binding_tampering_rejected(monkeypatch, mutation):
+    live._verify_bridge(ROOT)  # untampered live proof succeeds, so each rejection below is the mutation's
     if mutation == 'historical_carrier':
-        monkeypatch.setattr(bridge.historical_bridge, '_COMPILED_TRANSACTION', object())
+        monkeypatch.setattr(live.historical_bridge, '_COMPILED_TRANSACTION', object())
     elif mutation == 'historical_callable':
-        monkeypatch.setattr(bridge.historical_bridge, 'reviewed_delta', lambda: None)
+        monkeypatch.setattr(live.historical_bridge, 'reviewed_delta', lambda: None)
     elif mutation == 'current_carrier':
-        monkeypatch.setattr(bridge, '_COMPILED_TRANSACTION', object())
+        monkeypatch.setattr(live, '_COMPILED_TRANSACTION', object())
     else:
-        fn = bridge._check_function
+        fn = live._check_function
         monkeypatch.setattr(fn, '__code__', fn.__code__.replace(co_consts=fn.__code__.co_consts + ('unreviewed',)))
-    with pytest.raises(RuntimeError): bridge._verify_bridge(ROOT)
+    with pytest.raises(RuntimeError): live._verify_bridge(ROOT)
 
 
 def test_s3_transaction_releases_on_failure_and_restores_outer_context(monkeypatch):

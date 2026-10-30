@@ -340,7 +340,8 @@ def test_atomic_guard_native_cases_idempotent():
 def test_guard_rejects_executing_replacement(monkeypatch,tamper):
     fn={'consumer':consumer._evaluate,'parser':df.source.inspect_payload,'authorization':runtime.authorize_collector,'grant':runtime._Grant.__init__}[tamper]
     monkeypatch.setattr(fn,'__code__',(lambda *args,**kwargs:None).__code__)
-    with pytest.raises(RuntimeError):admission.reviewed_inputs()
+    # The private source epoch rejects a relocated callable with AdmissionError (a ValueError).
+    with pytest.raises((RuntimeError,ValueError)):admission.reviewed_inputs()
 
 
 def test_guards_package_only(monkeypatch):
@@ -422,26 +423,33 @@ def test_import_binding_guard_rejects_drift(monkeypatch,tamper):
 
 @pytest.mark.parametrize('collision',['metadata','evaluator','fixture'])
 def test_atomic_collision_keeps_both_controls(monkeypatch,collision):
-    monkeypatch.setattr(checks,'CHECKS',list(checks.CHECKS));monkeypatch.setattr(fixtures,'CASES',snapshot_cases(fixtures.CASES))
-    ident=runtime.CHECKS[1];position=next(i for i,c in enumerate(checks.CHECKS) if c.id==ident)
-    if collision=='metadata':checks.CHECKS[position]=replace(checks.CHECKS[position],severity='low')
-    if collision=='evaluator':checks.CHECKS[position]=replace(checks.CHECKS[position],evaluate=lambda *a:('PASS',{}))
-    if collision=='fixture':fixtures.CASES[ident]={'changed':True}
-    before=tuple(checks.CHECKS);previous=snapshot_cases(fixtures.CASES)
-    with pytest.raises(RuntimeError,match='collision'):admission.install()
-    assert tuple(checks.CHECKS)==before and fixtures.CASES==previous
+    monkeypatch.setattr(fixtures,'CASES',snapshot_cases(fixtures.CASES))
+    # Admitted helpers bind the registry list itself: change it in place, then restore it.
+    saved=list(checks.CHECKS)
+    try:
+        ident=runtime.CHECKS[1];position=next(i for i,c in enumerate(checks.CHECKS) if c.id==ident)
+        if collision=='metadata':checks.CHECKS[position]=replace(checks.CHECKS[position],severity='low')
+        if collision=='evaluator':checks.CHECKS[position]=replace(checks.CHECKS[position],evaluate=lambda *a:('PASS',{}))
+        if collision=='fixture':fixtures.CASES[ident]={'changed':True}
+        before=tuple(checks.CHECKS);previous=snapshot_cases(fixtures.CASES)
+        with pytest.raises(RuntimeError,match='collision'):admission.install()
+        assert tuple(checks.CHECKS)==before and fixtures.CASES==previous
+    finally:checks.CHECKS[:]=saved
 
 
 def test_atomic_second_registration_rolls_back_first(monkeypatch):
-    monkeypatch.setattr(checks,'CHECKS',[c for c in checks.CHECKS if c.id not in runtime.CHECKS])
     monkeypatch.setattr(fixtures,'CASES',{k:v for k,v in fixtures.CASES.items() if k not in runtime.CHECKS})
-    before=tuple(checks.CHECKS);previous=snapshot_cases(fixtures.CASES);original=checks.register
-    def register(ident,*args,**kwargs):
-        if ident==runtime.CHECKS[1]:raise RuntimeError('injected registration failure')
-        return original(ident,*args,**kwargs)
-    monkeypatch.setattr(checks,'register',register)
-    with pytest.raises(RuntimeError,match='injected'):admission.install()
-    assert tuple(checks.CHECKS)==before and fixtures.CASES==previous
+    # Admitted helpers bind the registry list itself: change it in place, then restore it.
+    saved=list(checks.CHECKS);checks.CHECKS[:]=[c for c in saved if c.id not in runtime.CHECKS]
+    try:
+        before=tuple(checks.CHECKS);previous=snapshot_cases(fixtures.CASES);original=checks.register
+        def register(ident,*args,**kwargs):
+            if ident==runtime.CHECKS[1]:raise RuntimeError('injected registration failure')
+            return original(ident,*args,**kwargs)
+        monkeypatch.setattr(checks,'register',register)
+        with pytest.raises(RuntimeError,match='injected'):admission.install()
+        assert tuple(checks.CHECKS)==before and fixtures.CASES==previous
+    finally:checks.CHECKS[:]=saved
 
 
 @pytest.mark.parametrize('hit',[False,True])

@@ -335,8 +335,11 @@ def test_real_dual_tools_native_service_configuration_and_reflection_privacy(ins
     if positive:
         leak, = evidence['secret_leaks']
         assert {d['engine'] for d in leak['detectors']} == {'kingfisher', 'trufflehog'}
-        assert '[redacted]' in json.dumps(row) and row.get('_coverage')
-    assert TOKEN not in json.dumps([snapshot, evidence, transport.evidence]) + repr(transport.cache) + repr(scanning._RESULTS) + str(capsys.readouterr())
+        # Found values stay visible (73706ae8) in the retained configuration.
+        assert TOKEN in json.dumps(row) and TOKEN in json.dumps(snapshot)
+    # Leak evidence carries fingerprints, and nothing is echoed to the console or result cache.
+    assert TOKEN not in json.dumps(evidence) + repr(scanning._RESULTS) + str(capsys.readouterr())
+    assert 'fake-token' not in json.dumps([snapshot, evidence, transport.evidence]) + repr(transport.cache)
     assert all(r.closed for r in responses)
 
 

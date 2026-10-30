@@ -311,6 +311,8 @@ def test_detected_value_repeated_in_names_and_freeform_metadata_is_redacted(inst
     row['description'] = 'Do not retain ' + TOKEN
     projected_row = projected(row)
     assert projected_row[projection.MARKER]['leaks']
-    assert TOKEN not in json.dumps(projected_row)
+    # Found values stay visible (73706ae8): the variable name keeps the detected value.
+    assert TOKEN in projected_row['serviceConfig']['environmentVariableNames']
+    # Free-text metadata is still not retained, independent of detection.
     assert 'description' not in projected_row
     assert projected_row['_coverage']['description'] == {'status': 'unknown', 'reason': 'free_text_not_retained'}
