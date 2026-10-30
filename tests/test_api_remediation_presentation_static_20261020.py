@@ -2,12 +2,19 @@
 import ast
 from copy import deepcopy
 from pathlib import Path
+import os
 import subprocess
 import sys
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# These children only need the native reference values, not source attestation. The shipped
+# default proves every pinned source once per process; conftest's repeat-every-proof mode
+# re-proves on each nested call during the cold peaso.checks import (minutes of CPU).
+NATIVE_ENV = {key: value for key, value in os.environ.items() if key != 'PEASO_SOURCE_ATTESTATION'}
+NATIVE_ENV['PEASO_SOURCE_ATTESTATION'] = 'once'
 
 
 def test_identity_command_and_exposure_functions_preserve_native_asts():
@@ -64,7 +71,7 @@ sys.meta_path.remove(guard)
 from peaso.checks import CHECKS
 assert len(CHECKS) > 4000
 '''
-    result = subprocess.run([sys.executable, '-c', script], cwd=ROOT, capture_output=True, text=True, timeout=90)
+    result = subprocess.run([sys.executable, '-c', script], cwd=ROOT, capture_output=True, text=True, timeout=90, env=NATIVE_ENV)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
