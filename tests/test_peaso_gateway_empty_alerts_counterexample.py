@@ -112,7 +112,7 @@ def test_public_collector_uses_normative_policy_and_readonly_alert_inventory(mon
             if path == GATEWAY:
                 return {'id': GATEWAY, 'name': 'gw', 'type': 'Microsoft.Network/applicationGateways', 'properties': {}}
             return {'value': []}
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport())
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport());monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: Transport())
     now = datetime.now(timezone.utc)
     review = {'status': 'collected', 'scope': SCOPE, 'checks': {GATEWAY_ID: owner(now)}}
     dependencies = next(c for c in CHECKS if c.id == GATEWAY_ID).dependencies

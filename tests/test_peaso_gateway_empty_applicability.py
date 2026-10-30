@@ -46,7 +46,7 @@ def test_public_empty_gateway_roster_is_not_applicable_despite_denied_alerts_and
             assert body is None
             if 'microsoft.insights' in path.casefold(): raise azure.AzureReadError('inert_forbidden', 403)
             return {'value': []}
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport())
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport());monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: Transport())
     check = next(c for c in CHECKS if c.id == GATEWAY_ID)
     snapshot = collect_live({'provider': 'azure', 'scopes': [SCOPE],
         'auth': {'method': 'token', 'arm_token': 'inert-fixture'}, 'options': {'retries': 0, 'concurrency': 1}}, check.dependencies)

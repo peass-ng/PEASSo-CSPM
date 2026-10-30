@@ -78,7 +78,7 @@ def test_service_diagnostic_effective_route(monkeypatch, service_kind, expected)
                 return {"value": []}
             raise AssertionError("unexpected endpoint: " + path)
 
-    monkeypatch.setattr(azure, "AzureTransport", lambda auth: Transport())
+    monkeypatch.setattr(azure, "AzureTransport", lambda auth: Transport());monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: Transport())
     auth = {"method": "token", "arm_token": "inert-fixture"}
     options = {"concurrency": 1, "retries": 1}
     validate_connector("azure", auth, options, SimpleNamespace(auth_mode="cognito"))

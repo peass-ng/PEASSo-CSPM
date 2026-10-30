@@ -148,10 +148,12 @@ def test_simple_arm_inventory_pages_and_partial(kind):
     second = {"id": ROOT + resource_type + "/second", "properties": {}}
     def pages(query):
         return {"value": [second]} if "page" in query else {"value": [first], "nextLink": azure.ARM + path + "?page=2"}
-    snapshot, _ = collect([kind], {path: pages})
+    # Full-GET kinds read each listed resource natively after the list page.
+    details = {row["id"]: row for row in (first, second)} if kind in azure.FULL_GET_KINDS else {}
+    snapshot, _ = collect([kind], {path: pages, **details})
     assert rows(snapshot, kind)["status"] == "collected"
     assert len(rows(snapshot, kind)["items"]) == 2
-    snapshot, _ = collect([kind], {path: lambda query: ReadError(403) if "page" in query else pages(query)})
+    snapshot, _ = collect([kind], {path: lambda query: ReadError(403) if "page" in query else pages(query), **details})
     assert rows(snapshot, kind)["status"] == "partial"
 
 

@@ -32,7 +32,7 @@ def test_key_selection_is_optional_and_explicit_inventory_is_respected():
 
 def test_exact_scan_selection_reaches_native_disabled_key_failure(monkeypatch):
     api = API('disabled', {})
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: api)
     snapshot = collect_snapshot(request())
     assert finding(snapshot)['status'] == 'FAIL'
     assert 'vault_key' in snapshot['metadata']['collection_plan']['requirements']
@@ -46,7 +46,7 @@ def test_denied_optional_key_does_not_mask_absent_vault_identity(monkeypatch):
             row['identity'] = {'type': 'None'}
             return row
     api = AbsentIdentity('denied', {})
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: api)
     snapshot = collect_snapshot(request())
     assert finding(snapshot)['status'] == 'FAIL'
     key = next(c for c in snapshot['collections'] if c['type'] == 'vault_key')

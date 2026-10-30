@@ -155,7 +155,7 @@ def test_public_collect_live_native_policy_to_signed_control_without_fake_permis
                     if mode == 'notify_only': actions = [{'action': {'type': 'Notify'}, 'trigger': {'timeBeforeExpiry': 'P30D'}}]
                     return {'id': NATIVE_KEY + '/rotationpolicy', 'lifetimeActions': actions}
             raise AssertionError('unexpected native API request: ' + path)
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport())
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport());monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: Transport())
     snapshot = collect_live({'provider': 'azure', 'scopes': [SCOPE],
         'auth': {'method': 'token', 'arm_token': 'inert-fixture'},
         'options': {'concurrency': 1, 'retries': 0, 'compliance_policy': {'sw16': {CONTROL: owner()}}}},

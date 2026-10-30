@@ -826,7 +826,7 @@ def test_adaptive_native_normal_route_reaches_registered_check(monkeypatch):
                             'networkSecurityGroups': [NSG]}]}}]}
             return {'value': []}
     transport = Transport()
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: transport)
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: transport);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: transport)
     assert KIND in sw.DEPENDENCIES[cid]
     snapshot = collect_live({'provider': 'azure', 'scopes': [SCOPE], 'options': {'retries': 0}},
                             sw.DEPENDENCIES[cid])
