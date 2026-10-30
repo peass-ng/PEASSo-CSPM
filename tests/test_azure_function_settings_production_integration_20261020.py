@@ -16,6 +16,7 @@ from peaso import checks,engine,secret_scanning
 from peaso.checks.fixtures import CASES
 from peaso.checks import azure_function_settings_runtime_admission_20261020 as admission
 from peaso.checks import azure_function_settings_runtime_consumer_20261020 as consumer
+from peaso.rawv2_private_source_successor_20261021 import install_admission
 from peaso.collectors import azure,azure_function_settings_declarations_20261020 as source
 from peaso.collectors import azure_function_settings_runtime_hooks_20261020 as hooks
 from peaso.server.validation import OPTIONS,validate_connector
@@ -40,14 +41,25 @@ def view(snapshot):
     return own['items'][0],{'context':{'provider':'azure','scope':native.SCOPE,'metadata':snapshot['metadata']},'collections':{source.KIND:[own]}}
 
 
+def _receipt_cases():
+    receipt=json.loads((Path(admission.__file__).parent/admission.RECEIPT).read_text())
+    return json.loads(Path(receipt['fixture']['path']).read_text())
+
+
 def test_actual_registered_successor_identity_cases_and_idempotent_install():
-    _,cases,declarations=admission.reviewed_inputs()
+    # The historical installer stays strict on the drifted Function proposal
+    # sources; production admits them only through the RawV2 successor.
+    with pytest.raises((RuntimeError,ValueError)):admission.reviewed_inputs()
+    install_admission('azure_function_settings_runtime_admission_20261020')
+    cases=_receipt_cases()
+    declarations=[(d,d['evaluate'])for d in consumer.PROPOSALS]
+    assert len(declarations)==2
     for d,function in declarations:
         current,=[c for c in checks.CHECKS if c.id==d['id']]
         assert inspect.unwrap(current.evaluate)is function and function.__module__==consumer.__name__
         assert CASES[d['id']]==cases[d['id']]
         assert cases[d['id']]['pass']['_provenance']['credential_context_id']==cases[d['id']]['pass_index']['context']['metadata']['credential_context_id']
-    before=tuple(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES);admission.install()
+    before=tuple(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES);install_admission('azure_function_settings_runtime_admission_20261020')
     assert tuple(checks.CHECKS)==before and case_state(CASES)==saved_state
 
 
@@ -220,7 +232,9 @@ def test_predecessor_sources_and_test_rosters_are_byte_preserved():
     assert original in saved and 'Only a test-local Check overlay'in saved[original]
     receipt=json.loads(Path('peaso/checks/azure_function_settings_runtime_admission_20261020.json').read_text())
     assert receipt['predecessor_runtime']['archive_sha256']==hashlib.sha256(archive.read_bytes()).hexdigest()
-    assert len(admission.reviewed_inputs()[2])==2
+    with pytest.raises((RuntimeError,ValueError)):admission.reviewed_inputs()
+    install_admission('azure_function_settings_runtime_admission_20261020')
+    assert len([c for c in checks.CHECKS if c.id in {d['id']for d in consumer.PROPOSALS}])==2
 
 
 @pytest.mark.parametrize('denied',[False,True])
