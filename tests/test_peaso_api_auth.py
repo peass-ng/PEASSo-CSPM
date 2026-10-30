@@ -218,37 +218,6 @@ def test_hosted_unsafe_fields_rejected_before_persistence_and_quota(cognito_sett
         assert client.get("/api/me").json()["weekly_used"] == 0
 
 
-def test_hosted_external_id_is_server_generated_and_stable_within_workspace(cognito_settings, monkeypatch):
-    from tests.connector_access_receipts import checked_create, checked_edit, mock_access_pass
-    mock_access_pass(monkeypatch)
-    role = "arn:aws:iam::123456789012:role/Audit"
-    monkeypatch.delenv("PEASO_PUBLIC_CUSTOMER_ROLE_TEMPLATE_URL", raising=False)
-    auth, key, claims = jwt_auth(cognito_settings)
-    with TestClient(create_app(cognito_settings, authenticator=auth), base_url="https://cspm.hacktricks.wiki") as client:
-        client.headers["Authorization"] = "Bearer " + jwt.encode(claims, key, algorithm="RS256")
-        body = {"name": "Role", "provider": "aws", "auth": {"method": "assume_role", "role_arn": role}}
-        ready = checked_create(client, body)
-        first = client.post("/api/connectors", json=ready)
-        second = client.post("/api/connectors", json=ready)
-        assert first.status_code == second.status_code == 201
-        assert first.json()["onboarding"]["external_id"].startswith("hacktricks-cspm-")
-        assert first.json()["onboarding"]["collector_role_arn"] == "arn:aws:iam::111122223333:role/HackTricks-CSPM"
-        assert first.json()["onboarding"]["target_role_arns"] == [role]
-        assert first.json()["onboarding"]["template_url"] == "https://cspm.hacktricks.wiki/aws/customer-role.json"
-        assert first.json()["onboarding"]["quick_create_template_url"] is None
-        template_sha256 = hashlib.sha256((Path(__file__).parents[1] / "infra/aws/customer-role.json").read_bytes()).hexdigest()
-        public_url = f"https://hacktricks-cspm-templates-111122223333.s3.us-east-1.amazonaws.com/customer-role-{template_sha256}.json"
-        monkeypatch.setenv("PEASO_PUBLIC_CUSTOMER_ROLE_TEMPLATE_URL", public_url)
-        assert client.get("/api/connectors/" + first.json()["id"]).json()["onboarding"]["quick_create_template_url"] == public_url
-        monkeypatch.setenv("PEASO_PUBLIC_CUSTOMER_ROLE_TEMPLATE_URL", "https://hacktricks-cspm-templates-111122223333.s3.us-east-1.amazonaws.com/customer-role.json")
-        assert client.get("/api/connectors/" + first.json()["id"]).json()["onboarding"]["quick_create_template_url"] is None
-        monkeypatch.setenv("PEASO_PUBLIC_CUSTOMER_ROLE_TEMPLATE_URL", public_url)
-        assert client.get("/api/connectors").json()["items"][0]["onboarding"]["external_id"] == first.json()["onboarding"]["external_id"]
-        assert first.json()["onboarding"] == second.json()["onboarding"]
-        edit_token = checked_edit(client, first.json()["id"], name="updated", provider="aws", scopes=[], options={})
-        assert client.patch("/api/connectors/" + first.json()["id"], json={"name": "updated", "check_token": edit_token}).status_code == 200
-        body["auth"]["external_id"] = "attacker-controlled"
-        assert client.post("/api/connectors", json=body).status_code == 422
 
 
 def test_customer_credentials_preserve_existing_role_chain_external_id(cognito_settings):

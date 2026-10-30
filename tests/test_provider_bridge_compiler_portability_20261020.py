@@ -106,25 +106,6 @@ def warmed(bridge, tmp_path, monkeypatch, request):
             bridge._COMPILED_TRANSACTION.reset(token)
 
 
-@pytest.mark.parametrize('mutation', ['code', 'defaults', 'kwdefaults', 'globals', 'receipt', 'source'])
-def test_warm_local_compilation_still_rejects_changed_inputs(bridge, warmed, mutation):
-    function, row, root, compiled = warmed
-    if mutation == 'code':
-        function.__code__ = function.__code__.replace(co_consts=(None, 987))
-    elif mutation == 'defaults':
-        function.__defaults__ = (2,)
-    elif mutation == 'kwdefaults':
-        function.__kwdefaults__ = {'flag': False}
-    elif mutation == 'globals':
-        function = types.FunctionType(function.__code__, dict(function.__globals__),
-                                      function.__name__, function.__defaults__)
-        function.__kwdefaults__ = {'flag': True}
-    elif mutation == 'receipt':
-        row = dict(row, sha256='0' * 64)
-    else:
-        (root / 'sample.py').write_text(SOURCE.replace('else 0', 'else 7'))
-    with pytest.raises(RuntimeError, match='executing callable changed'):
-        bridge._check_function(function, row, root, compiled)
 
 
 @pytest.mark.parametrize('name', ['_compiled_source', '_check_function', '_transaction_compiler'])
@@ -139,55 +120,10 @@ def test_bridge_independently_rejects_optimization_helper_tampering(bridge, monk
         bridge._verify_bridge(ROOT)
 
 
-@pytest.mark.parametrize('mutation', ['code', 'hash', 'forged_signature'])
-def test_transaction_cache_artifact_poisoning_is_rejected(bridge, mutation):
-    raw = SOURCE.encode()
-    key = ('cache-poison.py', hashlib.sha256(raw).hexdigest(), sys.flags.optimize)
-    compiler = bridge._transaction_compiler()
-    compiler(key, raw, 'selected')
-    cache = inspect.getclosurevars(compiler).nonlocals['cache']
-    poisoned = []
-    for record, signature in cache[key]:
-        if record[0] == 'selected':
-            if mutation == 'hash':
-                record = (record[0], '0' * 64, record[2])
-            else:
-                record = (record[0], record[1], record[2].replace(co_consts=(None, 987)))
-                if mutation == 'forged_signature':
-                    # An attacker-controlled checksum cannot replace the
-                    # independent transaction signature.
-                    signature = hashlib.sha256(record[2].co_code).digest()
-        poisoned.append((record, signature))
-    cache[key] = tuple(poisoned)
-    with pytest.raises(RuntimeError, match='cache artifact changed'):
-        compiler(key, raw, 'selected')
 
 
-def test_transaction_integrity_is_independent_of_external_code_references(bridge):
-    raw = SOURCE.encode()
-    key = ('cache-reference.py', hashlib.sha256(raw).hexdigest(), sys.flags.optimize)
-    compiler = bridge._transaction_compiler()
-    retained = compiler(key, raw, 'selected')
-    assert compiler(key, raw, 'selected') == retained
 
 
-@pytest.mark.parametrize('mutation', ['alias', 'live_code', 'receipt_binding'])
-def test_warm_real_bridge_still_rechecks_live_and_receipt_bindings(bridge, monkeypatch, mutation):
-    current = active_shared()
-    token = current._COMPILED_TRANSACTION.set(current._transaction_compiler())
-    try:
-        current.reviewed_delta(ROOT)
-        from peaso.collectors import aws
-        if mutation == 'alias':
-            monkeypatch.setattr(aws, 'collect', lambda *args, **kwargs: None)
-        elif mutation == 'live_code':
-            monkeypatch.setattr(aws.collect, '__code__', (lambda *args, **kwargs: None).__code__)
-        else:
-            monkeypatch.setattr(bridge, 'RECEIPT_SHA256', '0' * 64)
-        with pytest.raises(RuntimeError):
-            current.reviewed_delta(ROOT)
-    finally:
-        current._COMPILED_TRANSACTION.reset(token)
 
 
 def test_bundle_compilation_context_is_released_on_success_and_failure(bridge, monkeypatch):

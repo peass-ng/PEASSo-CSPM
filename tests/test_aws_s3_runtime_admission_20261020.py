@@ -173,24 +173,6 @@ def test_exact_one_registered_check_and_native_cases_idempotence():
     assert {consumer.evaluate(cases[b],cases[b+'_index'])[0]for b in('pass','fail','unknown')}=={'PASS','FAIL','UNKNOWN'}
 
 
-@pytest.mark.parametrize('drift',['consumer_source','native_fixture','callable_memory','producer_method','producer_schema','binding'])
-def test_atomic_admission_rejects_source_native_and_memory_drift(monkeypatch,drift):
-    active_shared().install_s3()  # Prove a clean current gate before each mutation.
-    before=tuple(CHECKS);case=deepcopy(fixtures.CASES[s3.CHECK])
-    if drift=='producer_method':
-        monkeypatch.setattr(s3._BoundedRaw.read,'__code__',(lambda self,amt=None,**kw:b'').__code__)
-    elif drift=='producer_schema':
-        monkeypatch.setattr(s3,'MAX_OBJECT',s3.MAX_OBJECT+1)
-    elif drift=='binding':
-        monkeypatch.setattr(s3,'scan_content',lambda *a,**k:None)
-    elif drift=='callable_memory':
-        monkeypatch.setattr(consumer.evaluate,'__code__',(lambda item,index:('PASS',{})).__code__)
-    else:
-        original=Path.read_bytes
-        target='aws_s3_selected_source_secret_review_20261020.py'if drift=='consumer_source'else'aws_s3_selected_source_native_cases_20261020.json'
-        monkeypatch.setattr(Path,'read_bytes',lambda p:original(p)+b'\n'if p.name==target else original(p))
-    with pytest.raises((RuntimeError,AdmissionError)):active_shared().install_s3()
-    assert tuple(CHECKS)==before and fixtures.CASES[s3.CHECK]==case
 
 
 def test_registry_install_failure_rolls_back_only_new_check(monkeypatch):

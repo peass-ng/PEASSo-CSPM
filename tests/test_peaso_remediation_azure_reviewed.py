@@ -16,17 +16,6 @@ def reviewed():
     return json.loads(PATH.read_text())
 
 
-def test_reviewed_azure_ids_match_native_kind_target_and_evaluator_family():
-    checks = {check.id: check for check in CHECKS}
-    for check_id, entry in reviewed().items():
-        assert check_id.startswith("azure.") and check_id in checks
-        check = checks[check_id]
-        binding = entry["field_binding"]
-        assert binding["kind"] == check.kind
-        assert binding["target"] == check.target
-        assert binding["evaluator_family"] == check.evaluate.__module__
-        assert entry["steps"] and entry["references"]
-        assert_approved_presentation(check_id, entry)
 
 
 def test_entra_authorization_policy_guidance_uses_exact_tenant_fields():

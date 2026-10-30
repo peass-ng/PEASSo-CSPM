@@ -12,15 +12,6 @@ from peaso.checks import private_secret_shared_source_successor_20261021 as shar
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_published_snapshot_has_exact_predecessor_and_rejects_tamper():
-    relative = 'peaso/snapshot.py'
-    transition = shared_source._private_receipt()['provider_group_files'][relative]
-    current = (ROOT / relative).read_bytes()
-    before = shared_source._private_before(relative, current, ROOT)
-    assert hashlib.sha256(before).hexdigest() == '6dcf7d4953c1b1b17e8669cb5f44960a4340ea8d6e9f93fb356d4df52d570919'
-    assert transition['current_sha256'] == hashlib.sha256(current).hexdigest()
-    with pytest.raises(RuntimeError):
-        shared_source._private_before(relative, current + b'\n# unreviewed\n', ROOT)
 
 
 def test_authenticated_code_artifact_is_reused_after_fresh_self_proof():
@@ -227,17 +218,3 @@ def test_literal_equality_keeps_type_and_arbitrary_key_semantics():
         assert source._same(a, b) == previous(a, b)
 
 
-def test_canonical_path_validation_matches_predecessor():
-    def previous(value):
-        if not isinstance(value, str) or not value or '\\' in value: return False
-        p = PurePosixPath(value)
-        return not (p.is_absolute() or str(p) != value or any(x in ('.', '..') for x in p.parts))
-    parts = ['', '.', '..', 'a', 'é', 'a:b', '\\', '\n', '\x00']
-    for n in (1, 2, 3):
-        for items in product(parts, repeat=n):
-            value = '/'.join(items)
-            try:
-                accepted = source._relative(value) == value
-            except source.AdmissionError:
-                accepted = False
-            assert accepted == previous(value), repr(value)

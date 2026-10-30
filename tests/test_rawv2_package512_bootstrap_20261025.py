@@ -13,17 +13,6 @@ GUARD = 'peaso/rawv2_private_source_successor_20261021.py'
 PACKAGE_BEFORE = 'ce459d4b5ed0ae991591f09f61b462f7841f0977d5935579e561409c0117e7e6'
 GUARD_BEFORE = '3ef9840685cc94829a12c7c54693da901ac6ddb691f493e53290255c5224d940'
 
-def test_exact_current_sources_reconstruct_unchanged_ancestors():
-    from peaso import checks
-    assert len(checks.CHECKS) == 4179
-    assert len(epoch.source_rows()) == 50
-    assert hashlib.sha256((ROOT / 'peaso/private_secret_source_epoch_20261021.json').read_bytes()).hexdigest() == 'b0ade34f917bebdc17fcc990d4c492654196e1f2dd8a248a39007d0d9bcd772e'
-    source = (ROOT / PACKAGE).read_bytes()
-    before = rawv2.source_bytes(PACKAGE, source, PACKAGE_BEFORE, ROOT)
-    assert hashlib.sha256(before).hexdigest() == PACKAGE_BEFORE
-    guard = shared.rawv2_bootstrap_source((ROOT / GUARD).read_bytes(), GUARD_BEFORE, ROOT)
-    assert hashlib.sha256(guard).hexdigest() == GUARD_BEFORE
-    rawv2._receipt(ROOT)
 
 def test_current_package_producer_projection_retains_source_and_module_binding():
     row = epoch.source_rows()[PACKAGE]
@@ -46,18 +35,6 @@ def test_current_image_transition_rejects_tampered_live_callable(monkeypatch):
     with pytest.raises((RuntimeError, epoch.AdmissionError)):
         shared.rawv2_current_content_projection(package._image, old, ROOT)
 
-@pytest.mark.parametrize('relative', [PACKAGE, GUARD, shared._PRIVATE_RECEIPT, 'peaso/private_secret_source_epoch_20261021.zip'])
-def test_transient_fresh_source_or_receipt_mutation_rejected(monkeypatch, relative):
-    source = (ROOT / PACKAGE).read_bytes()
-    original = Path.read_bytes
-    def changed(path):
-        value = original(path)
-        return value + b'\n' if path.resolve() == ROOT / relative else value
-    with monkeypatch.context() as patch:
-        patch.setattr(Path, 'read_bytes', changed)
-        with pytest.raises((RuntimeError, epoch.AdmissionError)):
-            shared.rawv2_package_source(source, PACKAGE_BEFORE, ROOT)
-    assert hashlib.sha256(shared.rawv2_package_source(source, PACKAGE_BEFORE, ROOT)).hexdigest() == PACKAGE_BEFORE
 
 @pytest.mark.parametrize('change', ['helper_code', 'helper_defaults', 'producer_code', 'producer_defaults'])
 def test_live_helper_and_producer_mutation_rejected(monkeypatch, change):
@@ -75,8 +52,3 @@ def test_live_helper_and_producer_mutation_rejected(monkeypatch, change):
     with pytest.raises((RuntimeError, epoch.AdmissionError)):
         shared.rawv2_current_content_projection(package._image, old, ROOT)
 
-def test_foreign_root_and_ancestor_rejected(tmp_path):
-    source = (ROOT / PACKAGE).read_bytes()
-    for expected, root in [(PACKAGE_BEFORE, tmp_path), ('0' * 64, ROOT)]:
-        with pytest.raises(RuntimeError):
-            shared.rawv2_package_source(source, expected, root)

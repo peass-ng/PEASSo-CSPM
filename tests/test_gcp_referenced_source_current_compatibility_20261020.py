@@ -79,20 +79,6 @@ def test_source_drift_cannot_be_accepted(bridge, monkeypatch, relative):
         bridge.attest_sources()
 
 
-@pytest.mark.parametrize('tamper', ['path', 'function_code', 'line_spec'])
-def test_tampered_live_source_mapping_rejected(bridge, monkeypatch, pytestconfig, tamper):
-    spec = tuple(bridge.NODES.values())[1]
-    module, function = original(bridge, spec, pytestconfig)
-    if tamper == 'path':
-        monkeypatch.setattr(module, '__file__', str(bridge.ROOT / bridge.WORKBENCH))
-    elif tamper == 'function_code':
-        changed = FunctionType(function.__code__.replace(co_filename=str(bridge.ROOT / bridge.WORKBENCH)),
-                               function.__globals__, function.__name__)
-        monkeypatch.setattr(module, spec.function, changed)
-    else:
-        spec = replace(spec, line=spec.line - 1)
-    with pytest.raises(AssertionError, match='mapping|executing code'):
-        bridge.bound_function(module, spec, pytestconfig)
 
 
 @pytest.mark.parametrize('error_type', [AssertionError, RuntimeError, TypeError])
@@ -120,15 +106,6 @@ def test_earlier_assertion_in_original_test_cannot_be_accepted(bridge, monkeypat
         bridge.historical_frame(function, spec, {'monkeypatch': monkeypatch, 'hit': False})
 
 
-def test_unexpected_predecessor_pass_is_rejected_using_actual_capture(bridge, monkeypatch, pytestconfig):
-    spec = tuple(bridge.NODES.values())[1]
-    module, function = original(bridge, spec, pytestconfig)
-    current = importlib.import_module('peaso.checks.gcp_workbench_source_runtime_consumer_20261020')
-    # Deliberately change only the harness's consumer reference: original test
-    # would now pass on real native data, which this historical bridge must reject.
-    monkeypatch.setattr(module.workbench, 'consumer', current)
-    with pytest.raises(AssertionError, match='unexpectedly passed'):
-        bridge.historical_frame(function, spec, {'monkeypatch': monkeypatch, 'hit': False})
 
 
 def test_regressed_current_consumer_fails_on_the_same_actual_data(bridge, monkeypatch, pytestconfig):

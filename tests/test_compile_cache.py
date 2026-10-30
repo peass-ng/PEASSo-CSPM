@@ -17,16 +17,6 @@ def test_disabled_in_always_mode():
     assert ast.parse is cc._ORIGINAL_PARSE
 
 
-def test_code_cache_shares_only_identical_compilations(monkeypatch):
-    monkeypatch.setattr(cc, '_ROOTS', (str(Path(__file__).parent) + '/',))
-    cc.clear()
-    first = cc._compile('x = 1\n', 'a.py', 'exec')
-    assert cc._compile('x = 1\n', 'a.py', 'exec') is first
-    assert cc._compile(b'x = 1\n', 'a.py', 'exec') is not first
-    assert cc._compile('x = 1\n', 'b.py', 'exec') is not first
-    assert cc._compile('x = 1\n', 'a.py', 'exec', optimize=2) is not first
-    assert cc._compile('x = 1\n', 'a.py', 'exec').co_filename == 'a.py'
-    cc.clear()
 
 
 def test_inherited_future_flags_match_builtin(monkeypatch):

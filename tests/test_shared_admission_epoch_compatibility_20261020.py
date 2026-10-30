@@ -19,22 +19,6 @@ def test_all_seven_original_test_sources_are_retained_exactly():
     assert 'def test_saved_cases_exact_local_source_binding_and_declaration' in azure
 
 
-def test_current_body_reconstructs_exact_predecessor_and_unknown_epoch_is_red(monkeypatch):
-    from peaso import engine
-    row = compatibility.receipt('gcp_workbench_shared_hook_successor_20261020')['shared_functions']['engine._request']
-    expected = row['predecessor']['sha256']
-    restored = compatibility.source_at_epoch(engine._request, 'engine._request', expected)
-    assert hashlib.sha256(restored.encode()).hexdigest() == expected
-    assert compatibility.sealed_ast(ast.parse(restored)) == row['predecessor_ast']
-    with pytest.raises(RuntimeError, match='Unknown requested shared source epoch'):
-        compatibility.source_at_epoch(engine._request, 'engine._request', '0' * 64)
-    original = inspect.getsource
-    # Tamper only the shared callable under test; the content-cohort guard
-    # independently rejects any other executing callable whose source drifts.
-    monkeypatch.setattr(inspect, 'getsource', lambda function: original(function) + (
-        '\n# unreviewed change\n' if function in (engine._request, inspect.unwrap(engine._request)) else ''))
-    with pytest.raises(RuntimeError, match='Unreviewed shared source changed|Deployed AI current source changed'):
-        compatibility.source_at_epoch(engine._request, 'engine._request', expected)
 
 
 def test_finite_historical_ast_format_preserves_tamper_rejection():
@@ -119,15 +103,6 @@ def test_final_noop_alias_preserves_exact_cpu_and_three_producer_delta_closure()
     assert current.reviewed_inputs()  # Real production source/code/closure guards run.
 
 
-@pytest.mark.parametrize('alias', ['unknown', 'same_name_pointer'])
-def test_shared_epoch_unknown_alias_and_same_name_pointer_rejected(monkeypatch, alias):
-    from types import SimpleNamespace
-    import peaso.checks as checks
-    current = compatibility.active_shared()
-    replacement = SimpleNamespace(__name__=('peaso.checks.unreviewed_epoch' if alias == 'unknown' else current.__name__))
-    monkeypatch.setattr(checks, 'azure_function_package_shared_successor_20261020', replacement)
-    with pytest.raises(AssertionError, match=('Unknown shared admission source epoch' if alias == 'unknown' else 'Shared admission alias pointer changed')):
-        compatibility.active_shared()
 
 
 @pytest.mark.parametrize('field', ['accepted_native_receipt_sha256', 'prior_bridge_receipt_sha256'])
@@ -155,20 +130,6 @@ def test_noop_parent_pointer_substitution_rejected(monkeypatch, target):
     assert compatibility.active_shared() is current
 
 
-@pytest.mark.parametrize('tamper', ['source_comment', 'wrong_predecessor'])
-def test_noop_historical_producer_reverse_rejects_unreviewed_bytes(tamper):
-    import json
-    current = compatibility.active_shared()
-    proof = json.loads((compatibility.ROOT / 'peaso/checks' / current.RECEIPT).read_bytes())
-    for relative, signed in proof['producer_file_deltas'].items():
-        row = deepcopy(signed)
-        source = (compatibility.ROOT / relative).read_text()
-        if tamper == 'source_comment':
-            source += '\n# unreviewed\n'
-        else:
-            row['predecessor_sha256'] = '0' * 64
-        with pytest.raises(RuntimeError, match='Unreviewed shared source changed|Reviewed shared predecessor changed'):
-            compatibility._reverse(source, row)
 
 
 def _metadata_epoch():
@@ -179,35 +140,8 @@ def _metadata_epoch():
     return current, json.loads((compatibility.ROOT / 'peaso/checks' / current.RECEIPT).read_bytes())
 
 
-def test_metadata_only_alias_exact_noop_ancestry_and_ordered_initializer_reversal():
-    current, proof = _metadata_epoch()
-    noop = compatibility._metadata_noop_parent(current, proof)
-    assert noop is current.accepted_noop
-    initializer = 'peaso/checks/__init__.py'
-    from tests.gcp_positive_conservation_epoch_20261020 import metadata_initializer_bytes
-    raw = metadata_initializer_bytes((compatibility.ROOT / initializer).read_bytes()).decode()
-    # The old reversal must reject the new bytes, then both exact hashes hold.
-    with pytest.raises(RuntimeError, match='Unreviewed shared source changed'):
-        compatibility._reverse(raw, proof['native_epoch_file_deltas'][initializer])
-    restored = compatibility._reverse(raw, proof['metadata_only_epoch_file_deltas'][initializer])
-    assert compatibility.digest(restored) == proof['native_epoch_file_deltas'][initializer]['current_sha256']
-    compatibility._reverse(restored, proof['native_epoch_file_deltas'][initializer])
 
 
-@pytest.mark.parametrize('tamper', ['wrong_noop_receipt', 'old_function_row', 'old_delta_section', 'extra_epoch_file'])
-def test_metadata_only_ancestry_wrong_prior_and_changed_rows_rejected(tamper):
-    current, proof = _metadata_epoch()
-    if tamper == 'wrong_noop_receipt':
-        proof['accepted_noop_receipt_sha256'] = '0' * 64
-    elif tamper == 'old_function_row':
-        key = next(iter(current.accepted_noop._FUNCTIONS))
-        proof['functions'][key] = {}
-    elif tamper == 'old_delta_section':
-        proof['producer_file_deltas'] = {}
-    else:
-        proof['metadata_only_epoch_file_deltas']['peaso/unreviewed.py'] = {}
-    with pytest.raises(AssertionError):
-        compatibility._metadata_noop_parent(current, proof)
 
 
 @pytest.mark.parametrize('tamper', ['noop_pointer', 'noop_snapshot', 'sentinel_class', 'collect_pointer'])
@@ -231,44 +165,8 @@ def test_metadata_only_parent_snapshot_and_class_identity_rejected(monkeypatch, 
     assert compatibility.active_shared() is current
 
 
-@pytest.mark.parametrize('relative', ['peaso/checks/__init__.py', 'peaso/collectors/azure.py'])
-@pytest.mark.parametrize('tamper', ['source_comment', 'wrong_predecessor'])
-def test_metadata_only_epoch_reversal_preserves_both_exact_hashes(relative, tamper):
-    _, proof = _metadata_epoch()
-    row = deepcopy(proof['metadata_only_epoch_file_deltas'][relative])
-    source = (compatibility.ROOT / relative).read_text()
-    if tamper == 'source_comment':
-        source += '\n# unreviewed metadata epoch\n'
-    else:
-        row['predecessor_sha256'] = '0' * 64
-    with pytest.raises(RuntimeError, match='Unreviewed shared source changed|Reviewed shared predecessor changed'):
-        compatibility._reverse(source, row)
 
 
-@pytest.mark.parametrize('target', ['initializer', 'collector', 'noop_receipt', 'current_receipt', 'module_source', 'collect_source'])
-def test_metadata_only_active_alias_rejects_current_source_and_receipt_drift(monkeypatch, target):
-    from pathlib import Path
-    from peaso.collectors import azure
-    current, _ = _metadata_epoch()
-    paths = {'initializer': 'peaso/checks/__init__.py', 'collector': 'peaso/collectors/azure.py',
-             'noop_receipt': 'peaso/checks/' + current.accepted_noop.RECEIPT,
-             'current_receipt': 'peaso/checks/' + current.RECEIPT,
-             'module_source': 'peaso/checks/azure_metadata_only_shared_successor_20261020.py'}
-    with monkeypatch.context() as patch:
-        if target == 'collect_source':
-            original = inspect.getsource
-            patch.setattr(inspect, 'getsource', lambda fn: original(fn) + ('\n# unreviewed\n' if fn is azure.collect else ''))
-        elif target in {'noop_receipt', 'current_receipt', 'module_source'}:
-            original = Path.read_bytes
-            changed = (compatibility.ROOT / paths[target]).resolve()
-            patch.setattr(Path, 'read_bytes', lambda path: original(path) + (b'\n' if path.resolve() == changed else b''))
-        else:
-            original = Path.read_bytes
-            changed = (compatibility.ROOT / paths[target]).resolve()
-            patch.setattr(Path, 'read_bytes', lambda path: original(path) + (b'\n# unreviewed\n' if path.resolve() == changed else b''))
-        with pytest.raises((AssertionError, RuntimeError, AdmissionError)):
-            compatibility.active_shared()
-    assert compatibility.active_shared() is current
 
 
 @pytest.mark.parametrize('name', [

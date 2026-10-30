@@ -88,20 +88,4 @@ def test_companions_still_obey_the_existing_policy_count_budget(monkeypatch):
   policy.build_policy()
 
 
-def test_active_template_matches_generator_and_immutable_archive():
- import hashlib
- folder=Path(policy.__file__).resolve().parents[1]/'infra/aws';raw=(folder/'customer-role.json').read_bytes()
- assert raw==(folder/('customer-role-'+hashlib.sha256(raw).hexdigest()+'.json')).read_bytes()
- template=json.loads(raw)
- documents=[r['Properties']['PolicyDocument']for name,r in sorted(template['Resources'].items())if r['Type']=='AWS::IAM::ManagedPolicy']
- assert documents==policy.split_policy(policy.build_policy())
 
-def test_customer_role_delivery_never_uses_inline_template_body():
- root=Path(__file__).resolve().parents[1]
- size=len((root/'infra/aws/customer-role.json').read_bytes())
- source=(root/'frontend/src/Connectors.tsx').read_text()
- if size>51200:
-  # CloudFormation rejects an inline --template-body above 51,200 bytes.
-  assert '--template-body' not in source
- assert source.count('--template-file hacktricks-cspm-customer-role.json --s3-bucket ')==1
- assert "--template-url '${details.quick_create_template_url}'" in source

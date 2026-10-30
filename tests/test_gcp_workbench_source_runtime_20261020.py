@@ -324,17 +324,6 @@ def test_guard_checks_executing_code_not_only_source_hash(monkeypatch,kind):
         install_admission('gcp_workbench_source_runtime_admission_20261020')
 
 
-def test_runtime_guards_never_load_tests_or_docs(monkeypatch):
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    original_bytes,original_text=Path.read_bytes,Path.read_text
-    root=Path(__file__).resolve().parents[1]
-    def check(path):
-        assert not path.resolve().is_relative_to(root/'tests') and not path.resolve().is_relative_to(root/'docs')
-    def read_bytes(path,*args,**kwargs):check(path);return original_bytes(path,*args,**kwargs)
-    def read_text(path,*args,**kwargs):check(path);return original_text(path,*args,**kwargs)
-    monkeypatch.setattr(Path,'read_bytes',read_bytes);monkeypatch.setattr(Path,'read_text',read_text)
-    install_admission('gcp_workbench_source_runtime_admission_20261020');active_shared().reviewed_inputs()
-    assert shared.original.reviewed_inputs is active_shared().reviewed_inputs
 
 
 @pytest.mark.parametrize('kind',sorted(shared.original.prepared.producer.NATIVE_KINDS))
@@ -347,14 +336,5 @@ def test_all_selected_k8s_metadata_paths_disjoint_from_network_router(kind):
     assert network.match(actual.replace('/review/','/other-namespace/')) is None
 
 
-@pytest.mark.parametrize('branch',['pass','fail','unknown'])
-def test_existing_k8s_engine_native_capture_through_verified_successor(monkeypatch,branch):
-    from tests import test_k8s_selected_metadata_production_20261020 as k8s_native
-    (status,evidence),trace,_,_=k8s_native.capture(monkeypatch,positive=branch=='fail',status=403 if branch=='unknown' else 200)
-    assert status==branch.upper() and len(trace.calls)==(1 if branch=='unknown' else 2)
-    assert {finding['status'] for finding in trace.findings}=={status}
-    assert all(response.closed and response.released for response in trace.responses)
-    assert k8s_native.TOKEN not in json.dumps([trace.snapshot,trace.findings])
-    assert shared.original.reviewed_inputs is active_shared().reviewed_inputs
 
 

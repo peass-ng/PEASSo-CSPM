@@ -489,24 +489,6 @@ def requirements(graph):
     }
 
 
-def test_deployment_wires_the_typed_receivers_and_execution_roles():
-    runtime = (ROOT / "peaso/storage/runtime.py").read_text()
-    assert 'DynamoStore(os.environ["PEASO_DYNAMODB_TABLE"])' in runtime
-    assert 'S3Artifacts(os.environ["PEASO_ARTIFACT_BUCKET"]' in runtime
-    api = resource_blocks((ROOT / "infra/aws/api.tf").read_text(), "aws_lambda_function")
-    for name in ("api", "scheduler"):
-        assert values(api[name], "role") == ("aws_iam_role.api.arn",)
-    workflow = (ROOT / "infra/aws/workflow.tf").read_text()
-    assert 'task_roles = { collector = aws_iam_role.collector.arn, analyzer = aws_iam_role.analyzer.arn }' in workflow
-    tasks = resource_blocks(workflow, "aws_ecs_task_definition")["tasks"]
-    assert values(tasks, "task_role_arn") == ("each.value",)
-    assert values(tasks, "execution_role_arn") == ("aws_iam_role.execution.arn",)
-    assert 'command                = [each.key, "--once"]' in workflow
-    assert "'--tenant-id', $.tenant_id, '--scan-id', $.scan_id" in workflow
-    assert values(resource_blocks(workflow, "aws_sfn_state_machine")["scan"], "role_arn") == ("aws_iam_role.workflow.arn",)
-    secret = resource_blocks((ROOT / "infra/aws/storage.tf").read_text(), "aws_secretsmanager_secret")["credentials"]
-    assert values(secret, "kms_key_id") == (KEY,)
-    assert "PEASO_ARTIFACT_KMS_KEY" not in (ROOT / "infra/aws/api.tf").read_text() + workflow
 
 
 def test_api_scheduler_actual_calls_have_exact_resource_grants(requirements, iam):

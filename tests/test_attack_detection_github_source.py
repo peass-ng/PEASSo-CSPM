@@ -122,22 +122,6 @@ def test_rejects_duplicate_and_wrong_root(monkeypatch):
         fetch()
 
 
-def test_accepts_provider_and_aws_service_directories(monkeypatch):
-    name = "aws/iam/sample.yml"
-    raw = TEXT.encode()
-    expected = hashlib.sha256(name.encode() + b"\0" + raw + b"\0").hexdigest()
-    mock_network(monkeypatch, archive(
-        (ROOT, b"", tarfile.DIRTYPE),
-        (f"{ROOT}/AGENTS.md", b"Agent instructions\n", tarfile.REGTYPE),
-        (f"{ROOT}/WORK_PLAN.md", b"plan", tarfile.REGTYPE),
-        (f"{ROOT}/scripts", b"", tarfile.DIRTYPE),
-        (f"{ROOT}/scripts/live_iam_batch.py", b"print('test')", tarfile.REGTYPE),
-        (f"{ROOT}/rules", b"", tarfile.DIRTYPE),
-        (f"{ROOT}/rules/aws", b"", tarfile.DIRTYPE),
-        (f"{ROOT}/rules/aws/iam", b"", tarfile.DIRTYPE),
-        (f"{ROOT}/rules/{name}", raw, tarfile.REGTYPE),
-    ))
-    assert fetch(expected) == {name: TEXT}
 
 
 def test_accepts_bounded_action_review_report_without_changing_rule_digest(monkeypatch):

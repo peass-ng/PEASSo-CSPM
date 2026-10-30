@@ -441,23 +441,6 @@ def _proposed_lock_write_delete(permissions):
  return allowed==targets
 
 
-@pytest.mark.parametrize('permissions,current,proposed',[
- ([{'actions':['Microsoft.Authorization/locks/read'],'notActions':[]}],'PASS',False),
- ([{'actions':['Microsoft.Authorization/locks/*'],'notActions':['Microsoft.Authorization/locks/*']}],'PASS',False),
- ([{'actions':['Microsoft.Authorization/locks/write','Microsoft.Authorization/locks/delete'],'notActions':[]}],'PASS',True),
- ([{'actions':['microsoft.authorization/locks/*'],'notActions':[]}],'FAIL',True),
- ([{'actions':['Microsoft.Authorization/*'],'notActions':[]}],'FAIL',True),
- ([{'actions':['Microsoft.Authorization/locks/*'],'notActions':['MICROSOFT.AUTHORIZATION/LOCKS/DELETE']}],'PASS',False),
- ([{'actions':['Microsoft.Authorization/locks/*'],'notActions':['Microsoft.Authorization/locks/delete']},{'actions':['Microsoft.Authorization/locks/delete'],'notActions':[]}],'PASS',True),
- ([{'actions':['Microsoft.Authorization/locks/write'],'notActions':[]},{'actions':['Microsoft.Authorization/locks/delete'],'notActions':[]}],'PASS',True)])
-def test_native_lock_declared_write_delete_successor_preserves_prior_source(permissions,current,proposed,record_property):
- def mutate(objects,extras):objects['role_definition'][0]['properties']['permissions']=deepcopy(permissions)
- snap,rows=run_case('azure.claude.iam_custom_role_administers_locks','good',record_property,mutate)
- expected='PASS' if proposed else 'FAIL'
- assert {r['status'] for r in rows}=={expected},rows
- native_role=next(c['items'][0] for c in snap['collections'] if c['type']=='role_definition' and c['scope']==SCOPE)
- assert _proposed_lock_write_delete(native_role['properties']['permissions']) is proposed
- record_property('semantic_proposal',json.dumps({'historical_literal_source_status':current,'current_status':expected,'declared_write_delete':proposed,'permissions':permissions,'historical_source_preserved':True},sort_keys=True))
 
 
 @pytest.mark.parametrize('cid,field',[

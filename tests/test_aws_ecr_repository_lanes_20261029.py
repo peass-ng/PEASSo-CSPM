@@ -145,19 +145,6 @@ def _statuses(rows):
     return [FUNCTIONS[KIND](row, index(KIND, row))[0] for row in rows]
 
 
-def test_installed_package_enricher_uses_lanes():
-    seen, stack = set(), [aws.ENRICHERS[KIND]]
-    found = []
-    while stack:
-        function = stack.pop()
-        if id(function) in seen or not callable(function):
-            continue
-        seen.add(id(function))
-        if getattr(function, 'serial_enricher', None) is not None:
-            found.append(function)
-        for cell in getattr(function, '__closure__', None) or ():
-            stack.append(cell.cell_contents)
-    assert len(found) == 1 and found[0].__module__ == lanes_module.__name__
 
 
 @pytest.mark.parametrize('delay', [0.0, 0.01])

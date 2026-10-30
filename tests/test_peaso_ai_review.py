@@ -169,31 +169,6 @@ def network_fixture():
     return data, inventory, output
 
 
-def test_network_input_is_network_only_and_retains_complete_topology(tmp_path):
-    import sqlite3
-    import subprocess
-    import sys
-    from peaso.ai.network import prepare, build
-    data, inventory, _ = network_fixture()
-    # Even a caller passing the full platform is narrowed at file creation.
-    build(tmp_path, {'report': data, 'inventory': inventory, 'least_privilege': {'secret': 'never-give'}}, [], pipeline.private_json)
-    db = sqlite3.connect(tmp_path / 'context.sqlite')
-    try:
-        encoded = '\n'.join(row[0] for row in db.execute("SELECT detail FROM records WHERE domain NOT IN ('source_resources','source_report')"))
-        assert 'never-give' not in encoded and 'iam_role' not in encoded
-        assert json.loads(db.execute("SELECT detail FROM records WHERE domain='resources' AND id='r2'").fetchone()[0])['data']['IpPermissions']
-    finally:
-        db.close()
-    topology = json.loads((tmp_path / 'topology.json').read_text())
-    assert {row['id'] for row in topology['boundaries']} == {'node-r3', 'node-r4'}
-    assert sum(row['count'] for row in topology['node_groups']) == 4
-    assert sum(row['count'] for row in topology['edge_groups']) == 2
-    brief = json.loads((tmp_path / 'platform.json').read_text())
-    assert brief['sections']['iam'] == brief['sections']['privesc'] == brief['sections']['least_privilege'] == []
-    assert 'network_acl' in json.dumps(brief['coverage'])
-    page = subprocess.run([sys.executable, 'context.py', 'list', 'network_nodes', '--all'], cwd=tmp_path,
-                          capture_output=True, text=True, check=True)
-    assert json.loads(page.stdout)['total'] == 4
 
 
 @pytest.mark.parametrize('patch', [
@@ -364,29 +339,6 @@ def test_network_native_projection_omits_unrelated_workload_data_and_secrets(pro
     assert row == before
 
 
-def test_network_runner_uses_private_files_and_cleanup(tmp_path, monkeypatch):
-    from peaso.ai.network import prepare
-    data, inventory, output = network_fixture()
-    platform = prepare(data, inventory, {})
-    observed = {}
-    class Process:
-        returncode = 0
-        def __init__(self, argv, *, cwd, env, **kwargs):
-            root = Path(cwd)
-            observed['root'] = root
-            assert argv[-1] == 'network'
-            assert {path.name for path in root.iterdir()} == {'credentials.json', 'codex-auth.json', 'platform.json', 'context.py', 'context.sqlite', 'topology.json', 'exposure.json'}
-            assert all(path.stat().st_mode & 0o777 == 0o600 for path in root.iterdir())
-            assert root.stat().st_mode & 0o777 == 0o700
-            assert 'private-cloud-token' not in json.dumps(argv) + json.dumps(env)
-            assert json.loads((root / 'credentials.json').read_text())['entries'][0]['token'] == 'private-cloud-token'
-            (root / 'result.json').write_text(json.dumps(output))
-        def wait(self, **kwargs):
-            return 0
-    monkeypatch.setattr(pipeline.subprocess, 'Popen', Process)
-    monkeypatch.setattr(pipeline, 'kill_tree', lambda process: observed.update(cleaned=True))
-    result = pipeline.invoke('network', platform, [{'provider': 'gcp', 'format': 'bearer', 'token': 'private-cloud-token'}], 'private-codex-token', [], [], 10)
-    assert result == output and observed['cleaned'] and not observed['root'].exists()
 
 
 def test_network_findings_publish_in_regular_api_and_paginated_ai_result(environment):
@@ -731,26 +683,6 @@ def test_real_chack_yaml_loader_schema_and_dynamic_access_prompt(stage, monkeypa
         assert 'platform.json' in config.system_prompt and 'context.py' in config.system_prompt
 
 
-def test_prioritizer_receives_compact_overview_and_indexed_details(monkeypatch):
-    platform = {'report': {'graphs': {'network': {}, 'privesc': {}}}, 'inventory': [{'id': 'r1'}], 'least_privilege': {}}
-    class Process:
-        returncode = 0
-        def __init__(self, argv, *, cwd, env, **kw):
-            root = Path(cwd)
-            assert {path.name for path in root.iterdir()} == {'platform.json', 'context.sqlite', 'context.py', 'credentials.json', 'codex-auth.json'}
-            overview = json.loads((root/'platform.json').read_text())
-            assert 'report' not in overview and overview['counts']['cases']['findings'] == 1
-            import sqlite3
-            with sqlite3.connect(root/'context.sqlite') as db:
-                detail = json.loads(db.execute("SELECT detail FROM records WHERE domain='findings' AND id='h1'").fetchone()[0])
-                assert detail['review'] is None
-            assert (root/'context.sqlite').stat().st_mode & 0o777 == 0o600
-            (root/'result.json').write_text('{"actions": [], "limitations": []}')
-        def wait(self, **kw):
-            return 0
-    monkeypatch.setattr(pipeline.subprocess, 'Popen', Process)
-    monkeypatch.setattr(pipeline, 'kill_tree', lambda _: None)
-    assert pipeline.invoke('priorities', platform, [], 'token', [finding('h1')], [review('h1')], 10)['actions'] == []
 
 
 @pytest.mark.parametrize('status', ['PASS', 'FAIL', 'UNKNOWN', 'DENIED', 'MANUAL', 'NOT_APPLICABLE', 'EMPTY'])

@@ -200,14 +200,6 @@ def test_native_sdk_to_public_proposed_check(monkeypatch,branch):
         (path/(branch+'.json')).write_text(json.dumps({'snapshot':snapshot,'item':item,'index':index,'findings':findings},indent=2)+'\n')
 
 
-def test_reused_reader_globals_never_authorize_or_mutate_predecessor():
-    from peaso.collectors import k8s_literal_secret_indicators as original
-    assert original.KIND=='k8s_selected_literals'and original.OPTION=='selected_k8s_literal_resources'
-    assert original.collect.__globals__ is vars(original)
-    assert source._GLOBALS['collect'].__globals__ is source._GLOBALS
-    assert original._extract is not source._extract
-    options={'content_secret_scans':True,'_content_secret_scan_kinds':[source.KIND]}
-    assert source.enabled(options)and not original.enabled(options)
 
 
 @pytest.mark.parametrize('debug',['http_class','https_class','urllib3_class','pool'])

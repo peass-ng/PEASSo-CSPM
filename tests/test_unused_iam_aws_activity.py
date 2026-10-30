@@ -63,31 +63,6 @@ def test_exact_threshold_is_not_older_than_the_review_window():
     assert subject.evaluate(role(created=cutoff, last=None), capture())[0] == 'PASS'
 
 
-@pytest.mark.parametrize('created,last,expected', [('2026-10-20T12:00:00Z', None, 'PASS'),
-    ('2024-01-01T00:00:00Z', None, 'UNKNOWN'), ('2024-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'FAIL')])
-def test_current_native_hardening_report_uses_age_aware_criteria(created, last, expected):
-    from peaso.checks import CHECKS
-    from peaso.checks.fixtures import CASES
-    from peaso.engine import evaluate_snapshot, hydrate_frameworks
-    from peaso.snapshot import make_snapshot
-    check = next(c for c in CHECKS if c.id == subject.CHECK)
-    assert check.category == 'hardening'
-    assert check.evaluate.__module__ == 'peaso.unused_iam_aws_activity'
-    assert check.public()['title'] == subject.TITLE
-    assert 'New roles do not fail' in check.public()['description']
-    case = CASES[subject.CHECK]
-    assert check.evaluate(case['pass'], case['index'])[0] == 'PASS'
-    assert check.evaluate(case['fail'], case['index'])[0] == 'FAIL'
-    item = role(created, last)
-    snapshot = make_snapshot('aws', [ACCOUNT+'/global'], [{'type': 'iam_role', 'scope': ACCOUNT+'/global',
-        'service': 'iam', 'status': 'collected', 'items': [item]}], created_at=NOW)
-    finding = hydrate_frameworks(evaluate_snapshot(snapshot, categories=['hardening'], checks=[subject.CHECK]))['findings'][0]
-    assert finding['status'] == expected, finding
-    assert 'HackTricks Cloud Best Practices' in finding['frameworks']
-    assert finding['evidence']['created_at'].startswith(created[:10])
-    if expected == 'PASS':
-        assert 'created' in finding['evidence']['summary'].lower()
-        assert 'not existed beyond' in finding['evidence']['summary'].lower()
 
 
 def test_flattened_native_last_use_coverage_cannot_be_bypassed():

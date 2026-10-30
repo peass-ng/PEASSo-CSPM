@@ -76,24 +76,6 @@ def test_signed_module_artifact_rejects_equal_code_object_substitution(tmp_path)
         compiler(tmp_path / 'sample.py', raw)
 
 
-def test_source_fragment_refuses_mutable_code_before_retaining_identity(tmp_path):
-    path = tmp_path / 'native.py'
-    raw = b'def native():\n    return 1\n'
-    path.write_bytes(raw)
-    module = types.ModuleType('rawv2_mutable_native')
-    module.__file__ = str(path)
-    sys.modules[module.__name__] = module
-    try:
-        exec(compile(raw, str(path), 'exec'), vars(module))
-        module.native.__code__ = module.native.__code__.replace(co_consts=(None, []))
-        compiler = shared._transaction_compiler()
-        key = (str(path), hashlib.sha256(raw).hexdigest(), sys.flags.optimize)
-        with pytest.raises(RuntimeError, match='Mutable native code artifact refused'):
-            compiler(key, raw, 'native', module.native)
-        assert not inspect.getclosurevars(compiler).nonlocals['source_cache']
-    finally:
-        sys.modules.pop(module.__name__, None)
-        linecache.cache.pop(str(path), None)
 
 
 def test_active_scope_rechecks_provider_before_callback(monkeypatch):

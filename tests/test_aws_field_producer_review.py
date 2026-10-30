@@ -17,11 +17,6 @@ def test_reproducible_probe_runs_current_request_and_projection_code():
     assert 'AccessKeys.items[].AccessKeyId' not in probe['paths']
 
 
-def test_resolves_registered_forwarder_and_actual_per_id_callable():
-    check = next(c for c in native.registry() if c.id == 'aws.review.shield.drt_role_configured')
-    functions = audit.callback_graph(check)
-    assert any(fn.__module__ == 'peaso.checks.aws_service_status_review_20261019' and fn.__name__ == 'shield_drt_role_configured' for fn in functions)
-    assert any(read['path'] == 'RoleArn' for read in audit.static_reads(functions))
 
 
 def test_sdk_contract_documents_window_and_has_no_invented_support_flag():

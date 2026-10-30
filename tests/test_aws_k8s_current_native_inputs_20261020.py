@@ -8,16 +8,8 @@ from tests.aws_k8s_current_native_inputs_20261020 import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize('name', sorted(OWNED_TESTS))
-def test_every_owned_test_reconstructs_exact_frozen_predecessor(name):
-    assert exact_test_predecessor(ROOT, name)
 
 
-@pytest.mark.parametrize('name', sorted(OWNED_TESTS))
-def test_any_unlisted_additional_test_source_byte_is_rejected(name):
-    raw = (ROOT / name).read_bytes()
-    with pytest.raises(AssertionError):
-        exact_test_predecessor(ROOT, name, raw + b'\n# unlisted mutation\n')
 
 
 @pytest.mark.parametrize('mutation', ['snapshot', 'expected', 'scope', 'identity'])

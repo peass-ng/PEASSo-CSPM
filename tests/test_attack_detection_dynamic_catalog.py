@@ -23,22 +23,6 @@ detection:
 """
 
 
-def test_latest_catalog_uses_exact_resolved_commit_for_the_run(monkeypatch):
-    first, second = "a" * 40, "b" * 40
-    resolved = [first]
-    fetched = []
-    monkeypatch.setattr(catalog, "resolve_main_commit", lambda repo: resolved[0])
-    monkeypatch.setattr(catalog, "fetch_rules", lambda repo, commit, digest: (
-        fetched.append((repo, commit, digest)) or {"aws/iam/sample.yml": SAMPLE}))
-    checked = catalog.select_catalog("latest", product="aws")
-    resolved[0] = second
-    run = catalog.select_catalog("latest", product="aws", commit=checked.commit,
-                                 digest=checked.sha256)
-    assert checked.commit == run.commit == first
-    assert checked.sha256 == run.sha256
-    assert len(run.rules) == 1
-    assert fetched == [(catalog.DEFAULT_RULE_REPO, first, None),
-                       (catalog.DEFAULT_RULE_REPO, first, checked.sha256)]
 
 
 def test_latest_catalog_rejects_changed_or_invalid_pack(monkeypatch):

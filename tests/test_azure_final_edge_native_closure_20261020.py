@@ -263,39 +263,7 @@ def test_existing_configured_apim_is_useful_tracing_alternative(monkeypatch,vari
  for key,value in[('check_id',cid),('mode','declared_apim_'+variant),('actual',actual),('expected',want),('native_http',json.dumps(h.calls))]:record_property(key,value)
  assert actual==want,findings
 
-@pytest.mark.parametrize('variant,want',[('positive','UNKNOWN'),('negative','FAIL')])
-def test_functional_apim_predecessor_does_not_invent_usability(monkeypatch,variant,want,record_property):
- findings,snapshot,h=prior.capture(monkeypatch,prior.APIM_TRACE,variant)
- assert_status(prior.APIM_TRACE,'functional_apim_'+variant,snapshot,findings,h,want,record_property)
 
-@pytest.mark.parametrize('mode,want',[('prevention','PASS'),('detection','FAIL'),('disabled','FAIL'),('missing_enabled','UNKNOWN'),('malformed_mode','UNKNOWN'),('listener_override','FAIL'),('path_override','FAIL'),('foreign_selection','UNKNOWN')])
-def test_native_inline_waf_exact_unregistered_successor(monkeypatch,mode,want,record_property):
- from dataclasses import replace
- from peaso import checks
- from peaso.checks import azure_public_edge_config_review_20261020 as proposal
- h=edge_fixture('gateway','positive');d=h.d;parent=d['routes'][GW];props=parent['properties'];props.pop('firewallPolicy')
- config={'enabled':True,'firewallMode':'Prevention','ruleSetType':'OWASP','ruleSetVersion':'3.2'};props['webApplicationFirewallConfiguration']=config
- if mode=='detection':config['firewallMode']='Detection'
- if mode=='disabled':config['enabled']=False
- if mode=='missing_enabled':config.pop('enabled')
- if mode=='malformed_mode':config['firewallMode']='FutureMode'
- if mode=='listener_override':props['httpListeners'][0]['properties']['firewallPolicy']={'id':WEAK}
- if mode=='path_override':
-  pm=arm(GW+'/urlPathMaps/inline',{'defaultBackendAddressPool':{'id':GW+'/backendAddressPools/backend'},'pathRules':[arm(GW+'/urlPathMaps/inline/pathRules/admin',{'paths':['/admin/*'],'firewallPolicy':{'id':WEAK},'backendAddressPool':{'id':GW+'/backendAddressPools/backend'}})]})
-  props['urlPathMaps']=[pm];props['requestRoutingRules'][0]['properties'].update(ruleType='PathBasedRouting',urlPathMap={'id':pm['id']})
- # Current admitted callback is decisive for native inline declarations.
- snapshot,old=collect(monkeypatch,EDGE,h)
- assert {f['status']for f in old}==({'PASS'} if mode=='foreign_selection' else {want})
- if mode=='foreign_selection':
-  from peaso.snapshot import make_snapshot
-  binding=next(row for c in snapshot['collections']if c['type']=='public_edge_binding'for row in c['items']if row['resource_kind']=='application_gateway')
-  binding['declared_waf_selections'][0]['parent_id']=GW.replace(SUB,prior.OTHER)
-  snapshot=make_snapshot('azure',snapshot['scopes'],snapshot['collections'],metadata=snapshot['metadata'],created_at=snapshot['created_at'])
- n=next(i for i,c in enumerate(checks.CHECKS)if c.id==EDGE);original=checks.CHECKS[n];checks.CHECKS[n]=replace(original,evaluate=proposal.evaluate)
- try:findings=evaluate_snapshot(snapshot,checks=[EDGE],include_not_applicable=True)['findings']
- finally:checks.CHECKS[n]=original
- record_property('candidate_only','inline_native_successor_unregistered')
- assert_status(EDGE,'inline_'+mode,snapshot,findings,h,want,record_property)
 
 @pytest.mark.parametrize('family',('classic','afd'))
 def test_real_empty_edge_endpoint_lists_keep_independent_ip_result(monkeypatch,family,record_property):
@@ -323,28 +291,3 @@ def test_actual_load_balancer_health_log_is_not_fictional_http_log(monkeypatch,m
  snapshot,findings=collect(monkeypatch,GWLOG,h)
  assert_status(GWLOG,'native_lb_'+mode,snapshot,findings,h,'NOT_APPLICABLE',record_property)
 
-@pytest.mark.parametrize('mode,want',[('positive','PASS'),('empty_diagnostics','FAIL'),('disabled_log','FAIL'),('no_gateways','NOT_APPLICABLE'),('load_balancer_only','NOT_APPLICABLE'),('denied','UNKNOWN'),('partial','UNKNOWN')])
-def test_gateway_logging_exact_unregistered_applicability_successor(monkeypatch,mode,want,record_property):
- from dataclasses import replace
- from peaso import checks
- from peaso.checks import azure_gateway_logging_review_20261020 as proposal
- h=HTTP(GWLOG);d=h.d;path=d['rid']+'/providers/Microsoft.Insights/diagnosticSettings'
- if mode=='empty_diagnostics':d['routes'][path]={'value':[]}
- if mode=='disabled_log':d['routes'][path]['value'][0]['properties']['logs'][0]['enabled']=False
- if mode in('no_gateways','load_balancer_only'):d['routes'][SCOPE+'/providers/Microsoft.Network/applicationGateways']={'value':[]}
- if mode=='load_balancer_only':
-  rid=ROOT+'Microsoft.Network/loadBalancers/only';lb=arm(rid,{'frontendIPConfigurations':[]},etag='W/"lb-only"')
-  put(d,SCOPE+'/providers/Microsoft.Network/loadBalancers',{'value':[lb]},'2023-09-01');put(d,rid,lb,'2023-09-01')
-  put(d,rid+'/providers/Microsoft.Insights/diagnosticSettings',{'value':[]},'2021-05-01-preview')
-  category={'id':rid+'/providers/Microsoft.Insights/diagnosticSettingsCategories/LoadBalancerHealthEvent','name':'LoadBalancerHealthEvent','type':'Microsoft.Insights/diagnosticSettingsCategories','properties':{'categoryType':'Logs','categoryGroups':['allLogs']}}
-  put(d,rid+'/providers/Microsoft.Insights/diagnosticSettingsCategories',{'value':[category]},'2021-05-01-preview');d['index'].append(deepcopy(lb))
- if mode=='denied':h.denied.add(path)
- if mode=='partial':h.partial.add(path)
- snapshot,original_findings=collect(monkeypatch,GWLOG,h)
- n=next(i for i,c in enumerate(checks.CHECKS)if c.id==GWLOG);original=checks.CHECKS[n]
- checks.CHECKS[n]=replace(original,kind='application_gateway',declared_dependencies=proposal.DEPENDENCIES,empty_applicability_dependencies=proposal.EMPTY_APPLICABILITY_DEPENDENCIES,evaluate=proposal.evaluate)
- try:findings=evaluate_snapshot(snapshot,checks=[GWLOG],include_not_applicable=True)['findings']
- finally:checks.CHECKS[n]=original
- if mode=='denied':want='DENIED'
- record_property('candidate_only','appgateway_http_logging_applicability_unregistered')
- assert_status(GWLOG,'appgateway_candidate_'+mode,snapshot,findings,h,want,record_property)

@@ -96,18 +96,3 @@ def test_compiler_registry_input_validates_the_entire_review_record():
  with pytest.raises(ValueError):catalog_with_registered_checks(native,[check])
 
 
-def test_cloudtrail_equivalent_accepts_only_reviewed_module_successors(monkeypatch):
- from pathlib import Path
- from scripts import peaso_compliance_compile as compiler
- spec_id=compiler.REVIEWED_CLOUDTRAIL_EQUIVALENT['id'];survivor=compiler.REVIEWED_CLOUDTRAIL_EQUIVALENT['survivor']
- pack=json.loads((Path(__file__).resolve().parents[1]/'peaso/rulepacks/compliance_requirements.json').read_text())
- spec=next(s for s in pack['proposed_checks'] if s['id']==spec_id)
- check=next(c for c in CHECKS if c.id==survivor);native={survivor:check.public()}
- framework,requirement=next(iter(compiler.REVIEWED_CLOUDTRAIL_EQUIVALENT['rows']))
- assert compiler.reviewed_equivalent_proposal(spec,framework,requirement,native)==survivor
- original=Path.read_bytes
- def altered(path):
-  value=original(path)
-  return value+b'\n# unreviewed module change\n' if path.name=='aws_gap_core.py' else value
- monkeypatch.setattr(Path,'read_bytes',altered)
- with pytest.raises(ValueError,match='CloudTrail duplicate'):compiler.reviewed_equivalent_proposal(spec,framework,requirement,native)

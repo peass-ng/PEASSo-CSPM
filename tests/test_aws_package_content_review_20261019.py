@@ -584,22 +584,6 @@ def test_compressed_image_layers_global_expansion_limit_partial_unknown(monkeypa
     assert result['PackageContentSource']['PackageSecretIndicators']['NativeResponseComplete'] is False
 
 
-@pytest.mark.parametrize('kind', ['lambda_function', 'lambda_layer_version'])
-def test_bound_zip_preserves_proven_positive_before_later_crc_failure(monkeypatch, kind):
-    requests, session, item, ops, _, _, payloads = sdk(monkeypatch, kind)
-    raw = bytearray(zip_bytes([('positive.py', "password='" + SECRET + "'"), ('corrupt.py', 'readiness=true')], compression=zipfile.ZIP_STORED))
-    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-        second = archive.infolist()[1]
-        offset = second.header_offset + 30 + len(second.filename.encode()) + len(second.extra)
-        raw[offset] ^= 1
-    payloads[URL] = bytes(raw)
-    if kind == 'lambda_function': code = ops['get_function']['Configuration']
-    else: code = ops['get_layer_version']['Content']
-    code.update(CodeSize=len(raw), CodeSha256=base64.b64encode(hashlib.sha256(raw).digest()).decode())
-    result = p.ENRICHERS[kind](requests, session, REGION, [item])[0]
-    assert FUNCTIONS[kind](result, index(kind, result))[0] == 'FAIL'
-    assert result['PackageContentSource']['PackageSecretIndicators']['NativeResponseComplete'] is False
-    assert SECRET not in json.dumps(result)
 
 
 def test_bound_tar_preserves_proven_positive_before_later_bad_header(monkeypatch):

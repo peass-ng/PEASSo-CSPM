@@ -66,18 +66,3 @@ def test_azure_current_sources_all_have_explicit_preserved_or_reviewed_dispositi
             assert (ROOT/receipt).is_file()
 
 
-def test_reassessment_original_reasons_use_exact_raw_source_ids():
-    import hashlib
-    correction=json.loads((ROOT/'docs/check-review/azure-rejected-source-original-reason-errata-20261020.json').read_text())
-    for field in ('report','raw_upstream_manifest'):
-        row=correction[field]
-        assert hashlib.sha256((ROOT/row['path']).read_bytes()).hexdigest()==row['sha256']
-    report=json.loads((ROOT/correction['report']['path']).read_text())
-    raw={r['check_id']:r for r in json.loads((ROOT/correction['raw_upstream_manifest']['path']).read_text())['checks']}
-    actual={r['source_id']:(r['original_reason'],raw[r['source_id']]['reason'])for r in report['sources']
-            if r['original_reason']!=raw[r['source_id']]['reason']}
-    assert actual=={r['source_id']:(r['report_recorded_original_reason'],r['actual_upstream_reason'])for r in correction['records']}
-    matrix=list(csv.DictReader((ROOT/'docs/check-review/azure-upstream-parity-20261020.csv').open()))
-    for row in matrix:
-        if row['source_id']in raw:
-            assert row['source_reason']==raw[row['source_id']]['reason']

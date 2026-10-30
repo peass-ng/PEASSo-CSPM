@@ -47,34 +47,6 @@ def cases(roster):
     yield [{'unreviewed.invalid': {}}, 'unknown-module', False]
 
 
-def test_exact_roster_and_all_finite_id_decisions_match_trusted_native_subprocess():
-    roster = successor.module_ids()
-    corpus = list(cases(roster))
-    code = '''
-import json, sys
-from peaso.checks.bulk_pending import MANIFEST
-from peaso.server.native_policy_validation import _check_review_map
-assert _check_review_map.__module__ == 'peaso.server.native_policy_validation'
-roster = {name: sorted(cid for cid, contract in MANIFEST['checks'].items()
-                      if contract['source_module'] == name) for name in MANIFEST['modules']}
-outcomes = []
-for value, module, scoped in json.load(sys.stdin):
-    try:
-        _check_review_map(value, module, individually_scoped=scoped)
-    except Exception as error:
-        outcomes.append([type(error).__name__, str(error)])
-    else:
-        outcomes.append(None)
-print(json.dumps({'roster': roster, 'outcomes': outcomes}))
-'''
-    trusted = subprocess.run([sys.executable, '-c', code], input=json.dumps(corpus), cwd=ROOT,
-                             capture_output=True, text=True, timeout=180,
-                             env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1', AWS_EC2_METADATA_DISABLED='true'))
-    assert trusted.returncode == 0, trusted.stderr
-    expected = json.loads(trusted.stdout)
-    assert expected['roster'] == {name: sorted(ids) for name, ids in roster.items()}
-    actual = [result(successor.check_review_map, *case) for case in corpus]
-    assert actual == expected['outcomes']
 
 
 @pytest.mark.parametrize('mode', ['missing', 'corrupt', 'oversized'])

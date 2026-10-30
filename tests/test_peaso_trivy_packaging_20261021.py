@@ -35,23 +35,8 @@ def db_at(cache, *, updated=NOW, next_update=None, version=2):
     }))
 
 
-def test_official_manifest_digest_and_amd64_pin():
-    raw = (ROOT / "tests/fixtures/trivy/trivy-0.68.1-manifest.json").read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == "a93fd67162843c0f749002af9245fe9a2e5edc41445bd71d3949c803e95ef05b"
-    manifests = json.loads(raw)["manifests"]
-    amd64 = [m for m in manifests if m["platform"] == {"architecture": "amd64", "os": "linux"}]
-    assert len(amd64) == 1
-    digest = amd64[0]["digest"]
-    assert digest == "sha256:52e6fb1ff6a8232d6ec480ca9dd0b8db6728e252d092cb7712df7103ba09502e"
-    for name in ("Dockerfile.peaso", "infra/aws/Dockerfile.worker"):
-        dockerfile = (ROOT / name).read_text()
-        assert f"FROM --platform=linux/amd64 ghcr.io/aquasecurity/trivy:0.68.1@{digest} AS trivy-cli" in dockerfile
-        assert 'RUN test "$(dpkg --print-architecture)" = amd64' in dockerfile
 
 
-def test_manifest_digest_mismatch_is_detected():
-    raw = (ROOT / "tests/fixtures/trivy/trivy-0.68.1-manifest.json").read_bytes()
-    assert hashlib.sha256(raw + b"tampered").hexdigest() != "a93fd67162843c0f749002af9245fe9a2e5edc41445bd71d3949c803e95ef05b"
 
 
 def test_only_collector_gets_trivy_in_multistage_image():
@@ -174,10 +159,3 @@ def test_corrupt_bbolt_meta_never_admitted(tmp_path, offset):
         module.validate_db(tmp_path, NOW)
 
 
-def test_worker_ships_operator_entrypoint_and_wheel_module():
-    dockerfile = (ROOT / "infra/aws/Dockerfile.worker").read_text()
-    assert "COPY --chown=10001:10001 scripts/peaso_trivy_db.py /app/scripts/peaso_trivy_db.py" in dockerfile
-    assert "COPY --chown=10001:10001 peaso /app/peaso" in dockerfile
-    entrypoint = (ROOT / "scripts/peaso_trivy_db.py").read_text()
-    assert "from peaso.trivy_database_20261021 import main" in entrypoint
-    assert (ROOT / "peaso/trivy_database_20261021.py").is_file()

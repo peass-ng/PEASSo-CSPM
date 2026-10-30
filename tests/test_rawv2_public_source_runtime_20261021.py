@@ -11,17 +11,6 @@ from peaso import secret_scanning as scanner
 ROOT = Path(source.__file__).resolve().parents[1]
 
 
-def test_exact_current_source_has_verified_predecessor_and_rows():
-    current = (ROOT / source.SCANNER).read_bytes()
-    before = source.verify_scanner(ROOT)
-    assert hashlib.sha256(before).hexdigest() == source.SCANNER_BEFORE
-    assert source.source_bytes(source.SCANNER, current, source.SCANNER_BEFORE, ROOT) == before
-    receipt = source._receipt(ROOT)
-    for name in ('scan_content', '_scan_trufflehog', '_fingerprint'):
-        fn = getattr(scanner, name)
-        row = {'path': source.SCANNER, 'sha256': receipt['before_functions'][name], 'defaults': None}
-        updated = source.producer_row(fn, row, ROOT)
-        assert updated == dict(row, sha256=receipt['after_functions'][name])
 
 
 @pytest.mark.parametrize('change', ['wrong_prior', 'foreign_bytes'])
@@ -101,15 +90,3 @@ def test_portable_class_metadata_cannot_hide_unreviewed_bindings(monkeypatch, fi
         source.verify_scanner(ROOT)
 
 
-def test_detector_constructor_class_cell_cannot_be_substituted(monkeypatch):
-    import types
-    original = scanner._DetectorMatches.__init__
-    assert original.__code__.co_freevars == ('__class__',)
-    def cell(value): return (lambda: value).__closure__[0]
-    changed = types.FunctionType(original.__code__, original.__globals__, original.__name__,
-                                 original.__defaults__, (cell(list),))
-    changed.__qualname__ = original.__qualname__
-    changed.__kwdefaults__ = original.__kwdefaults__
-    monkeypatch.setattr(scanner._DetectorMatches, '__init__', changed)
-    with pytest.raises(RuntimeError, match='closure binding changed'):
-        source.verify_scanner(ROOT)

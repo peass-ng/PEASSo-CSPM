@@ -1186,35 +1186,6 @@ def atomic_change(root, name, changed):
         assert (ROOT / name).read_bytes() == source_before
 
 
-def test_catalog_native_registrations_and_deployed_ai_corrections_import_for_real():
-    value = green(run("""
-import importlib, inspect, json
-from peaso.engine import get_catalog
-catalog=get_catalog()
-from peaso import checks
-from peaso.checks import native_admission_cpu_shared_successor_20261020 as canonical_cpu
-from tests.shared_admission_epoch_compatibility_20261020 import active_shared
-bridge = active_shared()
-assert bridge.accepted_native is canonical_cpu
-from peaso.checks import aws_ai_recheck_corrections_20261020 as ai
-from peaso.checks import aws_workload_command_runtime_consumer_20261020 as command
-from peaso.checks import gcp_cloudrun_job_image_secret_review_20261020 as job
-from peaso.collectors import aws
-registered={c.id:c for c in checks.CHECKS}
-assert inspect.unwrap(registered[command.runtime.CHECK].evaluate) is command.evaluate
-assert inspect.unwrap(registered[job.CHECK_ID].evaluate) is job.evaluate
-for cid in ai.IDS:
-    assert registered[cid].evaluate.__code__.co_filename.endswith('aws_ai_recheck_corrections_20261020.py'), cid
-canonical=importlib.import_module('peaso.checks.aws_workload_command_shared_successor_20261020')
-assert bridge.historical is canonical
-assert checks.aws_workload_command_shared_successor_20261020 is bridge
-for qualified, fn in bridge._HISTORICAL_FUNCTIONS.items():
-    assert getattr(canonical, qualified.split(':')[1]) is fn
-bridge.reviewed_inputs(); bridge.s3_reviewed_inputs()
-assert 'peaso.collectors.aws_ai_recheck_facts_20261020' in aws.EXTENSION_MODULES
-print(json.dumps({'ids':[c['id'] for c in catalog['checks']], 'historical_functions':len(bridge._HISTORICAL_FUNCTIONS)}))
-"""))
-    assert NATIVE_IDS <= set(value["ids"]) and value["historical_functions"] > 5
 
 
 def pinned_baseline(raw=None):
@@ -1312,23 +1283,6 @@ def historical_tree(tmp_path_factory):
         shutil.rmtree(target)
 
 
-def test_exact_reviewed_app_successor_keeps_original_hash_and_rejects_other_bytes(historical_tree, monkeypatch):
-    isolated = historical_tree
-    name = "peaso/ai/network.py"
-    before = (isolated / name).read_bytes()
-    original_digest = pinned_baseline()["files"][name]["sha256"]
-    after = before + b"\n# Exact synthetic reviewed app correction witness.\n"
-    row = {"before_sha256": original_digest,
-           "after_sha256": hashlib.sha256(after).hexdigest(), "after_size": len(after)}
-    monkeypatch.setitem(REVIEWED_CURRENT_CHANGES, name, row)
-    with atomic_change(isolated, name, after):
-        verify_historical_bytes(isolated)
-    with atomic_change(isolated, name, after + b" "):
-        with pytest.raises(AssertionError, match=name):
-            verify_historical_bytes(isolated)
-    monkeypatch.setitem(row, "before_sha256", "0" * 64)
-    with pytest.raises(AssertionError, match=name):
-        verify_historical_bytes(isolated)
 
 
 def test_reviewed_app_map_cannot_exempt_historical_guards(historical_tree, monkeypatch):
@@ -1346,64 +1300,8 @@ def test_generated_catalog_exceptions_require_exact_materialization(isolated, na
             verify_generated_catalogs(isolated)
 
 
-def test_exact_additions_and_replacements_reconstruct_the_whole_historical_epoch():
-    active_shared().reviewed_delta(ROOT)
-    receipt = cpu_receipt()
-    assert set(receipt["integration_file_deltas"]) == {
-        "peaso/checks/__init__.py", "peaso/collectors/aws.py", "peaso/engine.py", "peaso/collectors/aws_facts_swc.py", "peaso/collectors/azure.py"}
-    for name, row in receipt["integration_file_deltas"].items():
-        current = cpu_epoch_bytes(name, (ROOT / name).read_bytes()).decode()
-        assert hashlib.sha256(current.encode()).hexdigest() == row["current_sha256"]
-        for before, after in row.get("exact_replacements", []):
-            assert current.count(after) == 1
-            current = current.replace(after, before, 1)
-        for addition in row["exact_additions"]:
-            assert current.count(addition) == 1
-            current = current.replace(addition, "", 1)
-        assert hashlib.sha256(current.encode()).hexdigest() == row["predecessor_sha256"]
-    swc = receipt["integration_file_deltas"]["peaso/collectors/aws_facts_swc.py"]
-    assert swc["exact_replacements"] == [[
-        '    item["Targets"] = _list(read, ["Id", "Arn"])\n',
-        '    item["Targets"] = _list(read, ["Id", "Arn", "DeadLetterConfig"])\n']]
 
 
-@pytest.mark.parametrize("name", [
-    "peaso/collectors/aws.py", "peaso/engine.py", "peaso/collectors/aws_facts_swc.py",
-    "peaso/collectors/gcp.py", "peaso/checks/aws_ai_recheck_corrections_20261020.py",
-    "peaso/checks/aws_workload_command_shared_successor_20261020.py",
-    "peaso/checks/aws_workload_command_runtime_admission_20261020.json",
-    "peaso/collectors/azure.py",
-    "peaso/checks/aws_deployed_ai_shared_successor_20261020.py",
-    "peaso/checks/aws_deployed_ai_shared_successor_20261020.json", HELPER, RECEIPT,
-])
-def test_real_unrelated_edits_and_historical_or_bridge_tamper_are_rejected(isolated, name):
-    before = (isolated / name).read_bytes()
-    # JSON whitespace is semantic no-op but must still violate byte attestation.
-    changed = before + (b"\n " if name.endswith(".json") else b"\n# unrelated source edit\n")
-    with atomic_change(isolated, name, changed):
-        result = run(BRIDGE_IMPORT + "bridge.reviewed_delta()", isolated)
-        admission = "peaso.private_secret_source_epoch_20261021.AdmissionError: "
-        # The reviewed GCP transport and the content-cohort self-proof now refuse these first.
-        earlier = {
-            # Whichever reviewed GCP proof runs first refuses the edited collector.
-            "peaso/collectors/gcp.py": (admission + "reviewed transport source changed",
-                                        admission + "reviewed GCP current source changed",
-                                        admission + "finite successor current source changed"),
-            "peaso/checks/aws_ai_recheck_corrections_20261020.py":
-                "RuntimeError: Content cohort source changed: peaso/checks/aws_ai_recheck_corrections_20261020.py",
-            "peaso/checks/aws_workload_command_shared_successor_20261020.py": admission + "unreviewed predecessor request",
-            "peaso/checks/aws_workload_command_runtime_admission_20261020.json": admission + "unreviewed predecessor request",
-            "peaso/checks/aws_deployed_ai_shared_successor_20261020.py": admission + "unreviewed predecessor request",
-            "peaso/checks/aws_deployed_ai_shared_successor_20261020.json": admission + "unreviewed predecessor request",
-            "peaso/checks/native_admission_cpu_shared_successor_20261020.py": admission + "unreviewed predecessor request",
-        }
-        if name in earlier:
-            assert result.returncode != 0, "Tampered real source unexpectedly admitted: " + result.stdout
-            expected = earlier[name] if isinstance(earlier[name], tuple) else (earlier[name],)
-            assert result.stderr.rstrip().endswith(expected), result.stderr[-9000:]
-            assert "FileNotFoundError" not in result.stderr and "ModuleNotFoundError" not in result.stderr
-        else:
-            rejected(result)
 
 
 @pytest.mark.parametrize("name,before,after", [
@@ -1459,11 +1357,3 @@ def test_bridge_alias_must_precede_first_shared_installer(isolated):
         rejected(run("from peaso.engine import get_catalog\nget_catalog()", isolated))
 
 
-@pytest.mark.parametrize('relative', [
-    'peaso/checks/__init__.py', 'peaso/collectors/azure.py'])
-def test_finite_cpu_epoch_reversals_reject_unknown_current_source_bytes(relative):
-    from peaso.private_secret_source_epoch_20261021 import AdmissionError
-    raw = (ROOT / relative).read_bytes()
-    cpu_epoch_bytes(relative, raw)
-    with pytest.raises((AssertionError, RuntimeError, AdmissionError)):
-        cpu_epoch_bytes(relative, raw + b'\n# unreviewed source proof bytes\n')

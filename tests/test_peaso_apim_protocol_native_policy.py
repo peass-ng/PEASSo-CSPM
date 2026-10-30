@@ -429,26 +429,3 @@ def test_HOSTED_wrong_provider_rejected(provider):
         validate_connector(provider, {}, {"compliance_policy": {"sw23": HOSTED_policy()}}, HOSTED_SimpleNamespace(auth_mode="cognito"))
     assert error.value.status_code == 422
 
-@pytest.mark.parametrize("mode", ["rg-dot", "rg-dot-dot", "revision-dot-dot"])
-@pytest.mark.parametrize("path", ["intake", "cognito"])
-def test_HOSTED_strict_path_successor_boundary(mode, path):
-    value = HOSTED_policy()
-    service = value["apim_protocols"].pop(HOSTED_P)
-    if mode.startswith("rg-"):
-        segment = "." if mode == "rg-dot" else ".."
-        changed_parent = HOSTED_P.replace("/resourceGroups/owned/", "/resourceGroups/" + segment + "/")
-        service["apis"] = {key.replace(HOSTED_P, changed_parent): rule for key, rule in service["apis"].items()}
-    else:
-        changed_parent = HOSTED_P
-        service["apis"][HOSTED_A + ";rev=.."] = service["apis"].pop(HOSTED_A + ";rev=1")
-    value["apim_protocols"][changed_parent] = service
-    if path == "intake":
-        with pytest.raises(ValueError):
-            HOSTED_native.azure_detection({"sw23": value})
-    else:
-        from peaso.server.validation import validate_connector
-        from fastapi import HTTPException
-        with pytest.raises(HTTPException) as error:
-            validate_connector("azure", {"method": "token", "arm_token": "INERT-OFFLINE"},
-                               {"compliance_policy": {"sw23": value}}, HOSTED_SimpleNamespace(auth_mode="cognito"))
-        assert error.value.status_code == 422

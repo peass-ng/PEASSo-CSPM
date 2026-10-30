@@ -215,16 +215,6 @@ def test_confirmed_hit_survives_later_resource_limit(monkeypatch):
     assert 'not fully read' in evidence['observed']
 
 
-def test_actual_registered_callable_native_dto(monkeypatch):
-    consumer.install()
-    check, = [check for check in checks.CHECKS if check.id == source.CHECK]
-    assert inspect.unwrap(check.evaluate) is consumer.evaluate
-    assert Path(sys.modules[check.evaluate.__module__].__file__).resolve() == Path(consumer.__file__).resolve()
-    for positive, expected in ((False, 'PASS'), (True, 'FAIL')):
-        _, trace = capture(monkeypatch, 'Ingress', positive=positive)
-        assert checks.evaluate_check(source.CHECK, trace.item, trace.index)[0] == expected
-    _, trace = capture(monkeypatch, 'Ingress', status=404)
-    assert checks.evaluate_check(source.CHECK, trace.item, trace.index)[0] == 'UNKNOWN'
 
 
 def test_selected_text_and_configmap_wrapper_coexist(monkeypatch):

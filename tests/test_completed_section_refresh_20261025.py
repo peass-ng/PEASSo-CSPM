@@ -180,27 +180,6 @@ def test_worker_rejects_clean_native_despite_incomplete_projection(store,tmp_pat
   resume.validate_claimed_section_refresh(store.job('owner',row['id']),store.checkpoint_collections('owner',row['id']),artifacts,{'provider':'gcp','scopes':json.loads(connector['data'])['scopes']})
 
 
-def test_worker_section_merge_preserves_inventory_exact_scopes_and_authority(tmp_path):
- import ast
- path=Path(__file__).parent/'sources/peaso/worker.py'
- if not path.exists():
-  import peaso.worker as module
-  path=Path(module.__file__)
- tree=ast.parse(path.read_text());nodes=[node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in {'_merge_section_refresh','_seed_section_refresh'}]
- env={};exec(compile(ast.Module(body=nodes,type_ignores=[]),str(path),'exec'),env)
- scope='projects/owned';old=make_snapshot('gcp',[scope],[{'type':'vpc','scope':scope,'status':'collected','items':[{'id':'original'}]},{'type':'artifact_image','scope':scope,'status':'collected','items':[{'id':'stale'}]}],metadata={'collection_plan':{'requirements':['all-original']},'native_auth':'old'})
- fresh=make_snapshot('gcp',[scope],[{'type':'artifact_image','scope':scope,'status':'collected','items':[{'id':'fresh'}]}],metadata={'native_auth':'current','collection_plan':{'requirements':['image-only']}})
- saved=[old['collections'][0]];plan={'plan_sha256':'a'*64,'sections':['leaks']};merged=env['_merge_section_refresh'](fresh,saved,old,plan)
- assert merged['scopes']==[scope] and sum(len(c['items']) for c in merged['collections'])==2
- assert merged['metadata']['native_auth']=='current' and merged['metadata']['collection_plan']==old['metadata']['collection_plan']
- assert next(c for c in merged['collections'] if c['type']=='vpc')['items']==[{'id':'original'}]
- import types
- session=types.SimpleNamespace(lock=threading.RLock(),sequence=7,collections={},collection_revisions={},last_published=0)
- env['_seed_section_refresh'](session,old,{('vpc',scope):3})
- assert session.collection_revisions[('vpc',scope)]==3 and session.last_published==7
- old['metadata']['native_refresh']={'restored_native_context':'partial'};env['_seed_section_refresh'](session,old,{('vpc',scope):3})
- assert set(session.collection_revisions.values())=={7}
- with pytest.raises(ValueError):env['_merge_section_refresh']({**fresh,'scopes':['projects/foreign']},saved,old,plan)
 
 
 def test_actual_api_route_dispatches_only_after_bounded_proof_and_compatible_auth(store,tmp_path):

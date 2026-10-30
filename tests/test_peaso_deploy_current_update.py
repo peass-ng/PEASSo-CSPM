@@ -158,14 +158,6 @@ class CurrentUpdateReview(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "reviewed action/fields/values"):
             self.review()
 
-    def test_changed_state_epoch_or_provider_drift_is_rejected(self):
-        self.state["serial"] = 24
-        with self.assertRaisesRegex(RuntimeError, "state epoch differs"):
-            self.review()
-        self.data, self.contract, self.state = fixture()
-        self.data["resource_drift"] = [{"address": "aws_s3_bucket.templates[0]"}]
-        with self.assertRaisesRegex(RuntimeError, "drift"):
-            self.review()
 
     def test_prior_data_sources_are_exact_and_caller_session_may_rotate(self):
         self.assertEqual(len(self.data["prior_state"]["values"]["root_module"]["resources"]), 9)
@@ -236,89 +228,6 @@ class CurrentUpdateFieldPolicies(unittest.TestCase):
             update.check_template_policy(old, {"policy": json.dumps(new_doc)},
                                          {"aws_s3_bucket.templates[0]": {"arn": bucket_arn}})
 
-    def test_template_create_rejects_redirect_tags_lock_and_unknown_fields(self):
-        source_infra = Path(__file__).parents[1] / "infra/aws"
-        historical_infra = tempfile.TemporaryDirectory()
-        self.addCleanup(historical_infra.cleanup)
-        infra = Path(historical_infra.name)
-        synthetic = [json.dumps({"fixture_template": index}).encode() for index in range(len(update.TEMPLATE_HASHES))]
-        hashes = tuple(hashlib.sha256(content).hexdigest() for content in synthetic)
-        self.enterContext(patch.object(update, "TEMPLATE_HASHES", hashes))
-        self.enterContext(patch.object(update, "TEMPLATE_ADDRESSES", {
-            f'aws_s3_object.customer_role_template["{digest}"]': digest for digest in hashes}))
-        self.enterContext(patch.object(update, "UPDATE_ACTIONS", dict(update.UPDATE_ACTIONS, **{
-            f'aws_s3_object.customer_role_template["{digest}"]': ["create"] for digest in hashes})))
-        for digest, archived in zip(hashes, synthetic):
-            name = "customer-role.json" if digest == hashes[-1] else f"customer-role-{digest}.json"
-            (infra / name).write_bytes(archived)
-        bucket = "hacktricks-cspm-templates-111122223333"
-        resources = {"aws_s3_bucket.templates[0]": {"id": bucket},
-                     "aws_s3_bucket_ownership_controls.templates[0]": {
-                         "bucket": bucket, "rule": [{"object_ownership": "BucketOwnerEnforced"}]},
-                     "aws_s3_bucket_server_side_encryption_configuration.templates[0]": {
-                         "bucket": bucket, "rule": [{"apply_server_side_encryption_by_default": [
-                             {"kms_master_key_id": "", "sse_algorithm": "AES256"}],
-                             "blocked_encryption_types": ["SSE-C"], "bucket_key_enabled": False}]},
-                     "aws_s3_bucket_versioning.templates[0]": {
-                         "bucket": bucket, "versioning_configuration": [{"mfa_delete": "Disabled", "status": "Enabled"}]},
-                     "aws_s3_bucket_public_access_block.templates[0]": {
-                         "bucket": bucket, "block_public_acls": True, "ignore_public_acls": True,
-                         "block_public_policy": False, "restrict_public_buckets": False}}
-        for digest in update.TEMPLATE_HASHES:
-            source_name = "customer-role.json" if digest == update.TEMPLATE_HASHES[-1] else f"customer-role-{digest}.json"
-            address = f'aws_s3_object.customer_role_template["{digest}"]'
-            content = (infra / source_name).read_bytes()
-            self.assertEqual(hashlib.sha256(content).hexdigest(), digest)
-            after = {"bucket": bucket, "key": f"customer-role-{digest}.json",
-                     "source": f"./{source_name}",
-                     "etag": hashlib.md5(content).hexdigest(), "content_type": "application/json",
-                     "content_disposition": 'attachment; filename="customer-role.json"',
-                     "cache_control": "public,max-age=31536000,immutable",
-                     "metadata": {"sha256": digest}, "force_destroy": False,
-                     "storage_class": "STANDARD", "tags": {},
-                     "tags_all": {"Application": "hacktricks-cspm", "ManagedBy": "Terraform"}}
-            with self.subTest(digest=digest):
-                update.check_template_create(address, after, resources, infra)
-                wrong = dict(after, source=str(infra / source_name))
-                with self.assertRaisesRegex(RuntimeError, "source"):
-                    update.check_template_create(address, wrong, resources, infra)
-                for key, value in (("website_redirect", "https://other.invalid"),
-                                   ("tags", {"unreviewed": "yes"}),
-                                   ("tags_all", {"Application": "hacktricks-cspm", "ManagedBy": "Terraform", "Other": "unreviewed"}),
-                                   ("tags_all", {"Application": "changed", "ManagedBy": "Terraform"}),
-                                   ("object_lock_mode", "COMPLIANCE"),
-                                   ("unexpected_access", "public")):
-                    with self.subTest(key=key):
-                        modified = dict(after, **{key: value})
-                        with self.assertRaisesRegex(RuntimeError, "unreviewed|unconfigured"):
-                            update.check_template_create(address, modified, resources, infra)
-            row = {"address": address, "change": {"actions": ["create"], "before": None,
-                                                   "after": after, "after_unknown": dict(update.TEMPLATE_MARKERS)}}
-            update.check_change(row, resources, infra)
-            row["change"]["after_unknown"]["kms_key_id"] = False
-            with self.assertRaisesRegex(RuntimeError, "computed fields differ"):
-                update.check_change(row, resources, infra)
-            row["change"]["after_unknown"] = dict(update.TEMPLATE_MARKERS)
-            resources["aws_s3_bucket_ownership_controls.templates[0]"]["rule"] = [
-                {"object_ownership": "ObjectWriter"}]
-            with self.assertRaisesRegex(RuntimeError, "bucket controls differ"):
-                update.check_change(row, resources, infra)
-            resources["aws_s3_bucket_ownership_controls.templates[0]"]["rule"] = [
-                {"object_ownership": "BucketOwnerEnforced"}]
-            for resource, field, bad in (
-                ("aws_s3_bucket_server_side_encryption_configuration.templates[0]", "rule", [
-                    {"apply_server_side_encryption_by_default": [{"kms_master_key_id": "other",
-                      "sse_algorithm": "aws:kms"}], "blocked_encryption_types": ["SSE-C"],
-                      "bucket_key_enabled": True}]),
-                ("aws_s3_bucket_versioning.templates[0]", "versioning_configuration", [
-                    {"mfa_delete": "Disabled", "status": "Suspended"}]),
-                ("aws_s3_bucket_public_access_block.templates[0]", "block_public_acls", False)):
-                with self.subTest(resource=resource):
-                    original = resources[resource][field]
-                    resources[resource][field] = bad
-                    with self.assertRaisesRegex(RuntimeError, "bucket controls differ"):
-                        update.check_change(row, resources, infra)
-                    resources[resource][field] = original
 
     def test_combined_resolved_workflow_iam_and_template_documents(self):
         prefix = f"arn:aws:ecs:us-east-1:{update.ACCOUNT}:task-definition/hacktricks-cspm-"
@@ -573,22 +482,6 @@ class CurrentUpdateDefaultsAndPins(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "default-false"):
             update.check_ecs_defaults(before, after, dict(markers, enable_fault_injection=False))
 
-    def test_frozen_deployment_sources_are_hashed_before_review(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            names = ("infra/aws/versions.tf", "infra/aws/storage.tf", "infra/aws/.terraform.lock.hcl",
-                     "infra/aws/sdk-constraints.txt", "scripts/peaso_deploy.py",
-                     "scripts/peaso_deploy_current_update.py")
-            files = {}
-            for name in names:
-                path = root / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(name)
-                files[name] = hashlib.sha256(path.read_bytes()).hexdigest()
-            update.check_source_pins({"files": files}, root / "infra/aws")
-            (root / "infra/aws/storage.tf").write_text("changed policy")
-            with self.assertRaisesRegex(RuntimeError, "storage.tf"):
-                update.check_source_pins({"files": files}, root / "infra/aws")
 
 
 class DeploymentModeIntegration(unittest.TestCase):

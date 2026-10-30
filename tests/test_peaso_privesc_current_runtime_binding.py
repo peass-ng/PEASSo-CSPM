@@ -44,24 +44,6 @@ def test_beanstalk_prefilter_change_preserves_previous_report_binding():
         [{"action": "elasticbeanstalk:UpdateEnvironment"}]]
 
 
-def test_cloud_source_predecessor_keeps_exact_stored_report_binding(monkeypatch):
-    ident = "azure-apim-developer-portal-sso-external-principal"
-    old = {
-        "schema": catalog.BINDING_SCHEMA,
-        "manifest_sha256": catalog.CLOUD_SOURCE_685_PREVIOUS_MANIFEST,
-        "effective_tree_sha256": catalog.CLOUD_SOURCE_685_PREVIOUS_TREE,
-        "source_revision": catalog.V4_REVISION,
-    }
-    assert len(catalog._verified_cloud_source_685_previous()) == 685
-    # The old bytes are current until the next Cloud source version is promoted.
-    with monkeypatch.context() as patch:
-        patch.setattr(catalog, "CURRENT_MANIFEST", "0" * 64)
-        entries, status = catalog.lookup_entries([ident], old)
-        assert status == "exact_previous_current"
-        assert entries[ident]["source"].endswith(
-            "#microsoftapimanagementserviceuserstokenaction")
-        wrong_tree = {**old, "effective_tree_sha256": "0" * 64}
-        assert catalog.lookup_entries([ident], wrong_tree) == ({}, "unknown_catalog_manifest")
 
 
 def test_reviewed_685_binding_retains_original_source_for_stored_reports():

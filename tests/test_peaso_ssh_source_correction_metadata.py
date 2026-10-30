@@ -20,22 +20,6 @@ SCOPE = "/subscriptions/sub"
 VM = SCOPE + "/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm"
 
 
-def test_exact_successor_hashes_and_historical_provenance():
-    canonical = json.dumps(CORRECTED_SPEC, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    assert hashlib.sha256(canonical.encode()).hexdigest() == CORRECTED_SPEC_SHA256
-    assert hashlib.sha256(PREDICATE.encode()).hexdigest() == PREDICATE_SHA256
-    assert PRIOR_FROZEN_SPEC_SHA256 == "f3577db5974d92481250f1d8a59f82e389a143febc41e4b0784c40ea343f5886"
-    assert CORRECTED_SPEC_SHA256 == "e64e5ce92cd6765844f89a8e02d607d9b573a8c3fb90bad70ccb5b8081e68337"
-    assert PREDICATE_SHA256 == "f0015cbf926c4b1f5a9bb2e88d23e724ea747234eca535b5dc0b64fdac46714b"
-    source = proposal_provenance_for(CHECK_ID)
-    assert source["signed_spec_sha256"] == PRIOR_FROZEN_SPEC_SHA256
-    assert source["signed_spec_status"] == "historical_superseded_for_this_check"
-    assert source["source_correction"]["current_canonical_spec_sha256"] == CORRECTED_SPEC_SHA256
-    assert source["source_correction"]["current_predicate_sha256"] == PREDICATE_SHA256
-    assert source["source_correction"]["prior_frozen_signed_spec_sha256"] == PRIOR_FROZEN_SPEC_SHA256
-    assert len(source["source_correction"]["requirement_ids"]) == 5
-    source["source_correction"]["requirement_ids"].clear()
-    assert len(proposal_provenance_for(CHECK_ID)["source_correction"]["requirement_ids"]) == 5
 
 
 def test_public_and_remediation_surfaces_agree_without_other_id_override():

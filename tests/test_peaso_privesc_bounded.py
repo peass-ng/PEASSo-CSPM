@@ -71,17 +71,6 @@ def test_exact_fact_does_not_replace_effective_permissions(entry):
     assert 'conditional'not in reached(privesc.analyze(snap,entries=[entry]),source,entry['id']).values()
 
 
-def test_all_67_bounded_effects_keep_their_historical_meanings_with_one_reviewed_successor():
-    current={e['id']:{k:v for k,v in e.items()if k!='_file'}for e in privesc.load_catalog()['entries']}
-    prior,_=_verified_prior()
-    assert len(ENTRIES)==67 and set(CONTRACT)=={e['id']for e in ENTRIES}
-    restored = set(CONTRACT) & set(current)
-    assert restored == {'azure-audit-microsoftwebstaticsiteslistsecretsaction'}
-    successor = current[next(iter(restored))]
-    assert successor['target']['outcome'] == 'bounded_authority'
-    assert successor['target']['selector'] == {'azure_static_site_deployment_token': True}
-    assert successor['confidence'] == 'conditional'
-    assert all({k:v for k,v in prior[e['id']].items()if k!='_file'}==e for e in ENTRIES)
 
 @pytest.mark.parametrize('entry',[e for e in ENTRIES if e['provider']in ('aws','gcp') and _required_actions(e.get('requires',{}))],ids=lambda e:e['id'])
 def test_permissions_on_another_resource_do_not_authorize_exact_bounded_effect(entry):

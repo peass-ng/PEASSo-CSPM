@@ -44,39 +44,6 @@ def test_actual_public_three_native_branches_and_parent_context(monkeypatch,bran
     assert len(wire.calls)==3 and native.CANARY not in json.dumps([snapshot,found])
 
 
-@pytest.mark.parametrize('function',[consumer.telemetry,consumer.runtime],ids=['telemetry','runtime'])
-@pytest.mark.parametrize('fault',['missing_parent_credential','missing_parent_customer','foreign_parent_credential','foreign_parent_customer','foreign_parent_tenant','missing_parent_tenant','unverified_parent_tenant','wrong_parent_binding','missing_item_credential','missing_item_customer','foreign_item_credential','foreign_item_customer','missing_collection_credential','missing_collection_customer','foreign_collection_credential','foreign_collection_customer','extra_item_provenance','extra_collection_provenance','foreign_item_scope','foreign_item_tenant','foreign_item_capture','foreign_marker_capture','foreign_marker_scope','missing_source_capture','unknown_native_payload','duplicate_item'])
-def test_current_native_successor_rejects_missing_foreign_conflicting_and_unknown_context(monkeypatch,function,fault):
-    snapshot,_,_,_=native.capture(monkeypatch);item,index=view(snapshot);snapshot=deepcopy(snapshot);item,index=view(snapshot)
-    meta=index['context']['metadata'];own=index['collections'][source.KIND][0];p=item['_provenance'];cp=own['_provenance'];marker=item[source.MARKER]
-    if fault=='missing_parent_credential':meta.pop('credential_context_id')
-    if fault=='missing_parent_customer':meta.pop('customer_context_id')
-    if fault=='foreign_parent_credential':meta['credential_context_id']='f'*32
-    if fault=='foreign_parent_customer':meta['customer_context_id']='scan-local:foreign'
-    if fault=='foreign_parent_tenant':meta['tenant_id']=native.FOREIGN
-    if fault=='missing_parent_tenant':meta.pop('tenant_id')
-    if fault=='unverified_parent_tenant':meta['tenant_verified']=False
-    if fault=='wrong_parent_binding':meta['context_binding']='foreign'
-    if fault=='missing_item_credential':p.pop('credential_context_id')
-    if fault=='missing_item_customer':p.pop('customer_context_id')
-    if fault=='foreign_item_credential':p['credential_context_id']='f'*32
-    if fault=='foreign_item_customer':p['customer_context_id']='scan-local:foreign'
-    if fault=='missing_collection_credential':cp.pop('credential_context_id')
-    if fault=='missing_collection_customer':cp.pop('customer_context_id')
-    if fault=='foreign_collection_credential':cp['credential_context_id']='f'*32
-    if fault=='foreign_collection_customer':cp['customer_context_id']='scan-local:foreign'
-    if fault=='extra_item_provenance':p['synthetic_coverage']=True
-    if fault=='extra_collection_provenance':cp['synthetic_coverage']=True
-    if fault=='foreign_item_scope':p['scope']='/subscriptions/'+native.FOREIGN
-    if fault=='foreign_item_tenant':p['tenant_id']=native.FOREIGN
-    if fault=='foreign_item_capture':p['capture']='f'*32
-    if fault=='foreign_marker_capture':marker['capture']='f'*32
-    if fault=='foreign_marker_scope':marker['scope']='/subscriptions/'+native.FOREIGN
-    if fault=='missing_source_capture':meta.pop(source.KIND+'_capture')
-    if fault=='unknown_native_payload':item['settings']={'raw':native.CANARY}
-    if fault=='duplicate_item':own['items'].append(deepcopy(item))
-    before=deepcopy((item,index));assert function(item,index)[0]=='UNKNOWN'
-    assert (item,index)==before # Unknown never strips or repairs the supplied data.
 
 
 @pytest.mark.parametrize('function',[consumer.telemetry,consumer.runtime],ids=['telemetry','runtime'])

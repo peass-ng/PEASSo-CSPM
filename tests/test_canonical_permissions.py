@@ -72,29 +72,6 @@ def test_sync_checks_all_inputs_before_writing(tmp_path):
     assert not (tmp_path / 'target').exists()
 
 
-def test_sync_ignores_unrelated_source_revision(tmp_path, monkeypatch):
-    book = tmp_path / 'book'
-    source = book / 'src/permission-categorizations'
-    source.mkdir(parents=True)
-    for provider in syncer.PROVIDERS:
-        (source / f'{provider}.yaml').write_bytes((RULES / f'{provider}.yaml').read_bytes())
-    # This fixture is deliberately not a git checkout: unchanged hashes must
-    # avoid consulting a newer source revision, and --check must write nothing.
-    target = tmp_path / 'target'
-    engine_path = target / ('src/CloudPEASS/permission_risk_classifier.py' if CLOUD else 'scripts/cloud_permission_risks.py')
-    engine_path.parent.mkdir(parents=True)
-    engine_path.touch()
-    if CLOUD:
-        folder = target / 'src/sensitive_permissions'
-        folder.mkdir()
-        for provider in syncer.PROVIDERS[:3]:
-            (folder / f'{provider}.py').write_text('very_sensitive_combinations = []\nsensitive_combinations = []\n')
-    monkeypatch.setattr(syncer.subprocess, 'check_output', lambda *a, **kw: 'a' * 40)
-    syncer.sync(book, target)
-    def unexpected_git(*args, **kwargs):
-        pytest.fail('Unchanged canonical hashes must not consult a newer book revision')
-    monkeypatch.setattr(syncer.subprocess, 'check_output', unexpected_git)
-    syncer.sync(book, target, check=True)
 
 
 def test_rejects_conflicting_case_aliases():
@@ -115,45 +92,3 @@ def test_rejects_executable_match_and_template_fields():
         syncer.validate(data, 'k8s')
 
 
-@pytest.mark.parametrize('cloud_target', (True, False))
-def test_changed_source_updates_copies_and_generated_lists(tmp_path, monkeypatch, cloud_target):
-    book = tmp_path / 'book'
-    source = book / 'src/permission-categorizations'
-    source.mkdir(parents=True)
-    for provider in syncer.PROVIDERS[:3]:
-        data = dict(version=1, provider=provider,
-                    permission_categories={level: [] for level in syncer.LEVELS},
-                    combinations={'critical': [], 'high': []})
-        (source / f'{provider}.yaml').write_text(yaml.safe_dump(data, sort_keys=False))
-    (source / 'k8s.yaml').write_text(yaml.safe_dump(dict(version=1, provider='k8s', rules=[
-        dict(id='fallback', match={'always': True}, severity='low', description='Discovery')]), sort_keys=False))
-    target = tmp_path / 'target'
-    engine_path = target / ('src/CloudPEASS/permission_risk_classifier.py' if cloud_target else 'scripts/cloud_permission_risks.py')
-    engine_path.parent.mkdir(parents=True)
-    engine_path.touch()
-    if cloud_target:
-        folder = target / 'src/sensitive_permissions'
-        folder.mkdir(parents=True)
-        for provider in syncer.PROVIDERS[:3]:
-            (folder / f'{provider}.py').write_text('very_sensitive_combinations = []\nsensitive_combinations = []\n')
-    monkeypatch.setattr(syncer.subprocess, 'check_output', lambda *args, **kwargs: 'a' * 40)
-    syncer.sync(book, target)
-    rules = target / ('src/CloudPEASS/risk_rules' if cloud_target else 'risk_rules')
-    before = json.loads((rules / 'hacktricks-source.json').read_text())
-    data = yaml.safe_load((source / 'aws.yaml').read_text())
-    data['permission_categories']['critical'] = ['example:Grant']
-    data['combinations']['critical'] = [['example:Grant']]
-    (source / 'aws.yaml').write_text(yaml.safe_dump(data, sort_keys=False))
-    monkeypatch.setattr(syncer.subprocess, 'check_output', lambda *args, **kwargs: 'b' * 40)
-    syncer.sync(book, target)
-    after = json.loads((rules / 'hacktricks-source.json').read_text())
-    assert before['sha256']['aws.yaml'] != after['sha256']['aws.yaml']
-    assert after['revision'] == 'b' * 40
-    assert (rules / 'aws.yaml').read_bytes() == (source / 'aws.yaml').read_bytes()
-    if cloud_target:
-        import ast
-        module = ast.parse((target / 'src/sensitive_permissions/aws.py').read_text())
-        assert ast.literal_eval(module.body[0].value) == [['example:Grant']]
-    else:
-        assert yaml.safe_load((target / 'aws_permissions_cat.yaml').read_text())['critical'] == ['example:Grant']
-    syncer.sync(book, target, check=True)

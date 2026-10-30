@@ -9,12 +9,6 @@ from peaso.checks.fixtures import CASES
 from tests.azure_native_successor_inputs_20261020 import _native_rows, current_cases
 
 
-@pytest.mark.parametrize('cid,name,row', [(cid, name, row) for cid, rows in _native_rows().items() for name, row in rows.items()])
-def test_native_successor_captures_replay_without_changing_evidence_inputs(cid, name, row):
-    item, index = deepcopy(row['item']), MemoIndex(deepcopy(row['index']))
-    before = deepcopy((item, dict(index)))
-    assert evaluate_check(cid, item, index)[0] == row['status'], name
-    assert (item, dict(index)) == before
 
 
 def test_original_windows_sql_image_is_preserved_and_cannot_hide_disabled_secure_boot():

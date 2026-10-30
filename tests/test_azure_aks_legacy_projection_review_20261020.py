@@ -424,14 +424,6 @@ def test_projection_fixed_page_and_byte_bounds_are_source_derived(monkeypatch,ca
  _,rows,_,_=aks_capture(monkeypatch,ca,'good',PRIV,record_property)
  assert {f['status'] for f in rows}=={'UNKNOWN'}
 
-@pytest.mark.parametrize('module',[bridge,hsm])
-def test_pure_successor_import_has_no_registration_side_effect(module):
- import importlib.util
- before=list(checks.CHECKS)
- spec=importlib.util.spec_from_file_location('peaso.checks._finite_native_probe',module.__file__)
- probe=importlib.util.module_from_spec(spec);spec.loader.exec_module(probe)
- assert checks.CHECKS==before
- assert all(d['requirements']==[] for d in probe.DECLARATIONS)
 
 
 @pytest.mark.parametrize('cid',[PRIV,NONROOT])

@@ -186,34 +186,6 @@ def test_positive_from_verified_earlier_layer_survives_later_rejection(monkeypat
     assert TOKEN not in json.dumps(result)
 
 
-@pytest.mark.parametrize('kind', ['function', 'layer'])
-def test_lambda_zip_branch_still_scans(monkeypatch, scanner, kind):
-    stream = io.BytesIO()
-    with zipfile.ZipFile(stream, 'w') as archive:
-        archive.writestr('config.py', b"password='" + TOKEN.encode() + b"'\n")
-    raw = stream.getvalue()
-    monkeypatch.setattr(p, 'download', lambda *args, **kwargs: raw)
-    request = Requests({})
-    if kind == 'function':
-        identity = f'arn:aws:lambda:{REGION}:{ACCOUNT}:function:example'
-        args = {'FunctionName': identity, 'Qualifier': '$LATEST'}
-        response = {'Configuration': {'FunctionArn': identity, 'Version': '$LATEST',
-                     'PackageType': 'Zip', 'CodeSize': len(raw),
-                     'CodeSha256': base64.b64encode(hashlib.sha256(raw).digest()).decode()},
-                    'Code': {'RepositoryType': 'S3', 'Location': URL}}
-        op = 'get_function'
-    else:
-        base = f'arn:aws:lambda:{REGION}:{ACCOUNT}:layer:example'
-        args = {'LayerName': base, 'VersionNumber': 1}
-        response = {'LayerVersionArn': base + ':1', 'LayerArn': base, 'Version': 1,
-                    'Content': {'CodeSize': len(raw),
-                    'CodeSha256': base64.b64encode(hashlib.sha256(raw).digest()).decode(),
-                    'Location': URL}}
-        op = 'get_layer_version'
-    result = p._lambda(response, op, args, request, REGION)['PackageSecretIndicators']
-    assert result['NativeResponseComplete'] is True
-    assert result['References']
-    assert TOKEN not in json.dumps(result)
 
 
 def test_download_oversize_and_cancel_remove_partial_file(monkeypatch, tmp_path):

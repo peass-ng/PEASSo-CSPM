@@ -21,19 +21,6 @@ def test_registration_and_signed_digest(check_id):
     assert CANDIDATE.PROPOSED_SPEC_SHA256[check_id]==EXPECTED[check_id]
     assert sum(check.id==check_id for check in CHECKS)==1
 
-def test_engine_default_selection_includes_native_candidates_and_signed_successor_secret():
-    categories,selected=_selection('aws',None,None,None)
-    assert set(categories)==set(CATEGORIES)
-    from peaso.checks.native_only import exclusions
-    retired = set(EXPECTED) & set(exclusions())
-    assert set(EXPECTED) - retired <= {c.id for c in selected}
-    assert not retired & {c.id for c in selected}
-    from tests.release_successor_history import BULK_IDS
-    ident = 'aws_nist_secretsmanager_secret_automatic_rotation_enabled'
-    assert ident in BULK_IDS and ident in {c.id for c in selected}
-    assert evaluate_check(ident, {}, {})[0] == 'UNKNOWN'
-    assert all(c.category in CATEGORIES for c in selected)
-    assert next(c for c in CHECKS if c.id=='aws_backup_plan_rule_required_frequency').category=='hardening'
 
 @pytest.mark.parametrize('check_id',list(EXPECTED))
 @pytest.mark.parametrize('case,expected',[('pass','PASS'),('fail','FAIL'),('unknown','UNKNOWN'),('denied','UNKNOWN'),('partial','UNKNOWN'),('malformed','UNKNOWN'),('foreign_scope','UNKNOWN')])

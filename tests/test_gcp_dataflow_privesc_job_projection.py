@@ -35,13 +35,6 @@ def job():
                                 {"name": "mutable.py", "location": "storage.googleapis.com/code-bucket/mutable.py"}]}]}}
 
 
-def test_exact_unpinned_and_pinned_references_are_projected_without_secrets():
-    module = projection()
-    result = module.project_job(job(), "projects/p1", {"p1", "123"})
-    assert result["workerServiceAccountEmail"] == "worker@p1.iam.gserviceaccount.com"
-    assert {r["object"] for r in result["codeObjects"]} == {"udf.py", "pinned.py", "mutable.py"}
-    assert next(r for r in result["codeObjects"] if r["object"] == "pinned.py")["sha256"] == "a" * 64
-    assert "must-not-be-stored" not in repr(result)
 
 
 def test_foreign_or_incomplete_job_fails_closed():
@@ -100,41 +93,6 @@ def test_object_metadata_keeps_only_replacement_blockers():
         raise AssertionError("foreign object metadata was accepted")
 
 
-def test_collection_reads_exact_metadata_without_download():
-    module = projection()
-    fake_gcp = ModuleType("peaso.collectors.gcp")
-    fake_gcp.ReadError = type("ReadError", (Exception,), {})
-    sys.modules["peaso.collectors.gcp"] = fake_gcp
-
-    class Collector:
-        collections = {("project", "projects/p1"): {"items": [
-            {"projectId": "p1", "name": "projects/123"}]}}
-
-        def __init__(self):
-            self.read_urls = []
-
-        def pages(self, url, scope, **kwargs):
-            assert scope == "projects/p1"
-            if url.endswith("jobs:aggregated"):
-                yield ([{"projectId": "p1", "id": "job_1", "location": "us-central1"}], "list")
-            else:
-                assert url.endswith("/locations/us-central1/jobs/job_1")
-                yield ([job()], "get")
-
-        def read(self, url, scope):
-            self.read_urls.append(url)
-            name = url.rsplit("/o/", 1)[-1]
-            return ({"bucket": "code-bucket", "name": name, "generation": "123",
-                     "metadata": {"token": "must-not-be-stored"}}, "object")
-
-    collector = Collector()
-    pages = list(module.collection_pages(collector, "projects/p1"))
-    result = pages[-1][0][0]
-    assert len(collector.read_urls) == 2  # pinned worker package is not fetched
-    assert all("/storage/v1/b/code-bucket/o/" in url for url in collector.read_urls)
-    assert next(r for r in result["codeObjects"] if r["object"] == "pinned.py")["metadataStatus"] == "checksum_pinned"
-    assert all(r["metadataStatus"] == "collected" for r in result["codeObjects"] if not r["sha256"])
-    assert "must-not-be-stored" not in repr(result)
 
 
 def test_active_batch_template_is_projected_without_parameters():

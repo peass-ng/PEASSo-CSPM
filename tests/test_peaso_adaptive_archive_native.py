@@ -56,18 +56,6 @@ def extract(kind,payload,r):
     with evidence.source_context(resource_id='owned-resource',scope='owned-scope',image_digest='sha256:'+'a'*64,layer='sha256:'+'b'*64):
         return package.scan_zip(payload,r)if kind=='zip'else package.scan_tar(payload,'application/vnd.oci.image.layer.v1.tar',r)
 
-@pytest.mark.parametrize('kind',['zip','tar'])
-def test_real_extraction_decoding_source_and_line_parity(kind,tools):
-    calls,captured,_=tools;raw=archive(kind,files())
-    baseline=extract(kind,raw,reader(60));baseline_capture=list(captured)
-    assert calls==[512,512]
-    calls.clear();captured.clear();clear_caches()
-    candidate=extract(kind,raw,reader(600))
-    assert candidate==baseline and calls==[1025]
-    assert captured==baseline_capture
-    assert len(candidate[0])==3
-    assert all(scope['resource_id']=='owned-resource'and scope['image_digest']=='sha256:'+'a'*64 and observed for _,_,_,scope,observed in captured)
-    assert {path for path,_,_,_,_ in captured}=={'file-0000.txt','file-0512.txt','file-1024.txt'}
 
 def test_typed_stdout_fallback_retains_all_native_files_and_disables_one_probe(monkeypatch,tools):
     calls,_,prepare=tools

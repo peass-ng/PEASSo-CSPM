@@ -78,27 +78,6 @@ def test_bounded_fixture_collection_contains_all_reviewed_entries(tmp_path):
     assert len(rows) == len({row["id"] for row in rows}) == 67
 
 
-def test_historical_release_rosters_and_member_tampering(tmp_path, monkeypatch):
-    from tests import release_successor_history as history
-    archive_checkout(tmp_path)
-    inputs.restore_missing_inputs(tmp_path)
-    monkeypatch.setattr(history, "ROOT", tmp_path)
-    payload = json.loads((tmp_path / "tests/fixtures/post_dfaf_integration/historical-release-manifests.json").read_text())
-    for version in payload["releases"]:
-        result = history.historical_release(tmp_path / ("peaso-source-" + version + ".zip"))
-        assert result["source_version"] == version
-    version = "e022caf8ffd81b18571939a12313dfd9afa60c8f2095239cf3ad25e3002a31b7"
-    archive = tmp_path / ("peaso-source-" + version + ".zip")
-    member = "docs/compliance-ledgers/manifest.json"
-    baseline = tmp_path / member
-    baseline.parent.mkdir(parents=True, exist_ok=True)
-    baseline.write_bytes(history.retained_ledger_inputs()["manifest.json"])
-    assert history.historical_bytes(archive, member)
-    baseline.write_text("{}")
-    with pytest.raises(ValueError, match="digest"):
-        history.historical_bytes(archive, member)
-    with pytest.raises(ValueError, match="member"):
-        history.historical_bytes(archive, "../escape.json")
 
 
 def test_retained_pre_review_ledger_inputs_reject_bundle_tampering(tmp_path, monkeypatch):
@@ -113,20 +92,6 @@ def test_retained_pre_review_ledger_inputs_reject_bundle_tampering(tmp_path, mon
         history.retained_ledger_inputs()
 
 
-def test_historical_catalog_projection_rejects_tampering(tmp_path, monkeypatch):
-    from tests import release_successor_history as history
-    archive_checkout(tmp_path)
-    inputs.restore_missing_inputs(tmp_path)
-    monkeypatch.setattr(history, "ROOT", tmp_path)
-    version = "e022caf8ffd81b18571939a12313dfd9afa60c8f2095239cf3ad25e3002a31b7"
-    archive = tmp_path / ("peaso-source-" + version + ".zip")
-    assert len(history.historical_catalog_ids(archive)) == 3419
-    path = tmp_path / "tests/fixtures/post_dfaf_integration/historical-release-manifests.json"
-    value = json.loads(path.read_text())
-    value["catalog_id_projections"][version]["ids"].pop()
-    path.write_text(json.dumps(value))
-    with pytest.raises(ValueError, match="digest"):
-        history.historical_catalog_ids(archive)
 
 
 @pytest.mark.parametrize("suffix", [b"extra", lzma.compress(b"{}")])

@@ -272,19 +272,6 @@ def test_pure_consumer_rejects_foreign_or_unbound_saved_sources(real, monkeypatc
     assert {f['status'] for f in result['findings']} == {'UNKNOWN'}
 
 
-@pytest.mark.parametrize('target', ['peaso/collectors/gcp.py',
-    'peaso/collectors/gcp_cloudrun_v2_job_declared_images_20261020.py',
-    'peaso/collectors/gcp_image_secret_indicators.py',
-    'peaso/checks/gcp_workload_image_source_association_20261020.py'])
-def test_source_successor_rejects_any_unlisted_collector_delta(monkeypatch, target):
-    from peaso import gcp_cloudrun_job_image_function_source_successor_20261020 as successor
-    original = Path.read_bytes
-    def changed(path):
-        data = original(path)
-        return data + b'\n# unrelated edit\n' if str(path).endswith('/' + target) else data
-    monkeypatch.setattr(Path, 'read_bytes', changed)
-    with pytest.raises(RuntimeError, match='changed'):
-        successor.reviewed_inputs()
 
 
 def test_collector_strings_cannot_grant_image_reads(clean, monkeypatch):

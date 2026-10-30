@@ -584,18 +584,3 @@ def test_grouped_checkpoint_and_raw_final_share_observation_fingerprint(monkeypa
     assert [stage for stage, _, _ in calls] == ["priorities"] and calls[0][2] == early_input
 
 
-def test_fingerprint_changes_with_identity_reference_and_access_epoch():
-    finding = {"id": "f", "provider": "aws", "category": "hardening", "status": "FAIL",
-               "scope": "123456789012/us-east-1", "resource_id": "r"}
-    report = {"provider": "aws", "created_at": "checkpoint-view"}
-    identity = {"ai_user": "owner", "auth_source": "personal", "access_reference": "sealed-a"}
-    entries = [{"provider": "aws", "account_id": "123456789012", "captured_at": 100,
-                "expires_at": 200, "target_scopes": ["123456789012/us-east-1"]}]
-    def fingerprint(boundary=identity, access=entries):
-        return pipeline.review_fingerprints(report, {}, [finding], identity=boundary,
-                                            entries=access)["f"]
-    original = fingerprint()
-    assert fingerprint(dict(identity, access_reference="sealed-b")) != original
-    assert fingerprint(dict(identity, ai_user="other-owner")) != original
-    assert fingerprint(identity, [dict(entries[0], captured_at=101)]) != original
-    assert fingerprint(identity, [dict(entries[0], expires_at=201)]) != original

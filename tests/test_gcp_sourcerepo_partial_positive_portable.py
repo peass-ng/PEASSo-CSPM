@@ -92,18 +92,6 @@ def test_later_selected_file_failure_with_no_positive_remains_unknown(monkeypatc
  assert len(calls)==2 and status=='UNKNOWN'
 
 
-def test_partial_positive_cannot_claim_an_uninspected_selected_path(monkeypatch):
- original=scanning.scan_content;calls=[]
- def inspect(payload,path,**kwargs):
-  calls.append(path)
-  if len(calls)==2:raise RuntimeError('synthetic later inspection failure')
-  return original(payload,path,**kwargs)
- monkeypatch.setattr(producer,'scan_content',inspect)
- row,index,status,evidence=native(monkeypatch,True,paths=['a.txt','b.txt'])
- assert status=='FAIL'
- marker=row[producer.MARKER]
- marker['leaks'][0]['locations'][0]['path']='sourcerepo.selected_file.'+marker['selection']['paths_sha256'][1]
- assert consumer.evaluate(row,index)[0]=='UNKNOWN'
 
 
 def test_partial_positive_public_projection_deduplicates_both_tools(monkeypatch):

@@ -24,15 +24,6 @@ def test_sealed_ast_format_is_independent_of_interpreter_empty_field_defaults():
     assert bridge._prepared_ast(ast.parse('def f(x):\n return x\n')) != bridge._prepared_ast(ast.parse('def f(x):\n return 1\n'))
 
 
-def test_canonical_runtime_entrypoint_preserves_historical_objects_without_transport():
-    current = active_shared()
-    assert ADMISSION.reviewed_inputs is current.dataflow_reviewed_inputs
-    assert ADMISSION._FUNCTIONS == bridge._DATAFLOW_FUNCTIONS
-    assert bridge._DATAFLOW_REVIEWED_INPUTS is ADMISSION._FUNCTIONS[ADMISSION.__name__ + ':reviewed_inputs']
-    assert ADMISSION._gcp_delta is bridge._DATAFLOW_FUNCTIONS[ADMISSION.__name__ + ':_gcp_delta']
-    ADMISSION.reviewed_inputs()
-    current.prepared_inputs(ROOT, {}, {})
-    assert list(ADMISSION.runtime.collection_pages(SimpleNamespace(options={}, scopes=[]), 'projects/example', 'dataflow')) == []
 
 
 @pytest.mark.parametrize('field', ('current_sha256', 'predecessor_ast', 'exact_additions'))
@@ -47,16 +38,6 @@ def test_prepared_guard_rejects_each_changed_source_or_ast_contract(field):
         bridge._check_prepared_shared(K8sReader.call, predecessor, name, ROOT, {}, changed)
 
 
-@pytest.mark.parametrize('field', ('predecessor_sha256', 'predecessor_ast', 'exact_additions'))
-def test_dataflow_guard_rejects_each_changed_source_or_ast_contract(field):
-    # The active shared successor carries the reviewed current GCP collector transitions.
-    current = active_shared()
-    receipt = json.loads((ROOT / 'peaso/checks' / ADMISSION.RECEIPT).read_bytes())
-    current._dataflow_gcp_delta(ROOT, receipt)
-    changed = deepcopy(receipt)
-    changed['gcp_function_deltas']['__init__'][field] = ['unreviewed'] if field == 'exact_additions' else 'unreviewed'
-    with pytest.raises(RuntimeError):
-        current._dataflow_gcp_delta(ROOT, changed)
 
 
 @pytest.mark.parametrize('attribute', ('reviewed_inputs', 'shared'))

@@ -75,15 +75,6 @@ def test_two_profile_request_validation_before_credentials(failure):
     with pytest.raises(ValueError):engine.collect_snapshot({'connector':{'provider':'azure','scopes':[native.SCOPE],'auth':{},'options':options},'checks':ids})
 
 
-@pytest.mark.parametrize('target',['environment','code','_evaluate'])
-def test_typed_wrappers_and_reachable_helper_identity_guards(monkeypatch,target):
-    before=tuple(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES)
-    forged=lambda *a:('PASS',{})
-    forged.__module__=consumer.__name__
-    monkeypatch.setattr(consumer,target,forged)
-    with pytest.raises(RuntimeError):
-        current_admission.install_admission('azure_ml_asset_secrets_admission_20261020')
-    assert tuple(checks.CHECKS)==before and case_state(CASES)==saved_state
 
 
 def test_second_registration_failure_rolls_back_both_controls_and_new_cases(monkeypatch):

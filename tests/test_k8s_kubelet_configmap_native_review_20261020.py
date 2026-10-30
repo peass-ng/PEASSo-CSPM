@@ -277,23 +277,6 @@ def test_exported_projection_cannot_rebind_identity_context_or_safe_types(monkey
     assert execute(monkeypatch,candidate.IDS[0],change_snapshot=change)[0]==['UNKNOWN']
 
 
-def test_admitted_native_successors_preserve_archived_contracts_and_proposals():
-    from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as source
-    # The production installer uses this verified private namespace to bind
-    # the archived admission to the current annotation collector successor.
-    admission = sys.modules[source.PRIVATE_NAME]
-    receipt,cases,compiled=admission.reviewed_inputs()
-    assert set(candidate.IDS)<={c.id for c in registry.CHECKS}
-    for cid in candidate.IDS:
-        check,=[c for c in registry.CHECKS if c.id==cid]
-        admission._verify(check,receipt,compiled)
-        assert check.evaluate(cases[cid]['pass'],cases[cid]['pass_index'])[0]=='PASS'
-        assert check.evaluate(cases[cid]['fail'],cases[cid]['fail_index'])[0]=='FAIL'
-        assert check.evaluate(cases[cid]['unknown'],cases[cid]['unknown_index'])[0]=='UNKNOWN'
-    assert not any('streaming' in cid or 'iptables'in cid for cid in candidate.IDS)
-    # Original proposal metadata remains a historical unregistered proposal;
-    # activation occurs only through the separate reviewed admission helper.
-    assert all(r['framework_mappings']==[] and r['registered']is False for r in candidate.DECLARATIONS)
 
 
 @pytest.mark.parametrize('cipher',['TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256','TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256'])

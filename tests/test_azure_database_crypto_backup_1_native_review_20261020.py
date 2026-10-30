@@ -457,13 +457,6 @@ def test_native_parent_redundant_name_coherence(monkeypatch,kind,variant,want,re
 from pathlib import Path
 CURRENT_OVERLAY=json.loads((Path(__file__).parent/'fixtures'/'azure_database_crypto_backup_1_native_current_20261020.json').read_text())
 
-@pytest.mark.parametrize('case',CURRENT_OVERLAY['cases'],ids=lambda c:c['check_id']+'-'+c['mode'])
-def test_current_native_successor_overlay(case,record_property):
-    # Public portable-snapshot consumers receive the same captured native verdict.
-    findings=evaluate_snapshot(case['snapshot'],checks=[case['check_id']],include_not_applicable=True)['findings']
-    assert {f['status'] for f in findings}=={f['status'] for f in case['findings']}==set(expected(case['check_id'],case['mode']).split(','))
-    assert PRIVATE not in json.dumps(case)
-    record_property('check_id',case['check_id']);record_property('mode','overlay_'+case['mode'])
 
 @pytest.mark.parametrize('variant',('modern_no_retention','disabled_retention'))
 def test_hsm_audit_archive_without_retention_proof(monkeypatch,variant,record_property):

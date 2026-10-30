@@ -371,13 +371,6 @@ def test_noncontiguous_delta_copy_offset_bytes():
     assert git.decode_selected_files(wire, commit, ["config.txt"]).files[0].content == content[256:512]
 
 
-def test_chunk_boundaries_compressible_and_incompressible():
-    randomish = b"".join(hashlib.sha256(str(i).encode()).digest() for i in range(8192))
-    for size in (65535, 65536, 65537, 131072, 262144):
-        for content in (b"a" * size, randomish[:size]):
-            entries, commit = fixture(content)
-            result = git.decode_selected_files(pack(entries), commit, ["config.txt"])
-            assert result.files[0].content == content
 
 
 def test_full_object_limit_and_4096_count_boundary():

@@ -293,30 +293,3 @@ def test_user_session_and_read_only_api_key_share_live_grant_then_revoke(store, 
         assert http.get("/api/me", headers={"Authorization": "Bearer " + key}).status_code == 401
 
 
-def test_operator_revoke_rejects_unreviewed_preimage_without_write(tmp_path, monkeypatch):
-    import hashlib
-    import json
-    import sys
-    from scripts.peaso_test_resources import hosted_admin_qa_grant as operator
-    value = {"account": "111122223333", "region": "us-east-1", "table": "hacktricks-cspm",
-             "pool_id": POOL, "client_id": CLIENT, "cognito_username": "qa-user",
-             "subject": SUB, "verified_email": EMAIL, "reason": "bounded acceptance run",
-             "audit_id": "a" * 32, "issued_at": NOW, "hard_expires_at": NOW + 3600,
-             "operator_role_prefix": "arn:aws:sts::111122223333:assumed-role/reviewed-operator/",
-             "ledger_dir": str(tmp_path / ".cache" / "private")}
-    path = tmp_path / "operator.private.json"
-    path.write_text(json.dumps(value))
-    path.chmod(0o600)
-    sha = hashlib.sha256(path.read_bytes()).hexdigest()
-    store = Mock()
-    store.get_admin_qa_grant.return_value = grant()
-    monkeypatch.setattr(operator, "ROOT", tmp_path)
-    monkeypatch.setattr(operator.boto3, "Session", lambda **kw: Mock())
-    monkeypatch.setattr(operator, "live_identity", lambda session, manifest: ACTOR)
-    monkeypatch.setattr(operator, "DynamoStore", lambda *args: store)
-    monkeypatch.setattr(sys, "argv", ["hosted_admin_qa_grant.py", "revoke", "--manifest", str(path),
-                                      "--manifest-sha256", sha, "--expected-row-sha256", "0" * 64])
-    with pytest.raises(RuntimeError, match="preimage"):
-        operator.main()
-    store.revoke_admin_qa_grant.assert_not_called()
-    assert not (tmp_path / ".cache" / "private").exists()

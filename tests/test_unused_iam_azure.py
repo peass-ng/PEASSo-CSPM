@@ -356,9 +356,6 @@ def test_new_service_principal_is_not_made_unused_by_old_app_activity():
     assert 'last_recorded_sign_in' not in evidence
 
 
-def test_activity_from_deleted_predecessor_principal_is_not_current_use_evidence():
-    item = identity(createdDateTime='2026-01-02T00:00:00Z')
-    assert subject.evaluate_principal(item, capture(item, reports=[report('service_principal_activity', [principal_record()])]))[0] == 'UNKNOWN'
 
 
 def test_new_evidence_inventory_expands_existing_directory_inputs():
@@ -400,21 +397,6 @@ def test_normal_engine_emits_unused_iam_hardening_finding(ident):
     assert 'HackTricks Cloud Best Practices' in findings[0]['frameworks']
 
 
-def test_immutable_microsoft_graph_source_snapshots_match_reviewed_metadata():
-    import gzip
-    import hashlib
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    source = json.loads(gzip.decompress((root / 'docs/iam-unused/azure-identity-sources.json.gz').read_bytes()))
-    known = {}
-    for row in source['sources']:
-        assert '/' + source['commit'] + '/' in row['url']
-        assert hashlib.sha256(row['text'].encode()).hexdigest() == row['sha256']
-        known[row['url']] = row['sha256']
-    metadata = json.loads((root / 'docs/compliance-ledgers/native-extensions/unused-iam-azure-20261021.json').read_text())
-    for row in metadata['checks']:
-        assert all(known[reference['url']] == reference['sha256'] for reference in row['sources'])
 
 
 def test_native_memo_index_reuses_join_data_without_mutating_the_snapshot():

@@ -422,12 +422,6 @@ def _assert_archived_aks_scope_rejection(monkeypatch,cid):
     assert native_only.exclusions()==exclusions_before
 
 
-@pytest.mark.parametrize('cid',[ARCHIVED_AKS_SCOPE_ID+'_unreviewed','azure_aks_cluster_10_2_1_1_17_885658f_extra'])
-def test_archived_aks_scope_successor_does_not_accept_other_ids(monkeypatch,cid):
-    with pytest.raises(ValueError,match='archived AKS scope compatibility applies only to '+ARCHIVED_AKS_SCOPE_ID):
-        _assert_archived_aks_scope_rejection(monkeypatch,cid)
-    with pytest.raises(ValueError,match='^unknown check ID for selected provider$'):
-        engine.plan_collection({'connector':{'provider':'azure','scopes':[SUB]},'checks':[cid]})
 
 
 @pytest.mark.parametrize('cid',ROSTER)

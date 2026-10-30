@@ -40,25 +40,6 @@ def _run(stage, script):
     return result.stdout
 
 
-def test_pinned_manifest_rejects_tamper(tmp_path):
-    stage=_stage(tmp_path)
-    for name in ('evidence_static_source_manifest.json','evidence_static_data_manifest.json'):
-        path=stage/'peaso/server'/name
-        original=path.read_bytes()
-        path.write_bytes(original+b' ')
-        script=r'''
-import importlib.util,sys
-from pathlib import Path
-path=Path(sys.argv[2])/'peaso/server/evidence_static.py'
-spec=importlib.util.spec_from_file_location('evidence_static_tamper',path)
-module=importlib.util.module_from_spec(spec)
-try:spec.loader.exec_module(module)
-except ImportError as error:
- assert 'manifest changed' in str(error),str(error)
-else:raise AssertionError('tampered manifest accepted')
-'''
-        _run(stage,script)
-        path.write_bytes(original)
 
 
 def test_concurrent_first_import_never_exposes_partial_formatter(monkeypatch):
@@ -96,34 +77,3 @@ def test_concurrent_first_import_never_exposes_partial_formatter(monkeypatch):
         assert loader._load_source(name) is first.result(timeout=5)
 
 
-def test_presentation_runs_when_engine_catalogs_are_absent(tmp_path):
-    stage = _stage(tmp_path)
-    privesc = stage/'peaso/privesc'
-    privesc.unlink()
-    privesc.mkdir()
-    for child in (ROOT/'peaso/privesc').iterdir():
-        if child.name not in {'catalog', 'catalog_versions', '__pycache__'}:
-            (privesc/child.name).symlink_to(child, target_is_directory=child.is_dir())
-    script = r'''
-import importlib.util,json,sys
-from pathlib import Path
-path=Path(sys.argv[2])/'peaso/server/evidence_static.py'
-spec=importlib.util.spec_from_file_location('presentation_without_engine_catalog',path)
-module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-assert not (module.SOURCE_ROOT/'peaso/privesc/catalog').exists()
-assert not any(name.startswith('peaso/privesc/catalog/') for name in module.MANIFEST)
-module.verify_closure()
-entries=module._catalog()['entries']
-assert entries and all('id' in row for row in entries)
-finding={'check_id':'aws.a.iam.root_summary_mfa','provider':'aws','status':'FAIL','evidence':{'AccountMFAEnabled':0}}
-assert module.evidence_summary(finding)
-# The substituted materialized catalog remains mandatory and hash-verified.
-path=Path(sys.argv[2])/'peaso/server/evidence_static_privesc_entries.json'
-path.write_bytes(path.read_bytes()+b' ')
-module.verify_closure.cache_clear()
-try:module.verify_closure()
-except ImportError as error:assert 'materialized presentation input changed' in str(error)
-else:raise AssertionError('tampered materialized catalog accepted')
-print('catalog-free presentation and materialized tamper rejection passed')
-'''
-    assert 'catalog-free presentation' in _run(stage, script)

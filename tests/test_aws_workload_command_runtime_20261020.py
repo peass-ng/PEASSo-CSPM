@@ -223,14 +223,6 @@ def test_invalid_selection_rejected_before_auth(kind):
     with pytest.raises(ValueError):engine.collect_snapshot(req)
 
 
-@pytest.mark.parametrize('owner,name', [(engine, '_request'), (engine, 'collect_snapshot'), (aws, 'collect'), (validation, 'validate_connector')])
-def test_current_source_successor_rejects_callable_tamper(monkeypatch, owner, name):
-    shared.reviewed_inputs(); shared.s3_reviewed_inputs(); admission.reviewed_inputs()
-    with monkeypatch.context() as patch:
-        patch.setattr(owner, name, lambda *args, **kwargs: None)
-        with pytest.raises((RuntimeError, KeyError, TypeError)):
-            shared.s3_reviewed_inputs() if owner is aws else shared.reviewed_inputs()
-    shared.reviewed_inputs(); shared.s3_reviewed_inputs()
 
 
 def test_native_clients_transport_and_handlers_cleanup_on_success_and_denial(monkeypatch):

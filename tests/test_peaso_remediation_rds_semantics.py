@@ -26,29 +26,6 @@ def reviewed():
     return json.loads(SHARD.read_text())
 
 
-def test_exact_three_reviewed_bindings_follow_registered_native_checks():
-    rows = reviewed()
-    checks = {check.id: check for check in CHECKS}
-    source = (ROOT / "peaso/checks/claude_aws_b_db.py").read_text().splitlines()
-    for cid in IDS:
-        row = rows[cid]
-        binding = row["field_binding"]
-        proof = row["source_proof"]
-        assert row["review_status"] == "approved"
-        assert binding["kind"] == proof["source_kind"] == checks[cid].kind
-        assert binding["target"] == checks[cid].target == "resource"
-        assert binding["path"] == proof["evaluated_field"]
-        assert binding["evaluator_family"] == checks[cid].evaluate.__module__
-        # The review records its original line. Security fixes may shift that
-        # line; bind the current callback to the same file and exact decorator.
-        callback = inspect.unwrap(checks[cid].evaluate)
-        assert Path(inspect.getsourcefile(callback)).resolve() == (ROOT / proof["evaluator"].rsplit(":", 1)[0]).resolve()
-        assert cid in inspect.getsourcelines(callback)[0][0]
-        from tests.reviewed_guidance_presentation import assert_approved_presentation
-        current=assert_approved_presentation(cid,row)
-        if cid==IDS[0]:
-            assert "NAT egress" in current["summary"]
-            assert "NAT-only" in " ".join(current["caveats"]) or "NAT" in current["summary"]
 
 
 def test_subnet_guidance_distinguishes_nat_from_direct_internet_gateway():

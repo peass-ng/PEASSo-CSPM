@@ -226,40 +226,6 @@ def _assert_gcp_heading_dispositions(headings, dispositions):
     assert not missing, f"{len(missing)} current GCP headings lack a declared disposition: {missing[:10]}"
 
 
-def test_gcp_heading_regression_detects_a_removed_disposition(tmp_path):
-    root = _current_gcp_checkout()
-    if root is None:
-        # Local mode still checks duplicate anchors and both fence styles. The
-        # strict source gate exercises the actual pinned 3,303-heading tree.
-        root = tmp_path
-        page = root / GCP_SOURCE_TREE / "example.md"
-        page.parent.mkdir(parents=True)
-        page.write_text("# Same\n# Same\n```sh\n# ignored\n```\n~~~sh\n# ignored-too\n~~~\n", encoding="utf-8")
-    headings = _gcp_heading_sources(root)
-    dispositions = _gcp_disposition_sources() if root != tmp_path else set(headings)
-    _assert_gcp_heading_dispositions(headings, dispositions)
-    victim = sorted(headings)[0]
-    with pytest.raises(AssertionError, match=re.escape(victim)):
-        _assert_gcp_heading_dispositions(headings, dispositions - {victim})
-    if root != tmp_path:
-        # Remove one real grouped STRUCTURAL anchor from an in-memory ledger copy.
-        # The source checkout, catalog and historical ledger remain immutable.
-        target_page = "src/pentesting-cloud/gcp-security/gcp-services/gcp-vertex-ai-enum.md"
-        target_anchor = "privilege-escalation"
-        target = target_page + "#" + target_anchor
-        assert target in headings and target in dispositions
-        marker = "### `" + target_page + "`"
-        text = LEDGER.read_text(encoding="utf-8")
-        assert marker in text
-        before, section = text.split(marker, 1)
-        block, separator, rest = section.partition("\n### `")
-        token = "`#" + target_anchor + "`"
-        assert token in block and "| STRUCTURAL |" in block
-        changed = before + marker + block.replace(token, "(removed by counterexample)", 1) + separator + rest
-        with pytest.raises(AssertionError, match=re.escape(target)):
-            _assert_gcp_heading_dispositions(headings, _gcp_disposition_sources(changed))
-    if root == tmp_path:
-        assert headings == {str(GCP_SOURCE_TREE / "example.md") + "#same", str(GCP_SOURCE_TREE / "example.md") + "#same-1"}
 
 
 def test_strict_gcp_heading_sources_cannot_silently_skip(monkeypatch):

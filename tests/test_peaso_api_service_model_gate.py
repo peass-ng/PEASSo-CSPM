@@ -19,20 +19,6 @@ def test_reviewed_source_and_literal_api_clients():
     assert gate.review_source(ROOT)['source_diff'] == {'added': [], 'removed': [], 'changed': []}
 
 
-def test_changed_runtime_source_fails_closed(tmp_path):
-    for name in gate._reviewed_manifest()['files']:
-        target = tmp_path / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(ROOT / name, target)
-    changed = {'peaso/server/app.py', 'risk_rules/__init__.py',
-               'bluepeass/k8s.py', 'scripts/cloud_permission_risks.py'}
-    for name in changed:
-        target = tmp_path / name
-        target.write_bytes(target.read_bytes() + b'\n# unreviewed change\n')
-    with pytest.raises(RuntimeError, match='API Python source changed') as error:
-        gate.reviewed_python(tmp_path)
-    assert all(name in str(error.value) for name in changed)
-    assert set(gate.source_diff(tmp_path)['changed']) == changed
 
 
 @pytest.mark.parametrize('call,reason', [

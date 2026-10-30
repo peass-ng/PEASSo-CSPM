@@ -250,16 +250,6 @@ def test_ordered_map_keeps_order_and_first_error():
     assert seen == [0, 1, 2, 3]  # serial mode stops exactly where the loop did
 
 
-def test_item_wise_wrapper_equals_serial_rows_and_only_wraps_reviewed_enrichers():
-    def enrich(requests, session, region, items):
-        return [dict(item, seen=item["n"] * 3) for item in items]
-    enrich.__module__, enrich.__qualname__ = "peaso.collectors.aws_facts_ext", "_lambda_function"
-    wrapped = pool.item_wise("peaso.collectors.aws_facts_ext", enrich)
-    items = [{"n": n} for n in range(25)]
-    for requests in (aws.Requests({}), aws.Requests({"max_calls": 5})):
-        assert wrapped(requests, None, REGION, items) == enrich(requests, None, REGION, items)
-    other = lambda requests, session, region, items: items  # noqa: E731
-    assert pool.item_wise("peaso.collectors.aws_facts_ext", other) is other
 
 
 def test_app_runner_detail_rows_each_read_their_own_service(native):

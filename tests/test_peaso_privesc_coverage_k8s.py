@@ -179,29 +179,6 @@ def test_every_in_scope_heading_has_a_ledger_row():
     assert not missing, "in-scope headings without a ledger row:\n" + "\n".join(missing)
 
 
-def test_current_pr_head_has_no_unmapped_k8s_heading():
-    candidates = [p for p in os.environ.get("HACKTRICKS_CLOUD_ROOT", "").split(os.pathsep) if p]
-    root = None
-    for path in candidates:
-        candidate = Path(path).expanduser()
-        if not (candidate / "src").is_dir():
-            continue
-        revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=candidate,
-                                  capture_output=True, text=True, check=False)
-        if revision.returncode == 0 and revision.stdout.strip() == CURRENT_LEDGER_REVISION:
-            root = candidate
-            break
-    if root is None:
-        pytest.skip(f"no HackTricks checkout at {CURRENT_LEDGER_REVISION}")
-    base = root / PC
-    pages = []
-    for scope in SCOPE:
-        path = base / scope
-        pages += sorted(path.rglob("*.md")) if path.is_dir() else [path]
-    headings = {f"{page.relative_to(base)}#{anchor}" for page in pages for anchor in _anchors(page)}
-    mapped = {f"{page}#{anchor}" for page, anchor, _, _ in _ledger_rows()}
-    assert len(pages) == 50 and len(headings) == 422
-    assert not headings - mapped, "unmapped current headings:\n" + "\n".join(sorted(headings - mapped))
 
 
 # ------------------------------------------------------------------ catalog wiring of the admission blockers

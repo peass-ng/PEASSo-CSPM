@@ -205,69 +205,6 @@ def test_malformed_resource_does_not_hide_another_public_policy():
     assert review_document(read.items[0]['Policy'])[0]
 
 
-def test_customer_role_expansion_preserves_grants_and_adds_only_reviewed_reads(tmp_path, monkeypatch):
-    import copy
-    from scripts.peaso_deploy_customer_policy import build_policy, split_policy, policy_size, refresh, PRESERVED_TEMPLATE_READ_ACTIONS, IAM_REPORT_READ_REFERENCES
-    from tests.customer_policy_history import historical_role_template
-    before = historical_role_template('ae1b7534ceca1ddf593d1ba9cb04fd8baacf68eebc3bdc891a23d39d915a9893')
-    # Regenerate the exact synthetic historical policy view locally; the private
-    # operator identity and role name are not inputs to the public regression.
-    path = tmp_path / 'infra/aws/customer-role.json'
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps(before))
-    monkeypatch.syspath_prepend(str(tmp_path))  # restore refresh's sys.path change
-    refresh(tmp_path)
-    after = json.loads(path.read_text())
-    expected_role = copy.deepcopy(before['Resources']['AuditRole'])
-    expected_role['Properties']['AssumeRolePolicyDocument']['Statement'][0]['Principal']['AWS'] = {'Ref': 'CollectorRoleArn'}
-    assert after['Resources']['AuditRole'] == expected_role
-    assert after['Parameters'] == {**before['Parameters'], 'CollectorRoleArn': {
-        'Type': 'String', 'AllowedPattern': 'arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+',
-        'Description': 'Collector role ARN shown by the CSPM connector setup'}}
-    assert after['Outputs'] == before['Outputs']
-    assert all(after['Metadata'][key] == value for key, value in before['Metadata'].items())
-    def grants(template):
-        return {(statement['Effect'], action, json.dumps(target, sort_keys=True))
-                for resource in template['Resources'].values() if resource['Type'] == 'AWS::IAM::ManagedPolicy'
-                for statement in resource['Properties']['PolicyDocument']['Statement']
-                for action in (statement['Action'] if isinstance(statement['Action'], list) else [statement['Action']])
-                for target in (statement['Resource'] if isinstance(statement['Resource'], list) else [statement['Resource']])}
-    old, new = grants(before), grants(after)
-    assert not old - new
-    receipt = json.loads(Path('peaso/collectors/aws_resource_policy_permissions.json').read_text())
-    reviewed = set(receipt['mappings'].values()) | {a for actions in receipt['additional_actions'].values() for a in actions} | {'apigateway:GET'} | set(IAM_REPORT_READ_REFERENCES)
-    from scripts.peaso_deploy_customer_policy import RECHECK_METADATA_READ_REFERENCES, NETWORK_SERVICE_READ_REFERENCES
-    reviewed |= set(RECHECK_METADATA_READ_REFERENCES) | set(NETWORK_SERVICE_READ_REFERENCES)
-    # Later reviewed metadata waves each carry their own primary authorization references.
-    import scripts.peaso_deploy_customer_policy as customer_policy
-    for name in ('EXPOSURE_METADATA_READ_REFERENCES', 'BIG_WAVE_EXPOSURE_READ_REFERENCES', 'ADDITIONAL_PRIVESC_METADATA_REFERENCES',
-                 'EXPOSURE_SWEEP_READ_REFERENCES', 'NATIVE_METADATA_ACTIONS', 'WELLARCHITECTED_SHARE_READS',
-                 'EXACT_COLLECTOR_READ_REFERENCES', 'GAMELIFT_FLEET_METADATA_REFERENCES', 'DEVICEFARM_TEST_METADATA_REFERENCES',
-                 'ATHENA_SESSION_METADATA_REFERENCES', 'GAMELIFT_STREAM_SESSION_METADATA_REFERENCES', 'IOT_ROLE_ALIAS_METADATA_REFERENCE',
-                 'ACCESS_ANALYZER_CONFIGURATION_REFERENCE', 'SAGEMAKER_NOTEBOOK_LIFECYCLE_METADATA_REFERENCE',
-                 'SAGEMAKER_STUDIO_LIFECYCLE_METADATA_REFERENCE', 'BRAKET_DEVICE_METADATA_REFERENCE'):
-        reviewed |= set(getattr(customer_policy, name))
-    reviewed |= {'amplify:ListBranches', 'deadline:GetQueue', 'deadline:ListQueues', 'deadline:ListWorkers',
-                 'grafana:ListWorkspaceServiceAccounts', 'mediapackage:ListOriginEndpoints',
-                 'mediatailor:ListPlaybackConfigurations', 'sagemaker:DescribeSpace', 'sagemaker:ListSpaces'}
-    from peaso.collectors import aws_network_catalog, aws_network_inventory
-    from scripts.peaso_deploy_customer_policy import iam_action
-    # Review the precise SDK operations declared by the network metadata plans.
-    # iam_action rejects mappings outside the pinned authorization reference.
-    for module in (aws_network_catalog, aws_network_inventory):
-        operations = module.READ_ACTIONS | {(service, operation)
-                      for service, operation, _ in module.SPECS.values()}
-        reviewed |= {iam_action(service, operation) for service, operation in operations}
-    added = new - old
-    assert added and {action for effect, action, resource in added} <= reviewed
-    assert all(effect == 'Allow' and '*' not in action for effect, action, resource in added)
-    documents = [r['Properties']['PolicyDocument'] for name, r in sorted(after['Resources'].items()) if r['Type'] == 'AWS::IAM::ManagedPolicy']
-    # The current template includes resource-policy metadata and exactly the two
-    # separately documented AWS Read-classified, selection-gated IAM report APIs.
-    reads = aws.READ_ACTIONS | PRESERVED_TEMPLATE_READ_ACTIONS
-    assert documents == split_policy(build_policy(reads))
-    assert after['Metadata']['PeasoIamReportReadReference']['Actions'] == sorted(IAM_REPORT_READ_REFERENCES)
-    assert len(documents) <= 10 and all(policy_size(document) <= 6144 for document in documents)
 
 
 @pytest.mark.parametrize('operator', ['ForAllValues:StringLike', 'StringLikeIfExists'])

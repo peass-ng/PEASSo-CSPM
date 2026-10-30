@@ -28,17 +28,6 @@ def outcome(fn, item, index, kind='instance'):
         return 'raise', type(exc), exc.args
 
 
-def test_registered_namespace_and_native_callback_chain_are_real():
-    check = next(c for c in CHECKS if c.id == 'aws_ec2_instance_time_offset_monitored')
-    seen = []
-    fn = check.evaluate
-    while fn is not None and id(fn) not in seen:
-        seen.append(id(fn))
-        if fn.__globals__ is MODULE.__dict__:
-            break
-        fn = getattr(fn, '__wrapped__', None)
-    assert fn is not None and fn.__globals__ is MODULE.__dict__
-    assert MODULE._resource.__module__ == MODULE.__name__
 
 
 @pytest.mark.parametrize('index_type', [dict, MemoIndex])

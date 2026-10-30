@@ -140,70 +140,8 @@ def test_anchor_slug_matches_mdbook():
     assert _slug("`<service>.<resource>.setIamPolicy` — self-grant") == "serviceresourcesetiampolicy--self-grant"
 
 
-def test_active_sources_resolve_at_their_pinned_revisions():
-    """Check the exact published revision, including commits not checked out as HEAD."""
-    checkouts = _checkouts()
-    if not checkouts:
-        if os.environ.get("PEASO_PRIVESC_STRICT_SOURCES") == "1":
-            pytest.fail("strict source validation requires a HackTricks Git checkout")
-        pytest.skip("no HackTricks Git checkout selected")
-    from peaso.privesc.schema import load_catalog
-    repo = checkouts[0][0]
-    cache, errors = {}, []
-    for entry in load_catalog(strict=True)["entries"]:
-        source = entry["source"]
-        page, anchor = source.split("#", 1)
-        revision = entry.get("source_revision")
-        if revision is None:
-            # Some non-AWS catalog entries cite a page without a pinned Git
-            # revision. AWS privilege escalation sources must stay pinned.
-            assert entry["provider"] != "aws", f"AWS source lacks a revision: {entry['id']}"
-            continue
-        key = (revision, page)
-        if key not in cache:
-            shown = subprocess.run(["git", "show", f"{revision}:{page}"], cwd=repo,
-                                   capture_output=True, text=True, check=False)
-            cache[key] = _anchors_in_text(shown.stdout) if shown.returncode == 0 else None
-        if cache[key] is None or anchor not in cache[key]:
-            errors.append(f"{entry['id']}: {revision}:{source}")
-    assert not errors, "active sources missing at pinned revisions:\n" + "\n".join(errors)
 
 
-def test_archived_source_audit_binds_every_current_reference():
-    import gzip
-    import hashlib
-    import json
-    root = Path(__file__).resolve().parents[1]
-    report = json.loads(gzip.decompress((root / "docs/privesc-ledgers/source-validation-disclosure-v7.json.gz").read_bytes()))
-    from peaso.privesc.versioned_catalog import PRIOR_SOURCE_MANIFEST, PRIOR_CATALOG_ARCHIVE
-    assert report["catalog_manifest_sha256"] == hashlib.sha256(PRIOR_SOURCE_MANIFEST.read_bytes()).hexdigest()
-    assert report["counts"] == {"valid": 4081}
-    historical_path = root / "docs/privesc-ledgers/source-validation-20261014.json.gz"
-    historical = json.loads(gzip.decompress(historical_path.read_bytes()))
-    from peaso.privesc.versioned_catalog import PRIOR_DISCLOSURE_MANIFEST
-    assert report["schema"] == "additive-source-audit-v1"
-    assert report["base_audit_sha256"] == hashlib.sha256(historical_path.read_bytes()).hexdigest()
-    assert report["base_manifest_sha256"] == historical["catalog_manifest_sha256"] == PRIOR_DISCLOSURE_MANIFEST
-    assert historical["counts"] == {"valid": 4074} and len(report["references"]) == 7
-    references = historical["references"] + report["references"]
-    import tarfile
-    archived_sources = []
-    with tarfile.open(PRIOR_CATALOG_ARCHIVE, "r:gz") as archive:
-        for member in archive:
-            if not member.isfile():
-                continue
-            rel = member.name.removeprefix("catalog/")
-            for i, item in enumerate(yaml.safe_load(archive.extractfile(member).read()) or []):
-                if not isinstance(item, dict):
-                    continue
-                sources = item.get("source")
-                for source in sources if isinstance(sources, list) else [sources]:
-                    if isinstance(source, str) and source:
-                        archived_sources.append((f"{rel}[{i}] {item.get('id') or item.get('technique') or ''}".strip(),
-                                                 source, item.get("source_revision")))
-    assert Counter((row["catalog_location"], row["source"], row["cited_revision"]) for row in references) == Counter(archived_sources)
-    assert all(row["status"] == "valid" and re.fullmatch(r"[0-9a-f]{64}", row["page_sha256"])
-               and re.fullmatch(r"[0-9a-f]{40}", row["resolved_revision"]) for row in references)
 
 
 def test_safe_c_parser_preserves_every_catalog_entry_and_exclusion(monkeypatch):

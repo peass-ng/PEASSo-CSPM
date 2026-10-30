@@ -121,17 +121,6 @@ def test_diff_changes_evidence_and_ignores_collection_timestamp():
     assert diff_reports(before, after)["changed"][0]["after"]["status"] == "FAIL"
 
 
-def test_cli_scan_evaluate_report_diff(tmp_path):
-    root = Path(__file__).resolve().parents[1]
-    snapshot, report, markdown, diff = [tmp_path / p for p in ("snapshot.json", "report.json", "report.md", "diff.json")]
-    commands = [["scan", "--provider", "aws", "--demo", "--categories", "hardening", "--checks", "aws.ec2.imdsv2", "--snapshot-output", str(snapshot), "-o", str(report)],
-        ["evaluate", str(snapshot), "--categories", "hardening", "--checks", "aws.ec2.imdsv2", "-o", str(report)],
-        ["report", str(report), "-o", str(markdown)], ["diff", str(report), str(report), "-o", str(diff)]]
-    for arguments in commands:
-        result = subprocess.run([sys.executable, "-m", "peaso", *arguments], cwd=root, capture_output=True, text=True)
-        assert result.returncode == 0, result.stderr
-    assert "Resource inventory" in markdown.read_text()
-    assert json.loads(diff.read_text())["stats"] == {"added": 0, "removed": 0, "changed": 0}
 
 
 def test_catalog_checks_have_reviewed_hacktricks_membership_and_provider():

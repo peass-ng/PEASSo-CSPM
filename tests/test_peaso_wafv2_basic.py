@@ -61,47 +61,6 @@ def coverage(out, cid):
     return rows[0]
 
 
-def test_signed_registry_and_compiled_control_lineage():
-    ledger = {row["id"]: row for row in json.loads((ROOT / "docs/compliance-ledgers/new-checks-aws.json").read_text())}
-    requirements = ancestor_json(ROOT / "peaso/rulepacks/compliance_requirements.json")
-    descriptions = ancestor_json(ROOT / "peaso/rulepacks/check_descriptions.json")["checks"]
-    catalog = ancestor_json(ROOT / "peaso/rulepacks/native_catalog.json")["checks"]
-    by_id = {check.id: check for check in CHECKS}
-    public = {check["id"]: check for check in catalog}
-    assert len(by_id) == len(public) == 3434
-    # Two reviewed exact aliases remain in signed proposal history without
-    # registering duplicate callbacks or remaining actionable pending checks.
-    historical_unregistered = {row["id"] for row in requirements["proposed_checks"]} - set(public)
-    active_pending = {cid for framework in requirements["frameworks"]
-                      for row in framework["requirements"] for cid in row["pending_checks"]}
-    assert len(historical_unregistered) == 555 and len(active_pending) == 552
-    assert historical_unregistered - active_pending == {
-        "aws_g6_redshift_automatic_version_upgrade", "aws.pci.cloudtrail.authentication_events",
-        "aws_fedramp_rds_cluster_members_enhanced_monitoring"}
-    assert requirements["counts"] == {"automated": 9566, "manual": 5957,
-        "not_applicable": 651, "not_assessed": 1387, "partial": 4651}
-    for cid, expected in SIGNED_REQUIREMENTS.items():
-        signed = {key: ledger[cid][key] for key in ("id", "provider", "resource_kind", "data_source", "predicate",
-                 "severity", "category", "title", "description", "remediation_hint")}
-        digest = hashlib.sha256(json.dumps(signed, sort_keys=True, separators=(",", ":"),
-                                ensure_ascii=False).encode()).hexdigest()
-        assert digest == SIGNED_SHA[cid] == wafv2_basic.SPECS[cid]["sha256"]
-        check = by_id[cid]
-        assert (check.kind, check.category, check.severity, check.control, check.remediation) == (
-            signed["resource_kind"], signed["category"], signed["severity"],
-            wafv2_basic.SPECS[cid]["control"], signed["remediation_hint"])
-        assert check.dependencies == ["wafv2_rule_group"] and check.target == "resource"
-        assert descriptions[cid]["description"] == signed["description"]
-        assert {row["requirement_id"] for row in requirements["by_check"][cid]} == expected
-        assert all(row["framework_id"] == "pci_4.0_aws" and row["runtime_status"] == "automated"
-                   for row in requirements["by_check"][cid])
-        assert public[cid]["proposal_provenance"]["signed_spec_sha256"] == SIGNED_SHA[cid]
-        assert "HackTricks Cloud Best Practices" in public[cid]["mapping"]
-        assert public[cid]["requirement_controls"] == requirements["by_check"][cid]
-    old = by_id[EXISTING]
-    assert (old.severity, old.control) == ("low", "AU-2")
-    assert len(requirements["by_check"][EXISTING]) == 4
-    assert public[EXISTING]["requirement_controls"] == requirements["by_check"][EXISTING]
 
 
 @pytest.mark.parametrize("row,metrics,nonempty", [

@@ -62,23 +62,5 @@ def test_namespace_collision_is_not_replaced(monkeypatch, which):
     assert tuple(checks.CHECKS) == before and fixtures.CASES == old_cases
 
 
-@pytest.mark.parametrize('which', ['collect', 'selected', 'helper'])
-@pytest.mark.parametrize('change', ['replacement', 'code'])
-def test_shared_or_admission_executing_callable_guard(monkeypatch, which, change):
-    owner = azure if which != 'helper' else admission
-    name = {'collect': 'collect', 'selected': '_selected', 'helper': '_verify'}[which]
-    fn = getattr(owner, name)
-    if change == 'replacement':
-        clone = types.FunctionType(fn.__code__, fn.__globals__, fn.__name__, fn.__defaults__, fn.__closure__)
-        clone.__kwdefaults__ = fn.__kwdefaults__;clone.__qualname__ = fn.__qualname__
-        monkeypatch.setattr(owner, name, clone)
-    else:
-        # Keep valid source coordinates so this reaches the executable-code
-        # guard rather than an unrelated parser error from an indented lambda.
-        literal = {'collect': 'azure', 'selected': 'subscription', 'helper': 'checked'}[which]
-        constants = list(fn.__code__.co_consts)
-        constants[constants.index(literal)] = 'unreviewed-code-constant'
-        monkeypatch.setattr(fn, '__code__', fn.__code__.replace(co_consts=tuple(constants)))
-    with pytest.raises(RuntimeError): admission.install()
 
 

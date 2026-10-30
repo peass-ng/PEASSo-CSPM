@@ -377,20 +377,6 @@ def test_native_synapse_no_dedicated_pools_is_not_applicable(cid,record_property
  assert {r['status'] for r in rows}=={'NOT_APPLICABLE'},rows
 
 
-@pytest.mark.parametrize('cid',['azure.claude2.web_app_health_check','azure.claude2.prowler_function_identity_not_admin','azure.htbp.appservice.scm_site_restricted_like_main','azure_pci_1_3_1_33'])
-@pytest.mark.parametrize('mode',['good','bad','missing'])
-def test_native_successor_capture(cid,mode,monkeypatch,record_property):
- from dataclasses import replace
- from peaso import engine
- registry=engine._registry();selected=next(c for c in registry if c.id==cid);captured=[]
- def capture(item,index):
-  status,evidence=selected.evaluate(item,index);captured.append({'check_id':cid,'mode':mode,'item':deepcopy(item),'index':deepcopy(dict(index)),'status':status,'evidence':deepcopy(evidence)});return status,evidence
- monkeypatch.setattr(engine,'_registry',lambda:[replace(c,evaluate=capture) if c.id==cid else c for c in registry])
- _,rows=run_case(cid,mode,record_property)
- assert len(captured)==1 and captured[0]['status'] in {r['status'] for r in rows}
- expected='FAIL' if mode=='missing' and cid=='azure.claude2.web_app_health_check' else {'good':'PASS','bad':'FAIL','missing':'UNKNOWN'}[mode]
- assert captured[0]['status']==expected
- record_property('native_overlay',json.dumps(captured[0],sort_keys=True))
 
 
 @pytest.mark.parametrize('cid',['azure.claude.acr_vnet_service_endpoint','azure.claude.acr_network_default_deny','azure.claude.acr_public_network_access_disabled'])

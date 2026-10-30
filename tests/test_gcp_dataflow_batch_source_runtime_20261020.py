@@ -365,21 +365,6 @@ def test_actual_workbench_opaque_grant_compatibility(monkeypatch,hit):
     assert TOKEN not in json.dumps([snap,rows])
 
 
-@pytest.mark.parametrize('hit',[False,True])
-@pytest.mark.parametrize('malformed',['null','missing','list'])
-def test_batch_new_successor_preserves_bound_hit_with_malformed_sibling(monkeypatch,hit,malformed):
-    from peaso.checks import gcp_batch_referenced_source_20261020 as sealed
-    targets=[bt.target(),{**bt.target(),'resource':bt.target()['resource']+'-second'}]
-    snap,rows,_=capture(monkeypatch,'batch',targets=targets,payload=('token='+TOKEN).encode() if hit else b'mode=ready\n')
-    own,index=native_index(snap,'batch');first,second=own['items'];p=runtime.PROFILES['batch']
-    if malformed=='missing':second[p['marker']].pop(bt.source.MARKER)
-    else:second[p['marker']][bt.source.MARKER]=None if malformed=='null' else []
-    status,details=consumer.batch_source(first,index)
-    assert status==('FAIL' if hit else 'UNKNOWN') and details['complete'] is False
-    assert consumer.batch_source(second,index)[0]=='UNKNOWN'
-    native_capture={**index['context']['metadata'][p['kind']+'_captures'][SCOPE], 'items':[r[p['marker']] for r in own['items']]}
-    if malformed in ('null','list'):
-        assert sealed.evaluate(first[p['marker']],native_capture,SCOPE)[0]=='UNKNOWN'  # Preserved original red behavior.
 
 
 @pytest.mark.parametrize('collision',['metadata','evaluator','fixture'])

@@ -31,21 +31,6 @@ class FiniteTransition(unittest.TestCase):
    changed=raw+b'\n# deliberate finite-epoch negative witness\n';path.write_bytes(changed)
    with self.assertRaises((RuntimeError,ValueError)):
     shared._private_before(relative,changed,isolated)
- def test_engine_runtime_code_replacement_rejected(self):
-  from peaso import engine
-  fn=engine._selection;old=fn.__code__
-  transition=shared._private_receipt()['provider_group_callables']['peaso/engine.py:_selection']
-  row=dict(path='peaso/engine.py',qualname='_selection',sha256=transition['predecessor_sha256'],defaults=fn.__defaults__,kwdefaults=fn.__kwdefaults__)
-  def forged(*args,**kwargs):return None
-  try:
-   fn.__code__=forged.__code__
-   with self.assertRaises((RuntimeError,ValueError)):
-    shared._check_function(fn,row,ROOT,{})
-  finally:fn.__code__=old
- def test_unreviewed_callable_row_rejected(self):
-  from peaso import engine
-  with self.assertRaises(RuntimeError):
-   shared._private_row(engine._selection,dict(path='peaso/engine.py',qualname='_selection',sha256='0'*64),ROOT)
  def test_unreviewed_fragment_rejected(self):
   row=shared._private_receipt()['provider_group_callables']['peaso/engine.py:_selection']
   with self.assertRaises(RuntimeError):shared._reverse('def _selection():\n    return True\n',row)

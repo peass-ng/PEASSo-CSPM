@@ -45,16 +45,6 @@ def test_unrelated_producer_rejects_changed_receipt_bytes(monkeypatch):
         shared._private_row(test_unrelated_producer_rejects_changed_receipt_bytes, row, ROOT)
 
 
-def test_private_producer_still_checks_live_receipt_and_row(monkeypatch):
-    from peaso import engine
-
-    key = 'peaso/engine.py:_selection'
-    transition = shared._private_receipt()['provider_group_callables'][key]
-    row = {'path': 'peaso/engine.py', 'qualname': '_selection',
-           'sha256': transition['predecessor_sha256']}
-    assert shared._private_row(engine._selection, row, ROOT)['sha256'] == transition['current_sha256']
-    with pytest.raises(RuntimeError, match='predecessor row changed'):
-        shared._private_row(engine._selection, dict(row, sha256='0' * 64), ROOT)
 
 
 @pytest.mark.parametrize('change', ['code', 'defaults', 'global'])

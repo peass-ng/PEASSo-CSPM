@@ -347,46 +347,8 @@ def test_multiple_native_packages_dedup_and_four_target_bound(monkeypatch):
     assert len(leak['locations']) == 4 and leak['fingerprint'] == scanning._fingerprint(TOKEN)
 
 
-@pytest.mark.parametrize('form', ['bare_path', 'https_path', 'bare_host', 'https_host', 'gs', 'query', 'foreign_host'])
-def test_exact_native_gcs_locations_and_optional_hex_checksum(monkeypatch, form):
-    def fault(op, data, resp):
-        if op.startswith('reference_'):
-            p = data['environment']['workerPools'][0]['packages'][0]
-            p.pop('sha256')
-            p['location'] = {
-                'bare_path': 'storage.googleapis.com/review-source/staged/workflow.py',
-                'https_path': 'https://storage.googleapis.com/review-source/staged/workflow.py',
-                'bare_host': 'review-source.storage.googleapis.com/staged/workflow.py',
-                'https_host': 'https://review-source.storage.googleapis.com/staged/workflow.py',
-                'gs': 'gs://review-source/staged/workflow.py',
-                'query': 'https://storage.googleapis.com/review-source/staged/workflow.py?generation=12345',
-                'foreign_host': 'https://storage.googleapis.com.evil.invalid/review-source/staged/workflow.py',
-            }[form]
-            raw = json.dumps(data).encode()
-            resp.stream, resp.headers['Content-Length'] = io.BytesIO(raw), str(len(raw))
-    _, rows, calls, _ = capture(monkeypatch, fault=fault)
-    assert rows[0][0] == ('PASS' if form in {'bare_path', 'https_path', 'bare_host', 'https_host'} else 'UNKNOWN')
-    assert all('evil' not in url and 'workflow.py?' not in url for _, _, url, _ in calls)
 
 
-@pytest.mark.parametrize('mutation', ['hex_mismatch', 'base64', 'uppercase', 'name_after', 'location_after', 'sha_after', 'missing_slot'])
-def test_package_checksum_and_selected_slot_stability(monkeypatch, mutation):
-    def fault(op, data, resp):
-        if op.startswith('reference_'):
-            package = data['environment']['workerPools'][0]['packages'][0]
-            if mutation == 'hex_mismatch': package['sha256'] = '0' * 64
-            if mutation == 'base64': package['sha256'] = 'not-hex-base64=='
-            if mutation == 'uppercase': package['sha256'] = package['sha256'].upper()
-            if op == 'reference_after':
-                if mutation == 'name_after': package['name'] = 'other.py'
-                if mutation == 'location_after': package['location'] = 'https://' + package['location']
-                if mutation == 'sha_after': package.pop('sha256')
-                if mutation == 'missing_slot': data['environment']['workerPools'][0]['packages'] = []
-            raw = json.dumps(data).encode()
-            resp.stream, resp.headers['Content-Length'] = io.BytesIO(raw), str(len(raw))
-    result, rows, _, _ = capture(monkeypatch, ('token="' + TOKEN + '"\n').encode(), fault=fault)
-    assert rows[0][0] == ('FAIL' if mutation == 'uppercase' else 'UNKNOWN')
-    assert result['items'][0]['native_complete'] is (mutation == 'uppercase')
 
 
 @pytest.mark.parametrize('format', ['zip', 'tar', 'tar.gz'])

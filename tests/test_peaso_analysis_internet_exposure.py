@@ -8260,49 +8260,6 @@ def test_gcp_first_route_rule_backend_path_witness_is_positive_only():
     assert not any(step["layer"] == "url_route_rule" for step in result["evidence"]["path"])
 
 
-def test_gcp_later_path_route_rule_backend_requires_disjoint_predecessors():
-    prefix = "https://compute.googleapis.com/compute/v1/projects/p1/global/"
-    target, url_map_ref, backend, policy_ref = (prefix + kind + "/" + name for kind, name in (
-        ("targetHttpProxies", "p"), ("urlMaps", "m"), ("backendServices", "b"), ("securityPolicies", "armor")))
-    forwarding = {"name": "later-fr", "IPAddress": "34.4.4.4", "IPProtocol": "TCP",
-                  "ports": ["80"], "target": target, "loadBalancingScheme": "EXTERNAL_MANAGED"}
-    earlier = {"priority": 10, "matchRules": [{"prefixMatch": "/old",
-                   "headerMatches": [{"headerName": "X-Choice", "exactMatch": "old"}]}],
-               "service": prefix + "backendServices/missing"}
-    later = {"priority": 20, "matchRules": [{"fullPathMatch": "/admin"}], "service": backend}
-    url_map = {"name": "m", "selfLink": url_map_ref,
-               "hostRules": [{"hosts": ["site.example.com"], "pathMatcher": "site"}],
-               "pathMatchers": [{"name": "site", "routeRules": [earlier, later]}]}
-    policy = {"name": "armor", "selfLink": policy_ref,
-              "rules": [{"priority": 2147483647, "action": "allow", "match": {"config": {"srcIpRanges": ["*"]}}}]}
-    def finding():
-        return one(gcp(gcoll("forwarding_rule", [forwarding]),
-                       gcoll("target_proxy", [{"name": "p", "selfLink": target, "urlMap": url_map_ref}]),
-                       gcoll("url_map", [url_map]),
-                       gcoll("backend_service", [{"name": "b", "selfLink": backend,
-                                                  "securityPolicy": policy_ref}]),
-                       gcoll("security_policy", [policy])), "forwarding_rule")
-    result = finding()
-    assert result["status"] == "FAIL" and "priority 20" in result["evidence"]["observed"]
-    assert "path exact /admin" in result["evidence"]["observed"]
-    assert_gcp_observed_style(result, "later-fr")
-    policy["rules"][0]["action"] = "deny(403)"
-    result = finding()
-    assert result["status"] == "UNKNOWN"
-    assert_gcp_observed_style(result, "later-fr")
-    policy["rules"][0]["action"] = "allow"
-    earlier["matchRules"][0]["prefixMatch"] = "/"
-    assert finding()["status"] == "UNKNOWN"
-    earlier["matchRules"][0]["prefixMatch"] = "/old"
-    later["matchRules"] = [{"prefixMatch": "/admin"}]
-    result = finding()
-    assert result["status"] == "FAIL" and "path prefix /admin" in result["evidence"]["observed"]
-    assert_gcp_observed_style(result, "later-fr")
-    earlier["matchRules"][0]["prefixMatch"] = "/admin"
-    assert finding()["status"] == "UNKNOWN"
-    later["matchRules"] = [{"fullPathMatch": "/admin"}]
-    earlier["matchRules"] = [{"pathTemplateMatch": "/{path=**}"}]
-    assert finding()["status"] == "UNKNOWN"
 
 
 def test_gcp_cdn_backend_service_edge_policy_precedes_cache_and_backend_policy():

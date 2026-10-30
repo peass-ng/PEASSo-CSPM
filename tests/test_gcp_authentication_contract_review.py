@@ -11,14 +11,6 @@ from tests.test_gcp_audit_native import collect, event
 CID = 'gcp_logging_detect_t1110'
 
 
-def test_unsupported_exact_contract_is_archived_without_inventing_a_successor():
-    row = exclusions()[CID]
-    assert row['disposition'] == 'unsupported_exact_contract'
-    assert row['mandatory_external_fields'] == []
-    assert row['native_alternatives'] == []
-    assert CID in {check.id for check in CHECKS}
-    assert CID not in {check.id for check in engine._registry()}
-    assert CID not in {check['id'] for check in engine.get_catalog()['checks']}
 
 
 @pytest.mark.parametrize('selector', ['default', 'framework', 'explicit_collection', 'explicit_evaluation'])

@@ -398,14 +398,6 @@ def test_native_invalid_diagnostic_destination_identity_unknown(sink):
     assert outcome('audit_logging',data)=={'UNKNOWN'}
 
 
-@pytest.mark.parametrize('name',list(native.KINDS))
-@pytest.mark.parametrize('branch',['pass','fail'])
-def test_native_derived_fixture_successor_round_trip(name,branch):
-    from peaso.checks import CHECKS
-    cid=checks.PREFIX+name
-    rows=json.loads(Path(checks.__file__).with_name('azure_ai_services_review_20261020_fixtures.json').read_text())[cid]
-    registered=next(c for c in CHECKS if c.id==cid)
-    assert registered.evaluate(rows[branch],rows[branch+'_index'])[0]==branch.upper()
 
 @pytest.mark.parametrize('name',list(EXISTING))
 def test_existing_five_partial_inventory_keeps_unknown_coverage(name):

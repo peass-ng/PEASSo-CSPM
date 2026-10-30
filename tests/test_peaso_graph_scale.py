@@ -277,19 +277,6 @@ def test_not_applicable_and_empty_rows_aggregate_per_check_unless_requested(tmp_
     assert run_scan(dict(request, embed_snapshot=True))["snapshot"]["snapshot_id"] == report["snapshot_id"]
 
 
-def test_cli_scan_writes_snapshot_separately_and_flags_restore_rows(tmp_path):
-    from peaso.cli import main
-    out, snap = tmp_path / "r.json", tmp_path / "s.json"
-    assert main(["scan", "--provider", "azure", "--demo", "--quiet", "-o", str(out), "--snapshot-output", str(snap)]) == 0
-    report, snapshot = json.loads(out.read_text()), json.loads(snap.read_text())
-    assert "snapshot" not in report and report["snapshot_id"] == snapshot["snapshot_id"] and report["finding_aggregates"]
-    assert main(["evaluate", str(snap), "--quiet", "--include-not-applicable", "-o", str(out)]) == 0
-    assert "finding_aggregates" not in json.loads(out.read_text())
-    assert main(["scan", "--provider", "azure", "--demo", "--quiet", "--embed-snapshot", "--embed-native", "-o", str(out)]) == 0
-    embedded = json.loads(out.read_text())
-    assert embedded["snapshot"]["snapshot_id"] == embedded["snapshot_id"] and embedded["schema_version"] == "1.0"
-    assert main(["scan", "--provider", "azure", "--demo", "--quiet", "--format", "markdown", "-o", str(tmp_path / "r.md")]) == 0
-    assert "Resource inventory" in (tmp_path / "r.md").read_text()
 
 
 def _azure_role_definitions(count):

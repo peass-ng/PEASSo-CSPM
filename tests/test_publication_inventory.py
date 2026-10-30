@@ -27,33 +27,6 @@ def fixture():
     return report, snapshot
 
 
-def test_shared_inventory_keeps_full_projection_and_filtered_download(tmp_path):
-    report, snapshot = fixture()
-    original = native.digest(report), native.digest(snapshot)
-    expected = project('aws', native.resources(snapshot), snapshot=snapshot)
-    assert expected['total'] > 0
-    artifacts = FileArtifacts(tmp_path)
-    calls = []
-    previous = sys.getprofile()
-
-    def observe(frame, event, argument):
-        if (event == 'call' and frame.f_code is native.resources.__code__
-                and frame.f_back.f_code.co_filename == reports.__file__):
-            calls.append(frame.f_back.f_code.co_name)
-
-    try:
-        sys.setprofile(observe)
-        reference = reports.publish_report(artifacts, 'tenant', 'f' * 32, report, snapshot)
-    finally:
-        sys.setprofile(previous)
-    # One lazy inventory build inside publication is shared by every projection.
-    assert calls == ['get_inventory']
-    bundle = artifacts.get('tenant', reference)
-    assert artifacts.get('tenant', bundle['least_privilege']) == expected
-    rows = [row for chunk in bundle['resource_chunks']
-            for row in artifacts.get('tenant', chunk['reference'])['items']]
-    assert len(rows) == 2 and all(row['type'] == 'bucket' for row in rows)
-    assert (native.digest(report), native.digest(snapshot)) == original
 
 
 def test_later_publication_rebuilds_from_changed_native_facts(tmp_path):

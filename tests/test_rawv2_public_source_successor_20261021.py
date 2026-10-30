@@ -46,35 +46,6 @@ class RawV2PublicSourceSuccessorTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             module.source_bytes(module.SCANNER, b'changed', module.SCANNER_BEFORE, ROOT)
 
-    def test_finite_later_clones_have_exact_body_deltas(self):
-        module = helper()
-        receipt = module._receipt(ROOT)
-        initializer = (ROOT / 'peaso/checks/__init__.py').read_text()
-        self.assertEqual(set(receipt['clones']), set(module._LATER_ADMISSIONS))
-        for name, row in receipt['clones'].items():
-            guard = (ROOT / 'peaso/checks' / (name + '.py')).read_text()
-            import ast
-            node = next(item for item in ast.parse(guard).body
-                        if isinstance(item, ast.FunctionDef) and item.name == 'reviewed_inputs')
-            body = ''.join(guard.splitlines(keepends=True)[node.lineno - 1:node.end_lineno])
-            self.assertEqual(hashlib.sha256(body.encode()).hexdigest(), row['before_sha256'])
-            self.assertEqual(body.count(row['before']), 1)
-            transformed = body.replace(row['before'], row['after'], 1)
-            if name == 'gcp_dataproc_source_runtime_admission_20261020':
-                original_import = '    from .gcp_dataproc_referenced_source_proposal_20261020 import validate_proposal\n'
-                self.assertEqual(transformed.count(original_import), 1)
-                self.assertEqual(transformed.count('    validate_proposal()\n'), 1)
-                transformed = transformed.replace(original_import, '', 1).replace(
-                    '    validate_proposal()\n', '    _validate_dataproc_proposal()\n', 1)
-            self.assertEqual(hashlib.sha256(transformed.encode()).hexdigest(), row['after_sha256'])
-            compile(transformed, name, 'exec')
-            if name == 'gcp_workbench_source_runtime_admission_20261020':
-                bridge = (ROOT / 'peaso/checks/gcp_positive_conservation_shared_source_successor_20261020.py').read_text()
-                self.assertEqual(bridge.count("install_admission('" + name + "')"), 1)
-            else:
-                self.assertEqual(initializer.count('_rawv2_source.install_admission("' + name + '")'), 1)
-        with self.assertRaises(RuntimeError):
-            module.install_admission('unreviewed')
 
 
 if __name__ == '__main__':

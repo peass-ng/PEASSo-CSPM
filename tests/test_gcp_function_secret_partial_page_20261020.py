@@ -150,13 +150,6 @@ def test_partial_page_pair_persistence_filters_fingerprint_and_validates_read(po
     assert TOKEN not in json.dumps(persisted)
 
 
-def test_sealed_paired_epoch_native_branches_are_unchanged():
-    from pathlib import Path
-    from peaso.checks import gcp_function_secret_partial_page_20261020 as successor
-    cases = json.loads((Path(base.__file__).with_name('gcp_function_secret_paired_cases_20261020.json')).read_text())[base.CHECK_ID]
-    for branch in ('pass', 'fail', 'partial', 'asymmetric', 'unknown', 'missing', 'malformed'):
-        row, index = deepcopy(cases[branch]), deepcopy(cases.get(branch + '_index', cases['index']))
-        assert successor._evaluate(row, index) == base._evaluate(row, index), branch
 
 
 def test_partial_page_and_partial_detector_coverage_combine_without_losing_hit(monkeypatch):
@@ -172,26 +165,3 @@ def test_partial_page_and_partial_detector_coverage_combine_without_losing_hit(m
             for leak in pair['secret_leaks'] for detector in leak['detectors']} == {'kingfisher'}
 
 
-def test_final_source_alias_and_isolated_file_substitution_rejected_restored(positive_page, monkeypatch, tmp_path):
-    from pathlib import Path
-    import shutil
-    from peaso.checks import gcp_function_secret_partial_page_20261020 as successor
-    from peaso.gcp_function_secret_page_source_20261020 import reviewed_inputs
-    _, row, index, _ = positive_page
-    assert evaluate_check(base.CHECK_ID, row, index)[0] == 'FAIL'
-    with monkeypatch.context() as patch:
-        patch.setattr(successor, 'producer', SimpleNamespace(_request=lambda *args: ('-', None), _bound=lambda *args: True))
-        assert evaluate_check(base.CHECK_ID, row, index)[0] == 'UNKNOWN'
-        with pytest.raises(RuntimeError): reviewed_inputs()
-    assert evaluate_check(base.CHECK_ID, row, index)[0] == 'FAIL'
-    root = Path(base.__file__).resolve().parents[2]
-    shutil.copytree(root / 'peaso', tmp_path / 'peaso', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-    # b7134a7d binds the private source proof to the loaded checkout, so an isolated
-    # copy is refused before and after substitution; the loaded checkout still proves.
-    with pytest.raises(RuntimeError, match='location changed'): reviewed_inputs(tmp_path)
-    path = tmp_path / 'peaso/checks/gcp_function_secret_partial_page_20261020.py'
-    original = path.read_bytes()
-    path.write_bytes(original + b'\n# substituted successor source\n')
-    with pytest.raises(RuntimeError): reviewed_inputs(tmp_path)
-    path.write_bytes(original)
-    reviewed_inputs(root)

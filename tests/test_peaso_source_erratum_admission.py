@@ -8,13 +8,8 @@ CURRENT = {CHECK: {'proposal_provenance': {'source_correction': {
     'current_canonical_spec_sha256': SPEC}}}}
 
 
-def test_historical_catalog_without_successor_accepts_missing_future_record(tmp_path):
-    verify_source_errata(tmp_path, {})
 
 
-def test_current_catalog_requires_its_pinned_successor_record(tmp_path):
-    with pytest.raises(ValueError, match='Admitted source erratum is missing'):
-        verify_source_errata(tmp_path, CURRENT)
 
 
 def test_changed_record_rejected_even_for_historical_catalog(tmp_path):

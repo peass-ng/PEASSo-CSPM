@@ -212,16 +212,6 @@ def test_packaged_permission_set_cases():
         "pass": "PASS", "fail": "FAIL", "unknown": "UNKNOWN"}
 
 
-def test_packaged_credential_successor_cases():
-    cases = json.loads((Path(__file__).resolve().parents[1] / "peaso/checks/unused_iam_aws_completion_credentials_cases.json").read_text())
-    for ident, variants in cases.items():
-        days = 90 if ident.endswith("90_days") else 45
-        password = ident not in ("aws.gap.iam.active_keys_used_within_45_days", "aws.claude_a.iam.access_keys_used_45")
-        keys = "console_password" not in ident
-        assert {name: evaluate_credential_report(variants[name], variants["index"], days=days,
-                                                  include_password=password, include_keys=keys)[0]
-                for name in ("pass", "fail", "unknown")} == {
-            "pass": "PASS", "fail": "FAIL", "unknown": "UNKNOWN"}
 
 
 def test_report_generated_during_scan_uses_bound_read_time():

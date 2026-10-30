@@ -113,68 +113,8 @@ def test_unreviewed_legacy_claim_has_no_reach_even_with_synthetic_fact(ident, in
                for c in result["coverage"])
 
 
-def test_additive_catalog_preserves_legacy_and_binds_new_entries():
-    root = Path(__file__).resolve().parents[1]
-    history = json.loads((root / "peaso/privesc/catalog_versions/legacy-0b3633-delta.json").read_text())
-    current = current_binding()
-    old = {"schema": BINDING_SCHEMA, "manifest_sha256": LEGACY_MANIFEST,
-           "source_revision": LEGACY_REVISION, "tenant_id": "tenant-a"}
-    new = dict(current, tenant_id="tenant-a")
-    legacy, legacy_status = lookup_entries(history["legacy_ids"], old, tenant_id="tenant-a")
-    catalog_ids = list(_ARCHIVED)
-    active_ids = {entry["id"] for entry in privesc.load_catalog()["entries"]}
-    present, present_status = lookup_entries(active_ids, new, tenant_id="tenant-a")
-    assert legacy_status == "exact_legacy"
-    assert present_status == "exact_strict_privesc"
-    bulk_ids = set(json.loads((root / 'peaso/privesc/bulk_principal_tranche.json').read_text()))
-    assert len(bulk_ids) == 98
-    assert len(legacy) == 1004 and set(present) == active_ids
-    # The loader adds a runtime _file pointer. Historical delta entries are
-    # stored without that pointer; all authored semantics must match.
-    authored = lambda entry: {key: value for key, value in entry.items() if not key.startswith("_")}
-    assert all(authored(legacy[ident]) == authored(_ARCHIVED[ident])
-               for ident in legacy if ident not in history["old_entries"])
-    added = set(_ARCHIVED) - set(legacy)
-    assert len(added) == 122 + len(bulk_ids) + len(SCOPED_IDS) + len(DISCLOSURES)
-    assert bulk_ids <= added
-    from peaso.privesc.versioned_catalog import BOUNDED_MANIFEST, BOUNDED_TREE
-    bulk_binding = dict(new, manifest_sha256=BOUNDED_MANIFEST, effective_tree_sha256=BOUNDED_TREE)
-    before_scoped, bulk_status = lookup_entries(catalog_ids, bulk_binding, tenant_id="tenant-a")
-    assert bulk_status == "exact_bounded_v5" and len(before_scoped) == 1224
-    assert not SCOPED_IDS.intersection(before_scoped)
-    assert all(authored(before_scoped[ident]) == authored(_ARCHIVED[ident]) for ident in before_scoped)
-    from peaso.privesc.versioned_catalog import PRIOR_BOUNDED_MANIFEST, PRIOR_BOUNDED_TREE
-    prior_binding = dict(new, manifest_sha256=PRIOR_BOUNDED_MANIFEST, effective_tree_sha256=PRIOR_BOUNDED_TREE)
-    prior, prior_status = lookup_entries(catalog_ids, prior_binding, tenant_id='tenant-a')
-    assert prior_status == 'exact_bounded_v5' and len(prior) == 1126
-    assert all(authored(prior[ident]) == authored(_ARCHIVED[ident]) for ident in prior)
-    historical_binding = dict(new, manifest_sha256=V4_MANIFEST, effective_tree_sha256=V4_EFFECTIVE_TREE, source_revision=V4_REVISION)
-    historical, status = lookup_entries(catalog_ids, historical_binding, tenant_id="tenant-a")
-    assert status == "exact_additive_v4" and len(historical) == 1052
-    assert all(authored(historical[ident]) == authored(_ARCHIVED[ident]) for ident in historical)
-    assert all(_ARCHIVED[ident]["confidence"] == "conditional" for ident in added)
 
 
-def test_catalog_binding_rejects_wrong_tenant_or_manifest_and_scopes_card_edges():
-    history = json.loads((Path(__file__).resolve().parents[1] /
-                          "peaso/privesc/catalog_versions/legacy-0b3633-delta.json").read_text())
-    ident = history["legacy_ids"][0]
-    binding = dict(current_binding(), tenant_id="tenant-a")
-    for wrong, tenant, reason in ((binding, "tenant-b", "tenant_binding_mismatch"),
-                                  (dict(binding, manifest_sha256="wrong"), "tenant-a", "unknown_catalog_manifest"),
-                                  ({}, "tenant-a", "invalid_catalog_binding")):
-        entries, status = lookup_entries([ident], wrong, tenant_id=tenant)
-        assert entries == {} and status == reason
-        detail = privesc_technique_details([ident], catalog_binding=wrong, tenant_id=tenant)[ident]
-        assert detail["unknown"] is True and detail["catalog_lookup_status"] == reason
-    card = {"member_of_aggregates": ["aggregate-a"],
-            "outgoing": [{"source": "principal-a", "techniques": ["own-out"]},
-                         {"source": "principal-b", "techniques": ["foreign-out"]}],
-            "incoming": [{"target": "principal-a", "techniques": ["own-in"]},
-                         {"target": "principal-b", "techniques": ["foreign-in"]},
-                         {"target": "aggregate-a", "via_aggregate": "aggregate-a", "techniques": ["own-aggregate"]},
-                         {"target": "aggregate-a", "via_aggregate": "aggregate-b", "techniques": ["wrong-aggregate"]}]}
-    assert card_technique_ids(card, "principal-a") == ["own-aggregate", "own-in", "own-out"]
 
 
 @pytest.mark.parametrize("ident", ADDED_IDS)

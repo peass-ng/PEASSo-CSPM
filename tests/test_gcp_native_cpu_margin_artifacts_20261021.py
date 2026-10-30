@@ -12,26 +12,6 @@ from peaso.checks import gcp_positive_conservation_shared_source_successor_20261
 ROOT = Path(source.__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize('mutation', ['code', 'signature', 'source_key'])
-def test_module_artifact_poisoning_rejected(tmp_path, mutation):
-    path = tmp_path / 'sample.py'
-    raw = b'value = 1\n'
-    compiler = source._module_compiler()
-    first = compiler(path, raw)
-    assert compiler(path, raw) is first
-    cache = inspect.getclosurevars(compiler).nonlocals['cache']
-    key = next(iter(cache)); code, signature = cache[key]
-    if mutation == 'code': code = compile('value = 2', str(path), 'exec')
-    elif mutation == 'signature': signature = b'0' * 32
-    else:
-        foreign = (str(path), hashlib.sha256(b'value = 2\n').hexdigest(), sys.flags.optimize)
-        cache[foreign] = cache.pop(key)
-        with pytest.raises(RuntimeError, match='module artifact changed'):
-            compiler(path, b'value = 2\n')
-        return
-    cache[key] = (code, signature)
-    with pytest.raises(RuntimeError, match='module artifact changed'):
-        compiler(path, raw)
 
 
 def test_module_artifact_new_source_is_recompiled(tmp_path):

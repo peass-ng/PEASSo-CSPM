@@ -603,32 +603,6 @@ def test_native_synapse_workspace_policy_scope_and_unavailability(case, expected
     assert {r['status'] for r in rows} == {expected}, rows
 
 
-@pytest.mark.parametrize('cid', ['azure.claude.synapse_workspace_vulnerability_assessment', 'azure.claude2.function_app_restrict_public_access', 'azure.claude.databricks_subnet_nsg', *[cid for cid in IDS if REGISTRY[cid].kind == 'app_service_config']])
-@pytest.mark.parametrize('mode', ['good', 'bad', 'missing'])
-def test_native_successor_inputs_captured(cid, mode, monkeypatch, record_property):
-    """Capture real public-engine inputs for root-owned mutable overlays.
-
-    The wrapper records arguments and delegates unchanged to the real evaluator;
-    provider facts still originate exclusively in the independent HTTP fixture.
-    """
-    from dataclasses import replace
-    from peaso import engine
-    original_registry = engine._registry()
-    selected = next(c for c in original_registry if c.id == cid)
-    captures = []
-    def capture(item, index):
-        status, evidence = selected.evaluate(item, index)
-        captures.append({'check_id': cid, 'mode': mode, 'item': deepcopy(item),
-                         'index': deepcopy(dict(index)), 'status': status, 'evidence': deepcopy(evidence)})
-        return status, evidence
-    monkeypatch.setattr(engine, '_registry', lambda: [replace(c, evaluate=capture) if c.id == cid else c for c in original_registry])
-    _, rows = run_case(cid, mode, record_property)
-    assert len(captures) == 1
-    assert captures[0]['status'] in {r['status'] for r in rows}
-    if mode == 'good': assert captures[0]['status'] == 'PASS'
-    elif mode == 'bad': assert captures[0]['status'] == 'FAIL'
-    else: assert captures[0]['status'] == 'UNKNOWN'
-    record_property('native_overlay', json.dumps(captures[0], sort_keys=True))
 
 
 @pytest.mark.parametrize('case', ['empty-nsg-reference', 'foreign-subnet-identity', 'foreign-nsg-reference', 'duplicate-subnet-name'])

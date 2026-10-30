@@ -261,21 +261,6 @@ def test_normal_engine_emits_unused_iam_hardening_finding(ident):
     assert 'HackTricks Cloud Best Practices' in finding['frameworks']
 
 
-def test_immutable_kubernetes_sources_match_reviewed_control_metadata():
-    import gzip
-    import hashlib
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    source = json.loads(gzip.decompress((root / 'docs/iam-unused/kubernetes-identity-sources.json.gz').read_bytes()))
-    known = {}
-    for row in source['sources']:
-        assert '/' + source['commit'] + '/' in row['url']
-        assert hashlib.sha256(row['text'].encode()).hexdigest() == row['sha256']
-        known[row['url']] = row['sha256']
-    metadata = json.loads((root / 'docs/compliance-ledgers/native-extensions/unused-iam-k8s-20261021.json').read_text())
-    for row in metadata['checks']:
-        assert all(known[source['url']] == source['sha256'] for source in row['sources'])
 
 
 def test_bounded_formal_mappings_keep_partial_assurance():

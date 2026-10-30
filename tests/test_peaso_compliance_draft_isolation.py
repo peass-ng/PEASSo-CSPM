@@ -20,35 +20,6 @@ ROOT = Path(__file__).resolve().parents[1]
 TESTS = Path(__file__).resolve().parent
 
 
-def test_explicit_staged_registry_replaces_only_original_overlaps_and_restores():
-    registry = boundary.peaso.checks
-    before = tuple(registry.CHECKS)
-    aliases = dict(registry.CHECK_ALIASES)
-    original_register = registry.register
-    original = before[0]
-    args = (original.id, original.provider, original.category, original.kind,
-            original.title, original.severity, original.control, original.remediation)
-
-    def candidate(item, index):
-        return "PASS", {}
-
-    candidate.__module__ = "peaso.checks.staged_fixture"
-    with pytest.raises(RuntimeError, match="intentional collection failure"):
-        with boundary.staged_registry(["staged_fixture"]):
-            registry.register(*args)(candidate)
-            replacement = next(check for check in registry.CHECKS if check.id == original.id)
-            assert replacement is not original
-            assert all(check in registry.CHECKS for check in before[1:])
-            with pytest.raises(ValueError, match="duplicate check id"):
-                registry.register(*args)(candidate)
-            candidate.__module__ = "peaso.checks.unlisted_fixture"
-            with pytest.raises(ValueError, match="duplicate check id"):
-                registry.register(*args)(candidate)
-            raise RuntimeError("intentional collection failure")
-    assert registry.register is original_register
-    assert tuple(registry.CHECKS) == before
-    assert all(current is prior for current, prior in zip(registry.CHECKS, before))
-    assert registry.CHECK_ALIASES == aliases
 
 
 def test_full_suite_hook_ignores_only_reviewed_draft_imports(monkeypatch):

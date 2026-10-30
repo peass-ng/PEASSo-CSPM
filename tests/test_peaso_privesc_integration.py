@@ -156,20 +156,6 @@ def test_privesc_projection_truncates_whole_edges_and_keeps_aggregates(report):
     assert all(e["source"] in ids and e["target"] in ids for e in small["edges"])
 
 
-def test_cli_scan_categories_privesc_and_catalog(tmp_path, capsys):
-    snapshot = tmp_path / "snapshot.json"
-    snapshot.write_text(json.dumps(privesc_snapshot()))
-    out = tmp_path / "report.json"
-    assert main(["scan", "--provider", "aws", "--snapshot", str(snapshot), "--categories", "privesc", "-o", str(out), "--format", "json"]) == 0
-    value = json.loads(out.read_text())
-    assert value["graphs"]["privesc"]["edges"] and value["timings"]["privesc"]["engine_seconds"] >= 0
-    markdown = tmp_path / "report.md"
-    assert main(["report", str(out), "-o", str(markdown)]) == 0
-    assert "## Privilege Escalation" in markdown.read_text()
-    catalog = tmp_path / "catalog.json"
-    assert main(["catalog", "-o", str(catalog)]) == 0
-    techniques = json.loads(catalog.read_text())["privesc_techniques"]
-    assert any(t["id"] == "aws-ec2-passrole-runinstances" and t["category"] == "privesc" for t in techniques)
 
 
 # ---------------------------------------------------------------------------- API

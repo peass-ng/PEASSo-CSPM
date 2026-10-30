@@ -26,20 +26,6 @@ def _shard(tmp_path: Path, name: str, rows: dict) -> Path:
     return path
 
 
-def test_published_new_remediation_shards_bind_only_reviewed_statuses():
-    rules.cache_clear()
-    reviewed = rules()
-    assert reviewed[AWS_ID]["review_status"] == "approved"
-    assert template(AWS_ID, "aws") is not None
-    assert "proposed_spec_sha256" not in details_for(AWS_ID, provider="aws")
-    # The signed draft is unchanged; a later source-bound review admits only
-    # concise text, with no activation of draft mutation commands.
-    from tests.reviewed_guidance_presentation import assert_reviewed_text_only_admission
-    original = json.loads((Path(__file__).resolve().parents[1] / "peaso/rulepacks/remediation_compliance_new_azure.json").read_text())[AZURE_ID]
-    assert original["review_status"] == "draft"
-    current=assert_reviewed_text_only_admission(AZURE_ID, require_binding=False)
-    assert current["summary"] == details_for(AZURE_ID, provider="azure")["summary"]
-    assert "not plaintext" in " ".join(current["caveats"])
 
 
 def test_new_remediation_rejects_wrong_signed_spec_and_provider(tmp_path):

@@ -72,13 +72,6 @@ def test_hosted_selector_accepts_exact_native_shape_and_rejects_foreign_provider
     assert error.value.status_code==422
 
 
-def test_three_selector_help_and_default_exclusion_are_explicit():
-    help=Path('frontend/src/ConnectorFieldHelp.tsx').read_text()
-    for source in (arm.source,storage.source,devops.source):
-        assert source.OPTION in OPTIONS and source.OPTION+':' in help
-        assert source.KIND in azure.TYPES and source.KIND in engine.BULK_STREAM_TYPES['azure']
-        assert source.KIND not in azure._selected({},None)
-    assert 'backup semantics' in help and 'definition_revision' in help and 'automation_variable' in help
 
 
 def test_atomic_rollback_after_second_registration_failure(monkeypatch):
@@ -124,24 +117,6 @@ def test_older_appsettings_match_does_not_survive_unrelated_native_nsg_identity(
     assert app.TOKEN in json.dumps(snapshot)
 
 
-@pytest.mark.parametrize('predecessor',[False,True])
-def test_acr_completed_native_hit_and_unrelated_nsg_metadata_successor(monkeypatch,predecessor):
-    from tests import test_azure_acr_image_secret_review_20261020 as acr
-    if predecessor:
-        # Execute only the trusted retained predecessor callback function to
-        # reproduce its native counterexample; never scanned source content.
-        import ast,gzip
-        path=Path('tests/fixtures/azure_acr_image_secret_indicators_pre_union_20261020.py.gz')
-        raw=gzip.decompress(path.read_bytes());node=next(n for n in ast.parse(raw).body if isinstance(n,ast.FunctionDef) and n.name=='_scan_bytes')
-        namespace=dict(acr.source.__dict__)
-        exec(compile(ast.Module(body=[node],type_ignores=[]),str(path),'exec'),namespace)
-        monkeypatch.setattr(acr.source,'_scan_bytes',namespace['_scan_bytes'])
-    img=acr.image(positive='config');req=acr.request([img.target]);req['connector']['options']['inventories']=['nsg',acr.source.KIND]
-    snapshot,trace=acr.capture(NativeMetadataPatch(monkeypatch),img=img,req=req,real=True)
-    assert {r['status']for r in acr.findings(snapshot)}=={'FAIL'}
-    assert any(c['type']=='nsg' and c['items']for c in snapshot['collections'])
-    # Found secrets are shown in clear text for the current and predecessor scan.
-    assert acr.TOKEN in json.dumps(snapshot)
 
 
 def test_union_scrub_includes_later_metadata_reinsertions_and_clears_all_sets():

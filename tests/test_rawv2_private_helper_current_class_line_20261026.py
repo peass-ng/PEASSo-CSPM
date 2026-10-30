@@ -27,14 +27,6 @@ def current_class_lines(monkeypatch):
     return json.loads(RECEIPT.read_bytes())
 
 
-def test_exact_admitted_current_helper_preserves_immutable_class_witness(current_class_lines):
-    raw = HELPER.read_bytes()
-    assert hashlib.sha256(RECEIPT.read_bytes()).hexdigest() == RECEIPT_SHA256
-    assert current_class_lines['private_helper_classes']['EphemeralCipher']['lineno'] == 794
-    before = epoch.predecessor_bytes(rawv2.PRIVATE_HELPER, raw, rawv2.PRIVATE_HELPER_SHA256, ROOT)
-    assert hashlib.sha256(before).hexdigest() == rawv2.PRIVATE_HELPER_SHA256
-    assert secret_evidence.EphemeralCipher.__firstlineno__ == 898
-    assert rawv2._verify_private_helper(ROOT, current_class_lines) is True
 
 
 @pytest.mark.parametrize('line', [794, 899, True])

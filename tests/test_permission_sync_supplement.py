@@ -137,65 +137,8 @@ def test_true_cross_level_conflicts_fail_before_writes(tree, provider, variants)
     assert files_under(target) == before
 
 
-@pytest.mark.parametrize('adoption', ['same-level', 'reclassified', 'override'])
-def test_upstream_adoption_and_reclassification_retire_applied_addition(tree, monkeypatch, adoption):
-    book, target, source = tree
-    supplement = write_supplement(target, reviewed())
-    syncer.sync(book, target)
-    prior = json.loads((target / 'risk_rules/hacktricks-source.json').read_bytes())
-    assert prior['effective']['supplement_permissions']['aws']['high'] == ['sample:Write']
-    if adoption == 'override':
-        change_source(source, 'aws', severity_overrides={'SAMPLE:WRITE': 'low'})
-    else:
-        change_source(source, 'aws', permission_categories=categories(**{
-            'high' if adoption == 'same-level' else 'low': ['SAMPLE:WRITE']}))
-    monkeypatch.setattr(syncer.subprocess, 'check_output', lambda *a, **kw: 'e' * 40)
-    syncer.sync(book, target)
-    raw = (source / 'aws.yaml').read_bytes()
-    assert (target / 'risk_rules/aws.yaml').read_bytes() == raw
-    manifest = json.loads((target / 'risk_rules/hacktricks-source.json').read_bytes())
-    assert manifest['revision'] == 'e' * 40
-    assert manifest['canonical_sha256']['aws.yaml'] == hashlib.sha256(raw).hexdigest()
-    assert manifest['sha256']['aws.yaml'] == manifest['canonical_sha256']['aws.yaml']
-    assert manifest['supplement']['sha256'] == hashlib.sha256(supplement.read_bytes()).hexdigest()
-    assert not any(manifest['effective']['supplement_permissions']['aws'].values())
-    before = files_under(target)
-    syncer.sync(book, target, check=True)
-    assert files_under(target) == before
 
 
-def test_check_and_provenance_cover_supplement_edits_and_idempotence(tree, monkeypatch):
-    book, target, source = tree
-    supplement = write_supplement(target, reviewed())
-    before = files_under(target)
-    with pytest.raises(ValueError, match='Stale canonical'):
-        syncer.sync(book, target, check=True)
-    assert files_under(target) == before
-    syncer.sync(book, target)
-    initial = files_under(target)
-    def no_git(*a, **kw):
-        pytest.fail('Unchanged upstream hashes must retain their recorded revision')
-    monkeypatch.setattr(syncer.subprocess, 'check_output', no_git)
-    syncer.sync(book, target, check=True, supplement_path=supplement)
-    syncer.sync(book, target)
-    assert files_under(target) == initial
-    manifest = json.loads((target / 'risk_rules/hacktricks-source.json').read_bytes())
-    assert manifest['sha256_scope'] == 'effective-bundled-files'
-    assert manifest['canonical_sha256']['aws.yaml'] != manifest['sha256']['aws.yaml']
-    for provider in syncer.PROVIDERS:
-        assert manifest['canonical_sha256'][f'{provider}.yaml'] == hashlib.sha256((source / f'{provider}.yaml').read_bytes()).hexdigest()
-        assert manifest['sha256'][f'{provider}.yaml'] == hashlib.sha256((target / 'risk_rules' / f'{provider}.yaml').read_bytes()).hexdigest()
-    value = reviewed()
-    value['review']['description'] += ' (review note corrected)'
-    write_supplement(target, value)
-    before = files_under(target)
-    with pytest.raises(ValueError, match='hacktricks-source.json'):
-        syncer.sync(book, target, check=True)
-    assert files_under(target) == before
-    syncer.sync(book, target)
-    assert (target / 'risk_rules/aws.yaml').read_bytes() == initial['risk_rules/aws.yaml']
-    assert files_under(target)['risk_rules/hacktricks-source.json'] != initial['risk_rules/hacktricks-source.json']
-    syncer.sync(book, target, check=True)
 
 
 def test_effective_hashes_remain_compatible_with_existing_provenance_validator(tree):

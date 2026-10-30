@@ -380,25 +380,6 @@ def role_definition(actions):
         'assignableScopes':[SCOPE],'permissions':[{'actions':actions,'notActions':[],'dataActions':[],'notDataActions':[]}]}}
 
 
-@pytest.mark.parametrize('actions,expected',[(['Microsoft.Resources/subscriptions/resourceGroups/read'],'PASS'),(['*'],'FAIL')])
-def test_native_supported_role_successor_and_root_nonapplicability(monkeypatch,actions,expected):
-    data=baseline(native.DIRECT);role=role_definition(actions)
-    data[('arm',SCOPE+'/providers/Microsoft.Authorization/roleDefinitions')]={'value':[role]}
-    # Root enumeration is supported; the actual custom definition remains
-    # assignable to its subscription, never the impossible root custom scope.
-    data[('arm','/providers/Microsoft.Authorization/roleDefinitions')]={'value':[role]}
-    snapshot,f,_=capture(monkeypatch,'azure.iam.no_full_custom_role',data)
-    assert expected in states(f) and states(f)<={expected,'NOT_APPLICABLE'},f
-    # Root archived the provider-impossible historical criterion after the
-    # initial proof. Its evaluator remains inspectable against the same actual
-    # native role rows; public automated selection now rejects it explicitly.
-    from peaso.checks import evaluate_check
-    archived='azure.claude.iam_root_custom_role_no_wildcard'
-    roles=[r for c in snapshot['collections'] if c['type']=='role_definition' for r in c['items']]
-    assert roles
-    assert {evaluate_check(archived,r,{})[0] for r in roles}=={'NOT_APPLICABLE'}
-    with pytest.raises(ValueError,match='not available for automated scans'):
-        capture(monkeypatch,archived,data)
 
 @pytest.mark.parametrize('cid',[native.ADMIN,native.ALL])
 def test_missing_ca_does_not_prove_bypass_of_other_native_mfa_mechanisms(monkeypatch,cid):

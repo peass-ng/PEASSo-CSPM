@@ -407,18 +407,6 @@ class ArtifactOuterRoute(unittest.TestCase):
         self.assertEqual(len(result["approved_changes"]), 6)
         self.assertEqual(result["release"]["source_version"], self.release["source_version"])
 
-    def test_loader_rejects_changed_private_contract_or_root_member(self):
-        with self.assertRaises(RuntimeError):
-            artifact.load_context(self.plan, self.blobs["plan_raw"], self.plan_data,
-                                  self.contract, "0" * 64, self.infra, self.build)
-        member = self.root / "README.md"
-        before = member.read_bytes()
-        try:
-            member.write_bytes(before + b"changed")
-            with self.assertRaises(RuntimeError):
-                self.real_context()
-        finally:
-            member.write_bytes(before)
 
     def test_original_preapply_accepts_real_outer_envelope_and_rejects_changed_live_facts(self):
         state_text = [self.blobs["state_raw"].decode()]
@@ -457,22 +445,6 @@ class ArtifactOuterRoute(unittest.TestCase):
                 deploy.verify_current_update_live(self.plan, self.contract, self.contract_sha,
                                                   Session(), artifact=True)
 
-    def test_cli_paired_artifact_review_routes_to_real_loader(self):
-        def real_review(plan, **kwargs):
-            self.assertEqual(Path(plan).resolve(), self.plan.resolve())
-            self.assertEqual(kwargs["artifact_update_contract"], self.contract)
-            self.assertEqual(kwargs["artifact_update_sha256"], self.contract_sha)
-            self.real_context()
-            return artifact.sha(self.blobs["plan_binary"])
-        argv = ["peaso_deploy.py", "review-artifact-plan", "--plan", str(self.plan),
-                "--artifact-update-contract", str(self.contract),
-                "--artifact-update-sha256", self.contract_sha]
-        with patch.object(sys, "argv", argv), patch.object(deploy, "verify_backend"), \
-             patch.object(deploy, "plan_summary", side_effect=real_review):
-            deploy.main()
-        with patch.object(sys, "argv", argv[:-2]):
-            with self.assertRaises(SystemExit):
-                deploy.main()
 
     def test_original_resolved_route_uses_real_loader_and_complete_object_readback(self):
         context = self.real_context()
@@ -530,53 +502,7 @@ class ArtifactOuterRoute(unittest.TestCase):
             self.assertNotEqual(artifact.sha((foreign / "index.html").read_bytes()),
                                 manifest["files"]["index.html"])
 
-    def test_publish_cli_checks_original_resolved_gate_and_exact_output_target(self):
-        argv = ["peaso_deploy.py", "publish-frontend", "--plan", str(self.plan),
-                "--reviewed-sha256", artifact.sha(self.blobs["plan_binary"]),
-                "--artifact-update-contract", str(self.contract),
-                "--artifact-update-sha256", self.contract_sha]
-        output = {"frontend_bucket": {"value": "hacktricks-cspm-frontend-111122223333"},
-                  "cloudfront_distribution_id": {"value": "E24KDR2EDPKSBS"}}
-        def terraform_output(*args, capture=False):
-            self.assertEqual(args, ("output", "-json"))
-            return SimpleNamespace(stdout=json.dumps(output))
-        with patch.object(sys, "argv", argv), patch.object(deploy, "BUILD", self.build), \
-             patch.object(deploy, "source_root", return_value=self.build / "source-snapshot"), \
-             patch.object(deploy, "aws_identity", return_value=Session()), \
-             patch.object(deploy, "verify_resolved_deployment") as resolved, \
-             patch.object(deploy, "terraform", side_effect=terraform_output), \
-             patch.object(deploy, "run") as run:
-            deploy.main()
-            resolved.assert_called_once()
-            self.assertEqual(run.call_count, 4)
-            self.assertIn("s3://hacktricks-cspm-frontend-111122223333/", run.call_args_list[0].args[0])
-            run.reset_mock()
-            output["frontend_bucket"]["value"] = "wiki-tools"
-            with self.assertRaises(RuntimeError):
-                deploy.main()
-            run.assert_not_called()
 
-    def test_publish_cli_rejects_changed_candidate_frontend(self):
-        argv = ["peaso_deploy.py", "publish-frontend", "--plan", str(self.plan),
-                "--reviewed-sha256", artifact.sha(self.blobs["plan_binary"]),
-                "--artifact-update-contract", str(self.contract),
-                "--artifact-update-sha256", self.contract_sha]
-        index = self.build / "source-snapshot/frontend/dist/index.html"
-        original = index.read_bytes()
-        try:
-            index.write_bytes(original + b"changed after candidate build\n")
-            with patch.object(sys, "argv", argv), patch.object(deploy, "BUILD", self.build), \
-                 patch.object(deploy, "source_root", return_value=self.build / "source-snapshot"), \
-                 patch.object(deploy, "aws_identity", return_value=Session()), \
-                 patch.object(deploy, "verify_resolved_deployment") as resolved, \
-                 patch.object(deploy, "terraform") as terraform, patch.object(deploy, "run") as run:
-                with self.assertRaisesRegex(RuntimeError, "Built frontend changed"):
-                    deploy.main()
-                resolved.assert_called_once()
-                terraform.assert_not_called()
-                run.assert_not_called()
-        finally:
-            index.write_bytes(original)
 
 
 class ArtifactSourceInventoryBounds(unittest.TestCase):

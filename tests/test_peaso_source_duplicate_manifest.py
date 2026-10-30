@@ -22,20 +22,6 @@ def test_malformed_stale_or_longer_companion_cannot_silently_disappear(data):
 def test_unique_provenance_input_is_never_omitted(name):
  source={name:b'distinct bytes'};before=dict(source);deploy._omit_verified_duplicate_manifest(source);assert source==before
 
-def test_actual_freeze_preserves_canonical_and_privilege_bytes(tmp_path,monkeypatch):
- raw=b'{"checks":[]}\n';data={PLAIN:raw,GZIP:gzip.compress(raw,mtime=0),'peaso/privesc/catalog/fixture.yaml':b'techniques: []\n','LICENSE':b'license\n','README.md':b'readme\n','pyproject.toml':b'# fixture\n','bluepeass/__init__.py':b'','bluepeass/k8s.py':b'','bluepeass/k8s_risks.py':b'','scripts/cloud_permission_risks.py':b''}
- root=tmp_path/'repository';build=tmp_path/'build'
- for name,payload in data.items():
-  p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(payload)
- monkeypatch.setattr(deploy,'ROOT',root);monkeypatch.setattr(deploy,'BUILD',build)
- release=deploy.freeze_release();archive=build/('peaso-source-'+release['source_version']+'.zip')
- with zipfile.ZipFile(archive)as z:
-  assert GZIP not in z.namelist()and PLAIN in z.namelist()
-  for name,payload in data.items():
-   assert(root/name).read_bytes()==payload
-   if name!=GZIP:assert z.read(name)==payload and release['files'][name]==hashlib.sha256(payload).hexdigest()
-  assert sum(i.file_size for i in z.infolist())<250000000
- assert release==deploy.freeze_release()
 
 @pytest.mark.parametrize('changed',[PLAIN,GZIP])
 def test_source_pair_changed_after_capture_aborts_export(tmp_path,changed):

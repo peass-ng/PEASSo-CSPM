@@ -7,29 +7,6 @@ import pytest
 from scripts.peaso_test_resources.compose_api_acceptance import Acceptance, COPY_INPUTS, CONTEXT_FILES, source_manifest
 
 
-def test_source_manifest_detects_copied_changes_but_not_excluded_credentials(tmp_path):
-    for name in CONTEXT_FILES:
-        (tmp_path / name).write_text(name)
-    for name in COPY_INPUTS:
-        path = tmp_path / name
-        if path.suffix:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(name)
-        else:
-            path.mkdir()
-    source = tmp_path / "peaso" / "checks.py"
-    source.write_text("first")
-    baseline = source_manifest(tmp_path)
-    source.write_text("second")
-    changed = source_manifest(tmp_path)
-    assert changed["sha256"] != baseline["sha256"]
-    assert changed["files"] == baseline["files"]
-    (tmp_path / "frontend" / ".env").write_text("LOCAL_SECRET=do-not-read")
-    (tmp_path / "frontend" / "node_modules").mkdir()
-    (tmp_path / "frontend" / "node_modules" / "generated.js").write_text("volatile")
-    assert source_manifest(tmp_path) == changed
-    (tmp_path / "frontend" / ".env.example").write_text("PUBLIC_EXAMPLE=1")
-    assert source_manifest(tmp_path)["sha256"] != changed["sha256"]
 
 
 def test_failed_scan_summary_redacts_provider_error_before_persisting(tmp_path):

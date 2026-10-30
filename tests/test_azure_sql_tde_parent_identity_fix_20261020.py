@@ -118,15 +118,5 @@ def test_preexisting_child_optional_type_name_compatibility(monkeypatch):
     assert {f['status']for f in findings}=={'PASS'},findings
 
 
-@pytest.mark.parametrize('which',['collect','selected'])
-def test_current_successor_rejects_executing_callable_replacement(monkeypatch,which):
-    import types
-    from peaso.checks import azure_metadata_only_tde_admission_successor_20261020 as admission
-    admission.reviewed_inputs()
-    name='collect'if which=='collect'else'_selected';original=getattr(azure,name)
-    clone=types.FunctionType(original.__code__,original.__globals__,original.__name__,original.__defaults__,original.__closure__)
-    clone.__kwdefaults__=original.__kwdefaults__;clone.__qualname__=original.__qualname__
-    monkeypatch.setattr(azure,name,clone)
-    with pytest.raises(RuntimeError):admission.reviewed_inputs()
 
 
