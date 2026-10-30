@@ -117,12 +117,28 @@ def capture(monkeypatch,*,kind='Pod',positive=False,field='annotations',mutate=N
 # Preserve native assertions/parameter roster, changing only its collect bridge.
 # The four predecessor engine-unavailable cases are restated below using actual
 # SDK/binary unavailability, since production admission rejects detector swaps.
-_EXCLUDED={'test_native_sdk_to_public_proposed_check','test_one_engine_unavailable_cannot_clean_but_trusted_hit_survives'}
+_EXCLUDED={'test_native_sdk_to_public_proposed_check','test_one_engine_unavailable_cannot_clean_but_trusted_hit_survives',
+           'test_optional_and_cluster_boundary_before_native_calls'}
 _globals={**vars(predecessor),'capture':capture,'__name__':__name__}
 for _name,_fn in vars(predecessor).items():
     if _name.startswith('test_')and _name not in _EXCLUDED:
         _copy=FunctionType(_fn.__code__,_globals,_name,_fn.__defaults__,_fn.__closure__)
         _copy.__dict__.update(_fn.__dict__);_copy.__module__=__name__;globals()[_name]=_copy
+
+
+
+# Production validates every selected-content option before any reader runs;
+# the registry-image reader's own fail-closed Incomplete may reject the
+# non-boolean flag first. Either reader's rejection is the same boundary.
+@pytest.mark.parametrize('fault',['false_flag','integer_flag','no_named_kind','foreign_cluster'])
+def test_optional_and_cluster_boundary_before_native_calls(monkeypatch,fault):
+    from peaso.collectors import k8s_selected_registry_image_20261021 as registry_image
+    options={'content_secret_scans':False}if fault=='false_flag'else{'content_secret_scans':1}if fault=='integer_flag'else{'_content_secret_scan_kinds':[]}if fault=='no_named_kind'else{}
+    if fault=='integer_flag':
+        with pytest.raises((source.Incomplete,registry_image.Incomplete),match='invalid_selection'):capture(monkeypatch,options=options)
+        return
+    (status,_),trace,_,_=capture(monkeypatch,options=options,cluster='foreign'if fault=='foreign_cluster'else CLUSTER)
+    assert status=='UNKNOWN'and not trace.calls and not trace.scans
 
 
 @pytest.mark.parametrize('engine',['kingfisher','trufflehog'])
