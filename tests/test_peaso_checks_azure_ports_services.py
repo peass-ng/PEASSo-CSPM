@@ -2,6 +2,7 @@
 from peaso.checks.hacktricks_scope import includes
 import copy
 import json
+from urllib.parse import urlsplit
 from pathlib import Path
 import re
 
@@ -131,16 +132,27 @@ class ServiceApi:
             return {"data": []}
         endpoint = ENDPOINTS[self.kind][0]
         rid = "/subscriptions/sub/resourceGroups/group/providers/" + endpoint + "/resource"
-        return {"value": [{"id": rid, "type": endpoint, "name": "resource", "properties": {"publicNetworkAccess": "Disabled", "apiProperties": {"storageAccountConnectionString": "secret"}, "globalParameters": {"PASSWORD": {"value": "secret"}}, "redisConfiguration": {"rdb-storage-connection-string": "secret"}}}]}
+        row = {"id": rid, "type": endpoint, "name": "resource", "properties": {"publicNetworkAccess": "Disabled", "apiProperties": {"storageAccountConnectionString": "secret"}, "globalParameters": {"PASSWORD": {"value": "secret"}}, "redisConfiguration": {"rdb-storage-connection-string": "secret"}}}
+        path = urlsplit(url).path
+        if path == rid:
+            return row
+        if path.startswith(rid + "/"):
+            return {"value": []}
+        return {"value": [row]}
+
+
+# App Configuration list rows get a native detail GET plus Event Grid and NSP child reads.
+EXPECTED_CALLS = {"app_configuration": 5}
 
 
 @pytest.mark.parametrize("kind", ["redis_cache", "cognitive_account", "app_configuration", "data_factory", "api_management", "search_service"])
 def test_new_service_collection_is_authoritative_bounded_and_contains_no_sensitive_settings(kind):
     api = ServiceApi(kind)
-    snapshot = collect({"scopes": ["sub"], "options": {"max_calls": 2, "retries": 0}}, [kind], transport=api)
+    calls = EXPECTED_CALLS.get(kind, 2)
+    snapshot = collect({"scopes": ["sub"], "options": {"max_calls": calls, "retries": 0}}, [kind], transport=api)
     service = next(row for row in snapshot["collections"] if row["type"] == kind)
     assert service["status"] == "collected"
-    assert snapshot["metadata"]["calls"] == 2
+    assert snapshot["metadata"]["calls"] == calls
     assert service["items"][0]["properties"]["publicNetworkAccess"] == "Disabled"
     assert '"secret"' not in json.dumps(snapshot)
     assert all(not any(term in url.lower() for term in ("listkeys", "/secrets/", "linkedservices", "globalparameters")) for url, _ in api.calls)

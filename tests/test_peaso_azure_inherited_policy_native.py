@@ -70,7 +70,7 @@ def scan(monkeypatch, rows=(), fault=None):
             raise AssertionError('unexpected read-only request ' + parsed.path)
         def close(self):
             pass
-    monkeypatch.setattr(azure, 'AzureTransport', FakeTransport)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', FakeTransport)
     req = {'connector': {'provider': 'azure', 'scopes': [SCOPE],
            'auth': {'method': 'token', 'tenant_id': TENANT, 'arm_token': 'inert-test-value'},
            'options': {'max_calls': 10, 'max_resources': 100, 'retries': 0, 'concurrency': 1}},

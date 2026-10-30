@@ -32,7 +32,7 @@ ENDPOINTS={
  'iot_security_solution':('Microsoft.Security/iotSecuritySolutions','2019-08-01'),
  'kusto_cluster':('Microsoft.Kusto/clusters','2024-04-13'),
  'logic_app_workflow':('Microsoft.Logic/workflows','2019-05-01'),
- 'ml_workspace':('Microsoft.MachineLearningServices/workspaces','2024-04-01'),
+ 'ml_workspace':('Microsoft.MachineLearningServices/workspaces','2026-03-01'),
  'mssql_managed_instance':('Microsoft.Sql/managedInstances','2023-08-01'),
  'network_watcher':('Microsoft.Network/networkWatchers','2023-09-01'),
  'nic':('Microsoft.Network/networkInterfaces','2023-09-01'),
@@ -58,7 +58,7 @@ def offline(monkeypatch):
  def blocked(*a,**kw):attempts.append('network/auth');raise AssertionError('Native60 prohibits live IO')
  for n in ('create_connection','getaddrinfo','gethostbyname','gethostbyname_ex','gethostbyaddr','getnameinfo'):monkeypatch.setattr(socket,n,blocked)
  for n in ('connect','connect_ex','sendto'):monkeypatch.setattr(socket.socket,n,blocked)
- monkeypatch.setattr(azure,'credential_for',blocked);monkeypatch.setattr(azure,'AzureTransport',blocked)
+ monkeypatch.setattr(azure,'credential_for',blocked);monkeypatch.setattr(azure,'AzureTransport',blocked);monkeypatch.setattr(azure,'AzureTransportExposure',blocked)
  yield
  assert not attempts,attempts
 
@@ -259,6 +259,9 @@ class NativeHTTP:
     assert q.get('api-version')==['2022-04-01'];return {'value':[]}
    if p.path==SCOPE+'/resources':assert q.get('api-version')==['2021-04-01'];return {'value':deepcopy(allrows)}
    if p.path==SCOPE+'/resourcegroups':assert q.get('api-version')==['2021-04-01'];return {'value':[{'id':SCOPE+'/resourceGroups/native','name':'native','type':'Microsoft.Resources/resourceGroups','location':'eastus','properties':{'provisioningState':'Succeeded'}}]}
+   # Exposure analysis also lists subscription NSGs and public IPs; this account has none.
+   if p.path in (SCOPE+'/providers/Microsoft.Network/networkSecurityGroups',SCOPE+'/providers/Microsoft.Network/publicIPAddresses'):
+    assert q.get('api-version')==['2023-09-01'];return {'value':[]}
    for kind,(typ,version) in ENDPOINTS.items():
     if p.path.casefold() in ((SCOPE+'/providers/'+typ).casefold(),(SCOPE+'/resourceGroups/native/providers/'+typ).casefold()):
      assert q.get('api-version')==[version],(kind,q,version)
@@ -284,7 +287,10 @@ class NativeHTTP:
      if kind=='eventhub_namespace' and p.path==row['id']+'/networkRuleSets/default':
       assert q.get('api-version')==['2024-01-01'];return deepcopy(self.extras.get(p.path,child(row,'networkRuleSets',{'virtualNetworkRules':[],'defaultAction':'Deny','ipRules':[],'publicNetworkAccess':'Enabled'},name='default')))
      if kind=='servicebus_namespace' and p.path==row['id']+'/networkRuleSets/default':assert q.get('api-version')==['2022-10-01-preview'];return deepcopy(self.extras[p.path])
-     if kind=='ml_workspace' and p.path==row['id']+'/privateEndpointConnections':assert q.get('api-version')==['2024-04-01'];return {'value':[]}
+     if kind=='ml_workspace' and p.path in [row['id']+'/'+s for s in ('privateEndpointConnections','onlineEndpoints')]:assert q.get('api-version')==['2024-04-01'];return {'value':[]}
+     # Service Bus queue/topic and namespace SAS rule inventories: native empty lists.
+     if kind=='servicebus_namespace' and p.path in [row['id']+'/'+s for s in ('queues','topics','AuthorizationRules')]:
+      assert q.get('api-version')==['2024-01-01'];return {'value':[]}
      if kind=='mssql_managed_instance' and p.path in [row['id']+'/'+s for s in ('administrators','azureADOnlyAuthentications','encryptionProtector','vulnerabilityAssessments','databases')]:
       assert q.get('api-version')==['2021-11-01' if p.path.endswith('/databases') else '2023-08-01'];return {'value':deepcopy(self.extras.get(p.path,[]))}
      if kind=='aks_cluster' and p.path==row['id']+'/managedNamespaces':assert q.get('api-version')==['2025-10-01'];return {'value':[]}

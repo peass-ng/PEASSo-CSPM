@@ -12,6 +12,7 @@ from tests.test_peaso_azure_audit_storage_native import API, SCOPE, SERVICE, opt
 def _assess(monkeypatch, field):
     api = API("absent")
     monkeypatch.setattr(azure, "AzureTransport", lambda auth: api)
+    monkeypatch.setattr(azure, "AzureTransportExposure", lambda auth: api)
     connector = {"provider": "azure", "scopes": [SCOPE], "auth": {
         "method": "token", "arm_token": "inert", "storage_token": "inert"}, "options": options("absent")}
     captured = collect_live(connector, historical_requirements())

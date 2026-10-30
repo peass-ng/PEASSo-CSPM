@@ -66,7 +66,7 @@ def collect(proposal,monkeypatch,tmp_path,*,img=None,enabled=True,runner=None,ov
     class Outer:
         def check_cancelled(self):pass
         def call(self,fn,*args,**kwargs):return fn(*args,**kwargs)
-    transport=azure.AzureTransport(None)
+    transport=azure.AzureTransportExposure(None)
     result=native.collect_native(Outer(),transport,[existing.SCOPE],
         options(native,img.target,enabled),db_cache='/unreadable-test-cache',
         cli='/unused-test-trivy',runner=runner or fake_runner(),scratch_parent=tmp_path,
@@ -137,7 +137,7 @@ def test_collector_requires_trusted_fresh_database_lease(proposal,monkeypatch,tm
                 self.collections.append({'type':kind,'scope':scope,'service':service,
                     'status':'collected','items':[row for batch in fetch() for row in batch]})
     outer=Outer()
-    native.collect(outer,azure.AzureTransport(None),[existing.SCOPE],[native.KIND],
+    native.collect(outer,azure.AzureTransportExposure(None),[existing.SCOPE],[native.KIND],
         options(native,img.target))
     assert acquired==[True]
     row=outer.collections[0]['items'][0][native.MARKER]

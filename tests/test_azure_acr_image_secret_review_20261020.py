@@ -169,7 +169,7 @@ def capture(monkeypatch,*,img=None,native=None,overrides=None,redirect=False,rea
             trace.responses.append(self.response)
         def getresponse(self):return self.response
         def close(self):self.closed=True
-    monkeypatch.setattr(azure,'AzureTransport',Transport);monkeypatch.setattr(source.http.client,'HTTPSConnection',Connection)
+    monkeypatch.setattr(azure,'AzureTransportExposure',Transport);monkeypatch.setattr(source.http.client,'HTTPSConnection',Connection)
     monkeypatch.setattr(stream,'_PublicPinnedHTTPSConnection',Connection)
     trace.req=req;trace.img=img
     return (engine.collect_snapshot(req) if collect else req),trace
@@ -365,7 +365,7 @@ def test_unsafe_archive_and_partial_members_unknown_no_extraction(monkeypatch,sh
 def test_invalid_selection_before_auth(monkeypatch,targets):
     req=request([image().target]);req['connector']['options'][source.OPTION]=targets
     def blocked(*a,**k):pytest.fail('invalid selector reached auth')
-    monkeypatch.setattr(azure,'AzureTransport',blocked)
+    monkeypatch.setattr(azure,'AzureTransportExposure',blocked)
     with pytest.raises(ValueError):engine.collect_snapshot(req)
 
 

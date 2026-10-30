@@ -20,7 +20,7 @@ class API(NativeAPI):
         return response
 
 def run(monkeypatch,*,mode='complete',reboot=ABSENT,result_changes=None,mutate=None,require_actual=True,pci=False):
-    api=API(mode,reboot,result_changes);monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+    api=API(mode,reboot,result_changes);monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
     config=options();config['compliance_policy']['checks'][CHECK].update(requireActualInstallation=require_actual,requirePciCompliance=pci)
     validate(config)
     connector={'provider':'azure','scopes':[SCOPE],'auth':{'method':'token','arm_token':'inert'},'options':config}

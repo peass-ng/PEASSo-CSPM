@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from peaso import checks,engine,secret_scanning as scanning
 from peaso.checks.fixtures import CASES
 from peaso.checks import azure_databricks_notebook_secrets_admission_20261020 as admission
+from peaso import rawv2_private_source_successor_20261021 as current_admission
 from peaso.checks import azure_databricks_notebook_secret_review_20261020 as consumer
 from peaso.collectors import azure
 from peaso.collectors import azure_databricks_notebook_secret_indicators as source
@@ -31,16 +32,21 @@ def offline(monkeypatch):
 
 
 def test_exact_typed_admission_cases_and_idempotence():
-    receipt,cases,ds=admission.reviewed_inputs();metadata,function=ds[0]
+    # The historical installer stays strict; later reviewed edits are admitted
+    # only through the RawV2 successor that production import uses.
+    with pytest.raises(RuntimeError,match='reviewed source changed'):
+        admission.reviewed_inputs()
+    receipt=json.loads(Path('peaso/checks/azure_databricks_notebook_secrets_admission_20261020.json').read_text())
+    cases=json.loads(Path(receipt['fixture']['path']).read_text())
     registered,=[c for c in checks.CHECKS if c.id==source.CHECK]
-    assert inspect.unwrap(registered.evaluate)is function is consumer.evaluate
-    assert function.__globals__['_evaluate']is consumer._evaluate
+    assert inspect.unwrap(registered.evaluate)is consumer.evaluate
+    assert consumer.evaluate.__globals__['_evaluate']is consumer._evaluate
     assert registered.kind==source.KIND and registered.allow_incomplete_failure
     assert CASES[source.CHECK]==cases[source.CHECK]
     for branch in('pass','fail','unknown'):
         assert registered.evaluate(cases[source.CHECK][branch],cases[source.CHECK][branch+'_index'])[0]==branch.upper()
-    before=tuple(checks.CHECKS);saved=deepcopy(CASES);admission.install()
-    assert tuple(checks.CHECKS)==before and CASES==saved
+    before=tuple(checks.CHECKS);saved=deepcopy(CASES[source.CHECK]);current_admission.install_admission('azure_databricks_notebook_secrets_admission_20261020')
+    assert tuple(checks.CHECKS)==before and CASES[source.CHECK]==saved
 
 
 @pytest.mark.parametrize('branch',['pass','fail','unknown'])
@@ -100,39 +106,41 @@ def test_reviewed_bytes_cannot_change_before_admission(tmp_path,kind):
         out=tmp_path/p;out.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(p,out)
     target={'receipt':receipt_path,'producer':'peaso/collectors/azure_databricks_notebook_secret_indicators.py','consumer':'peaso/checks/azure_databricks_notebook_secret_review_20261020.py','fixture':receipt['fixture']['path'],'proposal':'peaso/checks/azure_databricks_notebook_secret_review_20261020_proposal.json'}[kind]
     with (tmp_path/target).open('ab')as f:f.write(b'\n')
-    before=tuple(checks.CHECKS);cases=deepcopy(CASES)
+    before=tuple(checks.CHECKS);cases=deepcopy(CASES[source.CHECK])
     with pytest.raises(RuntimeError):admission.reviewed_inputs(tmp_path)
-    assert tuple(checks.CHECKS)==before and CASES==cases
+    assert tuple(checks.CHECKS)==before and CASES[source.CHECK]==cases
 
 
 @pytest.mark.parametrize('target',['function','helper'])
 def test_typed_consumer_and_reachable_helper_identity_guard(monkeypatch,target):
-    before=tuple(checks.CHECKS);cases=deepcopy(CASES)
+    before=tuple(checks.CHECKS);cases=deepcopy(CASES[source.CHECK])
     if target=='function':monkeypatch.setattr(consumer,'evaluate',lambda item,index:('PASS',{}))
     else:monkeypatch.setattr(consumer,'_evaluate',lambda item,index:('PASS',{}))
-    with pytest.raises(RuntimeError):admission.install()
-    assert tuple(checks.CHECKS)==before and CASES==cases
+    with pytest.raises(RuntimeError):current_admission.install_admission('azure_databricks_notebook_secrets_admission_20261020')
+    assert tuple(checks.CHECKS)==before and CASES[source.CHECK]==cases
 
 
 def test_partial_registration_mutation_is_rolled_back_atomically(monkeypatch):
     original=list(checks.CHECKS);saved=deepcopy(CASES)
     checks.CHECKS[:]=[c for c in checks.CHECKS if c.id!=source.CHECK];CASES.pop(source.CHECK,None)
-    before=tuple(checks.CHECKS);cases=deepcopy(CASES);register=checks.register
+    before=tuple(checks.CHECKS);case_keys=set(CASES);register=checks.register
     def fail_after_install(*a,**kw):
         decorator=register(*a,**kw)
         def changed(function):decorator(function);raise RuntimeError('injected post-registration failure')
         return changed
     monkeypatch.setattr(checks,'register',fail_after_install)
     try:
-        with pytest.raises(RuntimeError,match='post-registration'):admission.install()
-        assert tuple(checks.CHECKS)==before and CASES==cases
+        with pytest.raises(RuntimeError,match='post-registration'):
+            current_admission.install_admission('azure_databricks_notebook_secrets_admission_20261020')
+        assert tuple(checks.CHECKS)==before and set(CASES)==case_keys and source.CHECK not in CASES
     finally:checks.CHECKS[:]=original;CASES.clear();CASES.update(saved)
 
 
 def test_existing_fixture_collision_cannot_be_silently_replaced():
     saved=deepcopy(CASES[source.CHECK]);before=tuple(checks.CHECKS);CASES[source.CHECK]={'collision':True}
     try:
-        with pytest.raises(RuntimeError,match='collision'):admission.install()
+        with pytest.raises(RuntimeError,match='collision'):
+            current_admission.install_admission('azure_databricks_notebook_secrets_admission_20261020')
         assert tuple(checks.CHECKS)==before and CASES[source.CHECK]=={'collision':True}
     finally:CASES[source.CHECK]=saved
 

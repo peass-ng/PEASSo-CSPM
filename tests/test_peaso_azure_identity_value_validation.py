@@ -1,7 +1,7 @@
 """Malformed Graph values must not establish a successful identity baseline."""
 from copy import deepcopy
 import pytest
-from peaso.checks import CHECKS
+from peaso.checks import CHECKS, resolve_check_id
 from peaso.checks.fixtures import CASES
 
 @pytest.mark.parametrize('slug', ['entra_ca_mfa_admin_portals','entra_ca_mfa_management_api'])
@@ -51,7 +51,9 @@ def test_evidence_retains_decisive_boolean_not_ambiguous_item_count(slug,key,sta
 
 @pytest.mark.parametrize('ranges,status',[([''],'UNKNOWN'),(['garbage'],'UNKNOWN'),([' 203.0.113.0/24'],'UNKNOWN'),(['999.0.0.0/24'],'UNKNOWN'),(['203.0.113.0/24'],'PASS'),(['0.0.0.0/0'],'FAIL'),([],'FAIL')])
 def test_authorized_sources_reject_malformed_and_unrestricted_ranges(ranges,status):
-    cid='azure.claude.aks_authorized_ip_ranges';c=next(c for c in CHECKS if c.id==cid)
+    # The retired Claude AKS check is an alias of the native exposure check.
+    cid=resolve_check_id('azure.claude.aks_authorized_ip_ranges');assert cid=='azure.aks.api_server_restricted'
+    c=next(c for c in CHECKS if c.id==cid)
     item=deepcopy(CASES[cid]['pass']);item['properties']['apiServerAccessProfile']['authorizedIPRanges']=ranges
     assert c.evaluate(item,{})[0]==status
 

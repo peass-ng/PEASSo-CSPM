@@ -69,7 +69,7 @@ def test_public_collect_dispatch_query_flow_and_real_engine(monkeypatch,freshnes
                 assert json.loads(req.data)=={}
                 return InertHTTPResponse(200,{'value':[]})
             raise AssertionError('Unexpected query '+req.full_url)
-    monkeypatch.setattr(azure,'AzureTransport',Transport)
+    monkeypatch.setattr(azure,'AzureTransport',Transport);monkeypatch.setattr(azure,'AzureTransportExposure',Transport)
     monkeypatch.setattr(native,'build_opener',lambda *args:Opener())
     raw=options(age);before=deepcopy(raw)
     for mode in('local','cognito'):
@@ -122,7 +122,7 @@ def test_public_intake_namespace_provider_boundary(mode,provider):
 def test_public_dispatch_invalid_or_mismatched_owner_before_transport(monkeypatch,kind):
     attempts=[]
     def forbidden(*args,**kwargs):attempts.append(True);raise AssertionError('Credential construction must not run')
-    monkeypatch.setattr(azure,'AzureTransport',forbidden)
+    monkeypatch.setattr(azure,'AzureTransport',forbidden);monkeypatch.setattr(azure,'AzureTransportExposure',forbidden)
     raw=options();scope=S
     if kind=='null':raw['compliance_parameters'][native.NAMESPACE]=None
     elif kind=='observation':raw['compliance_parameters'][native.NAMESPACE]['paths']=[]
@@ -188,7 +188,7 @@ def test_early_nsg_refresh_retains_real_later_diagnostics_and_flow_logs(monkeypa
                 if path==(NIC+'/effectiveRouteTable').casefold():return InertHTTPResponse(200,{'value':deepcopy(routes)})
                 if path==(VNET+'/listNetworkManagerEffectiveSecurityAdminRules').casefold():return InertHTTPResponse(200,{'value':[]})
             raise AssertionError('Unexpected bounded metadata request')
-    monkeypatch.setattr(azure,'AzureTransport',Transport)
+    monkeypatch.setattr(azure,'AzureTransport',Transport);monkeypatch.setattr(azure,'AzureTransportExposure',Transport)
     monkeypatch.setattr(native,'build_opener',lambda *args:Opener())
     raw=options()
     raw['inventories']=['nsg_effective_internet_path','diagnostic_setting','flow_log']
@@ -287,7 +287,7 @@ def test_combined_public_edge_nsg_diagnostics_and_flow_logs(monkeypatch):
                 if path==(NIC+'/effectiveRouteTable').casefold():return InertHTTPResponse(200,{'value':deepcopy(routes)})
                 if path==(VNET+'/listNetworkManagerEffectiveSecurityAdminRules').casefold():return InertHTTPResponse(200,{'value':[]})
             raise AssertionError('Unexpected bounded metadata request')
-    monkeypatch.setattr(azure,'AzureTransport',Transport)
+    monkeypatch.setattr(azure,'AzureTransport',Transport);monkeypatch.setattr(azure,'AzureTransportExposure',Transport)
     monkeypatch.setattr(native,'build_opener',lambda *args:Opener())
     raw=options()
     raw['inventories']=['nsg_effective_internet_path','diagnostic_setting','flow_log',*edge.NATIVE_TYPES]

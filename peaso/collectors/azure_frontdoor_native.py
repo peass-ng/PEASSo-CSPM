@@ -408,7 +408,10 @@ def _blob_origins(reader, request, item):
                 continue
             if accounts is None:
                 accounts = []
-                for page in reader.pages(request, ARM + scope + '/providers/Microsoft.Storage/storageAccounts?api-version=2023-05-01'):
+                # Same subscription LIST as the storage_account inventory, so the
+                # per-scan read cache answers it instead of a second wire read.
+                from .azure import ENDPOINTS
+                for page in reader.pages(request, ARM + scope + '/providers/Microsoft.Storage/storageAccounts?api-version=' + ENDPOINTS['storage_account'][1]):
                     for account in page:
                         _identity(account, scope, r'/resourceGroups/[^/?#]+/providers/Microsoft\.Storage/storageAccounts/[^/?#]+')
                         accounts.append(account)

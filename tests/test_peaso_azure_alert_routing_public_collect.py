@@ -35,7 +35,7 @@ def test_public_native_collect_routes_without_owner_observations(monkeypatch, ki
             if path == native(kind)['id'] + '/providers/Microsoft.Insights/diagnosticSettings':
                 return {'value': []}  # Existing shared diagnostic enrichment.
             raise AssertionError('Unexpected endpoint: ' + path)
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport())
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: Transport())
     auth = {'method': 'token', 'arm_token': 'inert-fixture'}
     options = {'concurrency': 1, 'retries': 1}
     validate_connector('azure', auth, options, SimpleNamespace(auth_mode='cognito'))

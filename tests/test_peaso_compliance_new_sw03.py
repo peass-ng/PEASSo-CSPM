@@ -411,6 +411,13 @@ def test_storage_omission_defaults_require_read_only_get_and_null_is_unknown(sw0
     assert grade(sw03, cid, item, snapshot(collections, policy=policy)) == 'UNKNOWN'
     item['_provenance'].update(source_operation='get', read_only=True)
     assert grade(sw03, cid, item, snapshot(collections, policy=policy)) == 'PASS'
+    # The collector's current storage-account GET version is also a full read.
+    from peaso.collectors.azure import ENDPOINTS
+    item['_provenance']['api_version'] = ENDPOINTS['storage_account'][1]
+    assert grade(sw03, cid, item, snapshot(collections, policy=policy)) == 'PASS'
+    item['_provenance']['api_version'] = '2021-01-01'
+    assert grade(sw03, cid, item, snapshot(collections, policy=policy)) == 'UNKNOWN'
+    item['_provenance']['api_version'] = '2023-05-01'
     item['properties']['allowBlobPublicAccess'] = None
     assert grade(sw03, cid, item, snapshot(collections, policy=policy)) == 'UNKNOWN'
 

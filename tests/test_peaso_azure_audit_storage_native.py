@@ -88,7 +88,7 @@ class API:
         'no_categories','category_page_limit','expired','future','no_classification','unclassified','duplicate_account')]])
 def test_normal_hosted_config_absence_only(monkeypatch,mode,expected):
     from peaso.server.validation import validate_connector
-    api=API(mode); monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+    api=API(mode); monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
     configured=options(mode); auth={'method':'token','arm_token':'inert','storage_token':'inert'}
     validate_connector('azure',auth,configured,SimpleNamespace(auth_mode='cognito'))
     connector={'provider':'azure','scopes':[SCOPE],'auth':auth,'options':configured}

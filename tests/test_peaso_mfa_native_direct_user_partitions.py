@@ -43,7 +43,7 @@ class PartitionAPI(CombinedAPI):
 
 def collect(monkeypatch, rows, mode='complete'):
     api = PartitionAPI(rows, mode)
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: api)
     now = datetime.now(timezone.utc)
     owner = {'status': 'collected', 'scope': SCOPE, 'authorized_by': 'security-owner',
         'document_id': 'mfa-obligation', 'observed_at': (now-timedelta(hours=1)).isoformat(),

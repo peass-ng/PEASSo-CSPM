@@ -109,9 +109,10 @@ class Cases(unittest.TestCase):
                 self.assertNotIn(value,json.dumps([item,result]));self.assertTrue(all(r.closed for r in self.responses));self.assertTrue(all(c.closed for c in HTTP.connections))
                 if secret:
                     self.assertEqual({d['engine']for d in result['secret_leaks'][0]['detectors']},{'kingfisher','trufflehog'})
-                    self.assertIn(secret,reader.configuration_secret_redactions)
+                    # Found values stay visible to the owner: nothing is queued for redaction.
+                    self.assertNotIn(secret,reader.configuration_secret_redactions)
                     safe=source.final_snapshot(reader,{'metadata':{'ordinary_alias':secret},'collections':reader.collections})
-                    self.assertNotIn(secret,json.dumps(safe));self.assertEqual(reader.configuration_secret_redactions,set())
+                    self.assertIn(secret,json.dumps(safe));self.assertEqual(reader.configuration_secret_redactions,set())
     def test_incomplete_positive_and_clean_unknown(self):
         self.plan('ENV TOKEN=private-secret');_,_,_,(status,result)=self.collect(secret='private-secret',partial=True)
         self.assertEqual(status,'FAIL');self.assertFalse(result['complete'])

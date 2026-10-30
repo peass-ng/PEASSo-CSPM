@@ -51,6 +51,26 @@ def test_disabled_or_same_subscription_automation():
     assert _results(automation=automations.project(_raw(target=same), SUB))[automations.KIND].verdict() == "UNKNOWN"
 
 
+def _collected_contact(contact):
+    class Transport:
+        tenant = verified_tenant = "00000000-0000-0000-0000-0000000000aa"
+
+        def request(self, url, body=None, audience=azure.ARM):
+            path = url.split("?", 1)[0]
+            if audience == azure.ARM and path == azure.ARM + SUB:
+                return {"id": SUB, "subscriptionId": SUB.rsplit("/", 1)[-1], "tenantId": self.tenant}
+            if path == azure.ARM + SUB + "/providers/Microsoft.Security/securityContacts":
+                return {"value": [contact]}
+            if path == azure.ARM + contact["id"]:
+                return contact
+            return {"value": []}
+
+    snapshot = azure.collect({"scopes": [SUB]}, ["security_contact"], transport=Transport())
+    rows = [c for c in snapshot["collections"] if c["type"] == "security_contact"]
+    assert len(rows) == 1 and rows[0]["status"] == "collected", rows
+    return rows[0]["items"][0]
+
+
 def test_foreign_security_contact_and_missing_domain_inventory():
     contact = {"id": SUB + "/providers/Microsoft.Security/securityContacts/default",
                "type": "Microsoft.Security/securityContacts", "properties": {
@@ -59,8 +79,12 @@ def test_foreign_security_contact_and_missing_domain_inventory():
     result = _results(contact=contact)["security_contact"]
     assert result.verdict() == "FAIL" and result.external_ids == ["alerts@partner.example"]
     assert _results(contact=contact, domains=False)["security_contact"].verdict() == "UNKNOWN"
-    azure._arm_parent_native_type({**contact, "type": "Microsoft.Security/securityContact"},
-                                  "security_contact")
+    # The official LIST example returns the singular type; the collector call
+    # sites admit it for security contacts while the shared helper stays strict.
+    singular = {**contact, "type": "Microsoft.Security/securityContact"}
+    with pytest.raises(ValueError):
+        azure._arm_parent_native_type(singular, "security_contact")
+    assert _collected_contact(singular)["type"] == "Microsoft.Security/securityContact"
     role_only = {**contact, "properties": {**contact["properties"], "emails": "",
                  "notificationsByRole": {"state": "On", "roles": ["Owner"]}}}
     assert _results(contact=role_only)["security_contact"].verdict() == "UNKNOWN"

@@ -28,7 +28,7 @@ DB=SQL+'/databases/application'
 STORAGE=RG+'/providers/Microsoft.Storage/storageAccounts/reviewnative'
 WORKSPACE=RG+'/providers/Microsoft.OperationalInsights/workspaces/native'
 PE=RG+'/providers/Microsoft.Network/privateEndpoints/native'
-REAL_TRANSPORT=azure.AzureTransport
+REAL_TRANSPORT=azure.AzureTransportExposure
 RECEIPTS=[]
 
 @pytest.fixture(autouse=True)
@@ -188,7 +188,13 @@ def native(cid,opposite=False):
                      'slots','virtualNetworkConnections','config/web','config/authsettingsV2','config/logs',
                      'basicPublishingCredentialsPolicies/scm','basicPublishingCredentialsPolicies/ftp',
                      'eventhubs','authorizationRules','disasterRecoveryConfigs','networkRuleSets/default',
-                     'providers/Microsoft.EventGrid/eventSubscriptions','localUsers'):
+                     'providers/Microsoft.EventGrid/eventSubscriptions','localUsers',
+                     # Later native child reads: Service Bus SAS rules and entities, Entra-only SQL
+                     # authentication, ML online endpoints, Stream Analytics outputs,
+                     # Web PubSub hubs and shared private links, and perimeter associations.
+                     'AuthorizationRules','queues','topics','azureADOnlyAuthentications','onlineEndpoints','outputs','hubs',
+                     'sharedPrivateLinkResources',
+                     'networkSecurityPerimeterConfigurations'):
             data.setdefault(rid+'/'+path,azure.AzureReadError('optional_metadata_denied',403))
     # A successful native subscription resource index contains only resources in
     # this independent finite account, never synthetic coverage/provenance flags.
@@ -208,6 +214,8 @@ def native(cid,opposite=False):
         data.setdefault(path,{'value':[]})
     data[SCOPE+'/providers/Microsoft.Network/locations/westcentralus/serviceTags']=azure.AzureReadError('service_tags_not_required',403)
     data[RG+'/providers/Microsoft.Authorization/locks']=azure.AzureReadError('locks_not_required',403)
+    # Per-resource-group VPN connection lists are optional; denial invents no connection.
+    data.setdefault(RG+'/providers/Microsoft.Network/connections',azure.AzureReadError('optional_vpn_connections_denied',403))
     data[SCOPE+'/providers/Microsoft.Authorization/locks']=azure.AzureReadError('locks_not_required',403)
     for service in ('blobServices','queueServices','tableServices','fileServices'):
         data.setdefault(STORAGE+'/'+service+'/default',azure.AzureReadError('optional_storage_service_denied',403))
@@ -331,7 +339,7 @@ def capture(monkeypatch,cid,branch='positive',data=None):
     monkeypatch.setattr(azure,'build_opener',lambda *a:wire)
     transport=object.__new__(REAL_TRANSPORT);transport.tenant=transport.verified_tenant=TENANT;transport.owned=False;transport.credential=None
     transport.token=lambda audience:'offline-native' if audience in (azure.ARM,azure.GRAPH) else pytest.fail('unexpected credential audience')
-    monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+    monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
     options={'retries':0,'concurrency':1}
     if cid=='azure.claude.servicebus_namespace_private_link':
         # This fixture proves the selected native setting, not the separate

@@ -62,7 +62,7 @@ class API:
 def test_actual_collect_live_and_signed_engine_mfa(mode,expected,monkeypatch):
  api=API(mode)
  if mode=='foreign':api.tenant=api.verified_tenant='33333333-3333-3333-3333-333333333333'
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
  now=datetime.now(timezone.utc)
  policy={'sw13':{'status':'collected','scope':SCOPE,'authorized_by':'security-owner','document_id':'owner-obligation',
   'observed_at':(now-timedelta(days=1)).isoformat(),'expires_at':(now+timedelta(days=1)).isoformat(),

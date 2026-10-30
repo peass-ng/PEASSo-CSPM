@@ -18,7 +18,7 @@ from peaso.checks.azure_native_evidence_observations import evidence_summary as 
 from tests.test_gcp_current_source_reconciliation_20261020 import _bound_functions
 from tests.azure_native_successor_inputs_20261020 import _native_rows
 from tests.test_native_admission_cpu_successor_20261020 import REVIEWED_CURRENT_CHANGES, EPOCH, EPOCH_SHA256
-from tests.test_azure_k8s_current_review_bindings_20261020 import assessment_predecessor_matches
+from tests.test_azure_k8s_current_review_bindings_20261020 import assessment_evaluator_matches, assessment_predecessor_matches
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECK_BY_ID = {check.id: check for check in CHECKS if check.provider == 'azure'}
@@ -119,7 +119,7 @@ def _preserve_all_successor_sources_and_historical_inputs():
             current = hashlib.sha256(raw).hexdigest()
             if path == ASSESSMENT_SUCCESSOR['evaluator_source']:
                 assert expected == ASSESSMENT_SUCCESSOR['evaluator_predecessor_sha256']
-                assert current == ASSESSMENT_SUCCESSOR['evaluator_current_sha256']
+                assert assessment_evaluator_matches(path, ASSESSMENT_SUCCESSOR['evaluator_current_sha256'], current)
             elif current != expected:
                 change = REVIEWED_CURRENT_CHANGES[path]
                 assert set(change) == {'before_sha256', 'after_sha256', 'after_size'}

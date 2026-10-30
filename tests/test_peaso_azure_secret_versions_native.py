@@ -73,7 +73,7 @@ def capture(monkeypatch,mode='recent',*,policy=None,requirements=None,**limits):
     if mode=='changed_attributes'and self.arm_gets>1:value['properties']['attributes']['updated']+=1
     return value
    return {'value':[]}
- transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+ transport=Transport();monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
  options={'retries':0,'concurrency':1,'compliance_policy':{'sw15':copy.deepcopy(POLICY if policy is None else policy)},**limits}
  if mode=='missing_policy':options.pop('compliance_policy')
  if mode=='foreign_policy':options['compliance_policy']['sw15']['scope']='/subscriptions/22222222-2222-2222-2222-222222222222'

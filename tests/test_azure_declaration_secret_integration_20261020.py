@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from peaso import checks,engine,secret_scanning as scanning
 from peaso.checks.fixtures import CASES
 from peaso.checks import azure_declaration_secrets_admission_20261020 as admission
+from peaso import rawv2_private_source_successor_20261021 as current_admission
 from peaso.checks import azure_selected_declaration_secret_review_20261020 as consumer
 from peaso.collectors import azure
 from peaso.collectors import azure_selected_declaration_secret_indicators as source
@@ -31,14 +32,21 @@ def offline(monkeypatch):
 
 
 def test_exact_typed_registered_identity_case_branches_and_idempotence():
-    receipt,cases,declarations=admission.reviewed_inputs()
+    # The historical installer stays strict; later reviewed edits are admitted
+    # only through the RawV2 successor that production import uses.
+    with pytest.raises(RuntimeError,match='reviewed source changed'):
+        admission.reviewed_inputs()
+    receipt=json.loads(Path('peaso/checks/azure_declaration_secrets_admission_20261020.json').read_text())
+    cases=json.loads(Path(receipt['fixture']['path']).read_text())
+    declarations=[([d for d in consumer.DECLARATIONS if d['id']==p['check']][0],consumer.EVALUATORS[name])for name,p in source.PROFILES.items()]
+    assert len(declarations)==len(consumer.DECLARATIONS)==3
     for metadata,function in declarations:
         registered,=[c for c in checks.CHECKS if c.id==metadata['id']]
         assert inspect.unwrap(registered.evaluate)is function and registered.allow_incomplete_failure
         assert registered.kind==metadata['kind']and CASES[registered.id]==cases[registered.id]
         assert function.__globals__['_evaluate']is consumer._evaluate
         for branch in ('pass','fail','unknown'):assert registered.evaluate(cases[registered.id][branch],cases[registered.id][branch+'_index'])[0]==branch.upper()
-    before=tuple(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES);admission.install()
+    before=tuple(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES);current_admission.install_admission('azure_declaration_secrets_admission_20261020')
     assert tuple(checks.CHECKS)==before and case_state(CASES)==saved_state
 
 
@@ -93,7 +101,7 @@ def test_atomic_mid_install_failure_rolls_back_all_three(monkeypatch):
         return register(*args,**kwargs)
     monkeypatch.setattr(checks,'register',fail_second)
     try:
-        with pytest.raises(RuntimeError,match='transaction'):admission.install()
+        with pytest.raises(RuntimeError,match='transaction'):current_admission.install_admission('azure_declaration_secrets_admission_20261020')
         assert tuple(checks.CHECKS)==before and case_state(CASES)==cases_state
     finally:
         checks.CHECKS[:]=original_checks;CASES.clear();CASES.update(original_cases)
@@ -149,7 +157,7 @@ def test_typed_function_and_reachable_helper_tampering_rejected(monkeypatch,targ
     def changed(item,index):return 'PASS',{}
     if target=='function':monkeypatch.setitem(consumer.EVALUATORS,'app_configuration',changed)
     else:monkeypatch.setattr(consumer,'_evaluate',lambda profile,item,index:('PASS',{}))
-    with pytest.raises(RuntimeError):admission.install()
+    with pytest.raises(RuntimeError):current_admission.install_admission('azure_declaration_secrets_admission_20261020')
     assert tuple(checks.CHECKS)==before and case_state(CASES)==cases_state
 
 
@@ -157,7 +165,7 @@ def test_existing_fixture_collision_cannot_partially_readmit():
     ident=source.PROFILES['synapse']['check'];saved=deepcopy(CASES[ident]);before=tuple(checks.CHECKS)
     CASES[ident]={'unexpected':'collision'}
     try:
-        with pytest.raises(RuntimeError,match='collision'):admission.install()
+        with pytest.raises(RuntimeError,match='collision'):current_admission.install_admission('azure_declaration_secrets_admission_20261020')
         assert tuple(checks.CHECKS)==before and CASES[ident]=={'unexpected':'collision'}
     finally:CASES[ident]=saved
 

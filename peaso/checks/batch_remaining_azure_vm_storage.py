@@ -947,7 +947,7 @@ def _load_03():
             raise Unavailable('expected storage access setting malformed')
         properties = get(item, 'properties', dict)
         provenance = item.get('_provenance', {})
-        full = isinstance(provenance, dict) and provenance.get('representation') == 'full' and (provenance.get('api_version') == '2023-05-01') and (provenance.get('source_operation') == 'get') and (provenance.get('read_only') is True)
+        full = isinstance(provenance, dict) and provenance.get('representation') == 'full' and (provenance.get('api_version') in ('2023-05-01', '2026-06-01')) and (provenance.get('source_operation') == 'get') and (provenance.get('read_only') is True)
         defaults = {'allowBlobPublicAccess': False, 'publicNetworkAccess': 'Enabled', 'networkAcls.defaultAction': 'Allow'}
         actual = {}
         for field in expected:

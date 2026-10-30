@@ -51,7 +51,7 @@ class NativeAPI(ExistingAPI):
 
 def snapshot(monkeypatch, mode='complete', checks=CHECKS):
     api = NativeAPI(mode)
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: api)
     connector = {'provider': 'azure', 'scopes': [SUB], 'options': {'retries': 0}}
     required = plan_collection({'connector': connector, 'checks': list(checks)})
     assert 'conditional_access_policy' in required

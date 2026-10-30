@@ -16,6 +16,7 @@ from peaso import checks,engine,secret_scanning
 from peaso.checks.fixtures import CASES
 from peaso.checks import azure_function_settings_runtime_admission_20261020 as admission
 from peaso.checks import azure_function_settings_runtime_consumer_20261020 as consumer
+from peaso.rawv2_private_source_successor_20261021 import install_admission
 from peaso.collectors import azure,azure_function_settings_declarations_20261020 as source
 from peaso.collectors import azure_function_settings_runtime_hooks_20261020 as hooks
 from peaso.server.validation import OPTIONS,validate_connector
@@ -29,7 +30,10 @@ def offline(monkeypatch):
     for n in('connect','connect_ex','sendto'):monkeypatch.setattr(socket.socket,n,blocked)
     for n in('getaddrinfo','gethostbyname','gethostbyname_ex','create_connection'):monkeypatch.setattr(socket,n,blocked)
     monkeypatch.setattr(azure,'credential_for',blocked);monkeypatch.setattr(azure.AzureTransport,'request',blocked)
-    for n in('scan_content','_scan_kingfisher','_scan_trufflehog'):monkeypatch.setattr(secret_scanning,n,blocked)
+    # RawV2 admission re-verifies the live secret_scanning functions and their
+    # from-import cohorts on every collect, so detectors are blocked at the
+    # process boundary every Kingfisher/TruffleHog run must cross.
+    monkeypatch.setattr(secret_scanning.subprocess,'Popen',blocked)
 
 
 def view(snapshot):
@@ -37,14 +41,25 @@ def view(snapshot):
     return own['items'][0],{'context':{'provider':'azure','scope':native.SCOPE,'metadata':snapshot['metadata']},'collections':{source.KIND:[own]}}
 
 
+def _receipt_cases():
+    receipt=json.loads((Path(admission.__file__).parent/admission.RECEIPT).read_text())
+    return json.loads(Path(receipt['fixture']['path']).read_text())
+
+
 def test_actual_registered_successor_identity_cases_and_idempotent_install():
-    _,cases,declarations=admission.reviewed_inputs()
+    # The historical installer stays strict on the drifted Function proposal
+    # sources; production admits them only through the RawV2 successor.
+    with pytest.raises((RuntimeError,ValueError)):admission.reviewed_inputs()
+    install_admission('azure_function_settings_runtime_admission_20261020')
+    cases=_receipt_cases()
+    declarations=[(d,d['evaluate'])for d in consumer.PROPOSALS]
+    assert len(declarations)==2
     for d,function in declarations:
         current,=[c for c in checks.CHECKS if c.id==d['id']]
         assert inspect.unwrap(current.evaluate)is function and function.__module__==consumer.__name__
         assert CASES[d['id']]==cases[d['id']]
         assert cases[d['id']]['pass']['_provenance']['credential_context_id']==cases[d['id']]['pass_index']['context']['metadata']['credential_context_id']
-    before=tuple(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES);admission.install()
+    before=tuple(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES);install_admission('azure_function_settings_runtime_admission_20261020')
     assert tuple(checks.CHECKS)==before and case_state(CASES)==saved_state
 
 
@@ -158,7 +173,9 @@ def test_actual_inventory_private_check_spoof_never_acquires_tokens(monkeypatch)
 
 def test_production_read_callable_drift_stops_before_sdk_credentials(monkeypatch):
     monkeypatch.setattr(source,'_read',lambda *a: {'synthetic':True})
-    with pytest.raises(ValueError,match='function_proposal_source_mismatch'):
+    # RawV2 admission now rejects the relocated callable before the proposal's
+    # own digest check; either guard stops before any SDK credential is built.
+    with pytest.raises((RuntimeError,ValueError),match='Function proposal callable location changed|function_proposal_source_mismatch'):
         engine.collect_snapshot({'connector':{'provider':'azure','scopes':[native.SCOPE],'auth':{},'options':{'content_secret_scans':True,source.OPTION:[native.SITE]}},'checks':list(source.CHECKS)})
 
 
@@ -186,19 +203,25 @@ def test_actual_production_transfer_budgets_do_not_relax_native_source_guards(mo
 
 
 def test_functions_metadata_precedes_every_existing_ledger_union_and_cleanup(monkeypatch):
+    # A found value queued by readers, distinct from the private settings
+    # canary that capture() still requires never to leave native projection.
+    FOUND='found-secret-value-visible-to-owner'
     original=azure._Reader.metadata;readers=[]
     def metadata(reader):
-        readers.append(reader);reader.configuration_secret_redactions={native.CANARY}
+        readers.append(reader);reader.configuration_secret_redactions={FOUND}
         for attr in('ml_asset_secret_metadata','databricks_notebook_secret_metadata','ml_command_job_secret_metadata','log_sample_secret_metadata','declaration_secret_metadata','configuration_secret_metadata','storage_source_secret_metadata','devops_selected_metadata','app_setting_secret_metadata','acr_image_secret_metadata','function_declaration_metadata'):
             ledger=getattr(reader,attr,{})
-            ledger.update({attr+'_union_alias':native.CANARY});setattr(reader,attr,ledger)
-        return {**original(reader),'late_alias':native.CANARY}
+            ledger.update({attr+'_union_alias':FOUND});setattr(reader,attr,ledger)
+        return {**original(reader),'late_alias':FOUND}
     monkeypatch.setattr(azure._Reader,'metadata',metadata)
     snapshot,found,_,_=native.capture(monkeypatch)
     assert {f['status']for f in found.values()}=={'PASS'}
-    assert native.CANARY not in json.dumps([snapshot,found])
+    # Found values stay visible to the tenant: the function ledger joins the
+    # union before cleanup, and only the ephemeral redaction sets are cleared.
+    assert snapshot['metadata']['function_declaration_metadata_union_alias']==FOUND
+    assert snapshot['metadata']['configuration_secret_metadata_union_alias']==FOUND
     assert readers and not readers[-1].configuration_secret_redactions
-    assert native.CANARY not in json.dumps(readers[-1].function_declaration_metadata)
+    assert FOUND not in json.dumps(readers[-1].function_declaration_metadata)
 
 
 def test_predecessor_sources_and_test_rosters_are_byte_preserved():
@@ -209,7 +232,9 @@ def test_predecessor_sources_and_test_rosters_are_byte_preserved():
     assert original in saved and 'Only a test-local Check overlay'in saved[original]
     receipt=json.loads(Path('peaso/checks/azure_function_settings_runtime_admission_20261020.json').read_text())
     assert receipt['predecessor_runtime']['archive_sha256']==hashlib.sha256(archive.read_bytes()).hexdigest()
-    assert len(admission.reviewed_inputs()[2])==2
+    with pytest.raises((RuntimeError,ValueError)):admission.reviewed_inputs()
+    install_admission('azure_function_settings_runtime_admission_20261020')
+    assert len([c for c in checks.CHECKS if c.id in {d['id']for d in consumer.PROPOSALS}])==2
 
 
 @pytest.mark.parametrize('denied',[False,True])

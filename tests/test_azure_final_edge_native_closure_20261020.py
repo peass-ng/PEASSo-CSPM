@@ -89,24 +89,30 @@ def family_fixture(cid,family,mode):
   rid=ROOT+ep+'/scale';ip={'name':'private','properties':{'subnet':{'id':prior.SUBNET},'primary':True}}
   parent=arm(rid,{'provisioningState':'Succeeded','orchestrationMode':'Uniform','upgradePolicy':{'mode':'Manual'},'virtualMachineProfile':{'networkProfile':{'networkInterfaceConfigurations':[{'name':'nic','properties':{'primary':True,'ipConfigurations':[ip]}}]}}},sku={'name':'Standard_D2s_v5','tier':'Standard','capacity':1})
   put(d,SCOPE+'/providers/'+ep,{'value':[parent]},version);put(d,rid,parent,version)
-  put(d,rid+'/virtualMachines',{'value':[]},'2024-07-01')
+  # No instances yet: the instance, instance NIC and instance public IP lists are native-empty.
+  for field,segment,v in azure.EMBEDDED_LISTS['vm_scale_set']:put(d,rid+'/'+segment,{'value':[]},v)
   put(d,rid+'/providers/Microsoft.Insights/diagnosticSettings',{'value':[]},'2021-05-01-preview')
   target=parent;deciding=SCOPE+'/providers/'+ep
   if mode=='opposite':ip['properties']['publicIPAddressConfiguration']={'name':'public','properties':{'idleTimeoutInMinutes':4,'publicIPAddressVersion':'IPv4'}}
   if mode=='missing':parent['properties']['virtualMachineProfile']['networkProfile'].pop('networkInterfaceConfigurations')
  else:
   rid=ROOT+ep+'/flex';props={'version':'8.0.21'if family=='mysql_flexible_server'else'16','network':{'publicNetworkAccess':'Enabled'},'authConfig':{'activeDirectoryAuth':'Enabled','passwordAuth':'Disabled','tenantId':prior.TENANT}}
-  parent=arm(rid,props);put(d,SCOPE+'/providers/'+ep,{'value':[parent]},version);put(d,rid,parent,version)
+  # The inventory LIST uses the current parent version; the native database
+  # reader's Servers_Get keeps its own reviewed version.
+  from peaso.collectors import azure_database_native
+  parent=arm(rid,props);put(d,SCOPE+'/providers/'+ep,{'value':[parent]},version);put(d,rid,parent,azure_database_native.SOURCES[family][1])
   for field,segment,v in azure.EMBEDDED_LISTS.get(family,()):put(d,rid+'/'+segment,{'value':[]},v)
   for field,segment,v in azure.EMBEDDED_SINGLETONS.get(family,()):put(d,rid+'/'+segment,arm(rid+'/'+segment,{}),v)
   put(d,rid+'/providers/Microsoft.Insights/diagnosticSettings',{'value':[]},'2021-05-01-preview')
   adminid=rid+'/administrators/'+('ActiveDirectory'if family=='mysql_flexible_server'else prior.TENANT)
   admin=arm(adminid,{'administratorType':'ActiveDirectory','sid':prior.TENANT,'objectId':prior.TENANT,'principalType':'User','tenantId':prior.TENANT,'login':'review'})
   rule=arm(rid+'/firewallRules/private',{'startIpAddress':'10.0.0.1','endIpAddress':'10.0.0.254'})
-  put(d,rid+'/administrators',{'value':[admin]},version);put(d,rid+'/firewallRules',{'value':[rule]},version)
+  # Child lists keep their own native API versions, independent of the parent GET.
+  child={segment:v for field,segment,v in azure.EMBEDDED_LISTS.get(family,())}
+  put(d,rid+'/administrators',{'value':[admin]},child['administrators']);put(d,rid+'/firewallRules',{'value':[rule]},child['firewallRules'])
   target=admin if cid==FLEXADM else rule;deciding=rid+('/administrators'if cid==FLEXADM else'/firewallRules')
   if mode=='opposite':
-   if cid==FLEXADM:put(d,deciding,{'value':[]},version)
+   if cid==FLEXADM:put(d,deciding,{'value':[]},child['administrators'])
    else:rule['properties'].update(startIpAddress='0.0.0.0',endIpAddress='255.255.255.255')
   if mode=='missing':
    if cid==FLEXADM:admin['properties'].pop('tenantId')

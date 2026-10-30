@@ -1,8 +1,14 @@
 """Inert VM patch source and proof field authority checks."""
 import pytest
 from peaso.collectors.azure_wave_compute_native import KIND, collect
-from tests.test_peaso_azure_wave_compute_native_collector import Reader, _result, _policy
+from tests.test_peaso_azure_wave_compute_native_collector import Reader as _CollectorReader, _result, _policy
 from tests.test_peaso_azure_wave_compute_native_patch import _vm, _check
+
+class Reader(_CollectorReader):
+    # The production reader publishes settled-envelope progress; this inert
+    # reader has no progress sink.
+    def progress(self, phase=None, scope="", settled=None):
+        pass
 
 def deny(row,key):
     row.setdefault("_coverage",{})[key]={"status":"denied"}
@@ -54,7 +60,9 @@ def test_policy_denial_cannot_authorize_arg_query():
     options=_policy();policy=options["compliance_policy"]["checks"]["azure.gap.compute_vm_system_updates_installed"]
     deny(policy,"requireActualInstallation")
     reader=Reader([_result()]);collect(reader,None,[reader.collections[0]["scope"]],{KIND},options)
-    assert reader.calls==[] and reader.collections[-1]["status"]=="unavailable"
+    # An unapproved scope is recorded as unknown with an explicit policy error, never collected.
+    assert reader.calls==[] and reader.collections[-1]["status"]=="unknown"
+    assert reader.collections[-1]["error"]["code"]=="actual_installation_policy_not_approved"
 
 
 def test_denied_result_provenance_cannot_complete_proof():

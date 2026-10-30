@@ -56,7 +56,7 @@ def fact(snapshot):
 def test_normal_collect_live_p2_user_match_and_minimized_row(monkeypatch):
     api = Transport(routes())
     api.close = lambda: None
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: api)
     snapshot = collect_live({'provider': 'azure', 'scopes': [SUB], 'options': {'retries': 0}},
                             ['conditional_access_policy', risk.KIND])
     got = fact(snapshot)

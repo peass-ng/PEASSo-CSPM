@@ -275,7 +275,7 @@ def engine_case(monkeypatch, cid, *, mode="ok", disabled_rule=False, dialect="sw
     transport = EngineTransport(mode=mode, table=table)
     if verified_tenant is not None:
         transport.tenant = transport.verified_tenant = verified_tenant
-    monkeypatch.setattr(azure, "AzureTransport", lambda auth: transport)
+    monkeypatch.setattr(azure, "AzureTransportExposure", lambda auth: transport)
     snapshot = collect_live({"provider": "azure", "scopes": [SCOPE], "options": {"retries": 0,
         "compliance_policy": review}}, [native.KIND])
     assert transport.closed

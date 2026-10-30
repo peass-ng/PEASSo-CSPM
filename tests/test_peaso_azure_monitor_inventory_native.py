@@ -45,12 +45,12 @@ def capture(kind,mode='good',via='native'):
  if via=='native':snapshot=azure.collect(connector,[kind],transport=api)
  else:
   # Use the public dispatcher/planner while preserving the real native collector.
-  old=azure.AzureTransport
+  old=azure.AzureTransportExposure
   api.close=lambda:None
   try:
-   azure.AzureTransport=lambda auth:api
+   azure.AzureTransportExposure=lambda auth:api
    snapshot=collect_live(connector,[kind])if via=='dispatcher'else collect_snapshot({'connector':connector,'checks':CHECKS[kind]})
-  finally:azure.AzureTransport=old
+  finally:azure.AzureTransportExposure=old
  assert 'private-marker'not in json.dumps(snapshot)
  collection=envelope(snapshot,kind)
  if mode in('good','paged'):

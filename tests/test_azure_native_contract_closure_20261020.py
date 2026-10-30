@@ -160,6 +160,8 @@ def capture(monkeypatch, cid, branch, mutate=None, fault=None):
     transport.owned = False; transport.credential = None
     transport.token = lambda audience: 'offline-contract' if audience == azure.ARM else pytest.fail('unexpected auth audience')
     monkeypatch.setattr(azure, 'AzureTransport', lambda auth: transport)
+    # azure.collect builds its scan transport through the exposure subclass.
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: transport)
     snapshot = archived.collect_snapshot({'connector': {'provider': 'azure', 'scopes': [SUB], 'auth': {'tenant_id': TENANT},
         'options': {'retries': 0, 'concurrency': 1}}, 'checks': [cid]})
     arguments = []

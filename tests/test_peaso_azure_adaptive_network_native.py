@@ -141,7 +141,7 @@ def test_normal_collect_live_requests_vm_then_native_child_without_secrets(monke
             return {'value': []}
 
     transport = Transport()
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: transport)
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: transport);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: transport)
     snapshot = collect_live({'provider': 'azure', 'scopes': [SCOPE],
                              'options': {'retries': 0}}, [native.KIND])
     envelopes = [item for item in snapshot['collections'] if item['type'] == native.KIND]

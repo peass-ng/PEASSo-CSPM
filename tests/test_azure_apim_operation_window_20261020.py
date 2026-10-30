@@ -170,12 +170,18 @@ def offline(monkeypatch):
     for key in ('connect','connect_ex'): monkeypatch.setattr(socket.socket, key, blocked)
     for key in ('getaddrinfo','gethostbyname','create_connection'): monkeypatch.setattr(socket, key, blocked)
     monkeypatch.setattr(azure, 'credential_for', blocked)
-    for key in ('scan_content','_scan_kingfisher','_scan_trufflehog'): monkeypatch.setattr(secret_scanning,key,blocked)
+    # Block real detector processes below the attested scanner module.
+    monkeypatch.setattr(secret_scanning.subprocess, 'Popen', blocked)
     p = consumer.PROPOSAL
     addition = checks.Check(p['id'], 'azure', p['category'], p['kind'], p['title'], p['severity'], '',
         '\n'.join(p['remediation']), p['evaluate'], declared_dependencies=p['dependencies'])
     assert source.CHECK not in {c.id for c in checks.CHECKS}
-    monkeypatch.setattr(checks, 'CHECKS', [*checks.CHECKS, addition])
+    # Extend the live registry in place: attested modules keep their CHECKS binding.
+    checks.CHECKS.append(addition)
+    try:
+        yield
+    finally:
+        checks.CHECKS.remove(addition)
 
 
 @pytest.fixture(scope='session', autouse=True)

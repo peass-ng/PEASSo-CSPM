@@ -41,7 +41,7 @@ def collected(monkeypatch, rows, apps=(A1, A2), clients=('browser',), mode='comp
                     'accountEnabled': True, 'userType': 'Member'} for i in range(user_count)]}
             return response
         api.request = many_users
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: api)
     now = datetime.now(timezone.utc)
     owner = {'status': 'collected', 'scope': SCOPE, 'authorized_by': 'security-owner',
         'document_id': 'explicit-application-client-obligation',

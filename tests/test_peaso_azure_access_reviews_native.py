@@ -85,7 +85,7 @@ class API:
 def test_actual_native_access_review_pipeline(mode,expected,monkeypatch):
  api=API(mode)
  if mode=='foreign_tenant':api.tenant=api.verified_tenant='99999999-9999-9999-9999-999999999999'
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
  policy={'sw25':{'status':'collected','scope':SCOPE,'checks':{cid:{'maxReviewAgeDays':90} for cid in CHECKS}}}
  connector={'provider':'azure','scopes':[SUB],'options':{'retries':0,'compliance_policy':policy}}
  snapshot=collect_live(connector,plan_collection({'connector':connector,'checks':CHECKS}))
@@ -103,7 +103,7 @@ def test_actual_native_access_review_pipeline(mode,expected,monkeypatch):
  'azure.cis.privileged_role_assignments_periodically_reviewed',
  'azure.cis.tenant_creator_role_assignments_periodically_reviewed'])
 def test_native_users_never_claim_role_or_pim_coverage(cid,monkeypatch):
- api=API('complete');monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+ api=API('complete');monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
  connector={'provider':'azure','scopes':[SUB],'options':{'retries':0}}
  snapshot=collect_live(connector,plan_collection({'connector':connector,'checks':[cid]}))
  report=evaluate_snapshot(snapshot,checks=[cid],include_not_applicable=True)
@@ -124,7 +124,7 @@ def test_native_users_never_claim_role_or_pim_coverage(cid,monkeypatch):
 def test_source_wide_no_company_policy_with_real_collector(mode,expected,monkeypatch):
  api=API(mode)
  if mode=='foreign_tenant':api.tenant=api.verified_tenant='99999999-9999-9999-9999-999999999999'
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
  connector={'provider':'azure','scopes':[SUB],'options':{'retries':0}}
  snapshot=collect_live(connector,plan_collection({'connector':connector,'checks':CHECKS}))
  assert not snapshot['metadata'].get('compliance_policy')
@@ -138,7 +138,7 @@ def test_source_wide_no_company_policy_with_real_collector(mode,expected,monkeyp
  {'sw25':{'status':'collected','scope':'/subscriptions/99999999-9999-9999-9999-999999999999','checks':{}}},
  {'sw25':{'status':'partial','scope':SCOPE,'checks':{}}}])
 def test_explicit_malformed_company_policy_does_not_default(policy,monkeypatch):
- api=API('complete');monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+ api=API('complete');monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
  connector={'provider':'azure','scopes':[SUB],'options':{'retries':0,'compliance_policy':policy}}
  snapshot=collect_live(connector,plan_collection({'connector':connector,'checks':CHECKS}))
  report=evaluate_snapshot(snapshot,checks=CHECKS,include_not_applicable=True)
@@ -161,7 +161,7 @@ def test_source_wide_calendar_month_31_day_case_is_unknown_not_permissive_pass(m
     'type':'absoluteMonthly','interval':1,'dayOfMonth':1}
   return answer
  api.request=request
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
  connector={'provider':'azure','scopes':[SUB],'options':{'retries':0}}
  snapshot=collect_live(connector,plan_collection({'connector':connector,'checks':CHECKS}))
  report=evaluate_snapshot(snapshot,checks=CHECKS,include_not_applicable=True)

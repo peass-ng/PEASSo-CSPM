@@ -66,7 +66,7 @@ def capture(monkeypatch,cid,mode='ok'):
     if mode=='report_denied':raise Denied('SECRET_SHOULD_NOT_ESCAPE')
     return native
    return {'value':[]}
- transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+ transport=Transport();monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
  review={'sw18':policy}
  if mode in ('mixed_policy', 'foreign_named_policy'):
   review.update(status='collected', scope=SUB, checks={})

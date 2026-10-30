@@ -205,8 +205,13 @@ def test_real_azure_collect_hook_retains_safe_proofs_and_scan_generated_binding(
         settings=Settings(state_dir=tmp_path/'state',identity_dir=tmp_path/'identity',auth_mode='cognito')
         store=SQLiteStore(settings.state_dir)
         app=create_app(settings,store=store,artifacts=FileArtifacts(tmp_path/'artifacts'),authenticator=Owner())
+        from tests.connector_access_receipts import mock_access_pass
+        # Saving requires a passing Check access receipt; the cloud probe is stubbed.
+        mock_access_pass(monkeypatch)
         with TestClient(app,base_url='https://cspm.hacktricks.wiki')as client:
-            response=client.post('/api/connectors',json=connector,headers={'Authorization':'Bearer test-owner'})
+            checked=client.post('/api/connectors/check-access',json=connector,headers={'Authorization':'Bearer test-owner'})
+            assert checked.status_code==200 and checked.json()['status']=='pass',checked.text
+            response=client.post('/api/connectors',json={**connector,'check_token':checked.json()['check_token']},headers={'Authorization':'Bearer test-owner'})
             assert response.status_code==201,response.text
             assert 'provider-validates-this-signature'not in response.text
             row=store.connector('fixture-customer',response.json()['id'])
@@ -214,7 +219,7 @@ def test_real_azure_collect_hook_retains_safe_proofs_and_scan_generated_binding(
             assert private['options']['native_disclosure_metadata']is True
             assert 'native_disclosure_subject'not in private['options']
             connector={**stored,'auth':private['auth'],'options':{**private['options'],'hosted':True}}
-            monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+            monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
             result=collect_live(connector,required)
     else:result=azure.collect(connector,required,transport=transport)
     assert result['metadata']['native_disclosure_subject']=={'oid':OID,'tid':TENANT}
