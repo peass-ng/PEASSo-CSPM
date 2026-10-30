@@ -645,7 +645,7 @@
   "peaso/collectors/gcp_git_transport.py": "3b872883dc04776fba11e489b38238e212f15aba78a517ca0c52248efde2c9f0",
   "peaso/collectors/gcp_datafusion_privesc.py": "f7f32e6e1b70af760bc2473ec6722f99effe10e023b7f4071c92c2e43af01d7d",
   "peaso/collectors/gcp_developerconnect_links.py": "1a61f8b21048ed7fd2d2be38b681e4e5b43a23b4a490471a68d2db2fe7254082",
-  "peaso/collectors/gcp.py": "191121431770d6621f902fa474df201f044e1bbe16df820d5b6c2fb43bbb33b8",
+  "peaso/collectors/gcp.py": "63b9b2ea103620e48ccfe447a7ef5ebc1d63e38352978aca631b6c605e7a2485",
   "peaso/collectors/gcp_sac_exposure.py": "f9313a31479dea80727a197d2b2e4100fa751bb53ede026427dc51cb06557b8a",
   "peaso/collectors/gcp_privateca_pool.py": "e1f9fe27fefcd15a25d8ade59c35eb737ea7c5cd374d22d4d5bf976c90917bc7",
   "peaso/collectors/gcp_appengine_flex_image_runtime_20261021.py": "615d4184cdbe375128cbc39837e09bb2e6c157fd075939be1f6a91cd2e527a94",

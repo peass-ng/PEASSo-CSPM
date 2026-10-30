@@ -1,6 +1,7 @@
 """Semantic fixtures for signed, source-bound GCP compliance additions."""
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_gcp  # noqa: F401  (registration side effect)
+from peaso.checks import CHECKS, evaluate_check
 
 
 def evaluate(check_id, item):

@@ -18,6 +18,10 @@ from tests.shared_admission_epoch_compatibility_20261020 import active_shared, _
 from tests.retained_upstream_manifest_20261020 import ORIGINAL as RETAINED_UPSTREAM_PATH, original_bytes as retained_upstream_bytes
 from tests.retired_privesc_catalog_20261022 import ARCHIVE as RETIRED_CATALOG_ARCHIVE, REMOVED as RETIRED_CATALOG_PATH, original_bytes as retired_catalog_bytes
 from tests.reviewed_current_successors_20261026 import extend as extend_reviewed_successors
+import importlib, inspect, json
+from peaso import checks
+from peaso.checks import aws_ai_recheck_corrections_20261020 as ai
+from peaso.collectors import aws
 
 
 ROOT = Path(__file__).resolve().parents[1]

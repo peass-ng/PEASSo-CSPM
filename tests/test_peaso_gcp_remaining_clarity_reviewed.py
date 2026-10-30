@@ -9,6 +9,7 @@ from peaso.checks.gcp_remaining_clarity_reviewed import ROWS, description
 from peaso.checks.gcp_remaining_finding_summary import evidence_summary
 from peaso.checks.gcp_remaining_clarity_reviewed import NATIVE_EXTENSION_REVIEWS as HISTORICAL_EXTENSION_REVIEWS
 from peaso.checks.facts import MemoIndex
+from peaso.checks.gcp_remaining_clarity_reviewed import ROWS, _digest, description, remediation, severity_review
 from tests.gcp_clarity_combined_successor_20261020 import (
     cases_fingerprint, current_extension_reviews, extension_cases)
 

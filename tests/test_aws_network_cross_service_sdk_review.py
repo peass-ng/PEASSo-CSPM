@@ -15,6 +15,7 @@ import pytest
 from peaso.collectors import aws
 from peaso.engine import evaluate_snapshot
 from scripts import audit_aws_native_contracts as native
+import botocore
 
 ACCOUNT, REGION = '123456789012', 'us-east-1'
 STAMP = datetime(2026, 10, 19, tzinfo=timezone.utc)

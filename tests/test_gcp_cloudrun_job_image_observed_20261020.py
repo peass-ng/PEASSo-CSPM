@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from peaso.checks.gcp_cloudrun_job_image_observed_20261020 import observation, UNKNOWN
+from peaso.checks.gcp_cloudrun_job_image_observed_20261020 import observation, UNKNOWN, CHECK_ID
 
 FIXTURE = Path(__file__).with_name('fixtures') / 'gcp-cloudrun-job-image-observed-20261020.json'
 CAPTURE = json.loads(FIXTURE.read_text())

@@ -15,6 +15,7 @@ from peaso.collectors import azure_ml_selected_job_secret_indicators as source
 from peaso.server.validation import OPTIONS,validate_connector
 from peaso.snapshot import make_snapshot
 from tests import test_azure_ml_selected_job_secret_review_20261020 as native
+from peaso.checks import azure_ml_job_secrets_admission_20261020 as admission
 
 
 @pytest.fixture(autouse=True)

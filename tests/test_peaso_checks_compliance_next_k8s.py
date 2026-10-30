@@ -10,6 +10,7 @@ from peaso.snapshot import resources
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_next_k8s as candidate
+from peaso.checks import CHECKS, evaluate_check
 
 CLUSTER = "cluster-fixture"
 STAMP = "2026-10-13T20:00:00Z"

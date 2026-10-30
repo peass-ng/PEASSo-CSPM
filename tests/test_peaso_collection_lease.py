@@ -2,6 +2,7 @@ import importlib.util,os,time
 from pathlib import Path
 from types import SimpleNamespace
 import pytest
+import ast,importlib.util,math,os,threading,time
 P=Path(__file__).resolve().parents[1]/'peaso/collection_lease.py'
 @pytest.fixture
 def lease():

@@ -12,6 +12,7 @@ from peaso.collectors import aws
 from peaso.checks import evaluate_check
 from peaso.checks.aws_pci_iam_scoped_source_correction import CHECK_ID
 from peaso.snapshot import make_snapshot
+from peaso.checks import CHECKS, evaluate_check
 
 ACCOUNT = "123456789012"
 REGION = "us-east-1"

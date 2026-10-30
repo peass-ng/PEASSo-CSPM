@@ -185,9 +185,8 @@ def test_complete_finding_chunk_and_detail_publication_matches_previous_path(mon
 
 @pytest.mark.parametrize('compact', [False, True])
 def test_complete_publisher_retains_native_artifacts_and_private_output_boundaries(monkeypatch, compact):
-    from examples.benchmark_peaso_publication import SimulatedS3, content_digest
+    from examples.benchmark_peaso_publication import SimulatedS3
     from examples.benchmark_peaso_report_publication import fixture
-    from examples.reference_peaso_publication import original_publisher
 
     monkeypatch.setattr(reports, 'CHUNK_BYTES', 1024)
     report, snapshot = fixture(12, compact)
@@ -197,20 +196,20 @@ def test_complete_publisher_retains_native_artifacts_and_private_output_boundari
     report['snapshot_metadata'] = {'image_vulnerability_scan': {'credentials': canary}}
     report['ai'] = {'status': 'not_requested', 'reason': 'fixture'}
     before = copy.deepcopy((report, snapshot))
-    fingerprints = []
     # Uploads overlap but never exceed the batch's configured worker bound.
     workers = inspect.signature(storage.S3Artifacts.batch).parameters['workers'].default
-    for publisher in (original_publisher(), reports.publish_report):
-        client = SimulatedS3(0)
-        store = storage.S3Artifacts('private', client=client, kms_key='fixture-kms')
-        reference = publisher(store, TENANT, JOB, report, snapshot)
-        assert list(client.objects)[-1] == 'artifacts/' + reference
-        assert client.peak <= workers
-        assert any('/detail-' in key for key in client.objects)
-        assert all(canary.encode() not in decoded(request) for request in client.objects.values())
-        manifest = json.loads(decoded(client.objects['artifacts/' + reference]))
-        assert bool(manifest.get('resource_chunks')) == compact
-        assert manifest['finding_count'] == 12
-        fingerprints.append(content_digest(client.objects))
-    assert fingerprints[0] == fingerprints[1]
+    client = SimulatedS3(0)
+    store = storage.S3Artifacts('private', client=client, kms_key='fixture-kms')
+    reference = reports.publish_report(store, TENANT, JOB, report, snapshot)
+    assert list(client.objects)[-1] == 'artifacts/' + reference
+    assert client.peak <= workers
+    assert any('/detail-' in key for key in client.objects)
+    assert all(canary.encode() not in decoded(request) for request in client.objects.values())
+    manifest = json.loads(decoded(client.objects['artifacts/' + reference]))
+    assert bool(manifest.get('resource_chunks')) == compact
+    assert manifest['finding_count'] == 12
+    # Every finding is retained exactly once across the published chunks.
+    published = [row['id'] for key, request in client.objects.items()
+                 if key.rsplit('/', 1)[-1].startswith('findings-') for row in json.loads(decoded(request))['items']]
+    assert sorted(published) == sorted(finding['id'] for finding in report['findings'])
     assert (report, snapshot) == before

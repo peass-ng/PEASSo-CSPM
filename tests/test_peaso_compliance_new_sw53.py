@@ -6,6 +6,7 @@ import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw53 as sw
+from peaso.checks import CHECKS, evaluate_check
 
 SCOPE = 'projects/p'
 NOW = '2026-10-12T00:00:00Z'

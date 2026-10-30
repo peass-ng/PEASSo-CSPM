@@ -3,6 +3,7 @@ import gzip
 import json
 
 from scripts.audit_gcp_native_final_scalar import saved_replay
+from scripts.audit_gcp_native_final_scalar import SPECS, audit, saved_replay
 
 
 def _write_gzip(path, value):

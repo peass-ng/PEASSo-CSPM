@@ -88,6 +88,7 @@ def verdict(snapshot, cid):
 
 
 from test_aws_workload_sdk_closure_review import function, cluster, service, task, eks
+from pathlib import Path
 
 
 @pytest.mark.parametrize('count,launch,expected', [

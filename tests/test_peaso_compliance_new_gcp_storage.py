@@ -1,6 +1,7 @@
 """Semantic fixture for the signed Cloud Storage usage-log destination check."""
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_gcp_storage  # noqa: F401  (registration side effect)
+from peaso.checks import CHECKS, evaluate_check
 
 
 CHECK_ID = "gcp_bucket_logging_enabled_fb7cc594582a"

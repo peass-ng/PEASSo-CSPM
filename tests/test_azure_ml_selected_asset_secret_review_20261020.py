@@ -18,6 +18,7 @@ from peaso import checks, engine, secret_scanning as scanning
 from peaso.collectors import azure
 from peaso.collectors import azure_ml_selected_asset_secret_indicators as source
 from peaso.checks import azure_ml_selected_asset_secret_review_20261020 as consumer
+from peaso import checks,collectors,engine,secret_scanning as scanning
 
 SCOPE='/subscriptions/11111111-1111-1111-1111-111111111111'
 FOREIGN='/subscriptions/33333333-3333-3333-3333-333333333333'

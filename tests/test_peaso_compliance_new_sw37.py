@@ -4,6 +4,7 @@ import copy
 import pytest
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw37 as sw
+from peaso.checks import CHECKS, evaluate_check
 
 S='123456789012/us-east-1'
 

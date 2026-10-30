@@ -7,6 +7,7 @@ import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw30 as sw
+from peaso.checks import CHECKS, evaluate_check
 
 SCOPE = "/subscriptions/11111111-1111-1111-1111-111111111111"
 NOW = "2026-10-12T12:00:00Z"

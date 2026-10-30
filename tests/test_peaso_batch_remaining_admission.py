@@ -11,6 +11,8 @@ from peaso.checks import CHECKS, resolve_check_id
 from peaso.checks.fixtures import CASES
 from scripts.peaso_compliance_compile import reviewed_equivalent_proposal
 from scripts.peaso_compliance_merge_new import signed_proposals
+from peaso.checks import CHECKS, HACKTRICKS, resolve_check_id
+from scripts.peaso_compliance_compile import reviewed_equivalent_proposal, spec_digest
 
 
 

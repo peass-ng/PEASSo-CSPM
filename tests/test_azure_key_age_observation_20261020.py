@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from peaso.checks.azure_review_observed_20261020 import observation
+from tests.test_azure_storage_native_review_20261020 import capture, offline
 
 CID = 'azure.claude.storage_access_keys_rotated_90'
 

@@ -10,6 +10,7 @@ from peaso.checks.facts import MemoIndex
 from peaso.collectors.k8s import _owner_policy_metadata
 from peaso.collectors import k8s
 from tests.archived_check_contract import evaluate_snapshot
+from peaso.checks import CHECKS, evaluate_check
 
 
 NOW = datetime(2026, 10, 12, tzinfo=timezone.utc)

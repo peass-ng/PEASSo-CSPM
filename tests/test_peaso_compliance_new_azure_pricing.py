@@ -9,6 +9,7 @@ from peaso.collectors.azure import _defender_containers_policy
 from peaso.collectors import azure
 from tests.archived_check_contract import evaluate_snapshot
 from peaso.snapshot import make_snapshot
+from peaso.checks import CHECKS, evaluate_check
 
 NOW = datetime(2026, 10, 12, tzinfo=timezone.utc)
 SCOPE = "/subscriptions/sub"

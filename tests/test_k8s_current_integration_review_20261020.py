@@ -10,6 +10,7 @@ from peaso.checks.k8s_workload_finding_summary import workload_evidence_summary
 from peaso.checks.selected_content_observed import observation
 from tests import test_k8s_cluster_native_review_20261020 as cluster
 from tests import test_k8s_controller_literal_secret_review_20261020 as controllers
+from tests.k8s_cluster_retained_inputs_20261020 import capture, ids, _inputs
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = {c.id:c for c in CHECKS}

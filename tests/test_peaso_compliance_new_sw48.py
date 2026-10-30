@@ -4,6 +4,7 @@ import json
 
 from peaso.checks import evaluate_check
 import sys
+from peaso.checks import CHECKS, evaluate_check
 sw = sys.modules['peaso.checks._bulk_pending_compliance_new_sw48']
 
 SCOPE = '123456789012/us-east-1'

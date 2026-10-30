@@ -3,6 +3,7 @@ from peaso.checks import evaluate_check
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
 from peaso.checks import compliance_new_aws_s3  # noqa: F401  (registration side effect)
+from peaso.checks import CHECKS, evaluate_check
 
 
 CHECK_ID = "aws_nist_s3_bucket_cross_region_replication_enabled"

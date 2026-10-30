@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from peaso.checks import evaluate_check
+from peaso.checks import CHECKS, CHECK_ALIASES, evaluate_check
 sw = sys.modules["peaso.checks._bulk_pending_compliance_new_sw43"]
 
 ACCOUNT = "123456789012"

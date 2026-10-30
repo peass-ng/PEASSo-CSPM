@@ -8,6 +8,7 @@ from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.checks import claude2_aws_b_identity as identity
 from peaso.checks.claude2_aws_b_common import IDS, CONTEXT
+from peaso.checks.claude2_aws_b_common import IDS, ROWS, CONTEXT
 
 REGISTRY = {check.id: check for check in CHECKS}
 GROUP = [cid for cid in IDS if cid.split(".")[2] in ("acm", "acmpca", "bedrock", "cognito", "connect", "directoryservice", "fms")]

@@ -1,6 +1,7 @@
 """Semantic fixtures for the signed GuardDuty active-high scope predicate."""
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_aws_guardduty  # noqa: F401  (registration side effect)
+from peaso.checks import CHECKS, evaluate_check
 
 
 CHECK_ID = "aws_guardduty_no_active_high_findings"

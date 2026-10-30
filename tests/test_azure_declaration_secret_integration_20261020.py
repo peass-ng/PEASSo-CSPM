@@ -16,6 +16,7 @@ from peaso.collectors import azure_selected_declaration_secret_indicators as sou
 from peaso.server.validation import OPTIONS,validate_connector
 from peaso.snapshot import make_snapshot
 from tests import test_azure_selected_declaration_secret_review_20261020 as native
+from peaso.checks import azure_declaration_secrets_admission_20261020 as admission
 
 
 @pytest.fixture(autouse=True)

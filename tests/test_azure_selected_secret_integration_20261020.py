@@ -18,6 +18,7 @@ from tests import test_azure_selected_configuration_secret_review_20261020 as ar
 from tests import test_azure_selected_storage_secret_review_20261020 as storage
 from tests import test_azure_devops_selected_content_secret_review_20261020 as devops
 from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases
+from peaso.checks import azure_selected_secrets_admission_20261020 as admission
 
 
 @pytest.fixture(autouse=True)

@@ -85,6 +85,9 @@ from pathlib import Path
 from peaso.auth import Identity
 from peaso.server.app import create_app
 from peaso.server.config import Settings
+from peaso.server import native_policy_validation as predecessor
+import json, sys
+from peaso.server.native_policy_validation import _check_review_map
 class OfflineIdentity:
     def authenticate(self, authorization):
         return Identity('same-process-native-admission', True)

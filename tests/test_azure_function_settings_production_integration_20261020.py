@@ -13,6 +13,9 @@ from peaso.collectors import azure,azure_function_settings_declarations_20261020
 from peaso.server.validation import OPTIONS,validate_connector
 from peaso.snapshot import make_snapshot
 from tests import test_azure_function_settings_declarations_20261020 as native
+from peaso.checks import azure_function_settings_runtime_admission_20261020 as admission
+from peaso.collectors import azure_function_settings_runtime_hooks_20261020 as hooks
+from peaso.snapshot import make_snapshot,seal
 
 
 @pytest.fixture(autouse=True)

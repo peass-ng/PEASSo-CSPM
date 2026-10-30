@@ -10,6 +10,7 @@ from peaso.checks.facts import MemoIndex
 from peaso.checks.fixtures import CASES
 from peaso.checks.gcp_evidence_explanations import evidence_summary, CATALOG
 from tests.gcp_clarity_combined_successor_20261020 import current_golden_rows
+from peaso.checks import CHECKS, evaluate_check
 
 HISTORICAL_GOLDEN=json.loads((Path(__file__).parent/'fixtures/gcp-natural-evidence-golden.json').read_text())
 GOLDEN=current_golden_rows(HISTORICAL_GOLDEN)

@@ -12,6 +12,7 @@ from peaso.collectors import aws
 from peaso.collectors.aws_customer_policies import collect
 from peaso.engine import evaluate_snapshot, plan_collection
 from peaso.snapshot import make_snapshot
+import botocore
 
 
 ACCOUNT = '123456789012'

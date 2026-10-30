@@ -4090,9 +4090,23 @@ class GCPCollector:
             for listed, request_id in self.pages(
                     f"https://notebooks.googleapis.com/v2/{scope}/locations/-/instances",
                     scope, key="instances", transform=workbench_scrub):
-                yield self.parallel(lambda instance: self.hydrate(
-                    instance, "iamPolicy", f"https://notebooks.googleapis.com/v2/{instance['name']}:getIamPolicy",
-                    scope, params={"options.requestedPolicyVersion": 3}), listed), request_id
+                yield self.parallel(lambda instance: workbench_iam(instance), listed), request_id
+        def workbench_iam(instance):
+            # The IAM read URL is built from the server-returned name; never
+            # follow a name outside the listed project (no cross-scope reads).
+            name = instance.get("name")
+            if not (isinstance(name, str) and re.fullmatch(
+                    re.escape(scope) + r"/locations/[^/]+/instances/[^/]+", name)):
+                output = dict(instance)
+                error = {"reason": "resource_outside_scope"}
+                output.setdefault("_coverage", {})["iamPolicy"] = {
+                    "status": "unavailable", "collection_status": wire_status("unavailable"),
+                    "error": error, "source_requests": []}
+                output["iamPolicy"] = {"collection_status": wire_status("unavailable"), "error": error}
+                return output
+            return self.hydrate(
+                instance, "iamPolicy", f"https://notebooks.googleapis.com/v2/{name}:getIamPolicy",
+                scope, params={"options.requestedPolicyVersion": 3})
         add("workbench_instance", "notebooks", workbench_instances)
         def scheduler_scrub(job):
             output = {k: v for k, v in job.items() if k not in ("httpTarget", "pubsubTarget", "appEngineHttpTarget")}

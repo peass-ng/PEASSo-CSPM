@@ -5,6 +5,7 @@ import pytest
 from peaso.checks import CHECKS
 from peaso.engine import _finding, compact_report, hydrate_frameworks
 from peaso.finding_priority import review_metadata
+from peaso.finding_priority import effective_priority, review_metadata, reviews
 
 
 def test_architecture_setting_is_not_rated_as_a_compromise():

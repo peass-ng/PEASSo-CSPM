@@ -13,6 +13,7 @@ from peaso import engine, secret_scanning as scanning
 from peaso.collectors import azure
 from peaso.collectors import azure_devops_selected_content_secret_indicators as source
 from peaso.checks import azure_devops_selected_content_secret_review_20261020 as consumer
+from peaso.collectors import azure, azure_devops_git_native as git
 
 SCOPE = '/subscriptions/11111111-1111-1111-1111-111111111111'
 TENANT = '22222222-2222-2222-2222-222222222222'

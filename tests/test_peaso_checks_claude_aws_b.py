@@ -8,6 +8,7 @@ from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.checks.claude_aws_b_common import IDS, ROWS, CONTEXT, is_policy_public, policy_document, sg_rule_open, add_months, turbot_public_statements
 from peaso.checks import claude_aws_b  # noqa: F401  (registration side effect)
+from peaso.checks import CHECKS, CHECK_ALIASES
 
 REGISTRY = {check.id: check for check in CHECKS}
 HACKTRICKS = "HackTricks Cloud Best Practices"

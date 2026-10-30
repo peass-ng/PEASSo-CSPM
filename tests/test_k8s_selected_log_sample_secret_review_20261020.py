@@ -22,6 +22,7 @@ from peaso.collectors import k8s
 from peaso.collectors import k8s_literal_secret_indicators as literals
 from peaso.collectors import k8s_selected_log_sample_secret_indicators as source
 from peaso.checks import k8s_selected_log_sample_secret_review_20261020 as consumer
+from peaso.snapshot import make_snapshot, seal
 
 HOST = 'https://review-log-k8s.invalid:6443'
 CLUSTER = 'selected-review-cluster'

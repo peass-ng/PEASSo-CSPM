@@ -12,6 +12,8 @@ from peaso.checks import gcp_workbench_head3_proposal_20261020 as candidate
 from peaso.collectors import gcp
 from peaso.collectors import gcp_workbench_head3_projection_20261020 as projection
 from peaso.engine import evaluate_snapshot
+from peaso.engine import evaluate_snapshot, plan_collection
+from peaso.checks import CHECKS
 
 IDS = admission.CHECK_IDS
 SCOPE = 'projects/review'

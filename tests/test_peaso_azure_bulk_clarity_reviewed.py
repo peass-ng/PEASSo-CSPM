@@ -10,6 +10,8 @@ from peaso.checks import CHECKS
 from peaso.checks.azure_bulk_clarity_reviewed import ROWS, _digest, description, remediation
 from peaso.checks.azure_bulk_finding_summary import evidence_summary
 from peaso.checks import storage_immutability_native_successor as immutability
+from tests.provider_observation_residual_successors_20261020 import azure_binding, azure_case, digest, immutable_inputs
+from peaso.checks.azure_bulk_clarity_reviewed import ROWS, _digest, description, remediation, severity_review
 
 ROOT=Path(__file__).resolve().parents[1]
 CHECK_BY_ID={c.id:c for c in CHECKS}

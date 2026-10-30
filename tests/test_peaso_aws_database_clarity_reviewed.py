@@ -6,6 +6,7 @@ import pytest
 from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.checks.aws_database_clarity_reviewed import ROWS, _digest, evidence_summary
+from peaso.checks.aws_database_clarity_reviewed import ROWS, _digest, description, remediation, evidence_summary
 
 CHECK_BY_ID = {c.id:c for c in CHECKS}
 PACK = Path(__file__).resolve().parents[1]/'peaso/rulepacks'

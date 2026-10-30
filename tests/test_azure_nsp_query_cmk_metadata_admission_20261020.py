@@ -11,6 +11,8 @@ from peaso.checks import azure_nsp_query_cmk_metadata_proposal_20261020 as candi
 from peaso.collectors import azure
 from peaso.collectors import azure_nsp_query_cmk_metadata_proposal_20261020 as producer
 from tests.test_azure_nsp_query_cmk_metadata_proposal_20261020 import NativeHTTP, capture, nsp_mode, query_mode
+from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases, active_shared, source_at_epoch, sealed_ast
+from dataclasses import replace
 
 
 @pytest.fixture(autouse=True)

@@ -5,7 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from peaso.checks import CHECKS
+from peaso.checks import CHECKS, unknown
+from peaso.checks.facts import Unavailable
 from peaso.checks import claude_azure_identity as identity
 from peaso.collectors.azure import DIRECTORY
 
@@ -15,8 +16,17 @@ ROOT = CHECKS_BY_ID["azure.claude.iam_root_custom_role_no_wildcard"]
 WILDCARD = CHECKS_BY_ID["azure.claude.iam_custom_role_no_wildcard_actions"]
 # The registered sign-in control is now the native-bound successor
 # (tests/test_unused_iam_azure_user_completion.py). These boundaries remain
-# the predecessor field semantics that successor builds on.
-RECENT = SimpleNamespace(evaluate=identity.recent_sign_in)
+# the predecessor field semantics that successor builds on. The raw predicate
+# raises Unavailable for a missing/malformed fact; the registry maps that to
+# UNKNOWN, so evaluate it under the same contract.
+def _recent_sign_in(item, index):
+    try:
+        return identity.recent_sign_in(item, index)
+    except Unavailable as exc:
+        return unknown(str(exc))
+
+
+RECENT = SimpleNamespace(evaluate=_recent_sign_in)
 SNAPSHOT = {"context": {"created_at": "2026-01-01T00:00:00Z"}}
 
 

@@ -12,6 +12,7 @@ from peaso.checks.claude2_gcp_logfilter import verdict, parse, FilterError
 from peaso.checks.claude2_gcp_logging import EVENTS, CIS_FILTERS, METRIC_IDS, CHANNEL_KIND
 from peaso.checks.fixtures import CASES
 import peaso.checks.claude2_gcp  # noqa: F401  (registration side effect)
+from peaso.checks.claude2_gcp_logfilter import verdict, audit_event, parse, FilterError
 
 PACK = Path(__file__).resolve().parent.parent / "peaso" / "rulepacks"
 REVIEWED = json.loads((PACK / "reviewed_claude2_gcp.json").read_text())

@@ -2,6 +2,9 @@
 
 Kept because tests/test_peaso_azure_evidence_explanations.py imports REVIEWED_CURRENT_CHANGES/EPOCH/EPOCH_SHA256."""
 from tests.reviewed_current_successors_20261026 import extend as extend_reviewed_successors
+import gzip, hashlib, importlib, inspect, json, linecache, os, pathlib, shutil, socket, subprocess, sys, types
+from peaso import checks
+import pathlib,socket,sys
 
 EPOCH='tests/fixtures/native_admission_cpu_predecessor_epoch_20261020.json.gz'
 EPOCH_SHA256='0e05bc9cad9da6947c2054107d8d49bc1a1b4777a740f3a0b7fc0b6bd6a83192'

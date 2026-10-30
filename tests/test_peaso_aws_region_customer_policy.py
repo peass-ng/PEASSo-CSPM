@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from scripts import peaso_deploy_customer_policy as builder
+import copy,fnmatch,hashlib,json
 
 ROOT=Path(builder.__file__).resolve().parents[1]
 # Synthetic historical derivatives retain the exact permission delta without

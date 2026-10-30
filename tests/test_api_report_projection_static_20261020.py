@@ -15,6 +15,8 @@ PROBE = r'''
 import copy, hashlib, importlib, json, sys, time
 probe_started = time.perf_counter()
 from pathlib import Path
+import hashlib
+from peaso.server import report_projection_static_20261020 as projection
 m = importlib.import_module(sys.argv[1])
 mode = sys.argv[2]
 out = []

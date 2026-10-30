@@ -6,6 +6,8 @@ import sys
 
 import pytest
 
+from tests.test_azure_acr_image_vulnerabilities_20261021 import proposal  # noqa: F401  (pytest fixture)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
@@ -78,6 +80,7 @@ sys.modules.pop('peaso.server.validation',None)
 from peaso.server.image_selection_options_20261021 import validate_image_options
 from peaso.server.validation import validate_connector
 import peaso.server.app as app
+import types
 app.validate_connector=validate_connector
 scope='/subscriptions/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 target={'registry_id':scope+'/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/registry1',

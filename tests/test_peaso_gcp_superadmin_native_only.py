@@ -5,6 +5,7 @@ import pytest
 
 from peaso.collectors.gcp import GCPCollector, ReadError
 from peaso.engine import collect_snapshot, evaluate_snapshot, plan_collection
+from peaso.engine import collect_snapshot, evaluate_snapshot, plan_collection, _registry
 
 CHECK = "gcp.identity.super_admin_separation"
 PROJECT = "projects/sw52-project"

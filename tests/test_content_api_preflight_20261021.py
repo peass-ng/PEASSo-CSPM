@@ -196,6 +196,7 @@ def no_network(*args, **kwargs): raise AssertionError('network_attempt')
 socket.socket.connect = no_network
 socket.create_connection = no_network
 from peaso.server import validation as module
+import importlib.util
 assert module.pure_selection.__file__ == 'STAGE/content_selection_preflight_20261021.py'
 cases = json.loads('CASES')
 for provider, auth, options, scopes, expected in cases:

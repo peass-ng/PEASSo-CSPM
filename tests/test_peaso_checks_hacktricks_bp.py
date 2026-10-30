@@ -7,6 +7,8 @@ import pytest
 from peaso.checks import CHECKS
 from peaso.checks.hacktricks_bp_common import HACKTRICKS_PAGES, HTBP_IDS, link
 from peaso.checks.hacktricks_bp_links import LINKS
+from peaso.checks import CHECKS, HACKTRICKS, HACKTRICKS_URL
+from peaso.checks.hacktricks_bp_common import HACKTRICKS_BASE, HACKTRICKS_PAGES, HTBP_IDS, link
 
 REGISTRY = {c.id: c for c in CHECKS}
 

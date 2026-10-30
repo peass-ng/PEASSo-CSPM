@@ -7,6 +7,7 @@ from peaso.checks.k8s_extended import EXTENDED_IDS, CONTROLLERS, GOOD
 from peaso.checks.fixtures import CASES, nest
 from peaso.engine import evaluate_snapshot, plan_collection
 from peaso.snapshot import make_snapshot
+from peaso.checks.k8s_extended import EXTENDED_IDS, CONTROLLERS, GOOD, BAD
 
 
 def registry():

@@ -518,7 +518,7 @@
     "peaso/collectors/azure_lighthouse_native.py": "6fe840cbab5ddd1039da27b96f63bf363134f9c8d9c9ca7f807dada352097afa",
     "peaso/collectors/gcp_developerconnect_links.py": "1a61f8b21048ed7fd2d2be38b681e4e5b43a23b4a490471a68d2db2fe7254082",
     "peaso/collectors/k8s_selected_metadata_secret_indicators_20261020.py": "e9698b64af4d3cbca2358e109ec199f2ed469c9384544a34387c76baa7049bbf",
-    "peaso/collectors/gcp.py": "191121431770d6621f902fa474df201f044e1bbe16df820d5b6c2fb43bbb33b8",
+    "peaso/collectors/gcp.py": "63b9b2ea103620e48ccfe447a7ef5ebc1d63e38352978aca631b6c605e7a2485",
     "peaso/collectors/aws_opensearch_exposure.py": "99f6687e4e9175d7027c7257dda117bf7cecd864342f3c42164651352062514f",
     "peaso/collectors/gcp_sac_exposure.py": "f9313a31479dea80727a197d2b2e4100fa751bb53ede026427dc51cb06557b8a",
     "peaso/collectors/gcp_privateca_pool.py": "e1f9fe27fefcd15a25d8ade59c35eb737ea7c5cd374d22d4d5bf976c90917bc7",

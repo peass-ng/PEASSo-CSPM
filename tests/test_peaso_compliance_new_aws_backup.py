@@ -8,6 +8,7 @@ from peaso.collectors import aws, aws_b_services
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
 from peaso.checks import compliance_new_aws_backup  # noqa: F401  (registration side effect)
+from peaso.checks import CHECKS, evaluate_check
 
 
 CHECK_ID = "aws_backup_cross_region_copy"

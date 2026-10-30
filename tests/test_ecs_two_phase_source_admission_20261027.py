@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from peaso import private_secret_source_epoch_20261021 as epoch
 from peaso.collectors import aws_selected_configuration_secret_indicators as selected
+from peaso.collectors import aws_selected_configuration_secret_indicators as selected,aws,workload_environment_discovery as fold,gcp_configuration_secret_indicators as gcp
 ROOT=Path(__file__).resolve().parents[1]
 
 def prove():return epoch.trusted_definition(selected.collect_selected,ROOT)

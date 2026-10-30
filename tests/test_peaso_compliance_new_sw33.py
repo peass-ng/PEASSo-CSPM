@@ -5,6 +5,7 @@ import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw33 as sw33
+from peaso.checks import CHECKS, evaluate_check
 
 S = "/subscriptions/11111111-1111-1111-1111-111111111111"
 R = S + "/resourceGroups/rg/providers"

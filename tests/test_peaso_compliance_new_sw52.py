@@ -5,6 +5,7 @@ import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw52 as sw52
+from peaso.checks import CHECKS, evaluate_check
 
 SCOPE = 'projects/demo'
 META = {'status': 'collected', 'scope': SCOPE}

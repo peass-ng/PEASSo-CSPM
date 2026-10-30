@@ -33,6 +33,10 @@ class SimulatedS3:
             self.peak = max(self.peak, self.active)
         try:
             time.sleep(self.latency)
+            # Like S3, consume a streamed (file) body during the call: the
+            # caller may close its spool as soon as put_object returns.
+            if hasattr(request['Body'], 'read'):
+                request = {**request, 'Body': request['Body'].read()}
             with self.lock:
                 self.objects[request['Key']] = request
         finally:

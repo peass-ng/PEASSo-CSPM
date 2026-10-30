@@ -16,6 +16,7 @@ from peaso.collectors import azure_ml_selected_job_secret_indicators as source
 from peaso.collectors import azure_selected_declaration_secret_indicators as native_http
 from peaso.checks import azure_ml_selected_job_secret_review_20261020 as consumer
 from tests.test_azure_selected_declaration_secret_review_20261020 import jwt
+from peaso import checks,engine,secret_scanning as scanning
 
 SCOPE='/subscriptions/11111111-1111-1111-1111-111111111111'
 FOREIGN='/subscriptions/33333333-3333-3333-3333-333333333333'

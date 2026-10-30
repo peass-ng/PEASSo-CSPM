@@ -76,6 +76,8 @@ def test_repeated_policy_generation_reuses_every_sdk_model_name_map():
 
 # Reuse a synthetic CA fixture; this test exercises only the newly composed path.
 from tests.test_peaso_azure_aks_workloads_native import ca
+import copy,json,hashlib
+from peaso.collectors import azure,collect_live
 
 
 def test_private_union_aks_databricks_and_route_policy_survive_one_public_pipeline(monkeypatch,ca):

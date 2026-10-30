@@ -5,6 +5,7 @@ import pytest
 
 from peaso.checks import CHECKS
 from peaso.checks.claude2_aws_b_edge import _lb, _l
+from peaso.checks.claude2_aws_b_edge import RECOMMENDED_POLICIES, _lb, _l
 
 
 CHECK = next(check for check in CHECKS if check.id == "aws.c2b.elbv2.recommended_tls_policy")

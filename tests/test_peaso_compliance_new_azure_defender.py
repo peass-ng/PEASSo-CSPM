@@ -5,6 +5,7 @@ import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_azure_defender as new
+from peaso.checks import CHECKS, evaluate_check
 
 
 def _item(tier="Standard", extensions=None, *, scope="/subscriptions/sub", name="VirtualMachines"):

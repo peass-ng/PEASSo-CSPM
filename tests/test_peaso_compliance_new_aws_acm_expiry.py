@@ -5,6 +5,7 @@ from peaso.checks import compliance_new_aws_acm_expiry as acm
 from peaso.checks.facts import MemoIndex
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
+from peaso.checks import CHECKS, evaluate_check
 
 
 FEDRAMP = "aws_fedramp_acm_all_certificates_30_day_expiry"

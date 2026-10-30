@@ -5,6 +5,7 @@ import copy
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw02 as sw02
+from peaso.checks import CHECKS, evaluate_check
 
 
 SCOPE = "/subscriptions/sub1"

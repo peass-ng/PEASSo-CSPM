@@ -6,6 +6,7 @@ import pytest
 
 from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw45 as sw
+import json
 
 SCOPE = "123456789012/us-east-1"
 ACCOUNT = "123456789012"

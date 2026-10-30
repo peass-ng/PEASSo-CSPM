@@ -57,6 +57,9 @@ CURRENT = json.loads((ROOT / 'docs/evidence-reviews/aws-current-successor-202610
 HISTORICAL_SUCCESSOR = json.loads((ROOT / 'docs/evidence-reviews/aws-historical-successor-20261022.json').read_text())
 CASES = json.loads(gzip.decompress((ROOT / 'tests/fixtures/aws_evidence_review.json.gz').read_bytes()))
 from tests.aws_late_native_contracts_20261020 import CONTRACTS, assert_contract
+from peaso.checks import CHECKS, CHECK_ALIASES
+from peaso.checks.aws_evidence_explanations import evidence_summary, review_rows, reviewed_explanation
+from tests.aws_late_native_contracts_20261020 import IDS as LATE_IDS, CONTRACTS, assert_contract
 
 STATUSES = ('PASS', 'FAIL', 'UNKNOWN', 'DENIED', 'MANUAL', 'EMPTY', 'NOT_APPLICABLE')
 EXTENSION_IDS = {row['spec']['id'] for name in MODULES

@@ -3,6 +3,7 @@
 import pytest
 
 from scripts import build_native_final_low_rep_fragment_v2 as builder
+import json
 
 
 def test_missing_recorded_field_cannot_be_invented():

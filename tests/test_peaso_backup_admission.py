@@ -17,6 +17,7 @@ from peaso.checks.fixtures import CASES
 from peaso.collectors import aws_policy
 from tests.archived_check_contract import evaluate_snapshot
 from peaso.snapshot import make_snapshot, validate
+import peaso
 
 
 ROOT = Path(__file__).resolve().parents[1]

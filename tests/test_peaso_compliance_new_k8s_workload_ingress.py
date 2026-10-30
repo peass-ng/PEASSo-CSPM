@@ -6,6 +6,7 @@ import pytest
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_k8s_workload_ingress as new
 from peaso.collectors import k8s
+from peaso.checks import CHECKS, evaluate_check
 
 
 def verdict(check_id, item, index=None):

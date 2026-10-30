@@ -8,6 +8,7 @@ import pytest
 from peaso.checks import CHECKS
 from peaso.collectors import azure
 from tests.archived_check_contract import evaluate_snapshot
+from datetime import datetime,timedelta,timezone
 
 SUB='11111111-1111-1111-1111-111111111111';TENANT='22222222-2222-2222-2222-222222222222'
 USER='33333333-3333-3333-3333-333333333333';KEY='44444444-4444-4444-4444-444444444444'

@@ -6,6 +6,7 @@ import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw05 as sw05  # noqa: F401  (registration side effect)
+from peaso.checks import CHECKS, evaluate_check
 
 SCOPE = "123456789012/us-east-1"
 STAGE_ARN = "arn:aws:apigateway:us-east-1::/restapis/api123/stages/prod"

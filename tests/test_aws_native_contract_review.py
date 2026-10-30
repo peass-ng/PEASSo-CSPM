@@ -6,6 +6,8 @@ import pytest
 from scripts.audit_aws_native_contracts import registry
 from tests.test_peaso_checks import CASES
 from tests.aws_late_native_contracts_20261020 import workload_witness_case
+from scripts.audit_aws_native_contracts import active_ids, producer_contracts, registry, source_ref
+from tests.aws_late_native_contracts_20261020 import assert_workload_producer, workload_witness_case
 
 CHECKS = registry()
 

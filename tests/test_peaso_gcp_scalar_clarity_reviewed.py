@@ -3,6 +3,7 @@ import pytest
 from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.checks.gcp_scalar_clarity_reviewed import ROWS
+from peaso.checks.gcp_scalar_clarity_reviewed import ROWS, description, remediation
 
 
 @pytest.mark.parametrize("cid", ROWS)

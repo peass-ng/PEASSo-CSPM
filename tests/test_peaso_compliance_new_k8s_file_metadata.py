@@ -9,6 +9,7 @@ from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_k8s_file_metadata as checks
 from peaso.collectors.k8s import FILE_METADATA_SELECTORS, K8sReadError, collect
 from tests.archived_check_contract import evaluate_snapshot
+from peaso.checks import CHECKS, evaluate_check
 
 NOW = datetime.now(timezone.utc).isoformat()
 NODES = (("node-a", "uid-a"), ("node-b", "uid-b"))

@@ -5,6 +5,7 @@ import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_azure as new
+from peaso.checks import CHECKS, evaluate_check
 
 
 @pytest.mark.parametrize("check_id", new.IDS)

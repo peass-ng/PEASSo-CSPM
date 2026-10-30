@@ -4,6 +4,7 @@ import pytest
 from peaso.checks import CHECKS, alias_check, evaluate_check, register
 from peaso.engine import _selection, diff_reports
 from peaso.snapshot import digest
+from peaso.checks import CHECK_ALIASES, CHECKS, alias_check, evaluate_check, register, resolve_check_id
 
 EXPECTED = {"gcp.compute.os_login": "gcp.ports.compute_oslogin_metadata_precedence",
             "gcp.sql.require_tls": "gcp.ports.sql_instance_require_ssl_enabled",

@@ -6,6 +6,7 @@ import pytest
 from peaso.checks import CHECKS
 from peaso.checks import k8s_ports_workloads as ports
 from peaso.checks.fixtures import nest
+from peaso.checks.fixtures import CASES, nest
 
 REGISTRY = {check.id: check for check in CHECKS if check.id in ports.IDS}
 

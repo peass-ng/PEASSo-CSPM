@@ -5,6 +5,7 @@ import pytest
 from peaso.checks import evaluate_check
 from peaso.checks import claude2_aws_b_edge as edge
 from peaso.checks.claude2_aws_b_common import IDS
+from peaso.checks.claude2_aws_b_common import IDS, ROWS
 
 
 REDIRECT = {"Type": "redirect", "RedirectConfig": {"Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}

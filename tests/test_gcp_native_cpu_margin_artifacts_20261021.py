@@ -8,6 +8,7 @@ import types
 import pytest
 from peaso import gcp_positive_conservation_source_admission_successor_20261020 as source
 from peaso.checks import gcp_positive_conservation_shared_source_successor_20261020 as bridge
+import json
 
 ROOT = Path(source.__file__).resolve().parents[1]
 

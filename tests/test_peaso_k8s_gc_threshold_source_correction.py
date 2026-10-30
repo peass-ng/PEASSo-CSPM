@@ -6,6 +6,7 @@ from peaso.checks.fixtures import CASES, nest
 from peaso.checks.facts import get
 from peaso.checks.k8s_ports_workloads import KIND_PATHS
 from peaso.checks.k8s_gc_threshold_source_correction import ROWS
+from peaso.checks.k8s_gc_threshold_source_correction import ROWS, CURRENT_SPEC, PRIOR_SPEC, _digest, description, remediation
 
 
 

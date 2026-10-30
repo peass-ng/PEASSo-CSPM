@@ -3,6 +3,7 @@ import copy
 import pytest
 from peaso.checks import CHECKS,azure_ports_iam as ports
 from peaso.checks.fixtures import CASES
+import copy,json
 REGISTRY={c.id:c for c in CHECKS}
 
 

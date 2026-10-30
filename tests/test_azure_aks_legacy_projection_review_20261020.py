@@ -157,6 +157,7 @@ def test_hsm_native_la_only_exposes_storage_specific_scope(monkeypatch,record_pr
 # A cryptographic CA fixture is reused, never provider response/CASES data.
 from peaso.checks import azure_aks_legacy_projection_review_20261020 as bridge
 from peaso.collectors import azure_aks_legacy_projection_review_20261020 as projection
+from tests.test_peaso_azure_aks_workloads_native import ca
 
 
 def kube_object(kind,name,namespace=None,uid=None,**data):

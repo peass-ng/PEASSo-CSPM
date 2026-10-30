@@ -7,6 +7,7 @@ import json
 
 from peaso.checks import evaluate_check
 from tests.compliance_draft_isolation import staged_registry
+from peaso.checks import CHECKS, evaluate_check
 with staged_registry(("compliance_new_sw34",)):
     from peaso.checks import compliance_new_sw34 as sw34
 

@@ -9,6 +9,7 @@ from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.checks.gcp_evidence_explanations import CATALOG, evidence_summary, reviewed_explanation
 from tests.gcp_clarity_combined_successor_20261020 import current_missing_observation
+from peaso.checks import CHECKS, CHECK_ALIASES
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECK_BY_ID = {check.id: check for check in CHECKS if check.provider == 'gcp'}

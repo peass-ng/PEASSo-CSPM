@@ -1,6 +1,7 @@
 """Semantic fixture for the signed backend cookie-affinity TTL check."""
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_gcp_backend  # noqa: F401  (registration side effect)
+from peaso.checks import CHECKS, evaluate_check
 
 
 CHECK_ID = "gcp_cloudcdn_cookie_ttl"

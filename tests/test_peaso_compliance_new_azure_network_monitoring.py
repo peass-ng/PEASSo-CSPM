@@ -4,6 +4,7 @@ from copy import deepcopy
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_azure_network_monitoring as checks
 from peaso.checks.facts import MemoIndex
+from peaso.checks import CHECKS, evaluate_check
 
 
 BASE = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/applicationGateways/gw"

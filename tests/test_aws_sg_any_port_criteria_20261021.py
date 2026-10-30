@@ -8,6 +8,7 @@ from peaso.checks import claude_aws_a_network as native
 from peaso.checks import aws_sg_any_port_description_correction_20261021 as correction
 from peaso.checks.catalog import description_for
 from peaso.checks.claude_aws_a_common import idx, prowler_sg_open
+from peaso.checks.catalog import _base_description_for, description_for
 
 CID = correction.CHECK_ID
 @pytest.mark.parametrize('cidr,protocol,port,kind,owner,expected', [

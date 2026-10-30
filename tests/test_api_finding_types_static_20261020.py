@@ -56,6 +56,9 @@ from pathlib import Path
 import tempfile
 from peaso.server.app import create_app
 from peaso.server.config import Settings
+import json
+from peaso.checks import CHECK_ALIASES,CHECKS
+from peaso.finding_types import type_for,registry
 with tempfile.TemporaryDirectory() as tmp:
  p=Path(tmp)
  app=create_app(Settings(state_dir=p/'state',identity_dir=p/'identity'))

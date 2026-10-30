@@ -15,6 +15,7 @@ from peaso.collectors.gcp import GCPCollector
 from peaso.checks import CHECKS
 from tests.archived_check_contract import evaluate_snapshot
 from peaso.snapshot import make_snapshot
+from peaso.checks.gcp_audit_native import ELIGIBLE, SPEC_SHA256
 
 SCOPE='projects/audit-fixture'
 START='2026-10-13T00:00:00Z'; END='2026-10-13T01:00:00Z'

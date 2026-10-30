@@ -10,6 +10,7 @@ import types
 from peaso.collectors import gcp_workerpool_image_native_20261021 as source
 from peaso.collectors import gcp_workerpool_image_runtime_20261021 as runtime
 from peaso.checks import gcp_workerpool_image_secret_review_20261021 as consumer
+import os
 
 ROOT = Path(__file__).resolve().parents[1]
 SCOPE = 'projects/example-project'

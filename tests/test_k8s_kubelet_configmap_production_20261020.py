@@ -17,6 +17,8 @@ from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as succ
 from peaso.checks import k8s_kubelet_configmap_review_20261020 as candidate
 from peaso.collectors import k8s
 from peaso.collectors import k8s_kubelet_configmap_indicators_20261020 as producer
+from dataclasses import replace
+from tests.aws_k8s_current_native_inputs_20261020 import case_state, replace_registry_checks
 
 admission = sys.modules[successor.PRIVATE_NAME]
 

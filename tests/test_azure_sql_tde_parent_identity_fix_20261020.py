@@ -12,6 +12,7 @@ import pytest
 from peaso import engine
 from peaso.collectors import azure
 from tests.test_azure_database_crypto_backup_2_native_review_20261020 import NativeHTTP, DATABASE as DB, SUB, TDE as CID
+from tests.test_azure_database_crypto_backup_2_native_review_20261020 import NativeHTTP, DATABASE as DB, SUB, SCOPE, TDE as CID
 
 OTHER='99999999-9999-9999-9999-999999999999'
 CAPTURES=[]

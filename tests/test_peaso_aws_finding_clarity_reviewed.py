@@ -151,6 +151,8 @@ from . import gcp_clouddeploy_source_secret_review_20261019
 gcp_clouddeploy_source_secret_review_20261019.install()
 
 from . import gcp_sourcerepo_secret_review_20261019
+from peaso.checks.aws_finding_clarity_reviewed import ROWS, _digest, description, remediation
+from peaso.checks.aws_finding_clarity_reviewed import SEVERITY_REVIEW, SEVERITY_SOURCE_REVIEW
 gcp_sourcerepo_secret_review_20261019.install()
 """
 

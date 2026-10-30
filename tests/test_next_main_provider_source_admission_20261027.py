@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 from peaso import private_secret_source_epoch_20261021 as epoch,private_reviewed_collector_successor_20261022 as current
 from peaso.collectors import azure, azure_graph_batch as graph, k8s, aws_code_log_content_indicators as logs
+import contextvars,inspect,re
+from peaso.collectors import azure,azure_graph_batch as graph,k8s,aws_code_log_content_indicators as logs,aws_selected_configuration_secret_indicators as selected,gcp_configuration_secret_indicators as gcp
 ROOT=Path(__file__).resolve().parents[1]
 def graph_proof():current.trusted_definition(azure.AzureTransport.request,ROOT)
 LOG_PATH='peaso/collectors/aws_code_log_content_indicators.py'

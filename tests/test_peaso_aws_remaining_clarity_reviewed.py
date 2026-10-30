@@ -9,6 +9,7 @@ from peaso.checks import CHECKS, CHECK_ALIASES
 from peaso.checks.fixtures import CASES
 from peaso.checks.aws_remaining_clarity_reviewed import ROWS, _digest, description
 from peaso.checks.aws_remaining_finding_summary import evidence_summary
+from peaso.checks.aws_remaining_clarity_reviewed import ROWS,_digest,description,remediation,severity_review
 
 ROOT=Path(__file__).resolve().parents[1]
 CHECK_BY_ID={c.id:c for c in CHECKS}

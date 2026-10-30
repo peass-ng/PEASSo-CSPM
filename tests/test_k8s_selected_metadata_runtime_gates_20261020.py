@@ -138,6 +138,8 @@ import peaso
 root=Path.cwd().resolve()
 assert Path(peaso.__file__).resolve().is_relative_to(root),peaso.__file__
 from peaso.checks import k8s_selected_metadata_runtime_admission_20261020 as admission
+from dataclasses import replace
+from tests.aws_k8s_current_native_inputs_20261020 import case_state, replace_registry_checks
 try:
     print('ID',admission.reviewed_inputs(root)[2]['id'])
 except RuntimeError as exc:

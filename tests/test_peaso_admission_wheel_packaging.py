@@ -34,6 +34,9 @@ def test_installed_current_admission_accepts_intact_wheel(installed_wheel):
 import sys
 sys.path.insert(0, sys.argv[1])
 from peaso.checks import azure_metadata_only_tde_admission_successor_20261020 as admission
+import pytest
+from tests.test_peaso_installed_wheel import ADMISSION_RUNTIME_DATA, installed_wheel
+import json,pathlib,subprocess,sys
 assert admission.reviewed_inputs()[2]
 '''
     result = subprocess.run([sys.executable, '-I', '-c', code, str(target)],

@@ -5,6 +5,7 @@ import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_k8s_network as new
+from peaso.checks import CHECKS, evaluate_check
 
 
 def verdict(check_id, rule, *, policy_types=None):

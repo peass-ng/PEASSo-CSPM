@@ -7,6 +7,7 @@ from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_gcp_api_keys as rule
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
+from peaso.checks import CHECKS, evaluate_check
 
 
 SCOPE = "projects/fixture-project"

@@ -6,6 +6,7 @@ import pytest
 
 from peaso.checks import CHECKS
 from peaso.checks.k8s_workload_clarity_reviewed import ROWS
+from peaso.checks.k8s_workload_clarity_reviewed import ROWS, _digest, description, remediation
 
 
 @pytest.mark.parametrize("check_id", sorted(ROWS))

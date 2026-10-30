@@ -9,6 +9,7 @@ import types
 import pytest
 from peaso.checks import gcp_positive_conservation_shared_source_successor_20261020 as bridge
 from peaso.checks import private_secret_shared_source_successor_20261021 as live
+from peaso import gcp_positive_conservation_source_admission_successor_20261020 as source
 
 ROOT = Path(bridge.__file__).resolve().parents[2]
 SAMPLE = 'def selected(value=1, *, flag=True):\n    return value if flag else 0\n'

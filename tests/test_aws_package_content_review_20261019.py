@@ -14,6 +14,7 @@ import zipfile
 import pytest
 from peaso.collectors import aws, aws_package_content_indicators as p
 from peaso.checks import aws_package_content_review_20261019 as c
+from datetime import datetime, timezone, timedelta
 
 ACCOUNT, REGION = '123456789012', 'us-east-1'
 SECRET = 'SyntheticOnly9342!Credential'

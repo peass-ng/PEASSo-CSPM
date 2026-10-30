@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from peaso.checks import CHECKS
 from peaso.checks.aws_final_clarity_reviewed import ROWS, _digest, evidence_summary
+from peaso.checks.aws_final_clarity_reviewed import ROWS,_digest,description,remediation,evidence_summary
 ROOT=Path(__file__).resolve().parents[1]
 BY_ID={c.id:c for c in CHECKS}
 CASES=json.loads(gzip.decompress((ROOT/'tests/fixtures/aws_final_clarity_reviewed.json.gz').read_bytes()))

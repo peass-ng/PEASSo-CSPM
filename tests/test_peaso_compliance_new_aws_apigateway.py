@@ -8,6 +8,7 @@ from peaso.checks import compliance_new_aws_apigateway as api
 from peaso.checks.facts import MemoIndex
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
+from peaso.checks import CHECKS, evaluate_check
 
 
 SCOPE = "123456789012/us-east-1"

@@ -6,6 +6,7 @@ from peaso.checks import compliance_new_gcp_appengine  # noqa: F401
 from peaso.checks.facts import MemoIndex
 from tests.archived_check_contract import evaluate_snapshot
 from peaso.snapshot import make_snapshot
+from peaso.checks import CHECKS, evaluate_check
 
 
 CHECK_ID = "gcp.appengine.service_version_count"

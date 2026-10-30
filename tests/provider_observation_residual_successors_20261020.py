@@ -658,7 +658,7 @@ PINNED = json.loads(r'''
   "peaso/checks/gcp_gap_cis.py": "c14625656c45cc735158d77bc0946de4ebb87446b14e3e09b11c33d5856a94e7",
   "peaso/checks/gcp_ports_iam.py": "f9e561c71df457a14f14c659a9fd1ca977e45800bacc99c27b6653ec973a761d",
   "peaso/checks/gcp_ports_services.py": "4d0572d9f8dc88212772031afdb125725f1f7fca37b87cb790e647d494802ab2",
-  "tests/azure_native_successor_inputs_20261020.py": "71abf96132f8e7fd683f46bd00ef83603221668c373efc72320a954c0e3dba12",
+  "tests/azure_native_successor_inputs_20261020.py": "8e7ea9e3dce3763d18b0a22e4de988715e677a5fe47448bbe73dd9474bfe0130",
   "tests/fixtures/azure_application_compute_2_native_successors_20261020.json": "6987925bd50161b345e4af9147ae371c62795a2db8e62394f6f33d79af676fd3",
   "tests/fixtures/azure_application_compute_native_successors_20261020.json": "734b729df1232d6588080dbb72894b982970a61e7a4d8f1eebe9ebb9c912929d",
   "tests/fixtures/azure_bulk_clarity_reviewed.json.gz": "9fe102d51a371d3da5724ce9c2dd937c7a467f8ab922ef31588fd701955e064b",

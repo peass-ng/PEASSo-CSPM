@@ -16,6 +16,10 @@ from peaso.collectors import gcp_workbench_source_runtime_20261020 as runtime
 from peaso.collectors import gcp_workbench_referenced_source_20261020 as source
 from peaso.server.validation import OPTIONS, validate_connector
 from tests import gcp_workbench_referenced_source_20261020_test as predecessor
+from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases, active_shared, source_at_epoch, sealed_ast
+from dataclasses import replace
+from peaso import checks, engine, secret_scanning as scanning
+from peaso.checks import gcp_workbench_source_runtime_admission_20261020 as admission
 
 SCOPE, TOKEN, AUTH = predecessor.SCOPE, predecessor.TOKEN, predecessor.AUTH
 KIND, CHECK = runtime.KIND, runtime.CHECK

@@ -11,6 +11,7 @@ from peaso.collectors.bulk_evidence import coverage, declared_types
 from tests.archived_check_contract import collect_snapshot, evaluate_snapshot
 from peaso.snapshot import make_snapshot, validate
 from tests.release_successor_history import BULK_IDS
+from tests.release_successor_history import BULK_IDS, registered_before_bulk
 
 
 SCOPES = {

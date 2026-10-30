@@ -14,6 +14,7 @@ from peaso.collectors import azure,azure_ml_selected_asset_secret_indicators as 
 from peaso.server.validation import OPTIONS,validate_connector
 from peaso.snapshot import make_snapshot
 from tests import test_azure_ml_selected_asset_secret_review_20261020 as native
+from peaso.checks import azure_ml_asset_secrets_admission_20261020 as admission
 
 IDS=tuple(p['check']for p in source.PROFILES.values())
 

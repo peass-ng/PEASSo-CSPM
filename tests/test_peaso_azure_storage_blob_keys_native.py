@@ -70,10 +70,14 @@ class Transport:
         self.calls.append(url)
         assert urlsplit(url).scheme == 'https' and urlsplit(url).netloc == 'management.azure.com'
         path = urlsplit(url).path
-        # The hosted parent GET uses the storage account catalog version;
-        # container and encryption-scope evidence reads keep the native version.
-        version = azure.ENDPOINTS['storage_account'][1] if path == ACCOUNT and self.parent_catalog else native.VERSION
-        assert parse_qs(urlsplit(url).query) == {'api-version': [version]}
+        # Hosted collection also GETs the parent account at the storage account
+        # catalog version; every native evidence read (account, container,
+        # encryption scope) keeps the native version.
+        versions = {native.VERSION}
+        if path == ACCOUNT and self.parent_catalog:
+            versions.add(azure.ENDPOINTS['storage_account'][1])
+        query = parse_qs(urlsplit(url).query)
+        assert set(query) == {'api-version'} and len(query['api-version']) == 1 and query['api-version'][0] in versions
         if self.mode == 'denied_arm': raise azure.AzureReadError('fixture_denied', 403)
         row = next((r for r in [self.account, *self.containers, *self.scopes] if r['id'] == path), None)
         assert row is not None, path

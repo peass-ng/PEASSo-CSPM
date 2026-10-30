@@ -5,6 +5,7 @@ import pytest
 from peaso.checks import CHECKS,azure_ports_tail_context as ports
 from peaso.checks.fixtures import CASES
 from peaso.collectors import azure
+import copy,json,re
 ROOT=Path(__file__).resolve().parent.parent
 REVIEWS=json.loads((ROOT/'peaso/rulepacks/reviewed_azure_ports_tail_context.json').read_text())
 REGISTRY={c.id:c for c in CHECKS}

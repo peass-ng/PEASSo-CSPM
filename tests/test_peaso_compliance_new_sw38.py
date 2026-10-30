@@ -5,6 +5,7 @@ import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw38 as sw38
+from peaso.checks import CHECKS, evaluate_check
 
 ACCOUNT = "123456789012"
 REGION = "us-east-1"

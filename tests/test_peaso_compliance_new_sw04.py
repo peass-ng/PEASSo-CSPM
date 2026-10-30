@@ -8,6 +8,7 @@ import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw04 as new
+from peaso.checks import CHECKS, evaluate_check
 
 
 SCOPE = "/subscriptions/sub"

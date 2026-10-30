@@ -9,6 +9,7 @@ import sys
 from fastapi import HTTPException
 import pytest
 from peaso.server import materialized_catalog as runtime
+import gzip
 
 ROOT = Path(__file__).resolve().parents[1]
 

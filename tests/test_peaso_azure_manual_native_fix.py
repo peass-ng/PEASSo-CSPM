@@ -6,6 +6,7 @@ from peaso.checks.claude_azure_common import scope_index
 from peaso.checks.azure_defender_applicability_description_overlay import description
 from peaso.engine import evaluate_snapshot, plan_collection
 from peaso.snapshot import seal
+from peaso.checks.azure_defender_applicability_description_overlay import ROWS, description
 
 SCOPE = {"scope": "/subscriptions/s"}
 POLICY = "azure.claude.defender_default_initiative_no_disabled_effects"

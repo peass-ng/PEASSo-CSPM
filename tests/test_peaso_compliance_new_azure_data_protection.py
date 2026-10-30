@@ -10,6 +10,7 @@ from peaso.collectors.azure import _cosmos_backup_retention_policy
 from peaso.collectors import azure
 from tests.archived_check_contract import evaluate_snapshot
 from peaso.snapshot import make_snapshot
+from peaso.checks import CHECKS, evaluate_check
 
 
 SCOPE = "/subscriptions/sub"

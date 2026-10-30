@@ -1,4 +1,5 @@
 """Current loaded predicates must match an individual, source-bound review."""
+import json
 
 # The four-assessment successor record keeps the predecessor bytes it reviewed in
 # ``immutable_predecessor_files_sha256``.  Files that were later changed by

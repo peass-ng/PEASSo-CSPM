@@ -17,6 +17,8 @@ from peaso.checks import aws_s3_selected_source_secret_review_20261020 as consum
 from peaso.server.validation import OPTIONS,validate_connector
 from scripts import peaso_deploy_customer_policy as policy
 from peaso.private_secret_source_epoch_20261021 import AdmissionError
+from tests.shared_admission_epoch_compatibility_20261020 import active_shared, source_at_epoch, s3_historical_policy_before
+from peaso.checks import CHECKS,fixtures,aws_s3_selected_source_admission_20261020 as admission
 
 ACCOUNT='123456789012';REGION='us-east-1';SCOPE=ACCOUNT+'/'+REGION
 CANARY='ghp_'+'7mQ2zR9wL4cV8nK1sF6aH3jP5uD0xB2yE9rT'

@@ -46,7 +46,7 @@ STAGED_UNSELECTED_TEST_MODULES = {
     'test_peaso_compliance_new_sw01.py': ('compliance_new_sw01',),
     'test_peaso_compliance_new_sw02.py': ('compliance_new_sw02',),
     'test_peaso_compliance_new_sw04.py': ('compliance_new_sw04',),
-    'test_peaso_compliance_new_sw05.py': ('compliance_new_sw05', 'compliance_new_sw06', 'compliance_new_sw07'),
+    'test_peaso_compliance_new_sw05.py': ('compliance_new_sw05',),
     'test_peaso_compliance_new_sw06.py': ('compliance_new_sw06',),
     'test_peaso_compliance_new_sw07.py': ('compliance_new_sw07',),
     'test_peaso_compliance_new_sw08.py': ('compliance_new_sw08',),

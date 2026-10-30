@@ -1,6 +1,7 @@
 """Signed BigQuery allUsers READER fixtures, including narrower-scope contrasts."""
 from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_gcp_bigquery  # noqa: F401  (registration side effect)
+from peaso.checks import CHECKS, evaluate_check
 
 
 CHECK_ID = "gcp_pci_bigquery_dataset_a4e25dbf9640"

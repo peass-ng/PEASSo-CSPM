@@ -9,6 +9,7 @@ from peaso import checks
 from peaso.collectors import k8s
 from peaso.checks import k8s_selected_metadata_secret_admission_20261020 as admission
 from tests.test_k8s_selected_metadata_secret_review_20261020 import source, consumer, TOKEN, capture
+from tests.test_k8s_selected_metadata_secret_review_20261020 import offline,source,consumer,TOKEN,NS,capture
 
 
 def copy_inputs(tmp_path):

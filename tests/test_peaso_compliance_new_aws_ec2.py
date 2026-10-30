@@ -3,6 +3,7 @@ from peaso.checks import evaluate_check
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
 from peaso.checks import compliance_new_aws_ec2  # noqa: F401  (registration side effect)
+from peaso.checks import CHECKS, evaluate_check
 
 
 DEFAULT_ID = "aws_cis_ec2_default_security_group_not_attached"

@@ -87,6 +87,7 @@ def test_dependency_missing_is_not_a_finding(cid):
 
 # --------------------------------------------------------------------------- focused semantics
 from peaso.checks import claude_aws_a_s3 as s3  # noqa: E402
+from peaso.checks import CHECKS, CHECK_ALIASES
 
 def test_s3_prowler_acl_requires_collected_ownership_detail():
     cid = "aws.claude_a.s3.prowler_acl_disabled"

@@ -22,6 +22,7 @@ from peaso.collectors import gcp_dataflow_batch_source_runtime_20261020 as runti
 from peaso.server.validation import OPTIONS, validate_connector
 from tests import gcp_dataflow_referenced_source_20261020_test as df
 from tests import gcp_batch_referenced_source_20261020_test as bt
+from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases, active_shared, source_at_epoch, sealed_ast
 
 SCOPE, TOKEN, AUTH = df.SCOPE, df.TOKEN, df.AUTH
 PROOF_LABEL = 'hacktricks-cspm-' + 'a' * 20
