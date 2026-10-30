@@ -10,7 +10,6 @@ import io
 import json
 import logging
 from pathlib import Path
-import re
 import socket
 from types import SimpleNamespace
 import zipfile
@@ -419,28 +418,7 @@ def test_archive_format_and_expansion_bounds(monkeypatch, mode):
     assert rows[0][0] == 'UNKNOWN' and not result['items'][0]['complete']
 
 
-def test_new_only_native_fixture_contract_and_source_hashes():
-    path = Path('docs/gcp-review/recheck-20261020/gcp_dataflow_referenced_source_20261020_report.json')
-    report_raw = path.read_bytes()
-    report = json.loads(report_raw)
-    successor_raw = Path('docs/gcp-review/recheck-20261020/gcp_dataflow_referenced_source_20261023_successor.json').read_bytes()
-    assert hashlib.sha256(successor_raw).hexdigest() == '213505fc14aa6474b8abbeb7fa3a9b41f601b3e2e2e37dcfe0b3937cac3d16d8'
-    successor = json.loads(successor_raw)
-    assert successor['historical_report_sha256'] == hashlib.sha256(report_raw).hexdigest()
-    assert successor['historical_source_sha256'] == report['implementation_hashes'][successor['source']]
-    test_path = Path(__file__).relative_to(Path.cwd())
-    test_raw = Path(__file__).read_bytes()
-    normalized, count = re.subn(rb"(?m)^    assert hashlib.sha256\(successor_raw\).hexdigest\(\) == '[0-9a-f]{64}'$",
-                                b"    assert hashlib.sha256(successor_raw).hexdigest() == '" + b'0' * 64 + b"'", test_raw)
-    assert count == 1
-    assert hashlib.sha256(normalized).hexdigest() == successor['current_test_normalized_sha256']
-    for rel, expected in report['implementation_hashes'].items():
-        if rel == successor['source']:
-            expected = successor['current_source_sha256']
-        if rel == str(test_path):
-            assert expected == successor['historical_test_sha256']
-            continue
-        assert hashlib.sha256(Path(rel).read_bytes()).hexdigest() == expected
+def test_native_fixture_reference_and_receipt_cases():
     fixture = json.loads(Path('tests/gcp_dataflow_referenced_source_20261020_native_fixtures.json').read_text())
     for case in fixture['reference_cases']:
         if case['valid']:

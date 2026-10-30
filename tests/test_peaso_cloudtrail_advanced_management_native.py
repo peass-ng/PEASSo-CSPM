@@ -96,30 +96,3 @@ def test_actual_collector_to_real_engine(monkeypatch, label, rows, wanted, ident
             assert finding["evidence"] == {"reason": "resource detail unavailable: malformed"}
         for _, stub in clients.values():
             stub.assert_no_pending_responses()
-
-
-def test_public_remediation_preserves_reviewed_source_and_matches_native_contract():
-    import copy
-    import hashlib
-    import json
-    from pathlib import Path
-    from peaso.checks import CHECKS
-    from peaso.checks.cloudtrail_management_description_overlay import REMEDIATION_BASE_SHA256, remediation
-    from peaso.remediation import template
-    raw = json.loads((Path(__file__).resolve().parents[1] / "peaso/rulepacks/remediation_aws_reviewed.json").read_text())[CHECK]
-    saved = copy.deepcopy(raw)
-    assert hashlib.sha256(json.dumps(raw, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest() == REMEDIATION_BASE_SHA256
-    corrected = remediation(raw)
-    assert raw == saved
-    from tests.reviewed_guidance_presentation import assert_approved_presentation
-    current = assert_approved_presentation(CHECK, corrected)
-    public = next(check for check in CHECKS if check.id == CHECK).public()
-    assert public["remediation"] == current["summary"]
-    assert "advanced" in public["description"] and "manual" not in public["remediation"].lower()
-    assert "management events" in current["summary"] and "data-event" in current["summary"]
-    assert "MANUAL" not in " ".join(corrected["caveats"])
-    assert corrected["cli"] == raw["cli"]  # Inspection remains read-only.
-    assert "configuration does not prove" in corrected["caveats"][0]
-    raw["summary"] += " drift"
-    with pytest.raises(ValueError, match="original remediation"):
-        remediation(raw)

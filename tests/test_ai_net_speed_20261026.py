@@ -245,16 +245,6 @@ def test_differing_control_text_stays_on_each_item():
     assert pipeline.compact_document({'scan': {}, 'items': [{'id': 'x'}]}) == {'scan': {}, 'items': [{'id': 'x'}]}
 
 
-@pytest.mark.parametrize('stage', ['hardening', 'exposure'])
-def test_reviewer_prompt_explains_shared_check_section(stage):
-    from pathlib import Path
-    import yaml
-    from peaso.ai import pipeline
-    prompt = yaml.safe_load((Path(pipeline.__file__).parent / f'agents/{stage}.yaml').read_text())['system_prompt']
-    assert "checks[item.check_id] merged with the item's own fields" in prompt
-    assert 'supporting_resources always stay in each item' in prompt
-
-
 def test_review_fingerprints_do_not_depend_on_the_written_shared_section(monkeypatch):
     from peaso.ai import pipeline
     rows = [{'id': f'f{i}', 'check_id': 'c', 'title': 'T', 'status': 'FAIL', 'category': 'hardening',

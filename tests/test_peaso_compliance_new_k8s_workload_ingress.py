@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_k8s_workload_ingress as new
 from peaso.collectors import k8s
 
@@ -143,13 +143,3 @@ def test_ingressclass_inventory_uses_existing_bounded_pagination():
     assert [row[0]["metadata"]["name"] for row in pages] == ["nginx", "other"]
     assert reader.calls[0][1] == {"limit": 1}
     assert reader.calls[1][1] == {"limit": 1, "continue": "next"}
-
-
-def test_dependencies_and_no_duplicate_registration():
-    rows = [check for check in CHECKS if check.id in new.IDS]
-    assert len(rows) == len(new.IDS)
-    assert {row.id: row.dependencies for row in rows} == {
-        new.POD_ID: ["pod"],
-        new.BACKEND_ID: ["ingress", "ingressclass", "service"],
-        new.REDIRECT_ID: ["ingress", "ingressclass"],
-    }

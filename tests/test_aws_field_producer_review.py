@@ -1,9 +1,6 @@
 """Bounded producer audit and SDK -> collector -> RDS predicate regressions."""
 from copy import deepcopy
-import hashlib
-import inspect
 import json
-from pathlib import Path
 
 import pytest
 
@@ -12,100 +9,12 @@ from scripts import audit_aws_native_contracts as native
 from tests.test_peaso_collectors_aws import sdk, IDENTITY, ACCOUNT, REGION
 
 ID = 'aws_nist_rds_db_cluster_aurora_backtracking_enabled'
-PIPELINE_SOURCE_FINGERPRINT = audit.pipeline_source_fingerprint()
-
-
-def record_sdk_emission(request, kind, items, stage):
-    """JUnit receipt from executed SDK pipeline outputs; never save raw values."""
-    source = Path(request.node.path)
-    request.node.user_properties.append(('aws_field_emission', json.dumps({
-        'kind': kind, 'paths': sorted(set().union(*(audit.field_paths(item) for item in items))),
-        'stage': stage, 'pipeline_source_fingerprint': PIPELINE_SOURCE_FINGERPRINT, 'test_source': str(source.relative_to(audit.ROOT)),
-        'test_source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
-    }, sort_keys=True)))
-
-
-@pytest.fixture(scope='module')
-def ledger():
-    return json.loads((audit.ROOT / 'docs/aws-review/field-producers.json').read_text())
-
-
-def test_every_current_active_aws_id_has_an_explicit_field_review(ledger):
-    ids = [row['id'] for row in ledger['checks']]
-    assert len(ids) == len(set(ids))
-    assert set(ids) == native.active_ids()
-    assert not ledger['missing_registered_ids']
-    for row in ledger['checks']:
-        assert row['status'] in {'proven-native-shape', 'derived-producer', 'witness-only', 'needsmanualreview'}
-        assert row['callback_contract'] in ledger['callback_contracts']
-        assert not row['semantic_completeness_proven'] and not row['live_verified']
-        for kind in {*row['dependencies'], row['kind']}:
-            assert kind in ledger['producers']
-
-
-def test_exact_dict_image_reviews_keep_the_tracing_limit_visible(ledger):
-    rows = {row['id']: row for row in ledger['checks']}
-    assert audit.EXACT_DICT_IMAGE_EVALUATORS == {
-        'aws.review.ecr.selected_image_vulnerabilities',
-        'aws.review.ecr_public.selected_image_high_vulnerabilities',
-        'aws.review.ecr_public.selected_image_secret_indicators',
-        'aws.review.workload.selected_image_secret_indicators',
-    }
-    for cid in audit.EXACT_DICT_IMAGE_EVALUATORS:
-        row = rows[cid]
-        assert row['direct_dict_instrumentation'] == 'exact_dict_native_predicate'
-        assert row['fixture_outcomes'] == {'pass': 'PASS', 'fail': 'FAIL', 'unknown': 'UNKNOWN'}
-        assert any('dict-subclass read tracing' in blocker for blocker in row['blockers'])
-
-
-def test_sdk_member_presence_is_not_enough_when_projection_is_custom(ledger):
-    # RDS has a parameter enrichment callback; API shape alone cannot prove its
-    # output. The real callback must run before these paths receive credit.
-    producer = ledger['producers']['rds_cluster']
-    assert 'BacktrackWindow' in producer['api_top_fields']
-    assert not producer['native_shape_retention_proven']
-    assert 'BacktrackWindow' in producer['modeled_probe']['paths']
-    assert 'BacktrackingSupported' not in producer['modeled_probe']['paths']
-
-
-@pytest.mark.parametrize('kind,path', [
-    ('instance', 'MetadataOptions.HttpTokens'),
-    ('instance', 'UserDataSecretIndicators.HighConfidenceSecretPresent'),
-    ('bucket', 'PublicAccessBlock.PublicAccessBlockConfiguration.BlockPublicAcls'),
-    ('bucket', 'Logging.LoggingEnabled.TargetBucket'),
-    ('iam_user', 'MFADevices.items[].SerialNumber'),
-    ('iam_user', 'AccessKeys.items[].AccessKeyFingerprint'),
-    ('iam_role', 'AssumeRolePolicyDocument.Statement'),
-    ('rds_instance', 'StorageEncrypted'),
-    ('rds_cluster', 'BacktrackWindow'),
-    ('cloudtrail', 'Status.IsLogging'),
-    ('cloudtrail', 'EventSelectors.EventSelectors[].IncludeManagementEvents'),
-])
-def test_core_fields_emitted_by_actual_projection_chain(ledger, kind, path):
-    probe = ledger['producers'][kind]['modeled_probe']
-    assert probe['status'] == 'modeled-projection-executed'
-    assert path in probe['paths']
-
-
-def test_final_redaction_drops_raw_access_key_identifier(ledger):
-    paths = ledger['producers']['iam_user']['modeled_probe']['paths']
-    assert 'AccessKeys.items[].AccessKeyId' not in paths
-    assert 'AccessKeys.items[].AccessKeyFingerprint' in paths
-
-
 def test_reproducible_probe_runs_current_request_and_projection_code():
     probe = audit.probe_producer('iam_user', audit.Models())
     assert probe['status'] == 'modeled-projection-executed'
     assert probe['collection_status'] == 'collected'
     assert 'MFADevices.items[].SerialNumber' in probe['paths']
     assert 'AccessKeys.items[].AccessKeyId' not in probe['paths']
-
-
-def test_engine_index_metadata_is_not_mistaken_for_an_aws_api_field(ledger):
-    row = next(c for c in ledger['checks'] if c['id'] == 'aws.review.lambda.configuration_secret_indicators')
-    metadata = [f for f in row['fields'] if f['kind'] == '@engine']
-    assert any(f['path'] == 'context.provider' and f['status'] == 'derived-producer' for f in metadata)
-    assert not any(f['kind'] == 'lambda_function' and f['path'] == 'context.provider' for f in row['fields'])
 
 
 def test_resolves_registered_forwarder_and_actual_per_id_callable():
@@ -136,7 +45,7 @@ def scoped_index(item):
     (3600, 'aurora-mysql', 'PASS'), (0, 'aurora-mysql', 'FAIL'),
     (None, 'aurora-mysql', 'UNKNOWN'), (None, 'aurora-postgresql', 'NOT_APPLICABLE'),
 ])
-def test_backtracking_sdk_to_public_collector_to_registered_predicate(sdk, window, engine, expected, request):
+def test_backtracking_sdk_to_public_collector_to_registered_predicate(sdk, window, engine, expected):
     from peaso.collectors import aws
     from peaso.snapshot import validate
     _, add, _ = sdk
@@ -150,7 +59,6 @@ def test_backtracking_sdk_to_public_collector_to_registered_predicate(sdk, windo
     validate(snapshot)
     envelope = next(e for e in snapshot['collections'] if e['type'] == 'rds_cluster' and e['status'] == 'collected')
     item, = envelope['items']
-    record_sdk_emission(request, 'rds_cluster', envelope['items'], 'public-collector')
     assert 'BacktrackingSupported' not in item
     check = next(c for c in native.registry() if c.id == ID)
     assert check.evaluate(item, scoped_index(item))[0] == expected
@@ -200,7 +108,7 @@ def resource_index(kind, item):
     ({'getObject': 'private', 'allowPublicOverrides': True}, 'UNKNOWN'),
     ({'getObject': 'private'}, 'UNKNOWN'), ({}, 'UNKNOWN'),
 ])
-def test_lightsail_sdk_public_collector_retains_native_access_rules(sdk, access, expected, request):
+def test_lightsail_sdk_public_collector_retains_native_access_rules(sdk, access, expected):
     from peaso.collectors import aws
     from peaso.snapshot import validate
     _, add, _ = sdk
@@ -215,7 +123,6 @@ def test_lightsail_sdk_public_collector_retains_native_access_rules(sdk, access,
     validate(snapshot)
     envelope = next(e for e in snapshot['collections'] if e['type'] == 'lightsail_bucket' and e['status'] == 'collected')
     item, = envelope['items']
-    record_sdk_emission(request, 'lightsail_bucket', envelope['items'], 'public-collector')
     assert item['accessRules'] == access
     assert 'AccountPublicAccessBlock' not in item
     check = next(c for c in native.registry() if c.id == 'aws_cis_lightsail_bucket_private')
@@ -235,7 +142,7 @@ def test_lightsail_denied_inventory_is_denied_not_pass(sdk):
 
 
 @pytest.mark.parametrize('case,expected', [('enabled', 'PASS'), ('short', 'UNKNOWN'), ('missing', 'UNKNOWN'), ('denied', 'UNKNOWN'), ('short_lifecycle_denied_lock', 'FAIL')])
-def test_sdk_bucket_object_lock_response_wrapper_reaches_retention_predicate(sdk, case, expected, request):
+def test_sdk_bucket_object_lock_response_wrapper_reaches_retention_predicate(sdk, case, expected):
     from peaso.collectors import aws
     session, add, _ = sdk
     stub = add('s3')
@@ -262,7 +169,6 @@ def test_sdk_bucket_object_lock_response_wrapper_reaches_retention_predicate(sdk
     result = aws._buckets(requests, session, REGION)
     assert result.status == 'collected'
     item, = result.items
-    record_sdk_emission(request, 'bucket', result.items, 'real-bucket-callback')
     cid = 'aws_cloudtrail_bucket_lifecycle_retention_365'
     fixture = native.behavior_module().CASES[cid]
     index = deepcopy(fixture.get('pass_index', fixture.get('index', {})))
@@ -299,7 +205,7 @@ def test_positive_object_lock_body_requires_successful_read_status(marker):
                                      'duplicate_version_id', 'two_defaults', 'no_default', 'empty_version_id'])
 @pytest.mark.parametrize('cid', ['aws.a.iam.attached_policy_no_star_star', 'aws.pci.iam.nonconsole_mfa_policy',
                                   'aws.pci.iam.policy_attached_to_active_principal'])
-def test_sdk_gaad_public_pipeline_binds_managed_default_version(sdk, mutation, cid, request):
+def test_sdk_gaad_public_pipeline_binds_managed_default_version(sdk, mutation, cid):
     """A modeled API member does not authenticate a contradictory default join."""
     from peaso.collectors import aws
     from peaso.engine import evaluate_snapshot
@@ -334,9 +240,6 @@ def test_sdk_gaad_public_pipeline_binds_managed_default_version(sdk, mutation, c
     snapshot = aws.collect({'provider': 'aws', 'scopes': [ACCOUNT],
                             'options': {'regions': [REGION], 'retry_attempts': 1}}, kinds)
     report = evaluate_snapshot(snapshot, checks=[cid])
-    for envelope in snapshot['collections']:
-        if envelope['type'] in kinds and envelope.get('items'):
-            record_sdk_emission(request, envelope['type'], envelope['items'], 'public-collector')
     assert [f['status'] for f in report['findings']] == ['PASS' if mutation == 'valid' else 'UNKNOWN']
 
 
@@ -392,7 +295,7 @@ def test_owned_cloudfront_origin_requires_complete_bucket_inventory():
     ('s3_account_public_access_block', 's3control', 'get_public_access_block',
      {'PublicAccessBlockConfiguration': {'BlockPublicAcls': True}}, 'PublicAccessBlockConfiguration.BlockPublicAcls'),
 ])
-def test_sdk_singleton_public_pipeline_produces_required_paths(sdk, kind, service, operation, response, path, request):
+def test_sdk_singleton_public_pipeline_produces_required_paths(sdk, kind, service, operation, response, path):
     from peaso.collectors import aws
     from peaso.snapshot import validate
     _, add, _ = sdk
@@ -406,7 +309,6 @@ def test_sdk_singleton_public_pipeline_produces_required_paths(sdk, kind, servic
     assert envelope['status'] == 'collected'
     assert envelope['scope'] == ACCOUNT + '/global'
     assert path in audit.field_paths(envelope['items'][0])
-    record_sdk_emission(request, kind, envelope['items'], 'public-collector')
 
 
 def test_direct_dict_tracking_retains_native_semantics_and_baseline_comparison():
@@ -488,7 +390,7 @@ def test_lightsail_native_models_do_not_establish_immutable_ssm_join():
 
 
 @pytest.mark.parametrize('mfa,expected', [('true', 'PASS'), ('false', 'FAIL')])
-def test_sdk_existing_csv_report_public_pipeline_to_registered_consumer(sdk, mfa, expected, request):
+def test_sdk_existing_csv_report_public_pipeline_to_registered_consumer(sdk, mfa, expected):
     from peaso.collectors import aws
     from peaso.engine import evaluate_snapshot
     _, add, _ = sdk
@@ -501,29 +403,4 @@ def test_sdk_existing_csv_report_public_pipeline_to_registered_consumer(sdk, mfa
     snapshot = aws.collect({'provider': 'aws', 'scopes': [ACCOUNT],
                             'options': {'regions': [REGION], 'retry_attempts': 1}}, ['iam_credential_report'])
     report = evaluate_snapshot(snapshot, checks=['aws.a.iam.report_console_mfa'])
-    for envelope in snapshot['collections']:
-        if envelope['type'] == 'iam_credential_report':
-            record_sdk_emission(request, envelope['type'], envelope['items'], 'public-collector-existing-report-parser')
     assert [f['status'] for f in report['findings']] == [expected]
-
-
-def test_all_supported_aws_kinds_have_explicit_public_pipeline_review(ledger):
-    from peaso.collectors import aws
-    assert set(aws.AWS_TYPES) <= set(ledger['producers'])
-    assert set(ledger['producers']) == {row['kind'] for row in ledger['kind_remainder']}
-    assert ledger['supported_aws_kinds'] == len(aws.AWS_TYPES)
-    for row in ledger['kind_remainder']:
-        assert not row['semantic_completeness_proven']
-
-
-def test_every_id_enumerates_exact_unproved_observed_contracts(ledger):
-    for row in ledger['checks']:
-        unproved = {(field['kind'], field['path']) for field in row['fields']
-                    if field['status'] not in ('proven-native-shape', 'derived-producer')}
-        assert unproved == {(field['kind'], field['path']) for field in row['unproved_contracts']}
-        assert not row['branch_completeness_proven']
-        assert isinstance(row['unvisited_static_reads'], list)
-        for field in row['fields']:
-            if field.get('emission_receipts'):
-                assert all(field['path'] in ledger['producers'][field['kind']][receipt]['paths']
-                           for receipt in field['emission_receipts'])

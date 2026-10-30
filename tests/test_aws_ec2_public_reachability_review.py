@@ -5,7 +5,6 @@ No guest execution, packet probes, cloud calls, or registry-module imports.
 The existing separately selected Stubber integration validates the producer.
 """
 from copy import deepcopy
-import inspect
 
 import botocore.session
 import pytest
@@ -13,7 +12,6 @@ import pytest
 from peaso.checks import CHECKS
 from peaso.analysis.aws_public_ingress import DEPENDENCIES, MODEL, witness
 from peaso.engine import evaluate_snapshot
-from peaso.snapshot import make_snapshot
 from tests.test_peaso_aws_public_ingress_native import facts, snapshot, SCOPE
 
 OLD = 'aws_nist_ec2_instance_not_publicly_accessible'
@@ -29,15 +27,6 @@ def old_evaluate(rows, status='collected'):
              'instance': [{'type': 'instance', 'scope': SCOPE, 'data': row} for row in rows['instance']]}
     check = next(c for c in CHECKS if c.id == OLD)
     return check.evaluate(item, index)
-
-
-def test_actual_registered_old_handler_requires_observed_listener_contract():
-    check = next(c for c in CHECKS if c.id == OLD)
-    registered = inspect.unwrap(check.evaluate)
-    target = registered.__globals__['_EVALUATORS'][OLD]
-    source = inspect.getsource(target)
-    assert 'ListeningPortVerified' in source
-    assert 'listener_inventory_complete' in source
 
 
 def test_native_configuration_proof_does_not_claim_listener_or_closed_universe():

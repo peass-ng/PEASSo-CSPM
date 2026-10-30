@@ -1,18 +1,13 @@
 """Exact single-control atomic admission and real public Databricks production hooks."""
 from copy import deepcopy
-import gzip
-import hashlib
-import inspect
 import json
 from pathlib import Path
-import shutil
 import socket
 from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from peaso import checks,engine,secret_scanning as scanning
 from peaso.checks.fixtures import CASES
-from peaso.checks import azure_databricks_notebook_secrets_admission_20261020 as admission
 from peaso import rawv2_private_source_successor_20261021 as current_admission
 from peaso.checks import azure_databricks_notebook_secret_review_20261020 as consumer
 from peaso.collectors import azure
@@ -29,24 +24,6 @@ def offline(monkeypatch):
     for n in('getaddrinfo','gethostbyname','gethostbyname_ex','create_connection'):monkeypatch.setattr(socket,n,blocked)
     monkeypatch.setattr(azure,'credential_for',blocked);monkeypatch.setattr(azure.AzureTransport,'request',blocked)
     scanning._RESULTS.clear();yield;scanning._RESULTS.clear()
-
-
-def test_exact_typed_admission_cases_and_idempotence():
-    # The historical installer stays strict; later reviewed edits are admitted
-    # only through the RawV2 successor that production import uses.
-    with pytest.raises(RuntimeError,match='reviewed source changed'):
-        admission.reviewed_inputs()
-    receipt=json.loads(Path('peaso/checks/azure_databricks_notebook_secrets_admission_20261020.json').read_text())
-    cases=json.loads(Path(receipt['fixture']['path']).read_text())
-    registered,=[c for c in checks.CHECKS if c.id==source.CHECK]
-    assert inspect.unwrap(registered.evaluate)is consumer.evaluate
-    assert consumer.evaluate.__globals__['_evaluate']is consumer._evaluate
-    assert registered.kind==source.KIND and registered.allow_incomplete_failure
-    assert CASES[source.CHECK]==cases[source.CHECK]
-    for branch in('pass','fail','unknown'):
-        assert registered.evaluate(cases[source.CHECK][branch],cases[source.CHECK][branch+'_index'])[0]==branch.upper()
-    before=tuple(checks.CHECKS);saved=deepcopy(CASES[source.CHECK]);current_admission.install_admission('azure_databricks_notebook_secrets_admission_20261020')
-    assert tuple(checks.CHECKS)==before and CASES[source.CHECK]==saved
 
 
 @pytest.mark.parametrize('branch',['pass','fail','unknown'])
@@ -96,19 +73,6 @@ def test_hosted_invalid_selection_has_fixed_nonsensitive_error(failure):
     if failure=='malformed':t['workspace_resource_id']=native.TOKEN
     with pytest.raises(HTTPException)as error:validate_connector('azure',{},options,SimpleNamespace(auth_mode='local'),scopes=[native.SCOPE])
     assert error.value.status_code==422 and native.TOKEN not in str(error.value.detail)
-
-
-@pytest.mark.parametrize('kind',['receipt','producer','consumer','fixture','proposal'])
-def test_reviewed_bytes_cannot_change_before_admission(tmp_path,kind):
-    receipt_path='peaso/checks/azure_databricks_notebook_secrets_admission_20261020.json'
-    receipt=json.loads(Path(receipt_path).read_text());paths=set(receipt['sources'])|{receipt_path,receipt['fixture']['path']}
-    for p in paths:
-        out=tmp_path/p;out.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(p,out)
-    target={'receipt':receipt_path,'producer':'peaso/collectors/azure_databricks_notebook_secret_indicators.py','consumer':'peaso/checks/azure_databricks_notebook_secret_review_20261020.py','fixture':receipt['fixture']['path'],'proposal':'peaso/checks/azure_databricks_notebook_secret_review_20261020_proposal.json'}[kind]
-    with (tmp_path/target).open('ab')as f:f.write(b'\n')
-    before=tuple(checks.CHECKS);cases=deepcopy(CASES[source.CHECK])
-    with pytest.raises(RuntimeError):admission.reviewed_inputs(tmp_path)
-    assert tuple(checks.CHECKS)==before and CASES[source.CHECK]==cases
 
 
 @pytest.mark.parametrize('target',['function','helper'])
@@ -183,10 +147,3 @@ def test_new_hit_scrubs_all_old_ledgers_and_late_metadata_before_cleanup(monkeyp
     assert native.TOKEN in json.dumps([snapshot,rows])and not trace.readers[0].configuration_secret_redactions
 
 
-def test_original_proposed_notebook_test_bytes_preserved_without_duplicate_collection():
-    archive=Path('docs/check-review/azure-databricks-notebook-proposed-tests-20261020.py.gz')
-    report=json.loads(Path('docs/check-review/azure-databricks-notebook-secret-implementation-20261020.json').read_text())
-    original,=[r for r in report['new_files']if r['path']=='tests/test_azure_databricks_notebook_secret_review_20261020.py']
-    assert hashlib.sha256(gzip.decompress(archive.read_bytes())).hexdigest()==original['sha256']
-    proposal=json.loads(Path('peaso/checks/azure_databricks_notebook_secret_review_20261020_proposal.json').read_text())
-    assert proposal['registration']=='unregistered_proposal_only' # Historical proposal retained; admission is distinct.

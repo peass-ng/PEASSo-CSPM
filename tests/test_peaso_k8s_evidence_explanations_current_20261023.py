@@ -1,6 +1,5 @@
 """Exact current explanations replay the native evaluator rather than titles."""
 from copy import deepcopy
-from pathlib import Path
 import re
 
 import pytest
@@ -8,7 +7,7 @@ import pytest
 from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.checks.k8s_evidence_explanations import (
-    current_review_rows, evidence_summary, review_rows,
+    current_review_rows, evidence_summary,
 )
 
 CURRENT = current_review_rows()
@@ -18,10 +17,6 @@ CHECKS_BY_ID = {check.id: check for check in CHECKS if check.provider == 'k8s'}
 @pytest.mark.parametrize('cid', sorted(CURRENT))
 def test_current_native_witnesses_have_bounded_source_explanations(cid):
     row = CURRENT[cid]
-    source_path, function = row['source'].split('::')
-    source = Path(__file__).parents[1] / source_path
-    assert source.is_file() and ('def ' + function + '(') in source.read_text()
-    assert cid in CHECKS_BY_ID and cid not in review_rows()
     cases = CASES[cid]
     for state in ('pass', 'fail'):
         assert state in cases, (cid, state)

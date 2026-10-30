@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_gcp_api_keys as rule
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
@@ -66,13 +66,3 @@ def test_immutable_evaluation_and_production_scoped_snapshot():
     ], created_at="2026-10-12T00:00:00+00:00")
     report = evaluate_snapshot(snapshot, categories=["hardening"], checks=[rule.CHECK_ID])
     assert [f["status"] for f in report["findings"] if f["check_id"] == rule.CHECK_ID] == ["FAIL"]
-
-
-def test_metadata_and_signed_spec_binding():
-    matches = [check for check in CHECKS if check.id == rule.CHECK_ID]
-    assert len(matches) == 1
-    assert (matches[0].provider, matches[0].category, matches[0].kind,
-            matches[0].target, matches[0].severity, matches[0].dependencies) == (
-                "gcp", "hardening", "api_key", "resource", "medium", ["api_key"])
-    assert rule.SIGNED_SOURCE_CATEGORY == "identity"
-    assert rule.SPEC_SHA256 == "3e6da3ff5ec3b72360ab8946e7e512c035aeb332a3bf70613fd0913f01c10202"

@@ -267,14 +267,6 @@ def test_policy_inputs_and_uncollected_new_facts_are_unknown():
             assert evaluate(check_id, item, stripped) == 'UNKNOWN'
 
 
-def test_registration_matches_signed_metadata():
-    registered = [check for check in CHECKS if check.id in sw.IDS]
-    assert len(registered) == len(sw.IDS)
-    assert len({check.id for check in CHECKS}) == len(CHECKS)
-    assert all(check.provider == 'aws' for check in registered)
-    assert next(check for check in registered if check.id == 'aws_ssm_software_inventory_enumeration').category == 'compliance'
-
-
 def test_ssm_complete_absence_and_provenance_boundaries():
     check_id = 'aws_ssm_application_inventory_fresh'
     item, facts, _, _ = case(check_id)

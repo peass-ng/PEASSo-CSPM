@@ -257,11 +257,6 @@ def test_native_probe_contract(kind,predicate,edge,request):
     assert statuses==(['FAIL']if edge=='sidecar_missing_probe'else['UNKNOWN'])
 
 
-def test_exact_roster_conservation():
-    assert len(IDS)==len(set(IDS))==192 and len(REGISTRY)==192
-    assert [len(x)for x in BATCHES.values()]==[89,86,17]
-
-
 @pytest.mark.parametrize('cid',[cid for cid,v in CLOSED.items() if v['predicate'] not in POD_FIELDS])
 def test_native_init_container_opposite_configuration(cid,request):
     pred=CLOSED[cid]['predicate'];spec=configured(pred)

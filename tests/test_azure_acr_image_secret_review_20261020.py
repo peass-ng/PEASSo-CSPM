@@ -1,11 +1,9 @@
 """Independent native ARM/OAuth/registry/data wire -> Azure collector -> engine."""
 from copy import deepcopy
-from tests.selected_secret_source_successors_20261020 import assert_source_receipt
 import base64
 import gzip
 import io
 import json
-from pathlib import Path
 import socket
 import tarfile
 import time
@@ -583,8 +581,6 @@ def test_native_dns_case_alias_is_bound_without_foreign_identity(monkeypatch):
 
 
 def test_registered_real_native_cases_and_exact_admission_sources():
-    import hashlib
-    import inspect
     from peaso.checks import CHECKS
     from peaso.checks.fixtures import CASES
     check,=[c for c in CHECKS if c.id==source.CHECK]
@@ -594,18 +590,6 @@ def test_registered_real_native_cases_and_exact_admission_sources():
     cases=current_cases(source.CHECK,CASES[source.CHECK])
     for state in ('pass','fail','unknown'):assert check.evaluate(cases[state],cases[state+'_index'])[0]==state.upper()
     for shape in ('missing','malformed'):assert check.evaluate(cases[shape],cases['index'])[0]=='UNKNOWN'
-    a=json.loads(Path('peaso/checks/azure_acr_image_secret_review_20261020_admission.json').read_text())
-    for p,h in a['source_hashes'].items():assert_source_receipt(p,h)
-    assert hashlib.sha256(Path(a['fixture']['path']).read_bytes()).hexdigest()==a['fixture']['sha256']
-    from peaso import private_secret_source_epoch_20261021 as epoch
-    relative='peaso/checks/azure_acr_image_secret_review_20261020.py'
-    native_transition=epoch._receipt()[0]['current_reviewed_files'][relative]
-    previous=epoch.predecessor_bytes(relative,Path(relative).read_bytes(),
-        native_transition['predecessor_sha256'],Path.cwd())
-    import ast
-    node=next(n for n in ast.parse(previous).body if isinstance(n,ast.FunctionDef) and n.name=='evaluate')
-    previous_function=b''.join(previous.splitlines(keepends=True)[node.lineno-1:node.end_lineno]).decode()
-    assert a['checks'][source.CHECK]['predicate_sha256']==hashlib.sha256(previous_function.encode()).hexdigest()
 
 
 def test_native_acr_and_app_settings_exact_value_dedup(monkeypatch):

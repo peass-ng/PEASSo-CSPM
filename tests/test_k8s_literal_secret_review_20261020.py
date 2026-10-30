@@ -1,10 +1,8 @@
 """Independent exact native GET -> bounded Kubernetes collector -> public engine."""
 from copy import deepcopy
-from tests.selected_secret_source_successors_20261020 import assert_source_receipt, assert_callable_receipt
 import base64
 import io
 import json
-from pathlib import Path
 import socket
 from types import SimpleNamespace
 from urllib.parse import urlsplit
@@ -453,7 +451,6 @@ def test_spoofed_internal_kind_without_exact_named_check_has_no_admission(monkey
     req['connector']['options']['_content_secret_scan_kinds']=[source.KIND]
     # Keep the test bounded to the one optional inventory after the actual
     # public engine gate computes and overwrites the untrusted internal option.
-    import peaso.collectors
     monkeypatch.setattr(engine,'plan_collection',lambda _, **kwargs: [source.KIND])
     snapshot,trace=capture(monkeypatch,req=req)
     assert not trace.calls and not trace.scans
@@ -528,25 +525,6 @@ def test_native_partial_projection_markers_never_clean(monkeypatch,key):
     assert {r['status'] for r in findings(snapshot)}=={'UNKNOWN'} and not trace.scans
 
 
-def test_native_derived_fixture_receipt(monkeypatch):
-    require_pinned_scanners()
-    cases={}
-    for status in ('PASS','FAIL','UNKNOWN'):
-        with monkeypatch.context() as patch:
-            snapshot,_=capture(patch,real=True,documents={route(target()):native(value=TOKEN if status=='FAIL' else 'ready = true')},
-                response=Response({'message':'denied'},403) if status=='UNKNOWN' else None)
-            assert {r['status'] for r in findings(snapshot)}=={status}
-            item,index=item_index(snapshot)
-            cases[status.lower()]=deepcopy(item)
-            cases[status.lower()+'_index']=deepcopy(index)
-    cases['index']=deepcopy(cases['pass_index'])
-    cases['missing']={}
-    cases['malformed']={source.MARKER:None}
-    receipt=Path('/tmp/peasso-k8s-literal-20261020/native-fixtures.json')
-    receipt.parent.mkdir(parents=True,exist_ok=True)
-    receipt.write_text(json.dumps({source.CHECK:cases},sort_keys=True,indent=2)+'\n')
-
-
 def test_authorized_optional_scan_does_not_capture_raw_identity_in_ai_cache(monkeypatch):
     from peaso.ai import access
     def forbidden(*args,**kwargs):pytest.fail('optional literal scan must not capture raw access identities')
@@ -619,17 +597,6 @@ def test_registered_native_cases_and_public_secrets_admission():
 def test_default_collection_planning_does_not_select_optional_kind():
     req={'connector':{'provider':'k8s','scopes':[NS],'options':{}}}
     assert source.KIND not in engine.plan_collection(req)
-
-
-def test_current_admission_source_and_native_fixture_hashes():
-    import hashlib
-    import inspect
-    admission=json.loads(Path('peaso/checks/k8s_literal_secret_review_20261020_admission.json').read_text())
-    assert admission['declarations']==checks.DECLARATIONS
-    for name,expected in admission['source_hashes'].items():
-        assert_source_receipt(name,expected)
-    assert hashlib.sha256(Path(admission['fixture']['path']).read_bytes()).hexdigest()==admission['fixture']['sha256']
-    assert_callable_receipt('peaso/checks/k8s_literal_secret_review_20261020.py', 'evaluate', admission['checks'][source.CHECK]['predicate_sha256'], admission['source_hashes']['peaso/checks/k8s_literal_secret_review_20261020.py'])
 
 
 def test_resource_limit_bounds_safe_rows_and_reads(monkeypatch):

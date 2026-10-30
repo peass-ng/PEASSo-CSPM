@@ -7,10 +7,6 @@ import pytest
 from peaso.collectors import gcp
 from peaso.engine import evaluate_snapshot, plan_collection
 from peaso.snapshot import validate
-from peaso.checks.gcp_api_key_service_names_native import (
-    CHECK_ID, CORRECTED_SPEC_SHA256, PRIOR_SPEC_SHA256, source_correction,
-)
-from peaso.checks.catalog import proposal_provenance_for
 from tests.test_peaso_gcp_api_key_alias_native import Transport, SCOPE, NUMBER, CHECK
 
 
@@ -100,31 +96,6 @@ def test_casefold_duplicate_service_identity_is_unknown():
 
 def test_partial_service_usage_coverage_is_unknown():
     assert capture(mutate_collection=lambda collection: collection.update(coverage_status="partial"))["status"] == "UNKNOWN"
-
-
-def test_pinned_source_correction_admission_preserves_signed_proposal():
-    corrected, provenance = source_correction(PRIOR_SPEC_SHA256)
-    assert corrected["id"] == CHECK_ID
-    assert provenance["current_canonical_spec_sha256"] == CORRECTED_SPEC_SHA256
-    signed = proposal_provenance_for(CHECK_ID)
-    assert signed["signed_spec_sha256"] == PRIOR_SPEC_SHA256
-    assert signed["source_correction"] == provenance
-    with pytest.raises(ValueError, match="source correction changed"):
-        source_correction("0" * 64)
-
-
-def test_pinned_source_correction_rejects_changed_source_bytes(monkeypatch):
-    from pathlib import Path
-
-    original = Path.read_bytes
-
-    def changed(path):
-        data = original(path)
-        return data + b"changed" if path.name == "new-checks-gcp.json" else data
-
-    monkeypatch.setattr(Path, "read_bytes", changed)
-    with pytest.raises(ValueError, match="source correction changed"):
-        source_correction(PRIOR_SPEC_SHA256)
 
 
 @pytest.mark.parametrize("path", ["parent", "config", "config.name", "rawNativeName",

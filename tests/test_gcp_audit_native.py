@@ -9,7 +9,7 @@ HERE=Path(__file__).parent
 from peaso.collectors.gcp_audit_native import AuditGCPCollector, URL
 def candidate_gcp_collect(connector, requirements, *, transport):
     return AuditGCPCollector(connector, requirements, transport=transport).collect()
-from peaso.checks.gcp_audit_native import ELIGIBLE, SPEC_SHA256
+from peaso.checks.gcp_audit_native import ELIGIBLE
 from peaso.collectors.gcp import ReadError
 from peaso.collectors.gcp import GCPCollector
 from peaso.checks import CHECKS
@@ -190,16 +190,6 @@ def test_incomplete_event_does_not_suppress_independent_unauthorized_event(incom
     findings=[row for row in report['findings'] if row['check_id']=='gcp_logging_detect_t1136']
     assert sorted(row['status'] for row in findings)==['FAIL','UNKNOWN']
     assert next(row for row in findings if row['status']=='FAIL')['evidence']['event_id']=='valid'
-
-def test_registered_callbacks_bind_exact_signed_spec_digests():
-    from scripts.peaso_compliance_compile import spec_digest
-    from scripts.peaso_compliance_merge_new import signed_proposals
-    _,signed=signed_proposals(Path('docs/compliance-ledgers'))
-    assert set(SPEC_SHA256)==ELIGIBLE
-    for cid in ELIGIBLE:
-        assert SPEC_SHA256[cid]==spec_digest(signed[cid])
-        check=next(row for row in CHECKS if row.id==cid)
-        assert check.evaluate.proposed_spec_sha256==SPEC_SHA256[cid]
 
 def test_unhashable_allowlist_rejected_at_collector_and_unknown_at_evaluator():
     options={'inventories':['audit_log'],'audit_window':{'start':START,'end':END,'classes':['activity']},

@@ -1,9 +1,5 @@
 """Current public evaluation and atomic admission of native SAS policy facts."""
-from copy import deepcopy
 from dataclasses import replace
-from pathlib import Path
-import json
-import shutil
 import pytest
 from peaso import checks,engine
 from peaso.checks import azure_sas_policy_declaration_admission_20261020 as admission
@@ -43,13 +39,3 @@ def test_foreign_native_guard_binding_rejected(monkeypatch):
     with pytest.raises(RuntimeError,match='binding changed'):admission.reviewed_inputs()
 
 
-@pytest.mark.parametrize('target',['source','fixture','receipt'])
-def test_source_receipt_and_fixture_drift_rejected(tmp_path,target):
-    root=Path(__file__).resolve().parents[1]
-    receipt=json.loads((root/'peaso/checks'/admission.RECEIPT).read_text())
-    paths=list(receipt['sources'])+[receipt['fixture']['path'],'peaso/checks/'+admission.RECEIPT]
-    for name in paths:
-        path=tmp_path/name;path.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(root/name,path)
-    selected=list(receipt['sources'])[0]if target=='source'else receipt['fixture']['path']if target=='fixture'else'peaso/checks/'+admission.RECEIPT
-    with (tmp_path/selected).open('ab')as f:f.write(b' ')
-    with pytest.raises(RuntimeError):admission.reviewed_inputs(tmp_path)

@@ -7,7 +7,6 @@ from copy import deepcopy
 import io
 import json
 import gzip
-import hashlib
 import socket
 from pathlib import Path
 from urllib.error import HTTPError
@@ -450,12 +449,3 @@ def test_retained_native_fixture_replays_real_reader_and_engine(monkeypatch, bra
     assert sorted(actual) == branch['expected']
 
 
-def test_exact_owned_source_and_native_fixture_proposal_bindings():
-    root = Path(__file__).resolve().parents[1]
-    proposal = json.loads(Path(consumer.__file__).with_name('azure_nsp_query_cmk_metadata_proposal_20261020_proposal.json').read_text())
-    assert proposal['registered'] is False and proposal['numbered_requirement_edges'] == []
-    assert {d['id'] for d in proposal['declarations']} == {consumer.NSP_CHECK, consumer.QUERY_CHECK}
-    for binding in proposal['source_bindings']:
-        data = (root / binding['path']).read_bytes()
-        assert hashlib.sha256(data).hexdigest() == binding['sha256']
-        assert len(data) == binding['bytes']

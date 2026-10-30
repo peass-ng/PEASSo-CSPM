@@ -11,7 +11,6 @@ from peaso.checks import azure_function_settings_runtime_admission_20261020 as a
 from peaso.checks import azure_function_settings_review_20261020 as candidate
 from peaso.checks import azure_function_settings_runtime_consumer_20261020 as current_candidate
 from peaso.rawv2_private_source_successor_20261021 import install_admission
-from tests.current_runtime_admission_inputs_20261022 import alter_exact_source_read
 from tests.case_state_contract_20261020 import case_state
 
 # Production admits this historical installer only through the RawV2 successor,
@@ -83,19 +82,6 @@ def test_conflicting_native_cases_are_not_silently_refreshed(monkeypatch,isolate
     before=tuple(checks.CHECKS)
     with pytest.raises(RuntimeError,match='CASES conflict'):install()
     assert tuple(checks.CHECKS)==before and fixtures.CASES[cid]=={'historical':'preserve'}
-
-
-@pytest.mark.parametrize('fault',['receipt','source','fixture'])
-def test_changed_reviewed_inputs_fail_before_admission(monkeypatch,isolated_registry,fault):
-    root=Path(admission.__file__).resolve().parents[2]
-    receipt=json.loads((root/'peaso/checks'/admission.RECEIPT).read_text())
-    selected=('peaso/checks/'+admission.RECEIPT if fault=='receipt' else next(iter(receipt['sources']))if fault=='source'else receipt['fixture']['path'])
-    ids=isolated_registry
-    before=tuple(checks.CHECKS);cases=case_state(fixtures.CASES)
-    hits=alter_exact_source_read(monkeypatch,selected)
-    with pytest.raises((RuntimeError,ValueError)):install()
-    assert hits and tuple(checks.CHECKS)==before and case_state(fixtures.CASES)==cases
-    assert not ids&{c.id for c in checks.CHECKS}
 
 
 def test_runtime_helper_replacement_cannot_reuse_native_acceptance(monkeypatch,isolated_registry):

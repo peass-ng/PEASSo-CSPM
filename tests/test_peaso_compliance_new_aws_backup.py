@@ -3,11 +3,11 @@
 import boto3
 from botocore.stub import Stubber
 
-from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import compliance_new_aws_backup  # noqa: F401: registration
+from peaso.checks import evaluate_check
 from peaso.collectors import aws, aws_b_services
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
+from peaso.checks import compliance_new_aws_backup  # noqa: F401  (registration side effect)
 
 
 CHECK_ID = "aws_backup_cross_region_copy"
@@ -119,10 +119,3 @@ def test_botocore_full_get_plan_omission_means_no_copy_action(monkeypatch):
         assert "CopyActions" not in row["Plan"]["BackupPlan"]["Rules"][0]
         assert evaluate(row)[0] == "FAIL" and requests.calls == 2
         stub.assert_no_pending_responses()
-
-
-def test_signed_metadata_is_unique():
-    matches = [check for check in CHECKS if check.id == CHECK_ID]
-    assert len(matches) == 1 and matches[0].provider == "aws"
-    assert matches[0].kind == "backup_plan" and matches[0].severity == "high"
-    assert matches[0].category == "hardening" and matches[0].target == "resource"

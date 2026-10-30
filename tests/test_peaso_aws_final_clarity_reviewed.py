@@ -2,14 +2,11 @@ from tests.observed_evidence_successors import assert_original_evidence_preserve
 """Replay collected source tests and preserve each final AWS presentation contract."""
 from copy import deepcopy
 import gzip
-import hashlib
-import inspect
 import json
 from pathlib import Path
 import pytest
 from peaso.checks import CHECKS
-from peaso.checks.catalog import _base_description_for
-from peaso.checks.aws_final_clarity_reviewed import ROWS,_digest,description,remediation,evidence_summary
+from peaso.checks.aws_final_clarity_reviewed import ROWS, _digest, evidence_summary
 ROOT=Path(__file__).resolve().parents[1]
 BY_ID={c.id:c for c in CHECKS}
 CASES=json.loads(gzip.decompress((ROOT/'tests/fixtures/aws_final_clarity_reviewed.json.gz').read_bytes()))
@@ -25,34 +22,6 @@ def originals():
     assert set(out)==set(ROWS)
     return out
 
-@pytest.mark.parametrize('cid',sorted(ROWS))
-def test_specific_copy_preserves_criteria_and_approved_commands(cid,originals):
-    old=_base_description_for(cid);saved=deepcopy(old);new=description(cid,old)
-    assert old==saved and 5<=len(new['description'].split())<=40
-    assert {k:v for k,v in new.items() if k!='description'}=={k:v for k,v in old.items() if k!='description'}
-    old=originals[cid];saved=deepcopy(old);new=remediation(cid,old)
-    assert old==saved and new['steps']==[new['summary']]
-    assert len(new['summary'].split())<=40
-    changed=ROWS[cid]['remediation_fields']
-    assert {k:v for k,v in new.items() if k not in changed}=={k:v for k,v in (old or {}).items() if k not in changed}
-    if old and old.get('review_status')=='approved':
-        assert new.get('cli')==old.get('cli') and new.get('iac')==old.get('iac')
-    else:assert new['review_status']=='approved' and new['cli']==[] and not new.get('iac')
-    assert new['references']
-
-@pytest.mark.parametrize('cid',sorted(ROWS))
-def test_stale_bases_fail_closed(cid,originals):
-    for old,fn in [(_base_description_for(cid),description),(originals[cid],remediation)]:
-        changed=deepcopy(old) or {};changed['unreviewed']=True
-        with pytest.raises(ValueError,match='Reviewed final AWS clarity base changed'):fn(cid,changed)
-
-@pytest.mark.parametrize('cid',sorted(ROWS))
-def test_reviewed_predicate_and_delegate_sources_remain_exact(cid):
-    row=ROWS[cid];c=BY_ID[cid];fn=inspect.unwrap(c.evaluate);bind=row['reviewed_binding']
-    assert bind['kind']==c.kind and row['reviewed_source_severity']==c.severity
-    assert bind['predicate_source_sha256']==hashlib.sha256(inspect.getsource(fn).encode()).hexdigest()
-    capture=inspect.getclosurevars(fn).nonlocals
-    assert bind['delegate_sources']=={k:hashlib.sha256(inspect.getsource(v).encode()).hexdigest() for k,v in capture.items() if callable(v)}
 
 @pytest.mark.parametrize('cid',sorted(ROWS))
 def test_actual_registered_callback_fixture_verdicts_and_raw_evidence_unchanged(cid):

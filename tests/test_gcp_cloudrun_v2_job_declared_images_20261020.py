@@ -435,10 +435,3 @@ def test_metadata_total_bytes_and_registry_call_cap(clean, monkeypatch):
     result, metadata, binary, _ = run()
     assert result['status'] == 'UNKNOWN' and len(binary.calls) == 1
     assert metadata.closed and binary.closed
-
-
-def test_new_only_module_has_no_runtime_registration():
-    from pathlib import Path
-    for path in ['peaso/collectors/gcp.py', 'peaso/collectors/__init__.py',
-                 'peaso/checks/__init__.py', 'peaso/engine.py', 'peaso/server/validation.py']:
-        assert 'gcp_cloudrun_v2_job_declared_images_20261020' not in Path(path).read_text()

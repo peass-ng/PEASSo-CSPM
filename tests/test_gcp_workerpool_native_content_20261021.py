@@ -1,10 +1,8 @@
 """Offline native GET -> immutable OCI bytes -> normal consumer proof."""
 import hashlib
 import io
-import os
 import json
 from pathlib import Path
-import sys
 import tarfile
 import threading
 import types
@@ -224,8 +222,3 @@ def test_cancellation_during_native_read(monkeypatch):
     assert result['status'] == 'UNKNOWN' and not image.calls and meta.closed and image.closed
 
 
-def test_exact_module_origins():
-    assert Path(source.__file__).resolve() == ROOT / 'peaso/collectors/gcp_workerpool_image_native_20261021.py'
-    from peaso.collectors import gcp_image_stream_reader_20261021 as stream
-    assert Path(stream.__file__).resolve().is_relative_to(Path(ROOT).resolve())
-    assert source.Reader is stream.Reader

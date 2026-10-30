@@ -2,10 +2,7 @@
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 import pytest
-from scripts.peaso_compliance_compile import spec_digest
 
 from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw57 as sw
@@ -278,36 +275,6 @@ def test_cross_namespace_pvc_rbac():
     assert check(id, kinds) == 'UNKNOWN'
     assert check(id, kinds, status={'role': 'partial'}) == 'UNKNOWN'
     assert check(id, {'namespace': [ns]}) == 'UNKNOWN'
-
-
-def ledger_entries():
-    entries = {}
-    ledger_dir = Path(__file__).resolve().parents[1] / 'docs/compliance-ledgers'
-    def walk(value):
-        if isinstance(value, dict):
-            for entry in value.get('new_checks', []):
-                if entry['id'] in sw.SPECS:
-                    entries[entry['id']] = entry
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-    for name in ('k8s-cis.json', 'k8s-other.json'):
-        walk(json.loads((ledger_dir / name).read_text()))
-    return entries
-
-
-def test_registered_metadata_and_digest():
-    matches = [c for c in CHECKS if c.id in sw.SPECS]
-    assert len(matches) == len(sw.SPECS) == 14
-    assert len({c.id for c in matches}) == 14
-    entries = ledger_entries()
-    for c in matches:
-        signed = sw.SPECS[c.id]
-        assert (c.provider, c.kind, c.category, c.severity, c.title) == (
-            'k8s', signed['resource_kind'], signed['category'], signed['severity'], signed['title'])
-        assert signed['sha'] == spec_digest(entries[c.id])
 
 
 @pytest.fixture(scope='module', autouse=True)

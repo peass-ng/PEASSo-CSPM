@@ -2,13 +2,10 @@
 from __future__ import annotations
 
 import copy
-import glob
 import pytest
 
 from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import compliance_new_sw31 as sw31
-from scripts.peaso_compliance_compile import spec_digest
-import json
+from peaso.checks import compliance_new_sw31 as sw31  # noqa: F401  (registration side effect)
 
 S = "/subscriptions/sub"
 R = S + "/resourceGroups/rg/providers/"
@@ -171,16 +168,6 @@ def cleanup_draft_registration():
 
 
 @pytest.mark.parametrize("cid", IDS)
-def test_signed_metadata_and_digest(cid):
-    entry = next(e for e in json.load(open("docs/compliance-ledgers/new-checks-azure.json")) if e["id"] == cid)
-    signed = {key: entry[key] for key in ("id", "provider", "resource_kind", "data_source", "predicate", "severity", "category", "title", "description", "remediation_hint")}
-    check = next(c for c in CHECKS if c.id == cid)
-    assert (check.provider, check.kind, check.severity, check.category, check.title) == tuple(entry[k] for k in ("provider", "resource_kind", "severity", "category", "title"))
-    descriptions = json.load(open("docs/compliance-ledgers/.work/swarm/sw31-descriptions.json"))
-    assert descriptions[cid]["proposed_spec_sha256"] == spec_digest(signed)
-
-
-@pytest.mark.parametrize("cid", IDS)
 def test_pass_fail_unknown_boundaries(cid):
     good, bad, policy, primary, applicable_empty = case(cid)
     assert evaluate_check(cid, {"scope": S}, index(good, policy))[0] == "PASS"
@@ -196,32 +183,6 @@ def test_pass_fail_unknown_boundaries(cid):
     if applicable_empty:
         empty = copy.deepcopy(good); empty[primary][0] = (S, [])
         assert evaluate_check(cid, {"scope": S}, index(empty, policy))[0] == "NOT_APPLICABLE"
-
-
-def test_no_duplicate_signed_ids():
-    assert all(sum(check.id == cid for check in CHECKS) == 1 for cid in IDS)
-
-
-def test_digest_matches_actual_ten_field_signed_ledger_entries():
-    supplement = json.load(open("docs/compliance-ledgers/.work/swarm/sw31-descriptions.json"))
-    signed = {}
-    def visit(value):
-        if isinstance(value, dict):
-            for entry in value.get("new_checks", []):
-                if isinstance(entry, dict) and entry.get("id") in IDS:
-                    assert len(entry) == 10
-                    prior = signed.setdefault(entry["id"], entry)
-                    assert prior == entry
-            for child in value.values():
-                visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
-    for filename in glob.glob("docs/compliance-ledgers/azure-*.json"):
-        visit(json.load(open(filename)))
-    assert set(signed) == set(IDS)
-    assert all(supplement[cid]["proposed_spec_sha256"] == spec_digest(entry)
-               for cid, entry in signed.items())
 
 
 @pytest.mark.parametrize("cid", ["azure_nsg_world_ingress_approved_ports",

@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from peaso.checks import CHECKS
-from peaso.checks.claude2_aws_b_edge import RECOMMENDED_POLICIES, _lb, _l
+from peaso.checks.claude2_aws_b_edge import _lb, _l
 
 
 CHECK = next(check for check in CHECKS if check.id == "aws.c2b.elbv2.recommended_tls_policy")
@@ -24,12 +24,6 @@ def listener(kind, policy, *, include_policy=True):
     protocol = "HTTPS" if kind == "application" else "TLS"
     row = _l(protocol, policy if include_policy else None)
     return _lb(kind, listeners=[row])
-
-
-def test_fixed_security_hub_elb17_table_is_exact_and_source_versioned():
-    assert set(RECOMMENDED_POLICIES) == ELB17
-    assert len(RECOMMENDED_POLICIES) == len(ELB17) == 8
-    assert "ELB.17 approved" in CHECK.title
 
 
 @pytest.mark.parametrize("kind", ["application", "network"])

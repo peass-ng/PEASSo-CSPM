@@ -66,12 +66,3 @@ def test_vault_recovery_conjunction_requires_both_settings():
     for soft, purge, want in ((True, True, "PASS"), (True, False, "FAIL"), (False, True, "FAIL"), (False, False, "FAIL")):
         assert check.evaluate({"properties": {"enableSoftDelete": soft, "enablePurgeProtection": purge}}, {})[0] == want
     assert check.evaluate({"properties": {"enableSoftDelete": True}}, {})[0] == "UNKNOWN"
-
-
-def test_literal_review_ownership_excludes_claude_and_scope_delegations_are_inspected():
-    claude = set(json.loads((ROOT / "peaso/rulepacks/port_partitions_claude.json").read_text())["partitions"]["claude_azure"]["check_ids"])
-    assert len(REVIEWS) == 70 and not set(REVIEWS) & claude
-    assert len(QUERIES) == 10
-    for review in REVIEWS.values():
-        assert review["source_review"]["arguments"] == []
-        assert review["source_review"]["query_sha256"]

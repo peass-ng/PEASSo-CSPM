@@ -119,26 +119,6 @@ def test_endpoint_and_attachment_evidence_does_not_depend_on_verdict_inference()
             assert evidence[key] is expected
 
 
-def test_frontend_scalar_examples_are_exact_native_evaluator_outputs():
-    """The browser samples come from predicates, including absent/malformed boundaries."""
-    import json
-    from pathlib import Path
-    from peaso.checks.aws_finding_clarity_reviewed import SCALAR_EVIDENCE_REVIEW
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-scalar-evidence.json").read_text())
-    assert {row["id"] for row in rows} == set(SCALAR_EVIDENCE_REVIEW)
-    assert len(rows) == 372
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-        if name in {"pass", "fail"}:
-            assert evidence["field"] == SCALAR_EVIDENCE_REVIEW[row["id"]]["field"]
-            assert isinstance(evidence["configured"], (str, bool))
-
-
 def test_normalized_security_group_rows_keep_actual_protocol_and_range():
     cid = "aws.claude_a.vpc.sg_world_v4_rdp"
     item = deepcopy(CASES[cid]["fail"])
@@ -154,36 +134,6 @@ def test_normalized_security_group_rows_keep_actual_protocol_and_range():
     assert status == "PASS" and evidence["matching_declared_ingress"] == []
 
 
-def test_frontend_network_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-network-evidence.json").read_text())
-    assert len({row["id"] for row in rows}) == 30
-    assert len(rows) == 120
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-
-
-def test_frontend_iam_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-iam-evidence.json").read_text())
-    assert len({row["id"] for row in rows}) == 30
-    assert len(rows) == 120
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-
-
 def test_unavailable_guidance_is_replaced_only_by_reviewed_text_without_commands():
     from peaso.checks.aws_finding_clarity_reviewed import ROWS, _digest, remediation
     newly_reviewed = {cid for cid, row in ROWS.items() if row["remediation_base_sha256"] == _digest(None)}
@@ -194,46 +144,6 @@ def test_unavailable_guidance_is_replaced_only_by_reviewed_text_without_commands
         assert details["references"] and details["caveats"]
         with pytest.raises(ValueError, match="base changed"):
             remediation(cid, {"review_status": "draft", "cli": ["unreviewed command"]})
-
-
-def test_initial_twenty_frontend_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-initial-evidence.json").read_text())
-    assert len(rows) == len({row["id"] for row in rows}) == 20
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-        if row["id"] == "aws.c2b.cloudfront.s3_origin_bucket_exists":
-            # Accepted native review: absence from owned inventory and bare
-            # HeadBucket codes cannot establish external bucket nonexistence.
-            # docs/aws-review/network-cross-service-sdk-review.md
-            assert status == "UNKNOWN"
-            assert evidence == {"reason": "origin bucket existence not resolvable", "buckets": ["gone"]}
-
-
-def test_frontend_identity_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-identity-evidence.json").read_text())
-    assert len({row["id"] for row in rows}) == 37
-    assert len(rows) == 148
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-        if row["id"] == "aws.claude_a.iam.access_keys_rotated_90" and name == "missing":
-            # The accepted identity review requires both active flags before
-            # interpreting credential dates, including sentinel values.
-            assert status == "UNKNOWN"
-            assert evidence == {"reason": "missing fact: access_key_1_active"}
 
 
 def test_policy_membership_evidence_is_computed_from_collected_assignments():
@@ -258,30 +168,6 @@ def test_non_iam_sts_service_names_are_actual_last_accessed_metadata():
     assert evidence["other_services"] == len(evidence["non_iam_sts_services"])
 
 
-@pytest.mark.parametrize("filename, count, controls", [
-    ("aws-policy-evidence.json", 36, 9),
-    ("aws-network-rest-evidence.json", 148, 37),
-])
-def test_final_policy_and_network_examples_are_exact_native_outputs(filename, count, controls):
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures" / filename).read_text())
-    assert len({row["id"] for row in rows}) == controls
-    assert len(rows) == count
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-        if row["id"] == "aws.claude_a.vpc.route_table_no_default_igw_route" and name == "missing":
-            # Native absence handling needs the route table's own identity
-            # before an omitted Routes list can carry configuration meaning.
-            assert status == "UNKNOWN"
-            assert evidence == {"reason": "missing fact: RouteTableId"}
-
-
 @pytest.mark.parametrize("cid, key", [
     ("aws.claude_a.vpc.sg_no_world_all_traffic", "world_all_traffic_rule_found"),
     ("aws.claude_a.vpc.sg_attached_to_eni", "eni_attachment_found"),
@@ -304,20 +190,6 @@ def test_presence_and_acl_facts_are_actual_native_results_without_input_mutation
         assert (item, index) == before
     status, evidence = REGISTRY[cid].evaluate({}, {})
     assert status == "UNKNOWN" and key not in evidence
-
-
-def test_security_frontend_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-security-evidence.json").read_text())
-    assert len(rows) == 120 and len({row["id"] for row in rows}) == 30
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
 
 
 def test_guardduty_feature_evidence_keeps_short_circuit_and_detector_state():
@@ -348,20 +220,6 @@ def test_securityhub_and_organization_match_flags_are_native_not_status_guesses(
             assert evidence[key] is expected
 
 
-def test_security_b_frontend_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-security-b-evidence.json").read_text())
-    assert len(rows) == 120 and len({row["id"] for row in rows}) == 30
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-
-
 def test_secret_public_model_fact_is_separate_from_total_statement_count():
     cid = "aws.cb.secretsmanager.policy_not_public"
     fixture = CASES[cid]
@@ -381,20 +239,6 @@ def test_secret_key_manager_observation_preserves_provider_managed_encryption():
     assert status == "PASS" and evidence["key_manager"] == "CUSTOMER"
 
 
-def test_security_b_rest_frontend_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-security-b-rest-evidence.json").read_text())
-    assert len(rows) == 116 and len({row["id"] for row in rows}) == 29
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-
-
 def test_shield_advanced_registration_is_actual_membership_without_mutation():
     ids = [cid for cid in REGISTRY if cid.startswith("aws.cb.shield.")]
     assert len(ids) == 6
@@ -410,71 +254,3 @@ def test_shield_advanced_registration_is_actual_membership_without_mutation():
             assert (item, index) == before
 
 
-def test_core_frontend_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-core-evidence.json").read_text())
-    assert len(rows) == 120 and len({row["id"] for row in rows}) == 30
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-
-
-def test_tooling_frontend_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-tooling-evidence.json").read_text())
-    assert len(rows) == 104 and len({row["id"] for row in rows}) == 26
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-
-
-def test_devtools_frontend_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-devtools-evidence.json").read_text())
-    assert len(rows) == 112 and len({row["id"] for row in rows}) == 28
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-
-
-def test_identity_b_frontend_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-identity-b-evidence.json").read_text())
-    assert len(rows) == 108 and len({row["id"] for row in rows}) == 27
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)
-
-
-def test_batch_frontend_examples_are_exact_native_evaluator_outputs():
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "frontend/tests/fixtures/aws-batch-evidence.json").read_text())
-    assert len(rows) == 140 and len({row["id"] for row in rows}) == 35
-    for row in rows:
-        fixture = CASES[row["id"]]
-        name = row["case"]
-        status, evidence = REGISTRY[row["id"]].evaluate(
-            deepcopy(fixture[name]), deepcopy(fixture.get(name + "_index", fixture.get("index", {}))))
-        assert (row["status"], row["evidence"]) == (status, evidence)

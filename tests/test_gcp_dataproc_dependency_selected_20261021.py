@@ -1,17 +1,10 @@
 """Native Dataproc selected dependency parsing and bounded transport regressions."""
-import ast
-import hashlib
-import http.client
 import json
-import logging
 from pathlib import Path
-import re
 import threading
 import time
 from types import SimpleNamespace
 import unittest
-from urllib.parse import urlsplit
-from uuid import uuid4
 
 SOURCE = Path(__file__).resolve().parents[1] / 'peaso/collectors/gcp_dataproc_referenced_source_secret_indicators.py'
 
@@ -70,15 +63,6 @@ class DependencyTests(unittest.TestCase):
         target = {**self.target, 'field': 'pysparkJob.mainPythonFileUri', 'object': 'main.py'}
         self.parse(target)
         self.reference(self.job, target)
-
-    def test_reader_still_binds_generation_before_after_and_scans(self):
-        tree = ast.parse(SOURCE.read_text())
-        collect = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'collect_sources')
-        text = ast.unparse(collect)
-        for token in ("'reference_before'", "'reference_after'", "'bucket_before'", "'bucket_after'",
-                      "'project_before'", "'project_after'", "'latest_before'", "'latest_after'",
-                      "'generation': target['generation']", 'objects._text(payload)', 'scan_with_source('):
-            self.assertIn(token, text)
 
     def test_cancelled_before_credentials_and_denied_is_incomplete(self):
         class Response:

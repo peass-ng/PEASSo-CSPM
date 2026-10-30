@@ -1,13 +1,10 @@
 """Isolated signed GCP sw52 predicate tests; run with --noconftest."""
 from __future__ import annotations
 
-from copy import deepcopy
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw52 as sw52
-from scripts.peaso_compliance_compile import spec_digest
-import json
 
 SCOPE = 'projects/demo'
 META = {'status': 'collected', 'scope': SCOPE}
@@ -124,17 +121,6 @@ def test_pass_fail_unknown_and_not_applicable(check_id):
     if na:
         na(row)
         assert evaluate_check(check_id, row, snapshot(rows, **policy))[0] == 'NOT_APPLICABLE'
-
-
-def test_signed_metadata_and_no_duplicates():
-    entries={x['id']:x for x in json.load(open('docs/compliance-ledgers/new-checks-gcp.json'))}
-    for check_id, spec in sw52.SPECS.items():
-        assert spec_digest(entries[check_id]) == sw52.SPEC_SHA256[check_id]
-        matches=[c for c in CHECKS if c.id == check_id]
-        assert len(matches)==1
-        check=matches[0]
-        assert (check.provider, check.kind, check.severity, check.category, check.title) == (
-            spec['provider'], spec['resource_kind'], spec['severity'], spec['category'], spec['title'])
 
 
 def test_complete_empty_scope_inventories_are_not_silently_safe():

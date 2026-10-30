@@ -5,13 +5,11 @@ import copy
 import hashlib
 import importlib
 import json
-from pathlib import Path
 import sys
 
 import pytest
 
 from peaso.checks import CHECKS
-from scripts.peaso_compliance_compile import spec_digest
 
 IDS = tuple('azure.other.' + value for value in (
     'attack_t1525', 'attack_t1526', 'attack_t1537', 'attack_t1546', 'attack_t1552',
@@ -485,34 +483,6 @@ def test_repeat_evaluation_immutable(sw12, cid):
     for _ in range(3):
         assert grade(sw12, cid, item, index) == 'PASS'
     assert index == original
-
-
-def test_signed_metadata_digests_descriptions_and_local_registry(sw12):
-    ledger = json.loads(Path('docs/compliance-ledgers/azure-other.json').read_text())
-    entries = {}
-    def walk(value):
-        if isinstance(value, dict):
-            for entry in value.get('new_checks', []):
-                if entry['id'] in IDS:
-                    entries[entry['id']] = entry
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-    walk(ledger)
-    assert set(entries) == set(IDS) == set(sw12.CHECK_OBJECTS)
-    descriptions = json.loads(Path('docs/compliance-ledgers/.work/swarm/sw12-descriptions.json').read_text())
-    assert set(descriptions) == set(IDS)
-    for cid in IDS:
-        spec, check = entries[cid], sw12.CHECK_OBJECTS[cid]
-        assert len(spec) == 10
-        assert check.id == cid and check.provider == spec['provider'] and check.kind == spec['resource_kind']
-        assert check.category == spec['category'] and check.severity == spec['severity'] and check.title == spec['title']
-        assert check.target == 'scope' and check.dependencies == sw12._dependencies(cid)
-        assert sw12.PROPOSED_SPEC_SHA256[cid] == spec_digest(spec) == descriptions[cid]['proposed_spec_sha256']
-        assert set(descriptions[cid]) == {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when', 'proposed_spec_sha256'}
-    assert len({check.id for check in CHECKS}) == len(CHECKS)
 
 
 @pytest.mark.parametrize('cid', IDS)

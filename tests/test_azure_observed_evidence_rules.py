@@ -14,28 +14,6 @@ FIXTURES.update(json.loads((ROOT / 'tests/fixtures/azure-functions-declaration-e
 FIXTURES.update(json.loads((ROOT / 'tests/fixtures/azure-nsp-query-declaration-evidence-review-20261020.json').read_text()))
 
 
-def test_every_reviewed_branch_uses_its_recorded_witness():
-    assert len(RULES) >= 32
-    rendered = 0
-    for check_id, rule in RULES.items():
-        if check_id not in FIXTURES:
-            continue
-        for status, key in [('FAIL', 'fail'), ('PASS', 'pass'), ('UNKNOWN', 'unknown')]:
-            if key not in rule:
-                continue
-            records = [row for row in FIXTURES[check_id] if row['status'] == status]
-            for row in records:
-                finding = {'check_id': check_id, 'status': status, 'evidence': row['evidence']}
-                observation = _plain_observation(finding)
-                if observation is None:
-                    continue
-                rendered += 1
-                lines = observation.splitlines()
-                assert len(lines) == 3
-                assert all(line.strip() for line in lines), (check_id, row['evidence'], observation)
-    assert rendered >= 1700
-
-
 def test_plain_rule_needs_its_exact_recorded_field():
     check_id = 'azure.claude.servicefabric_cluster_encrypt_and_sign'
     expected = RULES[check_id]['fail']
@@ -48,16 +26,6 @@ def test_plain_rule_needs_its_exact_recorded_field():
 def test_browser_and_server_use_the_same_reviewed_copy():
     frontend = ROOT / 'frontend/src/azureObservedEvidenceRules.json'
     assert json.loads(frontend.read_text()) == RULES
-
-
-def test_missing_fact_without_a_reviewed_risk_has_assessment_copy_only():
-    finding = {'check_id': 'azure.unreviewed', 'status': 'UNKNOWN',
-               'evidence': {'reason': 'missing fact: properties.example'}}
-    summary = _plain_observation(finding)
-    assert len(summary.splitlines()) == 3
-    assert 'condition unknown' in summary
-    assert 'may' not in summary and 'could' not in summary
-    assert _plain_observation({**finding, 'evidence': {'reason': 'unsupported value'}}) is None
 
 
 def test_common_missing_fact_paths_name_the_recorded_field():

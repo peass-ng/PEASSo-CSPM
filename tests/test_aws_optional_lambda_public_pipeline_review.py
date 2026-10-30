@@ -2,7 +2,6 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 from hashlib import sha256
-from pathlib import Path
 from types import SimpleNamespace
 import base64
 import io
@@ -15,7 +14,6 @@ import pytest
 
 from peaso import engine, secret_scanning
 from peaso.collectors import aws, aws_package_content_indicators as packages
-from scripts.audit_aws_field_producers import field_paths, pipeline_source_fingerprint
 
 ACCOUNT, REGION = '123456789012', 'us-east-1'
 SCOPE = ACCOUNT + '/' + REGION
@@ -28,7 +26,7 @@ NOW = datetime(2026, 10, 19, 12, tzinfo=timezone.utc)
 
 
 @pytest.fixture
-def public_pipeline(monkeypatch, record_property):
+def public_pipeline(monkeypatch):
     session = boto3.Session(aws_access_key_id='inert', aws_secret_access_key='inert', region_name=REGION)
     original = aws.Requests
     calls, downloads, clients, requests_seen, stub_errors = [], [], {}, [], []
@@ -125,20 +123,6 @@ def public_pipeline(monkeypatch, record_property):
         report = engine.evaluate_snapshot(snapshot, checks=[CID], include_not_applicable=True)
         findings = [row for row in report['findings'] if row['check_id'] == CID]
         assert len(findings) == 1 and not findings[0]['resource_id'].startswith('inventory:'), findings
-        binding = {'test_source': 'tests/' + Path(__file__).name,
-                   'test_source_sha256': sha256(Path(__file__).read_bytes()).hexdigest(),
-                   'pipeline_source_fingerprint': pipeline_source_fingerprint()}
-        for envelope in snapshot['collections']:
-            if envelope['items']:
-                record_property('aws_field_emission', json.dumps({**binding, 'kind': envelope['type'],
-                    'paths': sorted(set().union(*(field_paths(row) for row in envelope['items']))),
-                    'operations': sorted({s + ':' + op for s, op, args in calls}),
-                    'pipeline': 'collect_snapshot -> aws.collect -> Stubber public SDK -> Requests -> registered evaluate_snapshot',
-                    'semantic_completeness_proven': False}))
-        record_property('aws_consumer_execution', json.dumps({**binding, 'id': CID, 'outcome': findings[0]['status'],
-            'detectors': {'kingfisher': secret_scanning.KINGFISHER_VERSION, 'trufflehog': secret_scanning.TRUFFLEHOG_VERSION},
-            'mocked_boundaries': ['AWS transport through botocore Stubber', 'regional S3 HTTP opener returning in-memory ZIP'],
-            'detectors_mocked': False, 'case': case}))
         cached = [future.result() for future in requests._cache.values() if not future.exception()]
         safe = json.dumps([snapshot, cached, report], default=str)
         assert TOKEN not in safe and URL not in safe and 'INERT_NO_NETWORK' not in safe

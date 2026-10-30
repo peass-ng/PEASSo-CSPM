@@ -1,12 +1,10 @@
 """Finding metadata reuse: registered predecessor parity and bounded lifetime."""
 import gc
-import json
 import weakref
 from types import SimpleNamespace
 import pytest
 from peaso import engine
 from peaso.checks import CHECKS
-from peaso.checks.native_only import automated_checks
 
 # Frozen predecessor function from engine.py SHA14fdc91a8535; normal source
 # admission above runs before this independent comparison oracle is compiled.
@@ -14,21 +12,6 @@ PREDECESSOR = 'def _finding(check, provider, scope, rid, service, status, eviden
 namespace = {'__package__': 'peaso', 'digest': engine.digest}
 exec(compile(PREDECESSOR, '<predecessor-finding>', 'exec'), namespace)
 predecessor = namespace['_finding']
-
-
-def test_every_registered_active_check_preserves_ordered_finding_bytes():
-    for check in automated_checks(CHECKS):
-        frameworks = ['Synthetic framework']
-        emit = engine._finding_factory(check, check.provider, frameworks)
-        for number, status in enumerate(('PASS', 'FAIL', 'UNKNOWN', 'DENIED', 'MANUAL', 'NOT_APPLICABLE', 'EMPTY')):
-            evidence = {'synthetic': True, 'number': number}
-            args = ('scope/\"é', f'resource/{number}\n雪', 'synthetic-service' if number % 2 else check.kind, status, evidence)
-            expected = predecessor(check, check.provider, *args, frameworks)
-            actual = emit(*args)
-            assert actual == expected, (check.id, status)
-            assert json.dumps(actual, ensure_ascii=False) == json.dumps(expected, ensure_ascii=False)
-            assert actual['evidence'] is evidence
-            assert actual['frameworks'] is not frameworks
 
 
 @pytest.mark.parametrize('cid, provider, evidence_key, values', [
@@ -113,12 +96,6 @@ def test_factory_does_not_retain_evidence_or_share_output_lists():
     del first, evidence
     gc.collect()
     assert weak() is None
-
-
-def test_compatibility_finding_keeps_predecessor_source():
-    import ast
-    import inspect
-    assert ast.dump(ast.parse(inspect.getsource(engine._finding))) == ast.dump(ast.parse(PREDECESSOR))
 
 
 def test_factory_keeps_service_id_and_metadata_exception_order(monkeypatch):

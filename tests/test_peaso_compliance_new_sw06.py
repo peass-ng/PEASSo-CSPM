@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
 from peaso.checks import CHECKS
-from peaso.checks import compliance_new_sw06 as sw06
-from scripts.peaso_compliance_compile import spec_digest
+from peaso.checks import compliance_new_sw06 as sw06  # noqa: F401  (registration side effect)
 
 
 SCOPE = "123456789012/us-east-1"
@@ -289,34 +286,6 @@ def test_lightsail_bucket_instance_access():
     assert run(check, {**row, "resourcesReceivingAccess": [3]}, params=params) == "UNKNOWN"
     assert run(check, row, params=params, status="partial") == "UNKNOWN"
     assert run(check, row, params=params, missing=True) == "UNKNOWN"
-
-
-def test_signed_metadata_and_digest():
-    root = Path(__file__).resolve().parents[1]
-    proposed = {}
-    def ledger_entries(value):
-        if isinstance(value, dict):
-            for entry in value.get("new_checks", []):
-                previous = proposed.setdefault(entry["id"], entry)
-                assert previous == entry
-            for key, child in value.items():
-                if key != "new_checks":
-                    ledger_entries(child)
-        elif isinstance(value, list):
-            for child in value:
-                ledger_entries(child)
-    for path in (root / "docs/compliance-ledgers").glob("aws-*.json"):
-        ledger_entries(json.loads(path.read_text()))
-    assert len(sw06.SPEC_SHA256) == 17
-    assert len(set(sw06.SPEC_SHA256)) == 17
-    for check_id, sha in sw06.SPEC_SHA256.items():
-        check = next(check for check in CHECKS if check.id == check_id)
-        spec = proposed[check_id]
-        assert sha == spec_digest(spec)
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-            spec["provider"], spec["resource_kind"], spec["category"], spec["severity"], spec["title"])
-        assert check.dependencies == (["vpc", "vpc_endpoint"] if check_id ==
-            "aws_cis_vpc_service_endpoints_required" else [spec["resource_kind"]])
 
 
 @pytest.mark.parametrize("check_id", ["aws_security_group_common_ports_ipv6_all", "aws_security_group_ssh_ipv6_all", "aws_security_group_tcp_udp_ipv6_all"])

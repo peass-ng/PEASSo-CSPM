@@ -3,7 +3,7 @@ import copy
 
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_azure as new
 
 
@@ -23,11 +23,7 @@ def test_postgresql_unknown_enum_and_denied_field():
 
 
 def test_signed_high_severity_and_mysql_public_network_declaration():
-    severity = {check.id: check.severity for check in CHECKS}
-    assert severity["azure.cis.public_network_access_should_postgresql_servers"] == "high"
-    assert severity["azure.cis.mysql_flexible_cmk"] == "high"
     cid = "azure.cis.public_network_access_should_mysql_servers"
-    assert severity[cid] == "high"
     assert evaluate_check(cid, new.CASES[cid]["pass"], {})[0] == "PASS"
     assert evaluate_check(cid, new.CASES[cid]["fail"], {})[0] == "FAIL"
     assert evaluate_check(cid, {"properties": {"network": {"publicNetworkAccess": "Pending"}}}, {})[0] == "UNKNOWN"

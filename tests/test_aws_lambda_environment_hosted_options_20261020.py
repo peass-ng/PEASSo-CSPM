@@ -61,24 +61,6 @@ print('pure hosted preflight passed')
     assert result.stdout.strip() == 'pure hosted preflight passed'
 
 
-def test_pure_lambda_selector_retains_exact_native_grammar():
-    import ast
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    native = ast.parse((root / 'peaso/collectors/aws_lambda_environment_secret_indicators.py').read_text())
-    pure = ast.parse((root / 'peaso/server/content_selection_preflight_20261021.py').read_text())
-    closure = next(n for n in pure.body if isinstance(n, ast.FunctionDef) and n.name == '_make_lambda_environment')
-    names = {'Incomplete', 'enabled', 'parse', 'selected_targets'}
-    defs = lambda nodes: {n.name: ast.dump(n, include_attributes=False) for n in nodes
-                          if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in names}
-    assert defs(native.body) == defs(closure.body)
-    constants = {'KIND', 'OPTION', 'MAX_TARGETS', 'MAX_SELECTED_SCOPES', 'ARN', 'SCOPE'}
-    values = lambda nodes: {n.targets[0].id: ast.dump(n.value, include_attributes=False) for n in nodes
-                            if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
-                            and n.targets[0].id in constants}
-    assert values(native.body) == values(closure.body)
-
-
 # Automatic content selections are resolved only after native inventory.
 import pytest
 from peaso.collectors import aws

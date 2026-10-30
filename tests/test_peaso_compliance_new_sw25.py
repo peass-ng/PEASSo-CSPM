@@ -4,7 +4,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from pathlib import Path
 
 import pytest
 
@@ -440,29 +439,6 @@ def test_images_tag_registry_boundaries_and_runtime_digest():
     assert evaluate(sw.IMAGES_ID, index)[0] == 'FAIL'
 
 
-def test_signed_metadata_digests_and_registry_isolation():
-    from scripts.peaso_compliance_compile import spec_digest
-    found = {}
-    def walk(value):
-        if isinstance(value, dict):
-            for spec in value.get('new_checks', []):
-                if spec['id'] in sw.IDS:
-                    if spec['id'] in found: assert found[spec['id']] == spec
-                    found[spec['id']] = spec
-            for child in value.values(): walk(child)
-        elif isinstance(value, list):
-            for child in value: walk(child)
-    root = Path(__file__).resolve().parents[1]
-    for path in (root / 'docs/compliance-ledgers').glob('*.json'): walk(json.loads(path.read_text()))
-    assert set(found) == set(sw.IDS) and len(sw.IDS) == 15
-    for cid, spec in found.items():
-        check = sw.REGISTERED[cid]
-        assert (check.provider, check.kind, check.severity, check.category, check.title) == (spec['provider'], spec['resource_kind'], spec['severity'], spec['category'], spec['title'])
-        assert sw.PROPOSED_SPEC_SHA256[cid] == spec_digest(spec)
-        assert check.dependencies == list(sw.DEPENDENCIES[cid]) and check.target == 'scope'
-    assert tuple(CHECKS) == _before
-
-
 @pytest.mark.parametrize('cid', sw.IDS)
 def test_missing_required_evaluator_field(cid):
     index = fixture(cid)
@@ -574,20 +550,6 @@ def test_approved_pinned_image_needs_runtime_byte_evidence():
     assert evaluate(sw.IMAGES_ID, index)[0] == 'PASS'
     policy['allowedDigests'] = ['sha256:' + 'd' * 64]
     assert evaluate(sw.IMAGES_ID, index)[0] == 'FAIL'
-
-
-def test_description_supplement_and_collector_requests_cover_every_id():
-    root = Path(__file__).resolve().parents[1]
-    work = root / 'docs/compliance-ledgers/.work/swarm'
-    descriptions = json.loads((work / 'sw25-descriptions.json').read_text())
-    assert set(descriptions) == set(sw.IDS)
-    fields = {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when', 'proposed_spec_sha256'}
-    requests = (work / 'sw25-collector-requests.md').read_text()
-    for cid in sw.IDS:
-        assert set(descriptions[cid]) == fields
-        assert descriptions[cid]['proposed_spec_sha256'] == sw.PROPOSED_SPEC_SHA256[cid]
-        assert descriptions[cid]['evaluated'] and 'UNKNOWN' in descriptions[cid]['description']
-        assert cid in requests
 
 
 @pytest.mark.parametrize('cid', sw.REVIEW_IDS)

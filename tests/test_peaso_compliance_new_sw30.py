@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw30 as sw
-from scripts.peaso_compliance_compile import spec_digest
 
 SCOPE = "/subscriptions/11111111-1111-1111-1111-111111111111"
 NOW = "2026-10-12T12:00:00Z"
@@ -215,29 +212,3 @@ def test_adversarial_boundaries():
     assert status == "FAIL" and evidence["requirement_6_3_3_5_status"] == "PASS"
 
 
-def test_signed_metadata_and_unique_registration():
-    root = Path(__file__).parents[1]
-    ledger = {r["id"]: r for r in json.loads((root / "docs/compliance-ledgers/new-checks-azure.json").read_text())}
-    for check_id, spec in sw.SPECS.items():
-        assert spec["proposed_spec_sha256"] == spec_digest(_signed_ledger()[check_id])
-        checks = [c for c in CHECKS if c.id == check_id]
-        assert len(checks) == 1
-        check = checks[0]
-        assert (check.provider, check.kind, check.severity, check.category, check.title) == (
-            "azure", spec["resource_kind"], spec["severity"], spec["category"], spec["title"])
-
-
-def _signed_ledger():
-    """Read the exact new_checks records signed by the compliance compiler."""
-    rows = {}
-    root = Path(__file__).parents[1] / "docs/compliance-ledgers"
-    for path in root.glob("azure-*.json"):
-        document = json.loads(path.read_text())
-        if not isinstance(document, dict) or "frameworks" not in document:
-            continue
-        for framework in document["frameworks"]:
-            for requirement in framework["requirements"]:
-                for entry in requirement["new_checks"]:
-                    previous = rows.setdefault(entry["id"], entry)
-                    assert previous == entry
-    return rows

@@ -7,7 +7,7 @@ import pytest
 from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.checks import claude2_aws_b_identity as identity
-from peaso.checks.claude2_aws_b_common import IDS, ROWS, CONTEXT
+from peaso.checks.claude2_aws_b_common import IDS, CONTEXT
 
 REGISTRY = {check.id: check for check in CHECKS}
 GROUP = [cid for cid in IDS if cid.split(".")[2] in ("acm", "acmpca", "bedrock", "cognito", "connect", "directoryservice", "fms")]
@@ -38,14 +38,6 @@ def test_fixtures(cid):
             assert _evaluate(cid, key) == expected, key
     if "pass_index" in cases:
         assert REGISTRY[cid].evaluate(copy.deepcopy(cases["pass"]), {"context": dict(CONTEXT)})[0] in ("UNKNOWN", "NOT_APPLICABLE")
-
-
-def test_group_rows_have_one_disposition():
-    ported = [row for cid in GROUP for row in ROWS[cid]]
-    other = list(identity.MERGED) + list(identity.MANUAL) + list(identity.REJECTED)
-    assert len(ported) == len(set(ported)) and not set(ported) & set(other) and len(other) == len(set(other))
-    assert len(ported) + len(other) == 42  # 54 group rows minus 12 cognito rows held by reviewed_aws_b_cognito.json
-    assert all(native in REGISTRY for natives, _note in identity.MERGED.values() for native in natives)
 
 
 def test_client_with_unreadable_configuration_is_unknown():

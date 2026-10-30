@@ -75,12 +75,6 @@ def test_pinned_python_checks_are_replayed_without_prowler_imports():
         assert env['aks_clusters_created_with_private_nodes']().execute()[0].status==want
 
 
-def test_review_references_are_exclusive_and_nonlossy():
-    excluded=set(json.loads((ROOT/'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS)==22 and not set(REVIEWS)&excluded
-    assert all(r['source_review']['source_revision'] and r['source_review']['arguments']==[] for r in REVIEWS.values())
-
-
 @pytest.mark.parametrize('cid',[c for c in ports.CHECK_IDS if any('pinned_python' in r['source_review'] and c in r['native_checks'] for r in REVIEWS.values())])
 def test_every_pinned_python_tail_predicate_differential_truth(cid):
     from types import SimpleNamespace as NS

@@ -1,12 +1,10 @@
 """Directed collector -> sealed snapshot -> registered engine SW52 cases."""
 from copy import deepcopy
-from urllib.parse import urlsplit
 
 import pytest
 
 from peaso.collectors.gcp import GCPCollector, ReadError
-from peaso.engine import collect_snapshot, evaluate_snapshot, plan_collection, _registry
-from peaso.checks import CHECKS
+from peaso.engine import collect_snapshot, evaluate_snapshot, plan_collection
 
 CHECK = "gcp.identity.super_admin_separation"
 PROJECT = "projects/sw52-project"
@@ -153,24 +151,6 @@ def test_default_selection_and_broader_one_project_collection(monkeypatch):
     assert set(KINDS) <= set(plan_collection({"connector": {"provider": "gcp", "scopes": [PROJECT]}}))
     assert all(method != "POST" or url.endswith((":getAncestry", ":getIamPolicy"))
                for method, url, _ in fake.requests)
-
-
-def test_registered_contract_catalog_metadata_and_source_pin():
-    import hashlib
-    from pathlib import Path
-    from peaso.checks import batch_remaining_gcp, sw52_native_successor
-    from peaso import engine
-    check = next(check for check in CHECKS if check.id == CHECK)
-    assert next(row for row in _registry() if row.id == CHECK) is check
-    assert check.evaluate.__module__ == batch_remaining_gcp.__name__
-    assert check.dependencies == KINDS
-    public = check.public()
-    assert public["dependencies"] == KINDS
-    assert public["id"] == CHECK and public["evaluator"]["check_id"] == CHECK
-    source_hash = hashlib.sha256(Path(sw52_native_successor.__file__).read_bytes()).hexdigest()
-    assert source_hash in Path(batch_remaining_gcp.__file__).read_text()
-    assert "91e8d5cbe97be325cc288584e091a335f3f70367ec79c0de9c1b74cbfb2630fa" in Path(batch_remaining_gcp.__file__).read_text()
-    assert "_all_collections" not in Path(engine.__file__).read_text()
 
 
 @pytest.mark.parametrize("change", ["foreign", "partial", "duplicate"])

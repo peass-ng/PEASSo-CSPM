@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
 from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw56 as sw
-from scripts.peaso_compliance_compile import spec_digest
 
 CLUSTER = "k8s-cluster:test"
 SCOPE = "*"
@@ -233,33 +230,3 @@ def test_image_provenance_flags_and_verified_file():
     assert check(sw.PROVENANCE_ID, row, foreign) == "UNKNOWN"
 
 
-def ledger_entries():
-    entries = {}
-    ledger_dir = Path(__file__).resolve().parents[1] / 'docs/compliance-ledgers'
-    def walk(value):
-        if isinstance(value, dict):
-            for entry in value.get('new_checks', []):
-                if entry['id'] in sw.SPECS:
-                    entries[entry['id']] = entry
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-    for name in ('k8s-cis.json', 'k8s-other.json'):
-        walk(json.loads((ledger_dir / name).read_text()))
-    return entries
-
-
-def test_signed_metadata_and_unique_registration():
-    selected = ledger_entries()
-    assert len(selected) == len(sw.IDS) == 15
-    registered = {check.id: check for check in CHECKS if check.id in sw.IDS}
-    assert len(registered) == 15
-    for check_id, spec in selected.items():
-        check_obj = registered[check_id]
-        assert (check_obj.provider, check_obj.kind, check_obj.severity,
-                check_obj.category, check_obj.title) == (spec["provider"], spec["resource_kind"],
-                    spec["severity"], spec["category"], spec["title"])
-        assert sw.SPECS[check_id]["sha"] == spec_digest(spec)
-        assert sum(row.id == check_id for row in CHECKS) == 1

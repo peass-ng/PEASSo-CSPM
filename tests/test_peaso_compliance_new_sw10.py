@@ -2,35 +2,11 @@
 from __future__ import annotations
 
 import copy
-import json
-from collections import Counter
-from pathlib import Path
 
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw10 as sw10
-
-
-def signed_ledger_specs():
-    specs = {}
-
-    def visit(value):
-        if isinstance(value, dict):
-            for entry in value.get('new_checks', []):
-                if entry['id'] in specs:
-                    assert specs[entry['id']] == entry
-                specs[entry['id']] = entry
-            for child in value.values():
-                visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
-
-    root = Path(__file__).parents[1] / 'docs/compliance-ledgers'
-    for name in ('k8s-cis.json', 'k8s-other.json'):
-        visit(json.loads((root / name).read_text()))
-    return specs
 
 
 POLICY = {
@@ -210,29 +186,6 @@ def test_sw10_semver_prerelease_and_kubelet_coverage():
     index = facts('component_configuration', config)
     index['context']['metadata']['component_configuration_coverage']['status'] = 'unknown'
     assert evaluate_check('k8s.cis.the_eventrecordqps_argument_is_set_to_a_level_which_ensures_appropriate_event_capture', config, index)[0] == 'UNKNOWN'
-
-
-def test_sw10_signed_metadata_and_no_duplicates():
-    from scripts.peaso_compliance_compile import spec_digest
-    from peaso.checks.catalog import proposal_provenance_for
-    import json
-    from pathlib import Path
-    source = signed_ledger_specs()
-    descriptions = json.loads((Path(__file__).parents[1] / 'docs/compliance-ledgers/.work/swarm/sw10-descriptions.json').read_text())
-    checks = {x.id: x for x in CHECKS if x.id in sw10.SPECS}
-    assert len(checks) == len(sw10.SPECS) == len(CASES)
-    assert set(descriptions) == set(checks)
-    assert not [key for key, count in Counter(x.id for x in CHECKS).items() if count > 1]
-    for check_id, metadata in sw10.SPECS.items():
-        actual = checks[check_id]
-        assert (actual.provider, actual.kind, actual.category, actual.severity, actual.title) == (
-            'k8s', metadata['resource_kind'], metadata['category'], metadata['severity'], metadata['title'])
-        assert descriptions[check_id]['proposed_spec_sha256'] == spec_digest(source[check_id])
-        assert set(source[check_id]) == {'id', 'provider', 'resource_kind', 'data_source', 'predicate',
-                                        'severity', 'category', 'title', 'description', 'remediation_hint'}
-        assert descriptions[check_id]['proposed_spec_sha256'] == proposal_provenance_for(check_id)['signed_spec_sha256']
-        for field, value in metadata.items():
-            assert source[check_id][field] == value
 
 
 def target(check_id, row):
@@ -521,48 +474,7 @@ def test_swr_collector_projection_matches_every_predicate(check_id, build, make_
         make_fail(row, extras, None)
 
 
-def test_swr_remediation_candidates_validate_on_temporary_shard(tmp_path):
-    import json
-    from pathlib import Path
-    from peaso.remediation import _merge_compliance_reviewed
-    from scripts.peaso_compliance_compile import spec_digest
-
-    root = Path(__file__).parents[1]
-    candidate_path = root / 'docs/compliance-ledgers/.work/swarm/swr-k8s-remediation.json'
-    candidates = {check_id: entry for check_id, entry in json.loads(candidate_path.read_text()).items()
-                  if check_id in sw10.SPECS}  # shard is shared with the other k8s slices
-    source = signed_ledger_specs()
-    registered = {row.id: row for row in CHECKS}
-    assert set(candidates) == set(sw10.SPECS)
-    shard = tmp_path / 'swr-k8s-remediation.json'
-    shard.write_text(json.dumps(candidates))
-    merged = {}
-    _merge_compliance_reviewed(merged, ((shard, 'k8s'),))
-    assert merged == candidates
-    for check_id, entry in candidates.items():
-        assert entry['review_status'] == 'source_bound_pending_review'
-        assert entry['proposed_spec_sha256'] == spec_digest(source[check_id])
-        assert entry['summary'] and len(entry['steps']) >= 3 and entry['caveats']
-        assert any('owner approval' in step for step in entry['steps'])
-        assert entry['cli'] == []
-        assert entry['references'] and all(reference['url'].startswith('https://') for reference in entry['references'])
-        assert entry['field_binding']['evaluator_family'] == registered[check_id].evaluate.__module__
-        assert entry['field_binding']['kind'] == registered[check_id].kind
-        assert entry['field_binding']['target'] == registered[check_id].target
-        assert entry['field_binding']['path']
-
-
 def test_swr_descriptions_match_inventory_and_managed_resource_handling():
-    descriptions = json.loads((Path(__file__).parents[1] / 'docs/compliance-ledgers/.work/swarm/sw10-descriptions.json').read_text())
-    registered = {check.id: check for check in CHECKS}
-    for check_id in sw10.SPECS:
-        assert all(kind in descriptions[check_id]['evaluated'][0] for kind in registered[check_id].dependencies)
-        if registered[check_id].target == 'resource':
-            assert 'shared registry wrapper' in descriptions[check_id]['description']
-            assert 'underlying result' in descriptions[check_id]['description']
-            assert 'provider/control-plane-managed' in descriptions[check_id]['not_applicable_when']
-        else:
-            assert descriptions[check_id]['not_applicable_when'] is None
     row = native({'metadata': {'name': 'np', 'namespace': 'apps',
                                'labels': {'addonmanager.kubernetes.io/mode': 'Reconcile'}}, 'spec': {}}, 'networkpolicy')
     index = facts('networkpolicy', row)

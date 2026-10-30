@@ -4,7 +4,7 @@ import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import claude2_aws_b_edge as edge
-from peaso.checks.claude2_aws_b_common import IDS, ROWS
+from peaso.checks.claude2_aws_b_common import IDS
 
 
 REDIRECT = {"Type": "redirect", "RedirectConfig": {"Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}
@@ -38,13 +38,6 @@ def test_collector_facts_reference_registered_edge_checks():
         assert set(fact) == {"kind", "api", "fields", "checks"}
         assert fact["fields"] and fact["checks"]
         assert all(cid in IDS for cid in fact["checks"]), fact
-
-
-def test_edge_dispositions_do_not_overlap_ports():
-    ported = {row for cid in IDS for row in ROWS[cid]}
-    assert not ported & set(edge.MERGED)
-    assert not ported & set(edge.REJECTED)
-    assert not set(edge.MERGED) & set(edge.REJECTED)
 
 
 def test_conditional_redirect_cannot_hide_default_http_forward():

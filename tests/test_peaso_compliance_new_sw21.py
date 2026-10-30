@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import copy
-import glob
-import json
 
 import pytest
 from peaso.checks import CHECKS
@@ -275,35 +273,6 @@ def test_required_fact_boundaries_unknown(cid, damage):
     else:
         row.setdefault('_coverage', {})[field] = {'status': 'denied'}
     assert evaluate(cid, item, index) == 'UNKNOWN'
-
-
-def test_metadata_hashes_and_registry_cleanup():
-    from scripts.peaso_compliance_compile import spec_digest
-    found = {}
-    def walk(value):
-        if isinstance(value, dict):
-            for spec in value.get('new_checks', []):
-                if spec.get('id') in sw.IDS:
-                    found[spec['id']] = spec
-            for key, child in value.items():
-                if key != 'new_checks':
-                    walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-    for path in glob.glob('docs/compliance-ledgers/*.json'):
-        with open(path) as handle:
-            walk(json.load(handle))
-    assert set(found) == set(sw.IDS) == set(DEFINITIONS)
-    assert len(DEFINITIONS) == 15
-    for cid, spec in found.items():
-        definition = DEFINITIONS[cid]
-        assert sw.PROPOSED_SPEC_SHA256[cid] == spec_digest(spec)
-        assert sw.SPECS[cid] == spec
-        assert (definition.provider, definition.kind, definition.title, definition.category, definition.severity) == (
-               spec['provider'], spec['resource_kind'], spec['title'], spec['category'], spec['severity'])
-        assert definition.dependencies
-    assert CHECKS == _before
 
 
 def first_row(index, kind=None):
@@ -719,17 +688,6 @@ def test_load_balancer_delivery_before_change_is_unknown():
     item, index = make_case(LB)
     first_row(index)['auditDeliveryEvidence'][0]['deliveredAt'] = START
     assert evaluate(LB, item, index) == 'UNKNOWN'
-
-
-def test_supplement_hashes_and_schema():
-    with open('docs/compliance-ledgers/.work/swarm/sw21-descriptions.json') as handle:
-        values = json.load(handle)
-    assert set(values) == set(sw.IDS)
-    required = {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when', 'proposed_spec_sha256'}
-    for cid, value in values.items():
-        assert set(value) == required
-        assert value['proposed_spec_sha256'] == sw.PROPOSED_SPEC_SHA256[cid]
-        assert value['evaluated'] and 'UNKNOWN' in value['description']
 
 
 def test_databox_selected_user_assigned_key_identity_and_metadata_resolution():

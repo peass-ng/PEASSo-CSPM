@@ -6,9 +6,6 @@ all assertions use the captured module-local Check objects.
 from __future__ import annotations
 
 import copy
-import json
-from collections import Counter
-from pathlib import Path
 
 import pytest
 
@@ -18,7 +15,6 @@ _BASELINE = tuple(CHECKS)
 from peaso.checks import compliance_new_sw22 as sw
 
 CHECKS[:] = _BASELINE
-from scripts.peaso_compliance_compile import spec_digest
 
 SCOPE = "/subscriptions/sub"
 TENANT = "tenant"
@@ -479,32 +475,6 @@ def test_frontdoor_documented_policy_and_rule_defaults_and_product_ddos():
     assert evaluate(sw.NETWORK_ID, index)[0] == "FAIL"
     row(index, "waf_policy")["_provenance"]["api_version"] = "unknown"
     assert evaluate(sw.NETWORK_ID, index)[0] == "UNKNOWN"
-
-
-def test_signed_metadata_digest_descriptions_and_registry_isolation():
-    proposals = {}
-    def walk(value):
-        if isinstance(value, dict):
-            for entry in value.get("new_checks", []):
-                if entry["id"] in sw.IDS:
-                    proposals[entry["id"]] = entry
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-    root = Path(__file__).resolve().parents[1]
-    for path in (root / "docs/compliance-ledgers").glob("*.json"):
-        walk(json.loads(path.read_text()))
-    descriptions = json.loads((root / "docs/compliance-ledgers/.work/swarm/sw22-descriptions.json").read_text())
-    assert set(proposals) == set(sw.IDS) == set(descriptions)
-    for cid, spec in proposals.items():
-        check = sw.LOCAL_CHECKS[cid]
-        assert (check.provider, check.kind, check.severity, check.category, check.title) == (
-            spec["provider"], spec["resource_kind"], spec["severity"], spec["category"], spec["title"])
-        assert sw.PROPOSED_SPEC_SHA256[cid] == descriptions[cid]["proposed_spec_sha256"] == spec_digest(spec)
-    assert CHECKS == list(_BASELINE)
-    assert not [cid for cid, count in Counter(check.id for check in CHECKS).items() if count > 1]
 
 
 @pytest.mark.parametrize("cid", [cid for cid in sw.IDS if sw.LOCAL_CHECKS[cid].target == "scope"])

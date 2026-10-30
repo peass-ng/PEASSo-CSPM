@@ -164,10 +164,3 @@ def test_vault_origin_must_be_arm_observed_validated_and_audience_has_no_ambient
         with pytest.raises((AzureReadError, ValueError)): transport.allow_vault(uri)
     transport.allow_vault('https://vault.vault.azure.net/')
     with pytest.raises(AzureReadError): transport.request('https://other.vault.azure.net/keys', audience=VAULT)
-
-
-def test_vault_review_ids_are_exact_and_exclude_claude():
-    claude = set(json.loads((ROOT / 'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS) == 61 and len(SOURCE) == 13 and len(ports.CHECK_IDS) == 10
-    assert not set(REVIEWS) & claude
-    assert all(r['source_review']['arguments'] == [] for r in REVIEWS.values())

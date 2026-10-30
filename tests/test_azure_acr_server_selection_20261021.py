@@ -1,14 +1,11 @@
 """Server-only ACR request validation and runtime selector parity."""
 from copy import deepcopy
-import json
 from pathlib import Path
 import subprocess
 import sys
-import types
 
 import pytest
 
-from test_azure_acr_image_vulnerabilities_20261021 import proposal
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
@@ -61,26 +58,6 @@ def test_disabled_and_no_selection_zero_runtime_requirement(static,proposal):
                   {'content_secret_scans':True},{'content_secret_scans':'ignored'}):
         assert static.selected_targets(value,[])==runtime.selected_targets(value,[])==[]
     with pytest.raises(ValueError):static.selected_targets({'image_vulnerability_scans':True},[SCOPE])
-
-
-def test_static_grammar_matches_accepted_runtime_source(static,proposal):
-    acr,runtime=proposal[0],proposal[2]
-    assert static.OPTION==runtime.OPTION and static.ENABLE==runtime.ENABLE
-    assert static.MAX_IMAGES==acr.MAX_IMAGES
-    for left,right in ((static._SCOPE,acr._SCOPE),(static._REGISTRY,acr._REGISTRY),
-                       (static._REPOSITORY,acr._REPOSITORY),(static._DIGEST,acr.DIGEST)):
-        assert (left.pattern,left.flags)==(right.pattern,right.flags)
-
-
-def test_registration_metadata_matches_native_check(proposal):
-    native,check=proposal[2:]
-    metadata=json.loads((ROOT/'docs/azure-acr-image-vulnerabilities-registration-20261021.json').read_text())
-    assert metadata['id']==native.CHECK==check.DECLARATION['id']
-    assert metadata['kind']==native.KIND
-    assert metadata['dependencies']==list(check.DECLARATION['dependencies'])
-    assert metadata['service']==check.DECLARATION['service']=='containerregistry'
-    assert metadata['ui_group']==check.DECLARATION['ui_group']=='Containers'
-    assert metadata['description']==check.DESCRIPTION['description']
 
 
 def test_fresh_process_actual_hosted_validation_never_imports_runtime():

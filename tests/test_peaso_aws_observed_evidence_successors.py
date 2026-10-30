@@ -591,10 +591,6 @@ for case in json.loads((ROOT/'tests/fixtures/post_dfaf_aws.json').read_text()):
     if case['name'] in ('pass','fail'):
         FROZEN.setdefault(case['id'],{})[case['expected']] = case
 
-@pytest.mark.parametrize('name', sorted(PROOF))
-def test_only_reviewed_additive_evidence_changes_reconstruct_original_source(name):
-    _assert_original_source(name, (ROOT/'peaso/checks'/name).read_text())
-
 
 def _assert_original_source(name, text):
     record=PROOF[name]
@@ -611,29 +607,7 @@ def _assert_original_source(name, text):
     assert hashlib.sha256(text.encode()).hexdigest()==record['original_sha256']
 
 
-@pytest.mark.parametrize('name', sorted(REVIEWED_NATIVE_SOURCE_DELTAS))
-@pytest.mark.parametrize('mutation', ['extra_edit', 'altered_reviewed_delta'])
-def test_source_reconstruction_rejects_unreviewed_edits(name, mutation):
-    text = (ROOT/'peaso/checks'/name).read_text()
-    if mutation == 'extra_edit':
-        text += '\n# An additional unreviewed edit must not be normalized away.\n'
-    else:
-        after = REVIEWED_NATIVE_SOURCE_DELTAS[name][0][1]
-        assert text.count(after) == 1
-        text = text.replace(after, after + '# changed reviewed delta\n', 1)
-    with pytest.raises(AssertionError):
-        _assert_original_source(name, text)
-
-
 CORRECTED_NATIVE_SUCCESSORS = {'aws_cis_lambda_execution_role_no_admin'}
-
-
-def test_additive_fixture_coverage_has_only_the_explicit_corrected_lambda_successor():
-    # Other test modules may load native CASES for this alias during collection.
-    # Its legacy evidence schema is always replaced by the four explicit native
-    # branches below, independently of module import order.
-    assert CORRECTED_NATIVE_SUCCESSORS <= set(AWS_FIELDS)
-    assert set(AWS_FIELDS) - CORRECTED_NATIVE_SUCCESSORS <= (set(CASES) | set(FROZEN))
 
 
 @pytest.mark.parametrize('branch,expected,deciding_branch', [

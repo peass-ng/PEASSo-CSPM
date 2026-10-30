@@ -155,7 +155,6 @@ def test_hsm_native_la_only_exposes_storage_specific_scope(monkeypatch,record_pr
  assert all('/Microsoft.Storage/' not in c['path'] and '/Microsoft.OperationalInsights/' not in c['path'] for c in http.calls)
 
 # A cryptographic CA fixture is reused, never provider response/CASES data.
-from tests.test_peaso_azure_aks_workloads_native import ca
 from peaso.checks import azure_aks_legacy_projection_review_20261020 as bridge
 from peaso.collectors import azure_aks_legacy_projection_review_20261020 as projection
 
@@ -433,18 +432,6 @@ def test_pure_successor_import_has_no_registration_side_effect(module):
  probe=importlib.util.module_from_spec(spec);spec.loader.exec_module(probe)
  assert checks.CHECKS==before
  assert all(d['requirements']==[] for d in probe.DECLARATIONS)
-
-
-def test_exact_frozen_sources_and_current_dependencies_are_conserved():
- import hashlib,inspect
- before={c.id:c for c in checks.CHECKS}
- bridge.install_successors()
- for cid in (PRIV,NONROOT):
-  assert hashlib.sha256(inspect.getsource(inspect.unwrap(bridge._ORIGINALS[cid])).encode()).hexdigest()==bridge.FROZEN[cid]
-  current=next(c for c in checks.CHECKS if c.id==cid)
-  assert current.kind==before[cid].kind and current.severity==before[cid].severity and current.title==before[cid].title
-  assert current.dependencies==['aks_cluster',projection.KIND]
- assert next(c for c in checks.CHECKS if c.id==DIAGNOSTIC).dependencies==before[DIAGNOSTIC].dependencies
 
 
 @pytest.mark.parametrize('cid',[PRIV,NONROOT])

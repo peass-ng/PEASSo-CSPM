@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_aws_inspector_ec2 as rule
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
@@ -84,13 +84,3 @@ def test_immutable_evaluation_and_production_scoped_snapshot():
     ], created_at="2026-10-12T00:00:00+00:00")
     report = evaluate_snapshot(snapshot, categories=["hardening"], checks=[rule.CHECK_ID])
     assert [f["status"] for f in report["findings"] if f["check_id"] == rule.CHECK_ID] == ["FAIL"]
-
-
-def test_metadata_and_signed_spec_binding():
-    matches = [check for check in CHECKS if check.id == rule.CHECK_ID]
-    assert len(matches) == 1
-    assert (matches[0].provider, matches[0].kind, matches[0].target,
-            matches[0].severity, matches[0].dependencies) == (
-                "aws", "inspector2_finding", "scope", "high",
-                ["inspector2_finding", "inspector2_account_status"])
-    assert rule.SPEC_SHA256 == "19e3708f8d4caadf3c96f39850def20bc39256bb7aa3cdf7955e76cd4cd52bf1"

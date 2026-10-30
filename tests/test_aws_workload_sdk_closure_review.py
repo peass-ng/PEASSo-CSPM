@@ -1,9 +1,7 @@
 """Bounded workload SDK contracts; no live AWS, old fixtures, or fabricated snapshots."""
 from copy import deepcopy
 from datetime import datetime, timezone
-from hashlib import sha256
 import json
-from pathlib import Path
 
 import boto3
 import pytest
@@ -25,7 +23,7 @@ CANARY = 'WORKLOAD_REVIEW_INERT_VALUE_20261019'
 
 
 @pytest.fixture
-def pipeline(monkeypatch, record_property):
+def pipeline(monkeypatch):
     session = boto3.Session(aws_access_key_id='inert', aws_secret_access_key='inert', region_name=REGION)
     original_requests = aws.Requests
     def collect(kinds, responses):
@@ -73,17 +71,6 @@ def pipeline(monkeypatch, record_property):
         monkeypatch.setattr(aws, '_session', lambda auth, region: (session, 'inert'))
         snapshot = aws.collect({'provider': 'aws', 'scopes': [SCOPE], 'options': {'regions': [REGION]}}, [kinds] if isinstance(kinds, str) else kinds)
         assert not errors, errors  # Collector must not disguise invalid SDK test input as denial.
-        from scripts.audit_aws_field_producers import field_paths, pipeline_source_fingerprint
-        source = Path(__file__)
-        binding = {'test_source': 'tests/' + source.name, 'test_source_sha256': sha256(source.read_bytes()).hexdigest(),
-                   'pipeline_source_fingerprint': pipeline_source_fingerprint()}
-        for envelope in snapshot['collections']:
-            if envelope['items']:
-                record_property('aws_field_emission', json.dumps({**binding, 'kind': envelope['type'],
-                    'paths': sorted(set().union(*(field_paths(row) for row in envelope['items']))),
-                    'operations': sorted({s + ':' + op for s, op, args in calls}),
-                    'pipeline': 'botocore Stubber -> Requests.call -> aws.collect -> validated public snapshot',
-                    'semantic_completeness_proven': False}))
         cached = [f.result() for f in requests._cache.values() if not f.exception()]
         assert CANARY not in str(snapshot) + str(cached)
         return snapshot, calls
@@ -96,18 +83,6 @@ def verdict(snapshot, cid):
     return rows[0]['status']
 
 
-@pytest.fixture(autouse=True)
-def consumer_receipt(monkeypatch, record_property):
-    import sys
-    from scripts.audit_aws_field_producers import pipeline_source_fingerprint
-    original = verdict
-    def observed(snapshot, cid):
-        outcome = original(snapshot, cid)
-        record_property('aws_consumer_execution', json.dumps({'id': cid, 'outcome': outcome,
-            'test_source': 'tests/' + Path(__file__).name, 'test_source_sha256': sha256(Path(__file__).read_bytes()).hexdigest(),
-            'pipeline_source_fingerprint': pipeline_source_fingerprint()}))
-        return outcome
-    monkeypatch.setattr(sys.modules[__name__], 'verdict', observed)
 
 
 def codebuild(**fields):

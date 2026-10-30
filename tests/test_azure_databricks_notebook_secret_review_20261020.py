@@ -1,7 +1,6 @@
 """Independent native HTTP through real AzureTransport and actual public production collector hooks."""
 from copy import deepcopy
 import base64
-import hashlib
 import inspect
 import io
 import json
@@ -13,10 +12,9 @@ import time
 from types import SimpleNamespace
 from urllib.parse import parse_qs,urlsplit
 import pytest
-from peaso import checks,engine,secret_scanning as scanning
+from peaso import engine, secret_scanning as scanning
 from peaso.collectors import azure
 from peaso.collectors import azure_databricks_notebook_secret_indicators as source
-from peaso.collectors import azure_ml_selected_job_secret_indicators as existing
 from peaso.checks import azure_databricks_notebook_secret_review_20261020 as consumer
 
 SCOPE='/subscriptions/11111111-1111-1111-1111-111111111111'
@@ -29,7 +27,6 @@ HOST='adb-1234567890123456.7.azuredatabricks.net'
 NOTEBOOK='/Shared/Selected notebook'
 TOKEN='ghp_'+'7mQ2zR9wL4cV8nK1sF6aH3jP5uD0xB2yE9rT'
 AUTH='offline-notebook-client-secret'
-PRODUCTION_TYPES=tuple(azure.TYPES)
 
 
 def target(path=NOTEBOOK):return{'workspace_resource_id':WORKSPACE,'path':path}
@@ -334,21 +331,6 @@ def test_real_http_framing_debug_and_policy_logging_privacy(monkeypatch,capsys,c
     assert all(r.closed for r in trace.responses)
 
 
-def test_exact_registered_identity_no_framework_edges_and_path_case_is_preserved():
-    from peaso.checks import azure_databricks_notebook_secrets_admission_20261020 as admission
-    from peaso.checks.fixtures import CASES
-    # The original admission retains its historical source pins; package
-    # initialization installs the reviewed current source through RawV2.
-    with pytest.raises(RuntimeError, match='reviewed source changed'):
-        admission.reviewed_inputs()
-    registered,=[c for c in checks.CHECKS if c.id==source.CHECK]
-    assert source.KIND in PRODUCTION_TYPES and inspect.unwrap(registered.evaluate)is consumer.evaluate
-    assert source.CHECK in CASES
-    assert source.identity(target())!=source.identity(target(NOTEBOOK.lower()))
-    assert consumer.DECLARATION['requirements']==[]and consumer.DECLARATION['ui_group']=='Secrets'
-
-
-
 @pytest.mark.parametrize('language',['SQL','SCALA','R'])
 def test_other_documented_notebook_source_languages(monkeypatch,language):
     def transform(op,data,path):
@@ -403,21 +385,3 @@ def test_portable_actual_native_capture_replay(capture):
     if capture['expected_status']!='UNKNOWN':assert capture['real_detectors']is True
 
 
-def test_proposal_pins_unwrapped_predicate_helper_and_reachable_source_bytes():
-    # Later reviewed edits are admitted through the exact inverse-delta epoch:
-    # every current source must reconstruct the proposal's reviewed bytes.
-    import ast
-    from peaso import rawv2_private_source_successor_20261021 as epoch
-    proposal=json.loads(Path('peaso/checks/azure_databricks_notebook_secret_review_20261020_proposal.json').read_text())
-    assert proposal['registration']=='unregistered_proposal_only'
-    historical={}
-    for path,digest in proposal['sources'].items():
-        historical[path]=epoch.source_bytes(path,Path(path).read_bytes(),digest,Path.cwd())
-        assert hashlib.sha256(historical[path]).hexdigest()==digest,path
-    fixture=proposal['fixture'];assert hashlib.sha256(Path(fixture['path']).read_bytes()).hexdigest()==fixture['sha256']
-    raw=historical['peaso/checks/azure_databricks_notebook_secret_review_20261020.py']
-    definitions={node.name:node for node in ast.parse(raw).body if isinstance(node,ast.FunctionDef)}
-    for name,key in [('evaluate','predicate_sha256'),('_evaluate','reachable_helper_sha256')]:
-        node=definitions[name]
-        body=b''.join(raw.splitlines(keepends=True)[node.lineno-1:node.end_lineno])
-        assert hashlib.sha256(body).hexdigest()==proposal['check'][key]

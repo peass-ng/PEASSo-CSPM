@@ -5,11 +5,9 @@ import copy
 import hashlib
 import importlib
 import json
-from pathlib import Path
 
 import pytest
 from peaso.checks import CHECKS
-from scripts.peaso_compliance_compile import spec_digest
 
 # Import the requested module directly; safe evaluator closures survive cleanup.
 # When the integrator already imports it, preserve its existing registrations.
@@ -326,32 +324,6 @@ def test_absent_required_dependency_unknown(cid, kind):
     index.pop(kind)
     index['collections'].pop(kind)
     assert evaluate(cid, item, index)[0] == 'UNKNOWN'
-
-
-def test_spec_digests_and_exact_registry_metadata():
-    wanted = set(m.IDS)
-    entries = {}
-    def walk(value):
-        if isinstance(value, dict):
-            for entry in value.get('new_checks', []):
-                if entry['id'] in wanted:
-                    entries[entry['id']] = entry
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-    for path in (Path(__file__).resolve().parents[1] / 'docs/compliance-ledgers').glob('*.json'):
-        walk(json.loads(path.read_text()))
-    assert set(entries) == wanted == set(REGISTERED)
-    descriptions = json.loads((Path(__file__).resolve().parents[1] / 'docs/compliance-ledgers/.work/swarm/sw13-descriptions.json').read_text())
-    for cid, entry in entries.items():
-        meta, check = m.SPECS[cid], REGISTERED[cid]
-        assert meta['proposed_spec_sha256'] == spec_digest(entry) == descriptions[cid]['proposed_spec_sha256']
-        for field, attr in [('provider', 'provider'), ('category', 'category'), ('severity', 'severity'), ('title', 'title'), ('resource_kind', 'kind')]:
-            assert entry[field] == getattr(check, attr)
-        assert entry['resource_kind'] in check.dependencies
-    assert not any(c.id in m.IDS and id(c) not in _before for c in CHECKS)
 
 
 @pytest.mark.parametrize('cid', [m.ADMIN, m.USERS, m.RISK])

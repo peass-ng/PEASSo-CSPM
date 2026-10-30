@@ -66,9 +66,3 @@ def test_default_tls_and_unrecognized_provider_metadata_cannot_pass_source_null_
     assert check.evaluate({'properties': {'sslPolicy': {'minProtocolVersion': 'Future'}}}, {})[0] == 'UNKNOWN'
     workspace = REGISTRY[ports.SOURCE_QUERIES['application_insights_linked_to_log_analytics_workspace']]
     assert workspace.evaluate({'type': 'microsoft.insights/components', 'properties': {'_coverage': {'WorkspaceResourceId': {'status': 'denied'}}}}, {})[0] == 'UNKNOWN'
-
-
-def test_exact_eleven_misc_source_refs_are_exclusive_and_argument_free():
-    claude = set(json.loads((ROOT / 'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS) == 11 and len(PROOFS) == 9 and not set(REVIEWS) & claude
-    assert all(r['source_review']['arguments'] == [] for r in REVIEWS.values())

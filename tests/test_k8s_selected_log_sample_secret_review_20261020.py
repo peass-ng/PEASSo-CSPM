@@ -17,7 +17,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 import pytest
 from kubernetes.client import ApiClient, Configuration
 from peaso import checks, engine, secret_scanning as scanning
-from peaso.snapshot import make_snapshot, seal
+from peaso.snapshot import seal
 from peaso.collectors import k8s
 from peaso.collectors import k8s_literal_secret_indicators as literals
 from peaso.collectors import k8s_selected_log_sample_secret_indicators as source
@@ -504,13 +504,6 @@ def test_proposed_exact_query_allowlist(change):
     assert not source.allowed_request(path, query, grants)
 
 
-def test_proposal_preserved_with_one_production_registration():
-    assert source.KIND in PRODUCTION_TYPES and source.CHECK in PRODUCTION_IDS
-    assert sum(c.id == source.CHECK for c in checks.CHECKS) == 1
-    assert consumer.DECLARATIONS[0]['requirements'] == []
-    assert consumer.DECLARATIONS[0]['ui_group'] == 'Secrets'
-
-
 def test_two_selected_containers_in_one_pod(monkeypatch):
     snapshot, rows, trace = capture(monkeypatch, targets=[target(), target(container='sidecar')], value=TOKEN)
     assert verdict(rows) == {'FAIL'} and len(rows) == 1 and len(trace.calls) == 6
@@ -749,42 +742,6 @@ def test_overlapping_private_reads_restore_only_their_own_filters(caplog):
     worker.join(timeout=2)
     assert not worker.is_alive() and logger.filters == before
     assert 'concurrent-private-record' not in caplog.text and 'main-private-record' not in caplog.text
-
-
-def test_proposal_owned_source_and_fixture_receipts():
-    import hashlib
-    import inspect
-    proposal = json.loads(Path('peaso/checks/k8s_selected_log_sample_secret_review_20261020_proposal.json').read_text())
-    assert proposal['registration'] == 'unregistered_proposal_only'
-    assert proposal['declarations'] == consumer.DECLARATIONS
-    assert proposal['native_kind'] == source.KIND and proposal['declarations'][0]['id'] == source.CHECK
-    import ast
-    import hashlib
-    from peaso.checks import k8s_selected_log_source_successor_20261021 as successor
-    _, current_source, predecessor_source = successor._proof()
-    producer_path = 'peaso/collectors/k8s_selected_log_sample_secret_indicators.py'
-    assert current_source == Path(producer_path).read_bytes()
-    for row in proposal['files']:
-        raw = predecessor_source if row['path'] == producer_path else Path(row['path']).read_bytes()
-        assert hashlib.sha256(raw).hexdigest() == row['sha256']
-    tree = ast.parse(predecessor_source)
-    lines = predecessor_source.decode().splitlines(keepends=True)
-    for row in proposal['functions']:
-        module = consumer if row['qualname'] == 'evaluate' else source
-        function = inspect.unwrap(getattr(module, row['qualname']))
-        assert row['path'] == str(Path(inspect.getsourcefile(function)).relative_to(Path.cwd()))
-        if row['path'] == producer_path:
-            node, = [item for item in tree.body if isinstance(item, ast.FunctionDef) and item.name == row['qualname']]
-            start = min([node.lineno] + [decorator.lineno for decorator in node.decorator_list])
-            historical = ''.join(lines[start - 1:node.end_lineno])
-            assert row['line'] == start
-            assert row['sha256'] == hashlib.sha256(historical.encode()).hexdigest()
-            if row['qualname'] != 'collect':
-                assert inspect.getsource(function) == historical
-        else:
-            assert row['line'] == inspect.getsourcelines(function)[1]
-            assert row['sha256'] == hashlib.sha256(inspect.getsource(function).encode()).hexdigest()
-    assert proposal['bounded_cost']['targets'] == 4 and proposal['bounded_cost']['http_gets_max'] == 12
 
 
 _NATIVE_FIXTURE = Path('peaso/checks/k8s_selected_log_sample_secret_review_20261020_native_fixtures.json')

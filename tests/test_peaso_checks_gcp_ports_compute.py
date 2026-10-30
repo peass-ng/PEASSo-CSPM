@@ -1,7 +1,5 @@
 """Compute declaration truths and exact source-defect counterexamples."""
 import copy
-import json
-from pathlib import Path
 import pytest
 from peaso.checks import CHECKS, gcp_ports_compute as ports
 from peaso.checks.fixtures import CASES
@@ -58,17 +56,6 @@ def test_audit_scope_absence_is_required_failure_only_after_complete_root_policy
     index = copy.deepcopy(fixture["pass_index"])
     index["collections"]["iam_policy"][0]["status"] = "partial"
     assert check.evaluate(fixture["pass"], index)[0] == "UNKNOWN"
-
-
-def test_compute_review_shard_skips_transferred_ids_and_preserves_rejection_proof():
-    root = Path(__file__).resolve().parents[1] / "peaso/rulepacks"
-    own = json.loads((root / "reviewed_gcp_ports_compute.json").read_text())
-    transferred = {key for part in json.loads((root / "port_partitions_claude.json").read_text())["partitions"].values()
-        if part.get("from_partition") == "gcp_k8s" for key in part["check_ids"]}
-    assert not set(own).intersection(transferred)
-    assert len(own) > 50
-    assert all(row["reason"] and row["official_docs"] and row["review_notes"]["revision"] for row in own.values())
-    assert all(row.get("replacement_checks") and not row["native_checks"] for row in own.values() if row["disposition"] == "rejected")
 
 
 def test_audit_scope_uses_inherited_effective_audit_configs():

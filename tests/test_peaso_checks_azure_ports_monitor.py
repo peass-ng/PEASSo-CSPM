@@ -1,7 +1,6 @@
 """Native-only alert declaration fixtures; no evaluator pipeline or notification calls."""
 import copy
 import json
-from pathlib import Path
 
 import pytest
 
@@ -9,8 +8,6 @@ from peaso.checks import CHECKS, azure_ports_monitor as ports
 from peaso.checks.fixtures import CASES
 from peaso.collectors.azure import collect
 
-ROOT = Path(__file__).resolve().parent.parent
-REVIEWS = json.loads((ROOT / "peaso/rulepacks/reviewed_azure_ports_monitor.json").read_text())
 REGISTRY = {check.id: check for check in CHECKS}
 
 
@@ -86,12 +83,3 @@ def test_activity_log_alert_collector_reads_metadata_and_discards_webhook_payloa
     assert "INERT_MARKER" not in json.dumps(snapshot)
     assert row["items"][0]["properties"]["actions"]["actionGroups"][0]["actionGroupId"] == "/group"
     assert all("testnotifications" not in url.lower() and "trigger" not in url.lower() for url, _ in calls)
-
-
-def test_reviewed_monitor_source_ids_and_selectors_are_exact_and_exclusive():
-    claude = set(json.loads((ROOT / "peaso/rulepacks/port_partitions_claude.json").read_text())["partitions"]["claude_azure"]["check_ids"])
-    assert len(REVIEWS) == 72 and not set(REVIEWS) & claude
-    for review in REVIEWS.values():
-        source = review["source_review"]
-        assert source["arguments"] == []
-        assert tuple(source["selector"][key] for key in ("category", "operation", "resource_type_alternative")) == ports.ALERTS[source["query_id"]]

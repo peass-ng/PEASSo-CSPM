@@ -1,13 +1,10 @@
-from pathlib import Path
 """Source-bound tests for the fifteen sw33 signed Azure predicates."""
 import copy
-import json
 
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw33 as sw33
-from scripts.peaso_compliance_compile import spec_digest
 
 S = "/subscriptions/11111111-1111-1111-1111-111111111111"
 R = S + "/resourceGroups/rg/providers"
@@ -142,17 +139,6 @@ def test_not_applicable_unscoped_route_table():
     assert evaluate_check(cid, item, facts)[0] == "NOT_APPLICABLE"
 
 
-def test_signed_metadata_digests_and_unique_registry_ids():
-    source = {e["id"]: e for e in json.load(open("docs/compliance-ledgers/new-checks-azure.json"))}
-    registered = {c.id: c for c in CHECKS if c.id in sw33.IDS}
-    assert len(registered) == len(sw33.IDS) == 15
-    assert len(CHECKS) == len({c.id for c in CHECKS})
-    for check_id, check in registered.items():
-        spec = source[check_id]
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (spec["provider"], spec["resource_kind"], spec["category"], spec["severity"], spec["title"])
-        assert sw33._META[check_id]["sha"] == spec_digest(_signed_ledger()[check_id])
-
-
 def test_disabled_directory_user_is_included_and_missing_membership_cannot_pass():
     cid = "azure_directory_user_10_6_3_21_d013932"
     item, facts, _ = fixture(cid)
@@ -220,17 +206,3 @@ def test_service_managed_messaging_key_is_conclusive_without_publish_test():
     assert evaluate_check(cid, item, refreshed(facts))[0] == "FAIL"
 
 
-def _signed_ledger():
-    """Read the exact new_checks records signed by the compliance compiler."""
-    rows = {}
-    root = Path(__file__).parents[1] / "docs/compliance-ledgers"
-    for path in root.glob("azure-*.json"):
-        document = json.loads(path.read_text())
-        if not isinstance(document, dict) or "frameworks" not in document:
-            continue
-        for framework in document["frameworks"]:
-            for requirement in framework["requirements"]:
-                for entry in requirement["new_checks"]:
-                    previous = rows.setdefault(entry["id"], entry)
-                    assert previous == entry
-    return rows

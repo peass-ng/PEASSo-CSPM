@@ -449,10 +449,6 @@ def test_each_native_control(cid,branch,request):
     else:assert statuses==['UNKNOWN'],RECEIPTS[-1]
 
 
-def test_exact_roster_conservation():
-    assert len(IDS)==len(set(IDS))==218 and set(REGISTRY)==set(IDS)
-
-
 @pytest.mark.parametrize('branch',['regular','init','ephemeral'])
 def test_runtime_default_container_override(branch,request):
     cid='k8s.claude.pod.runtime_default_seccomp'

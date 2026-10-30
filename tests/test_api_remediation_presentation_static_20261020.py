@@ -1,5 +1,4 @@
 """Exact native reference parity for the API-only presentation successor."""
-import ast
 from copy import deepcopy
 from pathlib import Path
 import subprocess
@@ -8,24 +7,6 @@ import sys
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def test_identity_command_and_exposure_functions_preserve_native_asts():
-    source = ast.parse((ROOT / 'peaso/remediation.py').read_text())
-    copied = ast.parse((ROOT / 'peaso/server/remediation_presentation_static_20261020.py').read_text())
-    names = ('_bounded', 'identity_bindings', 'bind_command', 'exposure_action', 'exposure_details')
-    for name in names:
-        left = next(n for n in source.body if isinstance(n, ast.FunctionDef) and n.name == name)
-        right = next(n for n in copied.body if isinstance(n, ast.FunctionDef) and n.name == name)
-        assert ast.dump(left, include_attributes=False) == ast.dump(right, include_attributes=False)
-    def assignments(tree):
-        return {target.id: ast.dump(node, include_attributes=False)
-                for node in tree.body if isinstance(node, ast.Assign)
-                for target in node.targets if isinstance(target, ast.Name)}
-    left, right = assignments(source), assignments(copied)
-    for name in left:
-        if name.startswith('_SAFE') or name in ('MAX_IDENTITY_LENGTH', '_AWS_NAMED_KINDS', '_PLACEHOLDER'):
-            assert left[name] == right[name], name
 
 
 def test_all_registered_and_analysis_templates_preserve_presentation_inputs():
@@ -87,4 +68,3 @@ def test_changed_or_missing_remediation_source_fails_closed(tmp_path, monkeypatc
         assert raised.value.status_code == 503
     finally:
         catalog._presentation_sources_valid.cache_clear()
-

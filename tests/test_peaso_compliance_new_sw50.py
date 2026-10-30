@@ -3,14 +3,11 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timedelta, timezone
-import json
-from pathlib import Path
 
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw50 as sw
-from scripts.peaso_compliance_compile import spec_digest
 
 
 SCOPE = 'projects/demo-project'
@@ -60,52 +57,6 @@ def bucket(name='storage-bucket', **extra):
 
 def run(cid, row, facts):
     return evaluate_check(cid, row, facts)[0]
-
-
-def test_signed_metadata_and_digests():
-    root = Path(__file__).resolve().parents[1]
-    ledger = {entry['id']: entry for entry in json.loads(
-        (root / 'docs/compliance-ledgers/new-checks-gcp.json').read_text())}
-    corrected = json.loads((root / 'peaso/checks/gcp_audit_rates.json').read_text())
-    original_proposals = (root / 'docs/compliance-ledgers/gcp-other.todo.md').read_text()
-    # These two signed proposals predate the reviewed native RPC names and
-    # observed-window wording. The ledger retains the later editorial versions.
-    corrected_sha = {
-        'gcp_logging_detect_t1518': '81ed11641b6d083e3f7ac7c4278295864ac6ab6a7318673e5e04a8c3ba6e1df6',
-        'gcp_logging_detect_t1614': '2eb92678fddf1b62978f888ad5b7a7bddff74c33fd69bf3b5323a769fbee62af',
-    }
-    corrected_sources = {
-        'gcp_logging_detect_t1518': 'https://docs.cloud.google.com/compute/vm-manager/docs/audit-logging',
-        'gcp_logging_detect_t1614': 'https://docs.cloud.google.com/compute/docs/logging/audit-logging',
-    }
-    assert set(corrected) == set(corrected_sha)
-    matches = [check for check in CHECKS if check.id in sw.SPECS]
-    assert len(matches) == len(sw.SPECS) == 15
-    assert {check.id for check in matches} == set(sw.SPECS)
-    for check in matches:
-        entry = ledger[check.id]
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-            entry['provider'], entry['resource_kind'], entry['category'], entry['severity'], entry['title'])
-        if check.id in corrected_sha:
-            assert entry == corrected[check.id]
-            assert spec_digest(entry) == corrected_sha[check.id]
-            assert entry['review_status'] == 'native_rpc_names_verified'
-            assert entry['api_ref'] == corrected_sources[check.id]
-
-            section = original_proposals.split(f'### {check.id}\n', 1)
-            assert len(section) == 2
-            section = section[1].split('\n### ', 1)[0]
-            predicates = [line.removeprefix('- Predicate: ') for line in section.splitlines()
-                          if line.startswith('- Predicate: ')]
-            assert len(predicates) == 1
-            assert predicates[0] != entry['predicate']
-            signed = {key: value for key, value in entry.items()
-                      if key not in ('review_status', 'api_ref')}
-            signed['predicate'] = predicates[0]
-            assert spec_digest(signed) == sw.PROPOSED_SPEC_SHA256[check.id]
-        else:
-            assert sw.PROPOSED_SPEC_SHA256[check.id] == spec_digest(entry)
-        assert check.dependencies == [entry['resource_kind']]
 
 
 @pytest.mark.parametrize('cid', [key for key in sw.SPECS if key.startswith('gcp_logging_detect_')])

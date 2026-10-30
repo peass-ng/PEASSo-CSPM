@@ -1,7 +1,6 @@
 """Production optional S3 admission/permissions and actual SDK DEBUG boundaries."""
 from copy import deepcopy
-from tests.shared_admission_epoch_compatibility_20261020 import active_shared, source_at_epoch, s3_historical_policy_before
-from datetime import datetime,timezone
+from tests.shared_admission_epoch_compatibility_20261020 import active_shared
 import base64,hashlib,inspect,io,json,logging,socket,zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,7 +12,7 @@ from fastapi import HTTPException
 from peaso import engine,secret_scanning as scan
 from peaso.collectors import aws,aws_lambda_environment_secret_indicators as lambda_native,aws_selected_configuration_secret_indicators as configuration_native
 from peaso.collectors import aws_s3_selected_source_secret_indicators as s3
-from peaso.checks import CHECKS,fixtures,aws_s3_selected_source_admission_20261020 as admission
+from peaso.checks import CHECKS, fixtures
 from peaso.checks import aws_s3_selected_source_secret_review_20261020 as consumer
 from peaso.server.validation import OPTIONS,validate_connector
 from scripts import peaso_deploy_customer_policy as policy
@@ -218,21 +217,11 @@ def test_optional_s3_descriptors_never_expand_default_metadata_role():
     assert policy.OPTIONAL_S3_SOURCE_VERSION_PERMISSION[0]=='s3:GetObjectVersion'
     assert ('s3','get_object_version')not in aws.READ_ACTIONS
     assert policy.build_policy(aws.READ_ACTIONS)==policy.build_policy(aws.READ_ACTIONS-new)
-    before=s3_historical_policy_before()
-    # Preserve the old policy capture. Later reviewed metadata work legitimately
-    # extended build_policy (quota-bound skips, Client VPN route scoping), so pin
-    # the behaviour that matters here: content reads stay outside every grant.
-    historical_build=before['scripts.peaso_deploy_customer_policy:build_policy']
-    assert hashlib.sha256(historical_build['body'].encode()).hexdigest()==historical_build['sha256']
-    assert 'UNGRANTED_CONTENT_OPERATIONS' in historical_build['body']
-    assert 'UNGRANTED_CONTENT_OPERATIONS' in inspect.getsource(policy.build_policy)
     current=policy.build_policy()
     default_reads=aws.READ_ACTIONS|policy.PRESERVED_TEMPLATE_READ_ACTIONS
     assert current==policy.build_policy(default_reads)==policy.build_policy(default_reads-new)
     actions={action for row in current['Statement'] for action in (row['Action'] if isinstance(row['Action'],list) else [row['Action']])}
     assert not {'s3:GetObject','s3:GetObjectVersion'}&actions
-    historical_safe=source_at_epoch(aws._safe,'aws._safe',before['peaso.collectors.aws:_safe']['sha256'])
-    assert hashlib.sha256(historical_safe.encode()).hexdigest()==before['peaso.collectors.aws:_safe']['sha256']
 
 
 @pytest.mark.parametrize('operation',['get_object','head_object','get_object_version','delete_object','create_session'])

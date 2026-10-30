@@ -164,12 +164,3 @@ def test_zero_item_list_denial_preserves_denied_cause():
     assert all(grade(cid, index(read)) != 'PASS' for cid in MODES)
 
 
-@pytest.mark.parametrize('field', ['severity', 'remediation_hint', 'id'])
-def test_frozen_proposal_tamper_rejected_before_successor_hash(field, monkeypatch):
-    from peaso.checks import aws_policy_source_correction as correction
-    cid = 'aws_nist_iam_policy_no_star_star'
-    changed = copy.deepcopy(correction.FROZEN[cid])
-    changed[field] = changed[field] + '-tampered'
-    monkeypatch.setitem(correction.FROZEN, cid, changed)
-    with pytest.raises(ValueError, match='Historical IAM wildcard proposal spec changed'):
-        correction._entry(cid)

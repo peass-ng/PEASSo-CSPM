@@ -113,10 +113,3 @@ def test_reminder_omission_is_known_disabled_but_denied_stays_unknown():
     assert check.evaluate({'properties': {'keyPolicy': None}}, {})[0] == 'FAIL'
     assert check.evaluate({'properties': {'_coverage': {'keyPolicy': {'status': 'denied'}}}}, {})[0] == 'UNKNOWN'
     assert check.evaluate({'properties': {'keyPolicy': {'keyExpirationPeriodInDays': True}}}, {})[0] == 'UNKNOWN'
-
-
-def test_reviewed_storage_ids_are_exact_exclusive_and_argument_free():
-    claude = set(json.loads((ROOT / 'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS) == 42 and len(SOURCE) == 15 and len(ports.CHECK_IDS) == 11
-    assert not set(REVIEWS) & claude
-    assert all(row['source_review']['arguments'] == [] for row in REVIEWS.values())

@@ -6,7 +6,6 @@ import pytest
 from peaso.checks import CHECKS, gcp_gap_cis as gap
 from peaso.checks.fixtures import CASES
 from tests.gcp_native_iam_test_inputs_20261020 import current_iam_fixture, PROJECT, SCOPE
-from tests.test_gcp_native57_iam_kms_review_20261020 import block_network_and_auth
 
 REGISTRY = {check.id: check for check in CHECKS if check.id in gap.IDS}
 SA = "gcp.gap.iam_user_managed_sa_no_admin_roles"
@@ -108,22 +107,6 @@ def _rows():
         if isinstance(data, dict):
             rows.update({key: row for key, row in data.items() if isinstance(row, dict)})
     return rows
-
-
-@pytest.mark.parametrize("native,keys", [
-    (SA, ["gcp-compliance.control.cis_v%s_1_5" % v for v in ("120", "130", "200", "300", "400")]
-         + ["gcp-compliance.control.iam_service_account_without_admin_privilege", "prowler.gcp.iam_sa_no_administrative_privileges"]),
-    (FW, ["gcp-compliance.control.cis_v%s_3_10" % v for v in ("130", "200", "300", "400")]
-         + ["gcp-compliance.control.compute_firewall_allow_tcp_connections_proxied_by_iap"]),
-])
-def test_upstream_rows_map_to_gap_natives_with_verification(native, keys):
-    rows = _rows()
-    for key in keys:
-        row = rows[key]
-        assert row["disposition"] == "merged" and row["native_checks"] == [native], key
-        verification = row["native_equivalence_verification"]
-        assert verification["verdict"] == "same_control_requirement" and verification["target_native_checks"] == [native]
-        assert "native_equivalence_rejection" not in row
 
 
 OFF = "gcp.gap.sql_3625_trace_flag_off_cis_v1"

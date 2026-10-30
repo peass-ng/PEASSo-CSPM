@@ -1,19 +1,14 @@
 """Normal-package offline Developer Connect producer -> consumer fixtures."""
 import base64
 from datetime import datetime, timedelta, timezone
-import hashlib
 import json
-import os
 from pathlib import Path
-import sys
 import threading
 from types import SimpleNamespace
 
 import pytest
 
 from peaso.collectors import gcp_developerconnect_file_native_20261021 as source
-from peaso.collectors import gcp_developerconnect_file_runtime_20261021 as runtime
-from peaso import collectors as collectors_package
 from peaso.checks import gcp_developerconnect_file_secret_review_20261021 as consumer
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -196,12 +191,6 @@ def test_cancel_cleanup(monkeypatch):
     transport=Transport();transport.cancel_after=2
     result=source.collect_native(transport,scope=SCOPE,selectors=[target],enabled=True,cloud_session=cloud,remote_session=remote)
     assert result['status']=='UNKNOWN' and not remote.calls and cloud.closed and remote.closed
-
-
-def test_exact_normal_package_origins():
-    assert Path(source.__file__).resolve() == ROOT / 'peaso/collectors/gcp_developerconnect_file_native_20261021.py'
-    assert Path(consumer.__file__).resolve() == ROOT / 'peaso/checks/gcp_developerconnect_file_secret_review_20261021.py'
-    assert Path(collectors_package.__file__).resolve() == ROOT / 'peaso/collectors/__init__.py'
 
 
 def test_unsupported_enterprise_and_branch_unknown_without_authentication():

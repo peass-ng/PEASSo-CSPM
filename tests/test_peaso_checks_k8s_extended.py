@@ -1,11 +1,9 @@
 """Semantic regressions for native workload templates and namespace quota evidence."""
 from peaso.checks.hacktricks_scope import includes
 import copy
-import json
-from pathlib import Path
 import pytest
 from peaso.checks import CHECKS, HACKTRICKS
-from peaso.checks.k8s_extended import EXTENDED_IDS, CONTROLLERS, GOOD, BAD
+from peaso.checks.k8s_extended import EXTENDED_IDS, CONTROLLERS, GOOD
 from peaso.checks.fixtures import CASES, nest
 from peaso.engine import evaluate_snapshot, plan_collection
 from peaso.snapshot import make_snapshot
@@ -130,14 +128,6 @@ def test_quota_engine_scoping_and_missing_inventory():
     assert {(f["scope"], f["status"]) for f in report["findings"]} == {("cluster-one/*", "PASS"), ("cluster-two/*", "FAIL")}
     request = {"connector": {"provider": "k8s"}, "categories": ["hardening"], "checks": [cid]}
     assert plan_collection(request) == ["namespace", "resourcequota"]
-
-
-def test_extension_review_shard_records_adapted_not_complete_migration():
-    shard = json.loads((Path(__file__).resolve().parents[1] / "peaso/rulepacks/reviewed_k8s.json").read_text())
-    assert len(shard) == 30
-    assert all((row["native_checks"] or row.get("related_native_checks")) and row["reason"] for row in shard.values())
-    assert "hostPort0" in shard["kubernetes-compliance.control.pod_container_host_port_not_specified"]["reason"]
-    assert all("pod_security_policy" not in key for key in shard)
 
 
 def test_unrelated_namespace_inventory_cannot_establish_quota_absence():

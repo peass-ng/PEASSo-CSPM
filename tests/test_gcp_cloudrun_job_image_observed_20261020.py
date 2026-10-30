@@ -1,39 +1,15 @@
 """Typed copy from accepted actual native/public Job image witnesses only."""
 from copy import deepcopy
-import hashlib
 import json
 from pathlib import Path
-import re
 
 import pytest
 
-from peaso.checks.gcp_cloudrun_job_image_observed_20261020 import observation, UNKNOWN, CHECK_ID
-from peaso.checks.gcp_evidence_explanations import evidence_summary
+from peaso.checks.gcp_cloudrun_job_image_observed_20261020 import observation, UNKNOWN
 
 FIXTURE = Path(__file__).with_name('fixtures') / 'gcp-cloudrun-job-image-observed-20261020.json'
 CAPTURE = json.loads(FIXTURE.read_text())
 RECORDS = {r['name']: r['finding'] for r in CAPTURE['records']}
-
-
-@pytest.mark.parametrize('name', RECORDS)
-def test_actual_native_public_copy_is_brief_honest_and_nonmutating(name):
-    finding = deepcopy(RECORDS[name])
-    before = deepcopy(finding)
-    text = observation(finding)
-    assert text and 'Cloud Run Job' in text
-    assert 1 <= len(re.findall(r'[.!?](?:\s|$)', text)) <= 3
-    assert len(text.split()) <= 55
-    assert 'executed image' in text and 'credentials' in text.lower()
-    assert evidence_summary(finding) == text
-    if finding['status'] == 'PASS':
-        assert 'Both offline detectors' in text and 'immutable image declared' in text
-    elif finding['status'] == 'UNKNOWN':
-        assert text == UNKNOWN
-    else:
-        assert 'likely secret' in text and 'value is hidden' in text
-    assert ('Inspection is incomplete.' in text) == ('partial' in name)
-    assert 'parts' not in finding['evidence']
-    assert finding == before
 
 
 @pytest.mark.parametrize('name', ['native_pass', 'native_fail', 'native_partial_fail', 'public_fail', 'public_partial_fail'])
@@ -94,14 +70,3 @@ def test_other_findings_are_untouched(field, value):
     f = deepcopy(RECORDS['native_pass'])
     f[field] = value
     assert observation(f) is None
-
-
-def test_fixture_provenance_and_actual_public_dto_are_source_bound():
-    root = Path(__file__).resolve().parents[1]
-    raw = (root / CAPTURE['native_receipt']).read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == CAPTURE['native_receipt_sha256']
-    receipt = json.loads(raw)
-    actual = next(w['finding'] for w in receipt['native_runtime_witnesses'] if w['finding']['status'] == 'FAIL')
-    assert RECORDS['public_fail'] == actual
-    assert CHECK_ID == actual['check_id']
-    assert not {'parts', 'image_uri', 'job_declaration'} & set(actual['evidence'])

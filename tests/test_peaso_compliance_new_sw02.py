@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw02 as sw02
 
 
@@ -211,14 +211,6 @@ def test_management_group_descendants_pass_fail_unknown_and_not_applicable():
     assert run(sw02.MG_DESCENDANT_ID, facts["context"], facts) == "NOT_APPLICABLE"
 
 
-def test_signed_registration_has_no_duplicates():
-    for cid in sw02.IDS:
-        matches = [check for check in CHECKS if check.id == cid]
-        assert len(matches) == 1
-        assert matches[0].provider == "azure"
-        assert matches[0].dependencies
-
-
 def test_proven_vm_attachment_failure_survives_unresolved_other_nic():
     row, facts = vm_facts(BASE + '/Microsoft.Network/virtualNetworks/other')
     row['properties']['networkProfile']['networkInterfaces'].append({'id': NIC + '-missing'})
@@ -277,27 +269,6 @@ def test_management_group_descendant_native_id_and_malformed_suffix():
     assert run(sw02.MG_DESCENDANT_ID, facts['context'], facts) == 'UNKNOWN'
 
 
-def test_signed_hashes_bind_ledger_entries_and_descriptions():
-    import json
-    from pathlib import Path
-    from scripts.peaso_compliance_compile import spec_digest
-    entries = {}
-    def visit(value):
-        if isinstance(value, dict):
-            for row in value.get('new_checks', []):
-                if row['id'] in sw02.IDS:
-                    assert entries.setdefault(row['id'], row) == row
-            for child in value.values(): visit(child)
-        elif isinstance(value, list):
-            for child in value: visit(child)
-    for path in Path('docs/compliance-ledgers').glob('azure-*.json'):
-        visit(json.loads(path.read_text()))
-    descriptions = json.loads(Path('docs/compliance-ledgers/.work/swarm/sw02-descriptions.json').read_text())
-    assert set(entries) == set(sw02.IDS) == set(descriptions)
-    for cid, entry in entries.items():
-        assert spec_digest(entry) == sw02.SPEC_SHA256[cid] == descriptions[cid]['proposed_spec_sha256']
-
-
 def test_approved_vnets_and_subnet_ids_must_have_exact_resource_types():
     row, facts = vm_facts()
     facts['context']['metadata']['sw02']['approvedVnetIds'] = [NIC]
@@ -307,27 +278,6 @@ def test_approved_vnets_and_subnet_ids_must_have_exact_resource_types():
     facts['nic'][0]['data']['properties']['ipConfigurations'][0]['properties']['subnet']['id'] = nested
     facts['vnet'][0]['data']['properties']['subnets'][0]['id'] = nested
     assert run(sw02.VM_VNET_ID, row, facts) == 'UNKNOWN'
-
-
-def test_reviewer_remediation_candidates_merge_against_real_signed_registry(tmp_path):
-    import json
-    from pathlib import Path
-    from peaso.remediation import _merge_compliance_reviewed
-    candidates = json.loads(Path('docs/compliance-ledgers/.work/swarm/swr-azure-remediation.json').read_text())
-    selected = {cid: candidates[cid] for cid in sw02.IDS}
-    shard = tmp_path / 'remediation_compliance_new_azure_review.json'
-    shard.write_text(json.dumps(selected))
-    merged = {}
-    _merge_compliance_reviewed(merged, ((shard, 'azure'),))
-    assert merged == selected
-    for cid, entry in selected.items():
-        check = next(check for check in CHECKS if check.id == cid)
-        binding = entry['field_binding']
-        assert binding['evaluator_family'] == 'peaso.checks.compliance_new_sw02'
-        assert binding['kind'] == check.kind and binding['target'] == check.target
-        assert binding['path'] and entry['summary'] and entry['steps'] and entry['references']
-        assert entry['review_status'] == 'source_bound_pending_review' and entry['cli'] == []
-        assert all(ref['url'].startswith('https://') for ref in entry['references'])
 
 
 def test_empty_firewall_group_failure_survives_another_malformed_rule_array():

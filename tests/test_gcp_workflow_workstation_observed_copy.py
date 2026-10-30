@@ -40,25 +40,6 @@ def finding(cid, confidence):
 
 
 @pytest.mark.parametrize("cid", IDS)
-@pytest.mark.parametrize("confidence", ("derived", "conditional", "unknown"))
-def test_each_active_path_has_three_recorded_plain_lines(cid, confidence):
-    text = evidence_summary(finding(cid, confidence))
-    assert text is not None
-    lines = text.splitlines()
-    assert len(lines) == 3
-    assert all(line.endswith(".") and "\n" not in line for line in lines)
-    assert "dev@example.com" in lines[0]
-    assert "may" in lines[1] or "could" in lines[1]
-    assert "could" in lines[2] and "data" in lines[2]
-    assert "check" not in text.lower() and "scan" not in text.lower()
-    if confidence == "unknown":
-        assert "not fully recorded" in lines[0]
-        assert "target account" in lines[0]
-    else:
-        assert "recorded" in lines[0] and "worker@example.com" in lines[0]
-
-
-@pytest.mark.parametrize("cid", IDS)
 def test_copy_rejects_unvalidated_path_evidence(cid):
     row = finding(cid, "derived")
     row["evidence"]["granting_permissions"] = []

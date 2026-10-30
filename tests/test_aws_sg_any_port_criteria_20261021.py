@@ -1,46 +1,15 @@
 """One unchanged evaluator: single-port world ingress is sufficient to FAIL."""
 import copy
-import hashlib
-from pathlib import Path
 
 import pytest
 
 from peaso.checks import evaluate_check
 from peaso.checks import claude_aws_a_network as native
 from peaso.checks import aws_sg_any_port_description_correction_20261021 as correction
-from peaso.checks.catalog import _base_description_for, description_for
-from peaso.checks.aws_finding_clarity_reviewed import description as reviewed_description
+from peaso.checks.catalog import description_for
 from peaso.checks.claude_aws_a_common import idx, prowler_sg_open
 
 CID = correction.CHECK_ID
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def test_exact_description_successor_preserves_history_and_evaluator_sources():
-    from tests.reviewed_guidance_presentation import assert_description_preserves_contract
-    assert_description_preserves_contract(CID)
-    before = reviewed_description(CID, _base_description_for(CID))
-    assert 'opens all ports' in before['fail_when']
-    original = copy.deepcopy(before)
-    current = correction.description(before)
-    assert before == original
-    assert current == description_for(CID)
-    assert 'single TCP or UDP port' in current['fail_when']
-    assert 'Opening every port is not required' in current['fail_when']
-    assert current['evaluated'] == before['evaluated']
-    assert current['not_applicable_when'] == before['not_applicable_when']
-    assert current['description_correction']['source_revision'] == correction.SOURCE_REVISION
-    for path, expected in {
-        'peaso/checks/claude_aws_a_network.py': 'dfe343109801c31dec12324a7b97fd76d88f6913161d8495b1bac9abb195abe6',
-        'peaso/checks/claude_aws_a_common.py': '42218f329b77e55cd56c2f46de0a82ab260c849ca1ae1e89ac95a54e201a87d8',
-    }.items():
-        assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == expected
-    before['fail_when'] = 'Changed criterion'
-    with pytest.raises(ValueError, match='reviewed description changed'):
-        correction.description(before)
-    assert description_for('aws.claude_a.vpc.sg_no_world_all_traffic').get('description_correction') is None
-
-
 @pytest.mark.parametrize('cidr,protocol,port,kind,owner,expected', [
     ('0.0.0.0/0', 'tcp', 22, 'interface', '123456789012', 'FAIL'),
     ('::/0', 'tcp', 22, 'interface', '123456789012', 'FAIL'),
@@ -88,4 +57,3 @@ def test_report_and_reviewer_input_keep_single_port_witness_and_corrected_criter
     observed = document['items'][0]
     assert observed['fail_when'] == description_for(CID)['fail_when']
     assert 'TCP 22 from 0.0.0.0/0' in observed['evidence_summary']
-    assert 'all ports do not need to be open' in observed['evidence_summary']

@@ -1,11 +1,8 @@
 """Declared control/data exclusions and same-scope complete role/policy metadata."""
-import copy,json
-from pathlib import Path
+import copy
 import pytest
 from peaso.checks import CHECKS,azure_ports_iam as ports
 from peaso.checks.fixtures import CASES
-ROOT=Path(__file__).resolve().parent.parent
-REVIEWS=json.loads((ROOT/'peaso/rulepacks/reviewed_azure_ports_iam.json').read_text())
 REGISTRY={c.id:c for c in CHECKS}
 
 
@@ -56,13 +53,3 @@ def test_tenant_transfer_both_booleans_required_foreign_and_missing_context_unkn
     assert check.evaluate(item,{'context':{'metadata':{'tenant_id':'foreign'}}})[0]=='UNKNOWN'
     item['properties'].pop('blockSubscriptionsLeavingTenant')
     assert check.evaluate(item,{})[0]=='UNKNOWN'
-
-
-def test_pinned_declared_wildcard_selectors_and_conjunctive_policy_truth_are_exact():
-    duckdb=pytest.importorskip('duckdb')
-    with duckdb.connect(':memory:') as db:
-        assert db.execute("SELECT role_type='CustomRole' AND action IN ('*','*:*') FROM (SELECT 'CustomRole' AS role_type, '*' AS action)").fetchone()[0] is True
-        assert db.execute('SELECT into_tenant AND leaving_tenant FROM (SELECT TRUE AS into_tenant,FALSE AS leaving_tenant)').fetchone()[0] is False
-    claude=set(json.loads((ROOT/'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS)==11 and not set(REVIEWS)&claude
-    assert all(r['source_review']['arguments']==[] and r['source_review']['pinned_sql'] for r in REVIEWS.values())

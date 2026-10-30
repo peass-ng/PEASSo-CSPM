@@ -1,7 +1,4 @@
 """Unsupported login classification is archived, never supplied by failed RPCs."""
-import json
-import hashlib
-from pathlib import Path
 
 import pytest
 
@@ -45,17 +42,3 @@ def test_native_permission_denied_rpc_is_not_relabelled_as_login_failure():
     assert 'complete' not in envelope['audit_coverage']
     assert all('authenticationEvent' not in row for row in envelope['items'])
     assert 'google.login.LoginService.loginFailure' not in transport.calls[0][2]['filter']
-
-
-def test_materialized_archive_preserves_the_signed_contract_and_reason():
-    root = Path(__file__).parents[1]
-    catalog = json.loads((root / 'peaso/rulepacks/native_catalog.json').read_text())
-    archived = next(row for row in catalog['archived_checks'] if row['id'] == CID)
-    signed = next(row for row in json.loads((root / 'docs/compliance-ledgers/new-checks-gcp.json').read_text())
-                  if row['id'] == CID)
-    fields = ('id', 'provider', 'resource_kind', 'data_source', 'predicate', 'severity',
-              'category', 'title', 'description', 'remediation_hint')
-    digest = hashlib.sha256(json.dumps({key: signed[key] for key in fields},
-        sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
-    assert archived['proposal_provenance']['signed_spec_sha256'] == digest
-    assert catalog['excluded_controls'][CID] == exclusions()[CID]

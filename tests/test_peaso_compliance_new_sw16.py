@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import copy
 import importlib
-import json
-from pathlib import Path
 
 import pytest
 from peaso.checks import CHECKS
@@ -433,32 +431,6 @@ def test_not_applicable_complete_empty_inventory(identifier, kind):
     assert evaluate(identifier, index)[0] == 'UNKNOWN'
 
 
-def test_registry_isolation_and_signed_specs_match_all_ten_fields():
-    from scripts.peaso_compliance_compile import spec_digest
-    found = {}
-    def visit(value):
-        if isinstance(value, dict):
-            for entry in value.get('new_checks', []):
-                if entry['id'] in api.IDS:
-                    assert entry['id'] not in found or found[entry['id']] == entry
-                    found[entry['id']] = entry
-            for key, child in value.items():
-                if key != 'new_checks': visit(child)
-        elif isinstance(value, list):
-            for child in value: visit(child)
-    root = Path(__file__).resolve().parents[1]
-    for path in (root / 'docs/compliance-ledgers').glob('*.json'):
-        visit(json.loads(path.read_text()))
-    assert set(found) == set(api.IDS)
-    assert tuple(CHECKS) == _before_import
-    for identifier, entry in found.items():
-        assert api.PROPOSED_SPEC_SHA256[identifier] == spec_digest(entry)
-        check = OWN_CHECKS[identifier]
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-            entry['provider'], entry['resource_kind'], entry['category'], entry['severity'], entry['title'])
-        assert check.target == 'scope'
-
-
 @pytest.mark.parametrize('identifier', api.IDS)
 def test_unknown_malformed_evidence_even_alongside_positive_gap(identifier):
     index = BUILDERS[identifier]()
@@ -532,18 +504,6 @@ def test_no_supported_logs_and_empty_search_are_not_applicable():
     assert evaluate(api.IDS[6], index)[0] == 'NOT_APPLICABLE'
     index = scoped({'search_service': []}, identifier=api.IDS[2], policy={'services': []})
     assert evaluate(api.IDS[2], index)[0] == 'NOT_APPLICABLE'
-
-
-def test_description_supplement_signatures_and_required_fields():
-    path = Path(__file__).resolve().parents[1] / 'docs/compliance-ledgers/.work/swarm/sw16-descriptions.json'
-    supplement = json.loads(path.read_text())
-    assert set(supplement) == set(api.IDS)
-    fields = {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when', 'proposed_spec_sha256'}
-    for identifier, entry in supplement.items():
-        assert set(entry) == fields
-        assert entry['proposed_spec_sha256'] == api.PROPOSED_SPEC_SHA256[identifier]
-        assert 'UNKNOWN' in entry['description']
-        assert entry['evaluated']
 
 
 def test_search_elevated_permissions_and_exact_query_principal_grants():

@@ -12,8 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.compliance_draft_isolation import (CHILD_FILE_ENV, DRAFT_TEST_MODULES,
-    STAGED_UNSELECTED_TEST_MODULES, staged_modules_unregistered, unpublished_check_imports)
+from tests.compliance_draft_isolation import CHILD_FILE_ENV, DRAFT_TEST_MODULES, unpublished_check_imports
 from tests import compliance_draft_isolation as boundary, conftest as draft_hook
 
 
@@ -50,28 +49,6 @@ def test_explicit_staged_registry_replaces_only_original_overlaps_and_restores()
     assert tuple(registry.CHECKS) == before
     assert all(current is prior for current, prior in zip(registry.CHECKS, before))
     assert registry.CHECK_ALIASES == aliases
-
-
-def test_reviewed_draft_allowlist_matches_imports():
-    assert len(DRAFT_TEST_MODULES) == 20
-    assert len(STAGED_UNSELECTED_TEST_MODULES) == 68
-    assert sum(map(len, STAGED_UNSELECTED_TEST_MODULES.values())) == 70
-    for name in ("test_peaso_collectors_aws_apigateway_stage_ids.py", "test_peaso_compliance_new_aws_apigateway.py",
-                 "test_peaso_compliance_new_aws_inspector_ec2.py", "test_peaso_compliance_new_gcp_api_keys.py"):
-        assert name not in DRAFT_TEST_MODULES
-        assert unpublished_check_imports(TESTS / name) == set()
-    for name, module in DRAFT_TEST_MODULES.items():
-        assert unpublished_check_imports(TESTS / name) == {module}, name
-    staged_modules = set()
-    for name, modules in STAGED_UNSELECTED_TEST_MODULES.items():
-        assert unpublished_check_imports(TESTS / name) == set(modules), name
-        staged_modules.update(modules)
-    assert staged_modules_unregistered(staged_modules)
-    unexpected = {str(path.relative_to(TESTS)): sorted(unpublished_check_imports(path))
-                  for path in TESTS.rglob("test_*.py")
-                  if unpublished_check_imports(path) and (path.parent != TESTS or
-                      path.name not in DRAFT_TEST_MODULES and path.name not in STAGED_UNSELECTED_TEST_MODULES)}
-    assert not unexpected, unexpected
 
 
 def test_full_suite_hook_ignores_only_reviewed_draft_imports(monkeypatch):

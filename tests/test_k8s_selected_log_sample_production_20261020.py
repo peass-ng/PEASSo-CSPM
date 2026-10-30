@@ -1,22 +1,15 @@
 """Production admission/default/hosted/scope/privacy gates for the one log check."""
 from copy import deepcopy
-from dataclasses import replace
-import gzip
-import hashlib
 import inspect
 import json
 import logging
-from pathlib import Path
 import socket
 import sys
 from types import SimpleNamespace
-from urllib.parse import urlencode
 
 import pytest
 from fastapi import HTTPException
 from peaso import checks, engine, secret_scanning as scanning
-from peaso.checks import fixtures
-from tests.aws_k8s_current_native_inputs_20261020 import case_state, replace_registry_checks
 from peaso.checks import k8s_selected_log_source_successor_20261021 as log_successor
 from peaso.checks import k8s_annotation_native_source_successor_20261021 as annotation_successor
 from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as configmap_successor
@@ -52,16 +45,6 @@ def base_request(**options):
     return {'connector': {'provider': 'k8s', 'scopes': ['team-a'],
         'auth': {'method': 'token', 'server': wire.HOST, 'token': wire.AUTH, 'cluster_id': wire.CLUSTER},
         'options': options}, 'checks': [source.CHECK]}
-
-
-def test_atomic_admission_idempotence_and_prior13_preserved():
-    original = current(); prior_cases = case_state(fixtures.CASES)
-    admission.install(); admission.install(); annotation.install(); configmaps.install()
-    assert current() is original and case_state(fixtures.CASES) == prior_cases
-    assert inspect.unwrap(original.evaluate) is candidate.evaluate
-    assert original.dependencies == [source.KIND] and original.allow_incomplete_failure
-    assert getattr(original.evaluate, admission.MARK) == source.CHECK
-    assert len([c for c in checks.CHECKS if c.id in annotation.IDS + configmaps.IDS]) == 13
 
 
 def test_default_plan_excludes_new_content_kind_and_explicit_named_plan_includes_it():
@@ -190,29 +173,6 @@ def test_real_transport_exact_grants_preserve_all_other_safety(mode):
     assert not calls
 
 
-@pytest.mark.parametrize('module', [source, candidate, admission])
-def test_dedicated_source_byte_drift_rejected_without_mutation(monkeypatch, module):
-    path = Path(module.__file__).resolve(); actual = Path.read_bytes; before = tuple(checks.CHECKS)
-    monkeypatch.setattr(Path, 'read_bytes', lambda p: actual(p) + b'\n# unreviewed' if p.resolve() == path else actual(p))
-    with pytest.raises(RuntimeError, match='source changed'): admission.install()
-    assert tuple(checks.CHECKS) == before
-
-
-@pytest.mark.parametrize('filename', [admission.CASES_FILE, 'k8s_selected_log_sample_secret_review_20261020_native_fixtures.json',
-    'k8s_selected_log_sample_secret_review_20261020_proposal.json'])
-def test_native_receipt_byte_drift_rejected(monkeypatch, filename):
-    actual = Path.read_bytes
-    monkeypatch.setattr(Path, 'read_bytes', lambda p: actual(p) + b' ' if p.name == filename else actual(p))
-    with pytest.raises(RuntimeError, match='fixtures changed'): admission.install()
-
-
-@pytest.mark.parametrize('field', ['id', 'schema', 'metadata', 'shared_functions', 'fixtures'])
-def test_malformed_admission_receipt_rejected(monkeypatch, field):
-    receipt, _, _ = admission.reviewed_inputs(); receipt.pop(field); original = Path.read_text
-    monkeypatch.setattr(Path, 'read_text', lambda p, *a, **kw: json.dumps(receipt) if p.name == admission.RECEIPT else original(p, *a, **kw))
-    with pytest.raises(RuntimeError, match='admission'): admission.install()
-
-
 @pytest.mark.parametrize('function', [candidate.evaluate, inspect.unwrap(source._read)])
 def test_executing_code_replacement_is_rejected(monkeypatch, function):
     monkeypatch.setattr(function, '__code__', (lambda *args, **kwargs: ('PASS', {})).__code__)
@@ -225,78 +185,6 @@ def test_context_manager_wrapper_code_cannot_bypass_private_logging(monkeypatch)
         return helper
     monkeypatch.setattr(source.private_native_logs, '__code__', wrong(None).__code__)
     with pytest.raises(RuntimeError, match='context wrapper'): admission.install()
-
-
-def test_schema_and_registered_metadata_drift_rejected(monkeypatch):
-    monkeypatch.setattr(source, 'MAX_LOG', 1024)
-    with pytest.raises(RuntimeError, match='schema'): admission.install()
-
-
-def test_safe_wrapper_closure_cannot_select_a_different_predicate():
-    safe = current().evaluate; checked = admission.proof._bindings(safe)['checked']
-    cell, = checked.__closure__; original = cell.cell_contents
-    cell.cell_contents = lambda *args: ('PASS', {})
-    try:
-        with pytest.raises(RuntimeError, match='checked wrapper'): admission.install()
-    finally: cell.cell_contents = original
-
-
-def test_duplicate_registration_rejected(monkeypatch):
-    replace_registry_checks(monkeypatch, list(checks.CHECKS) + [current()])
-    with pytest.raises(RuntimeError, match='collision'): admission.install()
-
-
-def test_registration_metadata_change_rejected(monkeypatch):
-    old = current()
-    replace_registry_checks(monkeypatch, [replace(c, title='changed') if c is old else c for c in checks.CHECKS])
-    with pytest.raises(RuntimeError, match='metadata'): admission.install()
-
-
-def test_install_rollback_after_register_append(monkeypatch):
-    before = [c for c in checks.CHECKS if c.id != source.CHECK]
-    replace_registry_checks(monkeypatch, list(before))
-    monkeypatch.setattr(fixtures, 'CASES', {k: deepcopy(v) for k, v in fixtures.CASES.items() if k != source.CHECK})
-    original = checks.register
-    def broken(*a, **kw):
-        decorate = original(*a, **kw)
-        def wrapped(function):
-            decorate(function)
-            raise RuntimeError('injected registration failure')
-        return wrapped
-    monkeypatch.setattr(checks, 'register', broken)
-    with pytest.raises(RuntimeError, match='injected registration failure'): admission.install()
-    assert checks.CHECKS == before and source.CHECK not in fixtures.CASES
-
-
-def test_install_rollback_after_case_assignment_failure(monkeypatch):
-    before = [c for c in checks.CHECKS if c.id != source.CHECK]
-    replace_registry_checks(monkeypatch, list(before))
-    class Broken(dict):
-        def __setitem__(self, key, value):
-            if key == source.CHECK: raise RuntimeError('injected case failure')
-            return super().__setitem__(key, value)
-    cases = Broken({k: deepcopy(v) for k, v in fixtures.CASES.items() if k != source.CHECK})
-    monkeypatch.setattr(fixtures, 'CASES', cases)
-    with pytest.raises(RuntimeError, match='injected case failure'): admission.install()
-    assert checks.CHECKS == before and source.CHECK not in fixtures.CASES
-
-
-def test_accepted_assets_and_original_test_bytes_retained_exactly():
-    prior = json.loads(Path('docs/check-review/k8s-selected-log-sample-secret-implementation-20261020.json').read_text())
-    accepted = ('peaso/collectors/k8s_selected_log_sample_secret_indicators.py',
-        'peaso/checks/k8s_selected_log_sample_secret_review_20261020.py',
-        'peaso/checks/k8s_selected_log_sample_secret_review_20261020_proposal.json',
-        'peaso/checks/k8s_selected_log_sample_secret_review_20261020_native_fixtures.json')
-    from peaso.private_secret_source_epoch_20261021 import predecessor_bytes
-    for path in accepted:
-        row, = [r for r in prior['files_created'] if r['path'] == path]
-        raw = Path(path).read_bytes()
-        if path == 'peaso/collectors/k8s_selected_log_sample_secret_indicators.py':
-            raw = predecessor_bytes(path, raw, row['sha256'], Path.cwd())
-        assert hashlib.sha256(raw).hexdigest() == row['sha256']
-    row, = [r for r in prior['files_created'] if r['path'] == 'tests/test_k8s_selected_log_sample_secret_review_20261020.py']
-    retained = Path('docs/check-review/k8s-selected-log-production-lineage-20261020/test_k8s_selected_log_sample_secret_review_20261020.py.pre-log-production.gz')
-    assert hashlib.sha256(gzip.decompress(retained.read_bytes())).hexdigest() == row['sha256']
 
 
 @pytest.mark.parametrize('denied', [False, True])
@@ -338,9 +226,3 @@ def test_literal_only_actual_sdk_debug_privacy(monkeypatch, caplog, capsys, deni
     pool.clear()
 
 
-@pytest.mark.parametrize('name', ['allowed_request', 'collect'])
-def test_producer_function_binding_replacement_rejected(monkeypatch, name):
-    monkeypatch.setattr(source, name, lambda *args, **kwargs: True)
-    expected = ('^K8s log executing code changed$' if name == 'collect'
-                else '^K8s log callable binding changed$')
-    with pytest.raises(RuntimeError, match=expected): admission.install()

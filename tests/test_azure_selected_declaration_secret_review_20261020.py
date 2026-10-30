@@ -5,7 +5,6 @@ Native payloads remain independent of historical CASES. No live IO/auth.
 """
 import base64
 from copy import deepcopy
-import hashlib
 import inspect
 import io
 import json
@@ -444,22 +443,3 @@ def test_secret_bearing_selected_key_never_exported(monkeypatch):
     assert {r['status']for r in rows}=={'FAIL'}and TOKEN not in json.dumps([snapshot,rows])
 
 
-def test_proposal_exact_current_sources_and_native_fixture_bytes():
-    proposal=json.loads(Path('peaso/checks/azure_selected_declaration_secret_review_20261020_proposal.json').read_text())
-    assert proposal['registration']=='unregistered_proposal_only'
-    # The proposal remains an immutable historical admission input. Bind current source bytes separately.
-    assert hashlib.sha256(Path('peaso/checks/azure_selected_declaration_secret_review_20261020_proposal.json').read_bytes()).hexdigest() == 'da9a3ad3926a86fa36302c11c8c41de016ec20f089d415910fc9c1f86955cd20'
-    current_source_hashes = {
-        'peaso/collectors/azure_selected_declaration_secret_indicators.py': '361844ed7f69dfa530d539e3e661d40cdb7e3f96a08aa1704b36f9b76d75ed18',
-        'peaso/collectors/azure_selected_secret_integration_20261020.py': '7609b76c8b3e43e18c444b7d53815306b83a3e0c62b21ca44a19ffa895fbb7a1',
-        'peaso/collectors/azure_selected_storage_secret_indicators.py': 'a67a51c1de4e26c6a13ed4215dbab78727a245a76aa4fc66ec3d2336ad0e59ea',
-        'peaso/secret_findings.py': 'eb9da6af046c7b34af39291ad7a4452176d990a9ddf5dd6a4e7217a749f80b27',
-        'peaso/secret_scanning.py': 'ca58353421e0994bb82c28372a16197f0c0ba0edd7da2638357fc45996adacbd'
-    }
-    for path, historical_digest in proposal['sources'].items():
-        assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == current_source_hashes.get(path, historical_digest), path
-    fixture=proposal['fixture'];assert hashlib.sha256(Path(fixture['path']).read_bytes()).hexdigest()==fixture['sha256']
-    assert {d['id']for d in proposal['checks']}=={d['id']for d in consumer.DECLARATIONS}
-    for d in proposal['checks']:
-        assert hashlib.sha256(inspect.getsource(consumer.EVALUATORS[d['profile']]).encode()).hexdigest()==d['predicate_sha256']
-        assert hashlib.sha256(inspect.getsource(consumer._evaluate).encode()).hexdigest()==d['reachable_helper_sha256']

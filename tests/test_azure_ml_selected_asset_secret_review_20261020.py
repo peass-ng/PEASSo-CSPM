@@ -4,7 +4,6 @@ Original proposed bridge bytes are preserved in a separate historical gzip artif
 """
 import base64
 from copy import deepcopy
-import hashlib
 import inspect
 import io
 import json
@@ -14,11 +13,9 @@ from pathlib import Path
 import socket
 import time
 from types import SimpleNamespace
-from urllib.parse import quote
 import pytest
-from peaso import checks,collectors,engine,secret_scanning as scanning
+from peaso import checks, engine, secret_scanning as scanning
 from peaso.collectors import azure
-from peaso.collectors import azure_databricks_notebook_secret_indicators as admitted
 from peaso.collectors import azure_ml_selected_asset_secret_indicators as source
 from peaso.checks import azure_ml_selected_asset_secret_review_20261020 as consumer
 
@@ -494,35 +491,6 @@ def test_conflicting_http_framing_never_clean(monkeypatch,profile):
         return r
     snapshot,rows,trace=collect(monkeypatch,profile,fault=conflict)
     assert {r['status']for r in rows}=={'UNKNOWN'}and not trace.scans
-
-
-@pytest.mark.parametrize('profile',['environment','code'])
-@pytest.mark.parametrize('branch',['PASS','FAIL','UNKNOWN'])
-def test_source_bound_proposal_actual_native_evaluator_fixture(profile,branch):
-    base='peaso/checks/azure_ml_selected_asset_secret_review_20261020'
-    proposal=json.loads(Path(base+'_proposal.json').read_text())
-    assert proposal['registration']=='unregistered_proposal_only'
-    # The proposal remains an immutable historical admission input. Bind current source bytes separately.
-    assert hashlib.sha256(Path('peaso/checks/azure_ml_selected_asset_secret_review_20261020_proposal.json').read_bytes()).hexdigest() == '9697c97904f2d9f488f2b8e34264d16ba33c95f58ba6875a64552eafa835cf0b'
-    current_source_hashes = {
-        'peaso/checks/azure_ml_selected_asset_secret_review_20261020.py': '35a8d3768fb07ceff272135df5476b51c34f93d519853e640a478e5c76a9d3d7',
-        'peaso/collectors/azure_databricks_notebook_secret_indicators.py': '2c341ba97b78cb309fb5612b0c01ac6c45b2b8039d948268f919e43376e8510a',
-        'peaso/collectors/azure_ml_selected_asset_secret_indicators.py': 'f98e15e23276ceb840159cc98b314f27bdeebe737c15a8d3ede74f685eee6ef1',
-        'peaso/collectors/azure_ml_selected_job_secret_indicators.py': '25c0c9fcea3ee28a25b55a7d22588fbdbca009324c90f65c26945c57eacf7ba4',
-        'peaso/collectors/azure_selected_declaration_secret_indicators.py': '361844ed7f69dfa530d539e3e661d40cdb7e3f96a08aa1704b36f9b76d75ed18',
-        'peaso/collectors/azure_selected_log_sample_secret_indicators.py': '9734c02af422eabb3f1308cdc046713b05a3071d3d29eae3cdc1944d647d695e',
-        'peaso/collectors/azure_selected_secret_integration_20261020.py': '7609b76c8b3e43e18c444b7d53815306b83a3e0c62b21ca44a19ffa895fbb7a1',
-        'peaso/collectors/azure_selected_storage_secret_indicators.py': 'a67a51c1de4e26c6a13ed4215dbab78727a245a76aa4fc66ec3d2336ad0e59ea',
-        'peaso/secret_findings.py': 'eb9da6af046c7b34af39291ad7a4452176d990a9ddf5dd6a4e7217a749f80b27',
-        'peaso/secret_scanning.py': 'ca58353421e0994bb82c28372a16197f0c0ba0edd7da2638357fc45996adacbd'
-    }
-    for path, historical_digest in proposal['sources'].items():
-        assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == current_source_hashes.get(path, historical_digest), path
-    assert hashlib.sha256(Path(proposal['fixture']['path']).read_bytes()).hexdigest()==proposal['fixture']['sha256']
-    fixture=json.loads(Path(proposal['fixture']['path']).read_text())
-    row,=[r for r in fixture['captures']if r['profile']==profile and r['expected_status']==branch]
-    assert getattr(consumer,profile)(row['input']['item'],row['input']['index'])[0]==branch
-    assert len(row['http'])==(3 if branch=='UNKNOWN'else len(source.operations(profile)))
 
 
 def test_file_path_case_alias_is_duplicate_but_blob_paths_remain_distinct():

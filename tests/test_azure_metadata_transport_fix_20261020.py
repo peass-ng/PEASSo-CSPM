@@ -4,7 +4,6 @@ HTTP fixtures are independent native ARM bodies and carry explicit HTTP status;
 no registry overlays, CASES or synthetic completeness facts are injected.
 """
 import base64
-from copy import deepcopy
 import io
 import json
 import os
@@ -167,65 +166,6 @@ def test_existing_oversized_bounded_response_never_decoded(monkeypatch):
     with pytest.raises(azure.AzureReadError,match='response_too_large'):
         transport.request(azure.ARM+SCOPE+'?api-version=2022-12-01',max_response_bytes=3)
     assert response.closed
-
-
-def test_current_transport_source_successor_and_predecessor():
-    import gzip
-    import hashlib
-    import inspect
-    root=Path(__file__).resolve().parents[1]
-    receipt=json.loads((root/'docs/check-review/azure-metadata-transport-source-successor-20261020.json').read_text())
-    original=json.loads(gzip.decompress((root/receipt['predecessor']['path']).read_bytes()))
-    assert original['function']['sha256']==receipt['before']['sha256']
-    for function,row in [(azure.AzureTransport.request,receipt['after']),(azure._strict_native_json,receipt['added_helper'])]:
-        function=inspect.unwrap(function)
-        assert function.__globals__ is vars(azure)
-        current_body = inspect.getsource(function)
-        if function is azure.AzureTransport.request:
-            # The network successor adds only bounded read-only origin and
-            # response projection. Keep the original transport receipt intact.
-            import ast
-            from peaso.private_secret_source_epoch_20261021 import trusted_definition
-            from peaso.checks.private_secret_shared_source_successor_20261021 import _private_before
-            path = 'peaso/collectors/azure.py'
-            proof = trusted_definition(function, root)
-            expected_before = '4ab47f9547363db048e78c5ff2a9322b9b58c39ca0a9df591cbf120d28e806ab'
-            assert proof['historical']['source_sha256'] == expected_before
-            before = _private_before(path, (root / path).read_bytes(), root)
-            tree = ast.parse(before)
-            owner, = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'AzureTransport']
-            method, = [node for node in owner.body if isinstance(node, ast.FunctionDef) and node.name == 'request']
-            lines = before.decode().splitlines(keepends=True)
-            predecessor_body = ''.join(lines[method.lineno - 1:method.end_lineno])
-            assert hashlib.sha256(predecessor_body.encode()).hexdigest() == expected_before
-            current_body = predecessor_body
-            additions = (
-                '        from .azure_network_data import is_network_audience, allowed_route, project_response\n'
-                '        if is_network_audience(audience):\n'
-                '            origin_allowed = body is None and allowed_route(url, audience)\n',
-                '            if is_network_audience(audience):\n'
-                '                value = project_response(value, audience)\n',
-            )
-            for addition in additions:
-                assert current_body.count(addition) == 1
-                current_body = current_body.replace(addition, '', 1)
-        assert hashlib.sha256(current_body.encode()).hexdigest()==row['sha256']
-        assert str(Path(inspect.getsourcefile(function)).relative_to(root))==row['path']
-        # Receipt line numbers belong to that historical module layout. C's
-        # retained full predecessor includes five earlier unrelated lines;
-        # verify its exact callable body/location, not the current line offset.
-        import ast
-        retained=json.loads(gzip.decompress((root/'docs/check-review/azure-nsp-query-cmk-production-predecessors-20261020.json.gz').read_bytes()))
-        module=retained[row['path']]
-        assert hashlib.sha256(module['text'].encode()).hexdigest()==module['sha256']
-        node=ast.parse(module['text'])
-        for part in function.__qualname__.split('.'):
-            node=next(child for child in node.body if isinstance(child,(ast.ClassDef,ast.FunctionDef)) and child.name==part)
-        historical='\n'.join(module['text'].splitlines()[node.lineno-1:node.end_lineno])+'\n'
-        assert historical==row['body']==current_body
-        assert row['symbol']=='peaso.collectors.azure.'+function.__qualname__
-        assert (row['line'],node.lineno)==((1002,1007) if function is azure.AzureTransport.request else (876,881))
-    assert azure.AzureTransport.request.__globals__['_strict_native_json'] is azure._strict_native_json
 
 
 def test_retained_current_native_snapshots_replay_public_engine():

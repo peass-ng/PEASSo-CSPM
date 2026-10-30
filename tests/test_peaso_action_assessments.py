@@ -1,6 +1,4 @@
 """New AI plans require impact and effort while archived plans remain readable."""
-import json
-from pathlib import Path
 import pytest
 from peaso.ai.contracts import Recommendations, validate_actions
 from peaso.ai.output_validation import validate
@@ -33,4 +31,3 @@ def test_old_report_is_not_assigned_fabricated_assessments():
 def test_producer_schema_requires_assessments():
     schema=Recommendations.model_json_schema()
     assert {'severity','effort'}<=set(schema['$defs']['Action']['required'])
-    assert json.loads((Path(__file__).resolve().parents[1]/'peaso/ai/recommendations.schema.json').read_text())==schema

@@ -1,6 +1,5 @@
 """Independent native producer proof for the assigned 37 Compute/GKE controls."""
 from copy import deepcopy
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -54,8 +53,6 @@ def no_network_or_credentials(monkeypatch):
 @pytest.fixture(scope='session', autouse=True)
 def write_receipts():
     ROOT.mkdir(parents=True, exist_ok=True)
-    paths = [Path(__file__), *Path('peaso/checks').glob('*.py'), *Path('peaso/collectors').glob('gcp*.py'), Path('peaso/engine.py')]
-    (ROOT / 'tested-source-hashes.json').write_text(json.dumps({str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}, indent=2) + '\n')
     yield
     (ROOT / 'native-cases.json').write_text(json.dumps(RECEIPTS, indent=2) + '\n')
 

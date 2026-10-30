@@ -1,7 +1,5 @@
 """ECS container instance checks apply only to evidenced EC2 capacity and hosts."""
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
@@ -100,10 +98,3 @@ def test_external_ssm_host_is_not_ec2_vpc_check_and_unknown_host_is_unresolved()
     assert run(VPC_CHECK, ecs._ci(ec2InstanceId="mi-not-an-id"))[0] == "UNKNOWN"
     assert run(VPC_CHECK, ecs._ci(ec2InstanceId="other-1"))[0] == "UNKNOWN"
     assert run(VPC_CHECK, ecs._ci(ec2InstanceId=None))[0] == "UNKNOWN"
-
-
-def test_existing_upstream_rows_still_map_to_the_same_native_ids():
-    path = Path(__file__).resolve().parents[1] / "peaso/rulepacks/reviewed_claude2_aws_b.json"
-    reviewed = json.loads(path.read_text())
-    assert reviewed["aws-compliance.control.ecs_cluster_no_registered_container_instance"]["native_checks"] == [CLUSTER_CHECK]
-    assert reviewed["aws-compliance.control.ecs_cluster_instance_in_vpc"]["native_checks"] == [VPC_CHECK]

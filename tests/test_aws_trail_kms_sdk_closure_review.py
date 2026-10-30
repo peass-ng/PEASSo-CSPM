@@ -13,9 +13,7 @@ from botocore.stub import Stubber
 
 from peaso.collectors import aws
 from peaso.engine import evaluate_snapshot
-from scripts.audit_aws_field_producers import pipeline_source_fingerprint
 
-LOADED_PIPELINE_FINGERPRINT = pipeline_source_fingerprint()
 
 ACCOUNT, REGION = '123456789012', 'us-east-1'
 SCOPE = ACCOUNT + '/' + REGION
@@ -23,14 +21,13 @@ STAMP = datetime(2026, 10, 19, tzinfo=timezone.utc)
 
 
 @pytest.fixture
-def pipeline(monkeypatch, record_property):
+def pipeline(monkeypatch):
     """Real SDK clients and response validation, with every call stubbed locally."""
     session = boto3.Session(aws_access_key_id='offline', aws_secret_access_key='offline', region_name=REGION)
     original_requests = aws.Requests
     runs = []
 
     def collect(kind, responses, *, options=None):
-        assert pipeline_source_fingerprint() == LOADED_PIPELINE_FINGERPRINT, "pipeline changed; rerun in a fresh process"
         calls, clients = [], {}
         requests = original_requests({'retry_attempts': 1, 'service_concurrency': 1, 'max_calls': 300, **(options or {})}, sleep=lambda _: None)
         requests.observed_at = STAMP
@@ -70,24 +67,6 @@ def pipeline(monkeypatch, record_property):
         monkeypatch.setattr(aws, 'Requests', lambda options: requests)
         monkeypatch.setattr(aws, '_session', lambda auth, region: (session, 'offline'))
         snapshot = aws.collect({'provider': 'aws', 'scopes': [ACCOUNT], 'options': options or {}}, [kind] if isinstance(kind, str) else kind)
-        assert pipeline_source_fingerprint() == LOADED_PIPELINE_FINGERPRINT, "pipeline changed during collection; rerun in a fresh process"
-        from scripts.audit_aws_field_producers import field_paths
-        from hashlib import sha256
-        from pathlib import Path
-        test_source = Path(__file__).resolve()
-        for envelope in snapshot['collections']:
-            if not envelope.get('items'):
-                continue
-            paths = sorted(set().union(*(field_paths(row) for row in envelope['items'])))
-            record_property('aws_field_emission', json.dumps({
-                'kind': envelope['type'], 'paths': paths,
-                'test_source': 'tests/' + test_source.name,
-                'test_source_sha256': sha256(test_source.read_bytes()).hexdigest(),
-                'pipeline_source_fingerprint': pipeline_source_fingerprint(),
-                'pipeline': 'botocore Stubber -> Requests.call -> aws.collect -> validated public snapshot',
-                'operations': sorted({service + ':' + operation for service, operation, arguments in calls}),
-                'semantic_completeness_proven': False,
-            }))
         runs.append((snapshot, calls))
         return snapshot, calls
 
@@ -107,21 +86,6 @@ def verdict(snapshot, cid):
 
 
 
-@pytest.fixture(autouse=True)
-def record_consumers(monkeypatch, record_property):
-    import sys
-    from hashlib import sha256
-    from pathlib import Path
-    from scripts.audit_aws_field_producers import pipeline_source_fingerprint
-    original = verdict
-    def observed(snapshot, cid):
-        outcome = original(snapshot, cid)
-        record_property('aws_consumer_execution', json.dumps({'id': cid, 'outcome': outcome,
-            'test_source': 'tests/' + Path(__file__).name,
-            'test_source_sha256': sha256(Path(__file__).read_bytes()).hexdigest(),
-            'pipeline_source_fingerprint': pipeline_source_fingerprint()}))
-        return outcome
-    monkeypatch.setattr(sys.modules[__name__], 'verdict', observed)
 
 KEY_ID = '11111111-2222-3333-4444-555555555555'
 KEY_ARN = f'arn:aws:kms:{REGION}:{ACCOUNT}:key/{KEY_ID}'

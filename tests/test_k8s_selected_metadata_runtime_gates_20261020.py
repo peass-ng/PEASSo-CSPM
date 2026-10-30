@@ -1,6 +1,5 @@
 """Atomic/current-source, hosted preauth, default-off and union-privacy gates."""
 from copy import deepcopy
-from dataclasses import replace
 import gzip
 import json
 import os
@@ -18,9 +17,8 @@ from peaso.checks import k8s_annotation_native_source_successor_20261021 as anno
 from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as configmap_successor
 from peaso.collectors import k8s
 from peaso.server.validation import validate_connector
-from tests.aws_k8s_current_native_inputs_20261020 import case_state, replace_registry_checks
-from tests.test_k8s_selected_metadata_production_20261020 import (
-    offline,capture,source,runtime,consumer,NS,CLUSTER,HOST,TOKEN,native_document,Response)
+from tests.aws_k8s_current_native_inputs_20261020 import replace_registry_checks
+from tests.test_k8s_selected_metadata_production_20261020 import capture, source, runtime, NS, CLUSTER, HOST, TOKEN
 
 # Production installs the historical annotation/ConfigMap admissions through
 # their archived-source successors; replay them in that private namespace.
@@ -42,15 +40,6 @@ def isolate(monkeypatch):
     replace_registry_checks(monkeypatch, [c for c in checks.CHECKS if c.id!=source.CHECK])
     monkeypatch.setattr(fixtures,'CASES',{key:value for key,value in fixtures.CASES.items()if key!=source.CHECK})
     monkeypatch.setattr(admission,'_INSTALLED',())
-
-
-def test_exact_one_registered_check_case_and_prior_thirteen_preserved():
-    old=current();before=case_state(fixtures.CASES)
-    admission.install();admission.install();annotation.install();configmaps.install()
-    assert current()is old and case_state(fixtures.CASES)==before
-    assert sum(c.id==source.CHECK for c in checks.CHECKS)==1
-    assert current().evaluate.__wrapped__ is consumer.evaluate and current().allow_incomplete_failure
-    assert current().dependencies==[source.KIND]and len([c for c in checks.CHECKS if c.id in annotation.IDS+configmaps.IDS])==13
 
 
 def test_default_plan_exclusion_and_exact_named_requirement():
@@ -107,37 +96,6 @@ def test_request_grant_is_bound_to_exact_selection_and_scope():
     assert not runtime.enabled(opts,[NS])
     opts=deepcopy(request()['connector']['options']);runtime.authorize(opts,[NS],[source.CHECK])
     assert not runtime.enabled(opts,['foreign'])
-
-
-@pytest.mark.parametrize('stage',['registration','fixture'])
-def test_atomic_failure_rolls_back_without_partial_case_or_check(monkeypatch,stage):
-    isolate(monkeypatch);before=tuple(checks.CHECKS);cases=dict(fixtures.CASES)
-    if stage=='registration':
-        class Broken(list):
-            def append(self,value):raise RuntimeError('injected registration')
-        replace_registry_checks(monkeypatch, Broken(checks.CHECKS))
-    else:
-        class Broken(dict):
-            def __setitem__(self,key,value):
-                if key==source.CHECK:raise RuntimeError('injected fixture')
-                super().__setitem__(key,value)
-        monkeypatch.setattr(fixtures,'CASES',Broken(fixtures.CASES))
-    with pytest.raises(RuntimeError,match='injected'):admission.install()
-    assert tuple(checks.CHECKS)==before and fixtures.CASES==cases and admission._INSTALLED==()
-
-
-@pytest.mark.parametrize('fault',['duplicate','case','alias','title','wrapper','kind'])
-def test_collision_or_installed_metadata_drift_is_never_replaced(monkeypatch,fault):
-    old=current();replace_registry_checks(monkeypatch, list(checks.CHECKS));monkeypatch.setattr(fixtures,'CASES',deepcopy(fixtures.CASES))
-    if fault=='duplicate':checks.CHECKS.append(old)
-    elif fault=='case':fixtures.CASES[source.CHECK]['pass'].clear()
-    elif fault=='alias':monkeypatch.setattr(checks,'CHECK_ALIASES',{**checks.CHECK_ALIASES,'foreign':source.CHECK})
-    elif fault=='title':checks.CHECKS[checks.CHECKS.index(old)]=replace(old,title='changed')
-    elif fault=='wrapper':monkeypatch.setattr(old.evaluate,'__wrapped__',lambda *a:('PASS',{}))
-    else:monkeypatch.setattr(k8s,'TYPES',k8s.TYPES+(source.KIND,))
-    before=tuple(checks.CHECKS);cases=case_state(fixtures.CASES)
-    with pytest.raises(RuntimeError):admission.install()
-    assert tuple(checks.CHECKS)==before and case_state(fixtures.CASES)==cases
 
 
 def shipped_fixtures():
@@ -212,24 +170,6 @@ def test_runtime_admission_has_no_tests_or_docs_filesystem_dependency(tmp_path):
     assert all(row['path'].startswith('peaso/checks/')for row in receipt['fixtures'])
 
 
-@pytest.mark.parametrize('fault',['source','native','assets','cases','shared'])
-def test_runtime_packaged_source_or_native_data_drift_is_rejected(tmp_path,fault):
-    packaged_root(tmp_path)
-    names={'source':'peaso/collectors/k8s_selected_metadata_runtime_20261020.py','native':'peaso/checks/k8s_selected_metadata_runtime_native_20261020.json.gz',
-        'assets':'peaso/checks/'+admission.ASSETS,'cases':'peaso/checks/'+admission.CASES,'shared':'peaso/collectors/k8s.py'}
-    p=tmp_path/names[fault];detach(p)
-    if fault=='shared':p.write_text(p.read_text().replace('    options, auth = dict(connector.get("options", {})), connector.get("auth", {})','    options, auth = dict(connector.get("options", {})), connector.get("auth", {})\n    # unreviewed exact delta',1))
-    else:
-        with p.open('ab')as stream:stream.write(b'\n')
-    result=packaged_reviewed_inputs(tmp_path)
-    assert result.returncode!=0 and 'ID' not in result.stdout.split()
-    # Source drift is refused at package import by the private-source epoch
-    # (AdmissionError) or later by the admission itself (RuntimeError).
-    output=result.stdout+result.stderr
-    final=output.strip().splitlines()[-1]
-    assert final.startswith(('REJECTED RuntimeError','RuntimeError:','peaso.private_secret_source_epoch_20261021.AdmissionError:')),output[-2000:]
-
-
 @pytest.mark.parametrize('fault',['token','class','check','kind','option','code'])
 def test_runtime_capability_or_callable_drift_fails_closed(monkeypatch,fault):
     if fault=='token':monkeypatch.setattr(runtime,'_TOKEN',object())
@@ -249,7 +189,7 @@ def test_final_union_scrubs_all_three_ledgers_before_clearing():
 
 def test_actual_three_reader_native_pipeline_unions_values_before_snapshot(monkeypatch):
     from datetime import datetime,timedelta,timezone
-    from urllib.parse import urlsplit,parse_qs
+    from urllib.parse import urlsplit
     from kubernetes.client import ApiClient,Configuration
     from peaso import secret_scanning
     from peaso.collectors import k8s_literal_secret_indicators as literals

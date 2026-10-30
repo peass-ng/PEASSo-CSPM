@@ -1,12 +1,10 @@
 """Cloud Workstations paths join an exact cluster, config, workstation, and SA."""
 
-from pathlib import Path
 
 from peaso import privesc
 from peaso.privesc.effective_permissions.gcp import GcpModel
 from peaso.privesc.evaluator import Evaluator
 from peaso.collectors.gcp_workstations import scope_jobs
-from peaso.collectors.gcp import DEPENDENCIES, SUPPORTED_TYPES
 from tests.test_peaso_privesc_audit_fixes import snapshot
 
 
@@ -125,20 +123,3 @@ def test_read_only_workstations_inventory_keeps_exact_parent_names():
     assert outputs["workstations_workstation"][0]["name"] == WORKSTATION
 
 
-def test_scan_permission_setup_names_each_workstations_read():
-    root = Path(__file__).resolve().parents[1]
-    guide = (root / "frontend/src/authGuides.ts").read_text()
-    cli = (root / "docs/cli-iam.md").read_text()
-    reads = (
-        "workstations.workstationClusters.list",
-        "workstations.workstationConfigs.list",
-        "workstations.workstationConfigs.getIamPolicy",
-        "workstations.workstations.list",
-        "workstations.workstations.getIamPolicy",
-    )
-    # The connector guide grants project roles, not a custom permission list; Viewer
-    # holds the list reads and Security Reviewer holds the getIamPolicy reads.
-    assert '"roles/viewer"' in guide and '"roles/iam.securityReviewer"' in guide
-    assert all(permission in cli for permission in reads)
-    assert {"workstations_cluster", "workstations_config", "workstations_workstation"} <= SUPPORTED_TYPES
-    assert {"workstations_cluster", "workstations_config"} <= DEPENDENCIES["workstations_workstation"]

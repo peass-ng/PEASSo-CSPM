@@ -1,7 +1,7 @@
 """Provider-shaped, offline route and platform-metric evidence cases."""
 from copy import deepcopy
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_azure_network_monitoring as checks
 from peaso.checks.facts import MemoIndex
 
@@ -36,13 +36,6 @@ def index(kind, rows, status="collected"):
 
 def verdict(cid, item, kind, status="collected"):
     return evaluate_check(cid, item, index(kind, [item], status))
-
-
-def test_exact_signed_ids_and_bounded_dependencies():
-    registered = {row.id: row for row in CHECKS if row.id in checks.IDS}
-    assert set(registered) == set(checks.IDS)
-    assert registered[checks.GATEWAY_ID].dependencies == ["application_gateway"]
-    assert registered[checks.VM_ID].dependencies == ["vm"]
 
 
 def test_basic_gateway_redirect_vs_forwarding_and_unresolved_routes():

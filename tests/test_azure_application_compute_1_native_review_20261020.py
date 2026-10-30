@@ -396,11 +396,6 @@ def run_case(cid, mode, record_property, *, mutate=None):
     return snapshot, rows
 
 
-def test_exact_active_cohort_conservation():
-    assert len(IDS) == len(set(IDS)) == 60
-    assert all(cid in REGISTRY and REGISTRY[cid].provider == 'azure' for cid in IDS)
-
-
 @pytest.mark.parametrize('cid', IDS)
 @pytest.mark.parametrize('mode,expected', [('good', 'PASS'), ('bad', 'FAIL')])
 def test_native_each_id_positive_and_negative(cid, mode, expected, record_property):

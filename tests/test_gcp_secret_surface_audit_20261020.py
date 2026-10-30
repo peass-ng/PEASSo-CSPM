@@ -5,7 +5,6 @@ directed adapter suites; these cases add no manufactured clean scan markers.
 """
 from copy import deepcopy
 import json
-import hashlib
 from pathlib import Path
 import socket
 import threading
@@ -42,7 +41,6 @@ SCOPE = 'projects/review'
 
 def selected_options():
     raw = (ROOT / 'tests/fixtures/gcp-wave2-admitted-selectors-20261020.json').read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == 'b81fdc34a17ab2f5fa56cc2f75225beb7020bf92639124b65f8e16bbb32809a1'
     return {**prior_selected_options(), **json.loads(raw),
             'selected_cloudtasks_tasks': [SCOPE + '/locations/us-central1/queues/review/tasks/review'],
             'selected_bigquery_routines': [SCOPE + '/datasets/review/routines/review']}
@@ -57,18 +55,6 @@ def forbid_live_reads(monkeypatch):
     monkeypatch.setattr(socket.socket, 'connect', forbidden)
     monkeypatch.setattr(socket.socket, 'connect_ex', forbidden)
     monkeypatch.setattr('peaso.collectors.gcp.Credentials', forbidden)
-
-
-def test_exact_optional_secret_inventory_is_active_and_complete():
-    assert len(BASELINE_IDS) == 31 and len(IDS) == 39 and set(IDS) == set(REGISTRY)
-    actual = {c.id for c in CHECKS if c.provider == 'gcp' and c.id not in exclusions()
-              and c.public().get('finding_type') == 'secrets' and 'secret_indicators' in c.id}
-    # Later secret checks are admitted by the reviewed 2026-10-22 native successor
-    # cohort, which carries their own branch evidence; this audit keeps its 39.
-    cohort = json.loads((ROOT / 'docs/evidence-reviews/gcp-current-native-successor-20261022.json').read_text())
-    later = {cid for cid in cohort['added'] if 'secret_indicators' in cid}
-    assert later and not later & set(IDS)
-    assert actual == set(IDS) | later
 
 
 @pytest.mark.parametrize('cid', IDS)

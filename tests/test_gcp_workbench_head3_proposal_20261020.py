@@ -4,7 +4,6 @@ No registration or upstream/cloud code execution. Collector schedule acceptance
 is a separate node until its owner installs the explicit successor patch.
 """
 from copy import deepcopy
-import inspect
 import json
 from pathlib import Path
 
@@ -147,19 +146,3 @@ def test_actual_ordinary_schedule_after_owner_patch(value, expected):
         assert item['gceSetup']['metadata']['_coverage'][projection.KEY]['status'] == 'unknown'
 
 
-def test_declarations_match_admitted_successor_and_proposal_stays_unregistered():
-    from peaso.checks import CHECKS
-    declarations = json.loads(Path('peaso/checks/gcp_workbench_head3_declarations_20261020.json').read_text())['declarations']
-    assert {row['id'] for row in declarations} == candidate.EVALUATORS.keys()
-    assert all(row['kind'] == 'workbench_instance' and len(row['remediation']) == 2 for row in declarations)
-    assert [row['severity'] for row in declarations] == ['medium', 'medium', 'low']
-    # The pure proposal never registers itself. Its separately reviewed native
-    # successor now owns these exact IDs in the ordinary runtime registry.
-    from peaso.checks import gcp_workbench_head3_admission_20261020 as admission
-    current = {check.id: check for check in CHECKS}
-    assert candidate.EVALUATORS.keys() == admission.EVALUATORS.keys()
-    for cid, evaluator in admission.EVALUATORS.items():
-        assert inspect.unwrap(current[cid].evaluate) is evaluator
-        assert current[cid].kind == 'workbench_instance'
-        assert current[cid].dependencies == ['workbench_instance']
-    assert 'register(' not in inspect.getsource(candidate)

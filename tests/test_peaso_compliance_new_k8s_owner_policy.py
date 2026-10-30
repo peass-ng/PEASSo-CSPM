@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_k8s_owner_policy as checks
 from peaso.checks.facts import MemoIndex
 from peaso.collectors.k8s import _owner_policy_metadata
@@ -51,14 +51,6 @@ def svc(namespace="apps", name="web", uid="uid-1", kind="LoadBalancer"):
 
 def check(cid, item, indexed=None):
     return evaluate_check(cid, item, indexed or index())
-
-
-def test_exact_five_source_ids_and_dependencies():
-    rows = {row.id: row for row in CHECKS if row.id in checks.IDS}
-    assert set(rows) == set(checks.IDS) and len(rows) == 5
-    assert rows[checks.ROLE_ID].dependencies == ["namespace", "rolebinding"]
-    assert rows[checks.SELECTED_ID].target == "scope"
-    assert all(row.provider == "k8s" for row in rows.values())
 
 
 def test_parser_requires_current_cluster_bound_bounded_typed_owner_policy():

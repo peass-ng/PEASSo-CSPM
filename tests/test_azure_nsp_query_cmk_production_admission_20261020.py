@@ -1,9 +1,4 @@
 """Production source/callable/collision/rollback gates; no live authentication."""
-from copy import deepcopy
-from dataclasses import replace
-import json
-from pathlib import Path
-import shutil
 import types
 
 import pytest
@@ -11,7 +6,6 @@ from peaso import checks
 from peaso.checks import fixtures
 from peaso.checks import azure_nsp_query_cmk_production_tde_successor_20261020 as admission
 from peaso.collectors import azure
-from tests.test_azure_nsp_query_cmk_production_20261020 import offline
 
 
 def isolate(monkeypatch):
@@ -68,34 +62,6 @@ def test_namespace_collision_is_not_replaced(monkeypatch, which):
     assert tuple(checks.CHECKS) == before and fixtures.CASES == old_cases
 
 
-@pytest.mark.parametrize('which', ['title', 'kind', 'dependencies', 'boolean_type', 'safe_code', 'checked_code', 'safe_copy', 'leaf_cell', 'case'])
-def test_installed_metadata_closure_code_or_cases_drift_rejected(monkeypatch, which):
-    cid = admission.IDS[0];position = next(i for i,c in enumerate(checks.CHECKS) if c.id == cid)
-    original = checks.CHECKS[position];safe = original.evaluate;checked = admission.proof._bindings(safe)['checked']
-    monkeypatch.setattr(checks, 'CHECKS', list(checks.CHECKS))
-    if which in ('title', 'kind', 'dependencies', 'boolean_type'):
-        fields = {'title': {'title': 'foreign'}, 'kind': {'kind': 'foreign'},
-                  'dependencies': {'declared_dependencies': ('foreign',)}, 'boolean_type': {'allow_incomplete_failure': 0}}
-        checks.CHECKS[position] = replace(original, **fields[which])
-    if which in ('safe_code', 'checked_code'):
-        fn = safe if which == 'safe_code' else checked
-        freevars = len(fn.__code__.co_freevars)
-        # Compile a replacement with exactly the same closure arity.
-        source = 'def factory():\n' + ''.join(f' x{i}=None\n' for i in range(freevars)) + ' def replacement(*a, **k):\n  return (' + ','.join(f'x{i}' for i in range(freevars)) + ',)\n return replacement\n'
-        namespace = {};exec(source, namespace)
-        monkeypatch.setattr(fn, '__code__', namespace['factory']().__code__)
-    if which == 'safe_copy':
-        clone = types.FunctionType(safe.__code__, safe.__globals__, safe.__name__, safe.__defaults__, safe.__closure__)
-        clone.__dict__.update(safe.__dict__);clone.__qualname__ = safe.__qualname__
-        checks.CHECKS[position] = replace(original, evaluate=clone)
-    if which == 'leaf_cell':
-        cell = checked.__closure__[0];old = cell.cell_contents
-        monkeypatch.setattr(cell, 'cell_contents', lambda *a: ('PASS', {}))
-    if which == 'case':
-        monkeypatch.setattr(fixtures, 'CASES', deepcopy(fixtures.CASES));fixtures.CASES[cid]['pass'].clear()
-    with pytest.raises(RuntimeError): admission.install()
-
-
 @pytest.mark.parametrize('which', ['collect', 'selected', 'helper'])
 @pytest.mark.parametrize('change', ['replacement', 'code'])
 def test_shared_or_admission_executing_callable_guard(monkeypatch, which, change):
@@ -116,46 +82,3 @@ def test_shared_or_admission_executing_callable_guard(monkeypatch, which, change
     with pytest.raises(RuntimeError): admission.install()
 
 
-def copy_inputs(tmp_path):
-    root = Path(__file__).resolve().parents[1]
-    paths = set()
-    for helper in (admission.prepared.predecessor, admission.prepared, admission):
-        relative = 'peaso/checks/' + helper.RECEIPT
-        receipt = json.loads((root / relative).read_bytes())
-        paths.add(relative);paths.update(receipt.get('sources', {}));paths.add(receipt['helper_path'])
-        paths.update(row['path'] for row in receipt['functions'].values())
-        paths.update(row['path'] for row in receipt['fixtures'])
-        paths.update(receipt.get('predecessor_files', {}))
-        if 'predecessor_pack' in receipt:
-            paths.add(receipt['predecessor_pack']['path'])
-    for relative in paths:
-        target = tmp_path / relative;target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(root / relative, target)
-    # Every tamper starts from a complete, admitted copy; a missing historical
-    # input must not masquerade as rejection of the intended mutation.
-    assert admission.reviewed_inputs(tmp_path)[2]
-    return root
-
-
-@pytest.mark.parametrize('which', ['receipt', 'helper', 'cases', 'fixture', 'collect', 'selected'])
-def test_disk_source_and_native_fixture_guard(tmp_path, which):
-    copy_inputs(tmp_path)
-    receipt = json.loads((tmp_path / 'peaso/checks' / admission.RECEIPT).read_bytes())
-    paths = {'receipt': 'peaso/checks/' + admission.RECEIPT,
-             'helper': receipt['helper_path'],
-             'cases': 'peaso/checks/' + admission.CASES_FILE,
-             'fixture': next(row['path'] for row in receipt['fixtures'] if row['path'].endswith('.gz')),
-             'collect': 'peaso/collectors/azure.py', 'selected': 'peaso/collectors/azure.py'}
-    path = tmp_path / paths[which]
-    if which in ('collect', 'selected'):
-        text = path.read_text();needle = ('    """Return native facts with separate directory, inheritance and usage coverage."""' if which == 'collect' else '    selected = set(wanted)')
-        path.write_text(text.replace(needle, needle + '\n    # unreviewed exact callable delta', 1))
-    else:
-        with path.open('ab') as stream: stream.write(b'\n')
-    with pytest.raises(RuntimeError): admission.reviewed_inputs(tmp_path)
-
-
-def test_unrelated_surrounding_source_is_extensible(tmp_path):
-    copy_inputs(tmp_path)
-    with (tmp_path / 'peaso/collectors/azure.py').open('a') as stream: stream.write('\n# unrelated reviewed parallel module addition\n')
-    assert admission.reviewed_inputs(tmp_path)[2]

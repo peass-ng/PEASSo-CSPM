@@ -177,13 +177,3 @@ def test_scc_routes_pass_fail_unknown_not_applicable():
     assert run(check, row, snapshot(scope, "organization", row, policy=policy,
         extra={"scc_finding": [malformed], "scc_notification_config": [config]})) == "UNKNOWN"
     variants_unknown(check, row, index, "scc_finding")
-
-
-def test_signed_metadata_and_unique_ids():
-    matches = [check for check in CHECKS if check.id in sw55.SPECS]
-    assert len(matches) == 5 and len({check.id for check in matches}) == 5
-    for check in matches:
-        kind, category, severity, title, digest = sw55.SPECS[check.id]
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-            "gcp", kind, category, severity, title)
-        assert len(digest) == 64

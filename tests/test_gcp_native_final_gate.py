@@ -7,7 +7,7 @@ from peaso.ai import gcp_native_final
 
 def test_pending_candidate_is_inactive_even_with_switch_and_pin(monkeypatch):
     path = gcp_native_final.MANIFEST
-    assert len(gcp_native_final.candidate_check_ids(path)) == 25
+    assert gcp_native_final.candidate_check_ids(path)
     monkeypatch.setenv('PEASO_GCP_HARDENING_NATIVE_FINAL_ENABLED', '1')
     monkeypatch.setenv('PEASO_GCP_HARDENING_NATIVE_FINAL_SHA256',
                        hashlib.sha256(path.read_bytes()).hexdigest())

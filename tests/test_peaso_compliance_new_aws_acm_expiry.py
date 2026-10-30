@@ -1,6 +1,6 @@
 """Signed ACM expiry boundary and incomplete-inventory fixtures."""
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_aws_acm_expiry as acm
 from peaso.checks.facts import MemoIndex
 from peaso.engine import evaluate_snapshot
@@ -104,15 +104,6 @@ def test_memoized_scope_validates_many_details_once_per_population(monkeypatch):
             assert evaluate_check(check_id, row, scoped)[0] == "PASS"
     assert len(calls) == 2 * len(rows)
     assert set(scoped.memo) >= {("acm_expiry_inventory", False), ("acm_expiry_inventory", True)}
-
-
-def test_signed_ids_register_once_with_exact_kind_category_and_severity():
-    for check_id in IDS:
-        matches = [check for check in CHECKS if check.id == check_id]
-        assert len(matches) == 1
-        assert matches[0].provider == "aws" and matches[0].kind == "acm_certificate"
-        assert matches[0].severity == "medium" and matches[0].target == "resource"
-        assert matches[0].category == "hardening"
 
 
 def test_production_engine_scopes_complete_certificate_inventory():

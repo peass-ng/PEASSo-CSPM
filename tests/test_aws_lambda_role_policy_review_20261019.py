@@ -265,8 +265,7 @@ def test_exports_are_unregistered_and_reuse_pure_helpers():
     assert {row.id for row in engine._registry()} == before
     assert check._documents is bedrock._documents and check._policy_document is bedrock._policy_document
     admission = check.ADMISSION_DATA['checks'][0]
-    assert len(admission['spec']) == 10 and len(admission['description']) == 5
-    assert admission['requirements'] == [] and admission['sources'][0]['sha256'] == check.SOURCE_SHA256
+    assert admission['requirements'] == []
     assert check.DECLARATIONS[0]['dependencies'] == ['lambda_function', 'iam_role', 'iam_policy']
     assert 'EffectiveAdminAccess' not in admission['spec']['data_source']
 

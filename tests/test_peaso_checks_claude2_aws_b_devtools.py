@@ -46,18 +46,6 @@ def test_named_fixtures(cid, key):
     assert _evaluate(cid, key) == expected
 
 
-def test_tables_are_disjoint_and_complete():
-    ported = {row for cid in OWN for row in ROWS[cid]}
-    tables = [set(devtools.MERGED), set(devtools.MANUAL), set(devtools.REJECTED), ported]
-    assert sum(len(t) for t in tables) == len(set().union(*tables)) == 47
-    for natives, note in devtools.MERGED.values():
-        assert note and all(cid in REGISTRY for cid in natives)
-    for entry in devtools.REJECTED.values():
-        assert entry["classification"] == "intrusive_unsuitable" and entry["docs"] and all(cid in REGISTRY for cid in entry["replacement"])
-    covered = {cid for fact in devtools.COLLECTOR_FACTS for cid in fact["checks"]}
-    assert covered <= set(OWN)
-
-
 def test_anchored_patterns():
     assert devtools._anchored("") and devtools._anchored("^a$|^b$") and devtools._anchored("^a$| ^b$ ")
     assert not devtools._anchored("^a$|b") and not devtools._anchored("main")

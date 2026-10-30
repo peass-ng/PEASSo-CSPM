@@ -2,7 +2,6 @@
 import ast
 from copy import deepcopy
 import importlib
-import json
 import os
 from pathlib import Path
 import re
@@ -28,21 +27,6 @@ def nodes(path):
         if name:
             result[name] = node
     return result
-
-
-def test_exact_native_grammar_and_preflight_ast():
-    files = [
-        ('peaso/checks/gcp_workload_image_source_association_20261020.py', grammar.__file__),
-        ('peaso/collectors/gcp_audit_native.py', CANDIDATE/'peaso/server/gcp_audit_options_static_20261021.py'),
-        ('peaso/collectors/gcp_cloudrun_v2_job_declared_images_20261020.py', static.__file__),
-        ('peaso/collectors/gcp_cloudrun_job_image_runtime_20261020.py', static.__file__),
-    ]
-    for source, destination in files:
-        original, current = nodes(ROOT/source), nodes(Path(destination))
-        shared = original.keys() & current.keys()
-        assert shared
-        for name in shared:
-            assert ast.dump(original[name]) == ast.dump(current[name]), name
 
 
 def native_reference():

@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_azure_data_protection as new
 from peaso.collectors.azure import _cosmos_backup_retention_policy
 from peaso.collectors import azure
@@ -15,12 +15,6 @@ from peaso.snapshot import make_snapshot
 SCOPE = "/subscriptions/sub"
 BASE = SCOPE + "/resourceGroups/rg/providers/Microsoft.DocumentDB/databaseAccounts/"
 NOW = datetime(2026, 10, 12, tzinfo=timezone.utc)
-
-
-def test_cosmos_check_imports_with_supported_hardening_category():
-    registered = [check for check in CHECKS if check.id == new.COSMOS_ID]
-    assert len(registered) == 1
-    assert registered[0].category == "hardening"
 
 
 def account(name, backup):

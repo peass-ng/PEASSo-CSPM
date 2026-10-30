@@ -141,7 +141,6 @@ def offline(monkeypatch):
         assert inspect.unwrap(actual.evaluate)is getattr(current_consumers,name)
 
 
-
 @pytest.fixture(scope='session', autouse=True)
 def captures():
     yield
@@ -429,20 +428,6 @@ def test_early_credential_rejection_has_safe_unknown_collection(monkeypatch,capl
     report=engine.evaluate_snapshot(snapshot,checks=list(source.CHECKS))
     assert {f['status'] for f in report['findings']}=={'UNKNOWN'}
     assert CANARY not in json.dumps(snapshot)+json.dumps(report)+caplog.text
-
-
-def test_source_receipt_native_fixtures_and_predecessor_bytes():
-    import gzip
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    receipt=install_admission('azure_function_settings_admission_20261020');root=Path(__file__).resolve().parents[1]
-    for path,digest in receipt['predecessors'].items():
-        assert hashlib.sha256((root/path).read_bytes()).hexdigest()==digest
-    cases=json.loads(gzip.decompress((root/receipt['native_cases']['path']).read_bytes()))
-    assert set(cases['cases'])=={'pass','fail','unknown'}
-    for name,row in cases['cases'].items():
-        original=row['snapshot'];collection,=original['collections']
-        index={'context':{'provider':'azure','scope':collection['scope'],'metadata':original['metadata']},'collections':{source.KIND:[collection]}}
-        assert {fn(item,index)[0]for fn in(consumers.telemetry,consumers.runtime)for item in collection['items']}=={name.upper()}
 
 
 def test_source_drift_rejected_before_token_acquisition(monkeypatch):

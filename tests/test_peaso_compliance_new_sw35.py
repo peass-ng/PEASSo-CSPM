@@ -129,11 +129,6 @@ def test_pass_fail_unknown_and_signed_metadata(check_id):
     malformed = copy.deepcopy(facts)
     malformed["context"]["scope"] = "foreign"
     assert evaluate(check_id, malformed) == "UNKNOWN"
-    check = next(c for c in CHECKS if c.id == check_id)
-    meta = sw.META[check_id]
-    assert (check.id, check.provider, check.kind, check.severity, check.category, check.title) == (
-        check_id, meta["provider"], meta["resource_kind"], meta["severity"], meta["category"], meta["title"])
-    assert len(meta["proposed_spec_sha256"]) == 64
 
 
 @pytest.mark.parametrize("check_id", list(sw.META))

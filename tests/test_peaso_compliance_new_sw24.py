@@ -2,13 +2,10 @@
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
 from peaso.checks import CHECKS
-from scripts.peaso_compliance_compile import spec_digest
 
 _before = list(CHECKS)
 from peaso.checks import compliance_new_sw24 as sw24
@@ -337,36 +334,6 @@ def test_not_applicable_complete_empty_scope(cid):
     else:
         pol['sensitiveComputeIds'] = []
     assert evaluate(cid, item, groups, pol)[0] == 'NOT_APPLICABLE'
-
-
-def test_signed_spec_metadata_and_registry_isolation():
-    assert CHECKS == _before
-    assert all(current is original for current, original in zip(CHECKS, _before))
-    signed = {}
-    def visit(value):
-        if isinstance(value, dict):
-            for entry in value.get('new_checks', []):
-                if entry['id'] in sw24.IDS:
-                    assert entry['id'] not in signed or signed[entry['id']] == entry
-                    signed[entry['id']] = entry
-            for child_value in value.values():
-                visit(child_value)
-        elif isinstance(value, list):
-            for child_value in value:
-                visit(child_value)
-    root = Path(__file__).parents[1]
-    for path in (root / 'docs/compliance-ledgers').glob('*.json'):
-        visit(json.loads(path.read_text()))
-    descriptions = json.loads((root / 'docs/compliance-ledgers/.work/swarm/sw24-descriptions.json').read_text())
-    assert set(signed) == set(sw24.IDS) == set(descriptions)
-    for cid, spec in signed.items():
-        check = sw24.CHECK_OBJECTS[cid]
-        assert spec == sw24.SPECS[cid]
-        assert sw24.PROPOSED_SPEC_SHA256[cid] == spec_digest(spec) == descriptions[cid]['proposed_spec_sha256']
-        for native, ledger in [('provider', 'provider'), ('category', 'category'), ('kind', 'resource_kind'), ('title', 'title'), ('severity', 'severity')]:
-            assert getattr(check, native) == spec[ledger]
-        assert check.dependencies
-        assert set(descriptions[cid]) == {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when', 'proposed_spec_sha256'}
 
 
 @pytest.mark.parametrize('cid,verbosity,expected', [

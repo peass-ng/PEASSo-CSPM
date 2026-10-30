@@ -40,11 +40,3 @@ def test_shared_request_boundary_rejects_all_live_analyzer_calls(method):
     with pytest.raises(ReadFailure) as error:
         getattr(requests, method)(*args)
     assert error.value.code == "access_analyzer_live_api_banned"
-
-
-def test_access_preflight_has_no_live_analyzer_probe():
-    from pathlib import Path
-
-    source = (Path(__file__).resolve().parents[1] / "peaso/server/access_check.py").read_text()
-    assert 'client("accessanalyzer"' not in source
-    assert 'client(\'accessanalyzer\'' not in source

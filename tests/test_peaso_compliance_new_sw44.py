@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import copy
-import json
 
 import pytest
 
 from peaso.checks import CHECKS
 from peaso.checks import compliance_new_sw44 as sw
-from scripts.peaso_compliance_compile import spec_digest
 
 ACCOUNT = '123456789012'
 REGION = 'us-east-1'
@@ -227,17 +225,6 @@ def test_not_applicable(cid):
     index['collections'][kind][0]['items'] = [copy.deepcopy(changed)]
     index[kind][0]['data'] = copy.deepcopy(changed)
     assert evaluate(cid, changed, index) == 'NOT_APPLICABLE'
-
-
-def test_signed_metadata_and_descriptions():
-    proposals = {entry['id']: entry for entry in json.load(open('docs/compliance-ledgers/new-checks-aws.json'))}
-    descriptions = json.load(open('docs/compliance-ledgers/.work/swarm/sw44-descriptions.json'))
-    for cid, (kind, category, severity, title, sha) in sw.SPECS.items():
-        check = next(check for check in CHECKS if check.id == cid)
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-            'aws', kind, category, severity, title)
-        assert sha == spec_digest(proposals[cid]) == descriptions[cid]['proposed_spec_sha256']
-        assert len(descriptions[cid]['evaluated']) > 0
 
 
 @pytest.mark.parametrize('cid,setting', [

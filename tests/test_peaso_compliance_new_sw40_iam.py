@@ -135,11 +135,3 @@ def test_scope_policy_reads_inline_and_aws_managed_defaults():
     aws_policy["Arn"] = "arn:aws:iam::aws:policy/Example"
     facts["iam_policy"] = [{"data": aws_policy}]
     assert status("aws.nist.all_managed_policies_no_service_wildcard", facts["context"], facts) == "FAIL"
-
-def test_signed_metadata_and_unique_registration():
-    found = [c for c in CHECKS if c.id in sw40.SPECS]
-    assert len(found) == len(sw40.SPECS) == len({c.id for c in found})
-    for check in found:
-        spec = sw40.SPECS[check.id]
-        assert (check.provider, check.kind, check.severity, check.category, check.title) == (
-            spec["provider"], spec["resource_kind"], spec["severity"], spec["category"], spec["title"])

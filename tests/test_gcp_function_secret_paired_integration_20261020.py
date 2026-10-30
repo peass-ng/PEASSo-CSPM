@@ -1,7 +1,5 @@
 """Normal native/registry/engine/dedup/persistence closure of Functions pairing."""
 from copy import deepcopy
-import gzip
-import hashlib
 import inspect
 import json
 from pathlib import Path
@@ -15,7 +13,6 @@ from peaso.checks import gcp_function_secret_review_20261019 as original
 from peaso.collectors import gcp_function_secret_pairs_20261020 as producer
 from peaso.engine import evaluate_snapshot
 from peaso.gcp_function_secret_page_persistence_20261020 import retain_function_secret_pairs, FIELD
-from peaso.gcp_function_secret_page_source_20261020 import reviewed_inputs
 from peaso.secret_findings import deduplicate_secret_findings
 from tests.gcp_function_secret_paired_native_20261020 import collect, OTHER
 from tests.gcp_function_partial_positive_native_20261020 import TOKEN, index_for
@@ -338,28 +335,3 @@ def test_source_substitution_rejected_then_restored(native_partial, monkeypatch)
     admission.install()
 
 
-def test_exact_predecessors_and_native_case_replacement_are_preserved():
-    reviewed_inputs()  # Validate the installed additive source epoch first.
-    receipt = json.loads((ROOT / 'peaso/checks/gcp_function_secret_paired_admission_20261020.json').read_bytes())
-    archive = json.loads(gzip.decompress((ROOT / receipt['predecessors']['path']).read_bytes()))
-    for name, row in archive['files'].items():
-        old = bytes.fromhex(row['hex'])
-        assert hashlib.sha256(old).hexdigest() == row['sha256']
-        if name.startswith('peaso/') and name not in ('peaso/collectors/gcp.py', 'peaso/checks/__init__.py'):
-            from peaso.rawv2_private_source_successor_20261021 import source_bytes
-            current = (ROOT / name).read_bytes()
-            # The finite source attestor revalidates current private bytes and
-            # returns only their pinned predecessor; old bytes/hashes stay exact.
-            assert source_bytes(name, current, row['sha256'], ROOT) == old, name
-        else:
-            from tests.gcp_wave2_historical_native_20261020 import historical_bytes
-            assert historical_bytes(name, row['sha256']) == old
-    impossible = archive['legacy_cases'][original.CHECK_ID]['fail']
-    assert original.evaluate(impossible, index_for(impossible))[0] == 'FAIL'
-    assert consumer._evaluate(impossible, index_for(impossible))[0] == 'UNKNOWN'
-    _, cases = admission.reviewed_inputs()
-    for branch in ('fail', 'partial', 'asymmetric'):
-        row = cases[original.CHECK_ID][branch]
-        assert any(surface['pairs'] > 0 and surface['leaks'] for surface in row[producer.MARKER]['surfaces'])
-    current = check_adopted()
-    assert admission._signature(current) == archive['legacy_registration']

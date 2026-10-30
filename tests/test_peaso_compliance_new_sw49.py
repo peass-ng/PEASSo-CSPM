@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
 from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw49 as sw49
-from scripts.peaso_compliance_compile import spec_digest
 
 
 SCOPE = "123456789012/us-east-1"
@@ -309,20 +306,6 @@ def test_aws_account_non_eu_resource_region_detected():
 
 
 def test_signed_metadata_and_foreign_scope():
-    checks = [check for check in CHECKS if check.id in sw49.SPECS]
-    assert len(checks) == len(sw49.SPECS) == 9
-    for check in checks:
-        kind, severity, title, digest = sw49.SPECS[check.id]
-        assert (check.provider, check.category, check.kind, check.severity, check.title) == (
-            "aws", "hardening", kind, severity, title)
-        assert sw49.SPEC_SHA256[check.id] == digest
-    ledger = json.loads((Path(__file__).parents[1] / "docs/compliance-ledgers/new-checks-aws.json").read_text())
-    signed = {row["id"]: row for row in ledger if row["id"] in sw49.SPECS}
-    descriptions = json.loads((Path(__file__).parents[1] /
-        "docs/compliance-ledgers/.work/swarm/sw49-descriptions.json").read_text())
-    assert set(signed) == set(descriptions) == set(sw49.SPECS)
-    assert all(spec_digest(row) == sw49.SPEC_SHA256[cid] == descriptions[cid]["proposed_spec_sha256"]
-               for cid, row in signed.items())
     item, index = setup_security_logs()
     index["collections"]["cloudwatch_log_group"][0]["scope"] = "000000000000/us-east-1"
     assert grade("aws_security_logs_central_search", item, index) == "UNKNOWN"

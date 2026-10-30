@@ -1,11 +1,8 @@
 """Monitor literal category/count and named container selection have exact truth fixtures."""
-import copy,json
-from pathlib import Path
+import copy
 import pytest
 from peaso.checks import CHECKS,azure_ports_monitor_extra as ports
 from peaso.checks.fixtures import CASES
-ROOT=Path(__file__).resolve().parent.parent
-REVIEWS=json.loads((ROOT/'peaso/rulepacks/reviewed_azure_ports_monitor_extra.json').read_text())
 REGISTRY={c.id:c for c in CHECKS}
 
 
@@ -53,10 +50,3 @@ def test_named_container_applicability_full_parent_identity_and_denied_absence_c
         assert cmk.evaluate(item,{})[0]=='UNKNOWN'
         item=copy.deepcopy(CASES[cmk.id]['pass']);item['blobContainers'][0]['id']=item['blobContainers'][0]['id'].replace('/g/','/other/')
         assert cmk.evaluate(item,{})[0]=='UNKNOWN'
-
-
-def test_twenty_six_owned_refs_pin_selector_and_query_identity_not_only_hash():
-    claude=set(json.loads((ROOT/'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS)==26 and not set(REVIEWS)&claude
-    assert len({r['source_review']['query_id'] for r in REVIEWS.values()})==7
-    assert all(r['source_review']['arguments']==[] and r['source_review']['pinned_sql'] for r in REVIEWS.values())

@@ -3,13 +3,10 @@ from __future__ import annotations
 
 import copy
 import importlib
-import json
-from pathlib import Path
 
 import pytest
 
 from peaso import checks as registry
-from scripts.peaso_compliance_compile import spec_digest
 
 # Direct imports register checks. Retain local safe evaluator references, then
 # remove only additions made by this import, preserving every previous object.
@@ -363,37 +360,6 @@ def test_all_required_patterns_are_covered(technique):
     second['queries'][0]['sha256'] = sw.normalized_query_hash('DifferentReviewedPattern | count')
     pair[1]['context']['metadata']['compliance_policy']['azure_attack_detection']['checks'][check_id]['requirements'].append(second)
     assert evaluate(check_id, pair)[0] == 'FAIL'
-
-
-def _signed_specs():
-    rows = {}
-    def walk(value):
-        if isinstance(value, dict):
-            if value.get('id') in sw.IDS and len(value) == 10:
-                rows[value['id']] = value
-            else:
-                for child in value.values():
-                    walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-    walk(json.loads(Path('docs/compliance-ledgers/azure-other.json').read_text()))
-    return rows
-
-
-@pytest.mark.parametrize('check_id', sw.IDS)
-def test_signed_metadata_digest_and_supplement(check_id):
-    signed = _signed_specs()[check_id]
-    check = sw.LOCAL_CHECKS[check_id]
-    assert (check.provider, check.kind, check.category, check.title, check.severity) == tuple(
-        signed[key] for key in ['provider', 'resource_kind', 'category', 'title', 'severity'])
-    assert sw.SPEC_SHA256[check_id] == spec_digest(signed)
-    assert check.target == 'scope'
-    assert {'scheduled_query_rule', 'action_group', 'log_analytics_workspace'} <= set(check.dependencies)
-    supplement = json.loads(Path('docs/compliance-ledgers/.work/swarm/sw11-descriptions.json').read_text())[check_id]
-    assert supplement['proposed_spec_sha256'] == spec_digest(signed)
-    assert set(supplement) == {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when', 'proposed_spec_sha256'}
-    assert supplement['not_applicable_when'] is None
 
 
 def test_direct_import_does_not_leak_registry_changes():

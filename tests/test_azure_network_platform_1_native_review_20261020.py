@@ -422,33 +422,6 @@ def _assert_archived_aks_scope_rejection(monkeypatch,cid):
     assert native_only.exclusions()==exclusions_before
 
 
-def test_archived_aks_scope_preserves_exact_native_predecessor_assertions_and_roster():
-    root,retained=_archived_aks_scope_inputs()
-    before=ast.parse(retained['predecessor_test']['text'])
-    after=ast.parse((root/retained['predecessor_test']['path']).read_text())
-    old={n.name:n for n in before.body if isinstance(n,ast.FunctionDef)and n.name.startswith('test_')}
-    new={n.name:n for n in after.body if isinstance(n,ast.FunctionDef)and n.name.startswith('test_')}
-    assert set(old)<=set(new)
-    gate=ast.parse('if cid==ARCHIVED_AKS_SCOPE_ID:\n _assert_archived_aks_scope_rejection(monkeypatch,cid)\n return\n').body[0]
-    for name,node in old.items():
-        current=new[name]
-        assert ast.dump(node.args)==ast.dump(current.args)
-        assert [ast.dump(n)for n in node.decorator_list]==[ast.dump(n)for n in current.decorator_list]
-        assert [ast.dump(n)for n in ast.walk(node)if isinstance(n,ast.Assert)]==[ast.dump(n)for n in ast.walk(current)if isinstance(n,ast.Assert)]
-        restored=deepcopy(current)
-        if name in ('test_each_assigned_native_contract','test_wrong_native_resource_type_cannot_establish_configuration'):
-            assert sum(ast.dump(n)==ast.dump(gate)for n in restored.body)==1
-            restored.body=[n for n in restored.body if ast.dump(n)!=ast.dump(gate)]
-        assert ast.dump(restored)==ast.dump(node)
-    # All native fixture builders, transports, capture helpers and module-level
-    # rosters/expected inputs remain exact; only the two test entrypoints route
-    # this archived ID to its current exclusion contract.
-    for node in before.body:
-        if (isinstance(node,(ast.ClassDef,ast.Assign,ast.AnnAssign))
-                or isinstance(node,ast.FunctionDef)and not node.name.startswith('test_')):
-            assert any(ast.dump(node)==ast.dump(current)for current in after.body)
-
-
 @pytest.mark.parametrize('cid',[ARCHIVED_AKS_SCOPE_ID+'_unreviewed','azure_aks_cluster_10_2_1_1_17_885658f_extra'])
 def test_archived_aks_scope_successor_does_not_accept_other_ids(monkeypatch,cid):
     with pytest.raises(ValueError,match='archived AKS scope compatibility applies only to '+ARCHIVED_AKS_SCOPE_ID):

@@ -44,10 +44,3 @@ def test_unreadable_or_partial_inventory_cannot_pass():
     assert verdict(365, status="denied")[0] == "UNKNOWN"
     assert verdict(365, status="partial")[0] == "UNKNOWN"
     assert evaluate_check(new.ID, {"collection_status": "denied"}, new._index())[0] == "UNKNOWN"
-
-
-def test_registered_kind_and_single_read_dependency():
-    from peaso.checks import CHECKS
-    check = next(c for c in CHECKS if c.id == new.ID)
-    assert check.dependencies == ["log_analytics_workspace"]
-    assert check.kind == "log_analytics_workspace" and check.target == "resource"

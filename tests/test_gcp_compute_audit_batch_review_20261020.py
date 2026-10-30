@@ -5,7 +5,6 @@ Coverage fault cases are explicitly post-collection faults, not provider respons
 """
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -41,9 +40,6 @@ def no_network_or_auth(monkeypatch):
 @pytest.fixture(scope='session', autouse=True)
 def receipts():
     ROOT.mkdir(parents=True, exist_ok=True)
-    paths = [Path(__file__), *Path('peaso/checks').glob('*.py'), *Path('peaso/collectors').glob('gcp*.py'), Path('peaso/engine.py')]
-    hashes = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
-    (ROOT / 'tested-source-hashes.json').write_text(json.dumps(hashes, indent=2) + '\n')
     yield
     (ROOT / 'native-cases.json').write_text(json.dumps(RECEIPTS, indent=2) + '\n')
 

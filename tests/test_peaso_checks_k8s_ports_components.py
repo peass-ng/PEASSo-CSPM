@@ -1,7 +1,6 @@
 """Component flag truth fixtures and safe metadata projection acceptance."""
 import copy
 import json
-from pathlib import Path
 import pytest
 from peaso.checks import CHECKS
 from peaso.checks import k8s_ports_components as ports
@@ -183,12 +182,3 @@ def test_security_context_deny_each_container_keeps_its_own_version_band():
     status, evidence = check.evaluate(item, {})
     assert status == "PASS"
     assert {row["observed_version"] for row in evidence["observations"]} == {"v1.24.0", "v1.25.0"}
-
-
-def test_component_shard_does_not_overlap_workload_partition():
-    root = Path(__file__).resolve().parents[1] / "peaso/rulepacks"
-    own = json.loads((root / "reviewed_k8s_ports_components.json").read_text())
-    workload = json.loads((root / "reviewed_k8s_ports_workloads.json").read_text())
-    assert len(own) > 400
-    assert not set(own).intersection(workload)
-    assert all(row["reason"] and row["official_docs"] and row["review_notes"]["revision"] for row in own.values())

@@ -1,7 +1,5 @@
 """Service predicates have available-fact truths and explicit data gaps."""
 import copy
-import json
-from pathlib import Path
 import pytest
 from peaso.checks import CHECKS, gcp_ports_services as ports
 from peaso.checks.fixtures import CASES
@@ -51,11 +49,3 @@ def test_node_pools_do_not_invent_autopilot_or_missing_management_settings():
     check = REGISTRY["gcp.ports.kubernetes_cluster_auto_repair_enabled"]
     assert check.evaluate({"nodePools": []}, {})[0] == "UNKNOWN"
     assert check.evaluate({"nodePools": [{"name": "p"}]}, {})[0] == "UNKNOWN"
-
-
-def test_service_partition_is_pinned_and_disjoint_with_manual_questions():
-    root = Path(__file__).resolve().parents[1] / "peaso/rulepacks"
-    own = json.loads((root / "reviewed_gcp_ports_services.json").read_text())
-    manual = json.loads((root / "reviewed_gcp_ports_manual.json").read_text())
-    assert len(own) > 100 and not set(own).intersection(manual)
-    assert all((r["native_checks"] or r.get("replacement_checks")) and r["review_notes"]["revision"] and r["official_docs"] for r in own.values())

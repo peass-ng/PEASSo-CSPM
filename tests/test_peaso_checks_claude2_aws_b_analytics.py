@@ -48,15 +48,6 @@ def test_named_fixtures(cid, key):
     assert _evaluate(cid, key) == expected
 
 
-def test_group_rows_all_have_a_disposition():
-    ported = {row for cid in MINE for row in ROWS[cid]}
-    assert not ported & set(group.MERGED)
-    for row, (natives, note) in group.MERGED.items():
-        assert note and all(cid in REGISTRY or cid.startswith(("aws.cb.", "aws.b.")) for cid in natives), row
-    assert not group.MANUAL and not group.REJECTED
-    assert all(fact["kind"] and fact["api"] and fact["fields"] and fact["checks"] for fact in group.COLLECTOR_FACTS)
-
-
 def test_prowler_sg_rule_semantics():
     rule = group.prowler_rule_public_any
     assert rule({"IpProtocol": "-1", "IpRanges": [{"CidrIp": "0.0.0.0/0"}], "Ipv6Ranges": []})

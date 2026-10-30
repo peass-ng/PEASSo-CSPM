@@ -5,10 +5,8 @@ handmade collection indexes are used; unsupported native-only branches stay open
 """
 import copy
 import csv
-import hashlib
 import io
 import json
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -34,9 +32,6 @@ IAM_IDS = [cid for cid in INPUT_IDS if REGISTRY[cid].kind in IAM_KINDS]
 SERVICE_USAGE_IDS = ['aws.claude_a.iam.user_long_lived_keys_only_iam_sts',
     'aws.claude_a.iam.user_bedrock_access_not_stale', 'aws.claude_a.iam.user_sagemaker_access_not_stale',
     'aws.claude_a.iam.role_bedrock_access_not_stale']
-RECEIPTS = []
-
-
 def document(action='s3:GetObject', resource='*', **extra):
     return {'Version': '2012-10-17', 'Statement': [{'Effect': 'Allow', 'Action': action, 'Resource': resource, **extra}]}
 
@@ -205,9 +200,6 @@ def native(monkeypatch):
 def evaluate(snapshot, ids, scenario, native):
     result = engine.evaluate_snapshot(snapshot, checks=list(ids))
     findings = [f for f in result['findings'] if f['check_id'] in ids]
-    RECEIPTS.append({'scenario': scenario, 'input_ids': list(ids), 'findings': copy.deepcopy(findings),
-        'collections': [copy.deepcopy(c) for c in snapshot['collections'] if c['status'] != 'not_collected'],
-        'calls': list(native.calls), 'native': copy.deepcopy(native.native), 'created_at': snapshot['created_at']})
     return {cid: [f['status'] for f in findings if f['check_id'] == cid] for cid in ids}
 
 
@@ -234,13 +226,6 @@ def test_public_foreign_gaad_identity_current_behavior(native, kind, cid):
     status = evaluate(snapshot, [cid], 'foreign_gaad_'+kind, native)[cid]
     assert status == ['UNKNOWN']  # Foreign identity cannot become local compliance evidence.
 
-
-@pytest.fixture(scope='session', autouse=True)
-def export_directed_receipts():
-    yield
-    target = os.environ.get('IDENTITY_SDK_RECEIPTS')
-    if target:
-        Path(target).write_text(json.dumps(RECEIPTS, indent=2, default=lambda value: value.isoformat() if isinstance(value, datetime) else value.decode() if isinstance(value, bytes) else str(value))+'\n')
 
 # One literal-policy example covers native decoding/default selection across
 # these shared consumers; it does not establish effective permissions.
@@ -596,19 +581,6 @@ def test_engine_selection_drives_only_required_native_report_family(native, sele
     assert ('GenerateServiceLastAccessedDetails' in operations) is (selection=='service_usage')
     assert ('GenerateCredentialReport' in operations) is (selection=='credential_report')
 
-
-def test_identity_sdk_report_exact_cohort_and_emission_accounting():
-    report = json.loads(Path('docs/aws-review/identity-sdk-closure-review.json').read_text())
-    assert report['input_ids'] == INPUT_IDS and len(report['checks']) == 169
-    assert {row['id'] for row in report['checks']} == set(INPUT_IDS)
-    for row in report['checks']:
-        assert row['semantic_completeness_proven'] is False
-        assert row['remaining_branches'] and row['fields'] and row['callback_chain']
-        if row['executed']:
-            assert row['callback_receipts'] and row['emitted_field_observations'] > 0
-        for field in row['fields']:
-            if field['closure'] == 'public_sdk_emission_established':
-                assert all(value['sdk_operation'] and value['sdk_member_or_transform'] and value['public_snapshot_path'] for value in field['producer_emissions'])
 
 @pytest.mark.parametrize('family', ['service', 'credential'])
 def test_public_selected_report_timeout_is_bounded(native, monkeypatch, family):

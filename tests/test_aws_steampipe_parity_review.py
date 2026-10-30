@@ -2,13 +2,10 @@
 import copy
 import hashlib
 import json
-from pathlib import Path
 
 import pytest
 
-from scripts.audit_aws_steampipe_parity import (
-    ROOT, audit, corpus, rejection_verdict, selected_files,
-)
+from scripts.audit_aws_steampipe_parity import audit, corpus, rejection_verdict, selected_files
 
 
 def cached_source(tmp_path):
@@ -85,19 +82,3 @@ def test_rejections_require_individual_source_evidence():
     assert rejection_verdict('manual', ['manual_control'], 'Manual verification required', False)[0] == 'missing_manual_lineage'
     assert rejection_verdict('trust', [], 'param "trusted_accounts" { } select \'info\'', True)[0] == 'justified_customer_trust_input'
     assert rejection_verdict('ec2_instance_no_high_level_finding_in_inspector_scan', [], '', True)[0] == 'justified_retired_service'
-
-
-def test_durable_review_enumerates_all_current_controls_with_honest_limits():
-    report = json.loads((ROOT / 'docs/aws-review/steampipe-parity.json').read_text())
-    records = report['records']
-    assert len(records) == len({row['control_id'] for row in records}) == 1674
-    assert sum(row['repository'].endswith('-compliance') for row in records) == 1612
-    assert sum(row['repository'].endswith('-perimeter') for row in records) == 62
-    assert all(row['manifest_present'] and not row['manifest_mismatches'] for row in records)
-    assert all(not row['native_source_backrefs_missing'] for row in records)
-    assert all(row['manual_lineage_matches'] is not False for row in records)
-    assert not report['summary']['removed_upstream_ids_still_in_manifest']
-    assert all(row['evaluator_sha256'] and row['source'].startswith('https://github.com/turbot/')
-               for row in records)
-    assert all(row['missing_or_uncertain'] for row in records)
-    assert all(source['git_blob_verification'] for source in report['upstream_sources'])

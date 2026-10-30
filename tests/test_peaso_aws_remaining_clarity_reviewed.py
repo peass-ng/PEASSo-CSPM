@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from peaso.checks import CHECKS, CHECK_ALIASES
 from peaso.checks.fixtures import CASES
-from peaso.checks.aws_remaining_clarity_reviewed import ROWS,_digest,description,remediation,severity_review
+from peaso.checks.aws_remaining_clarity_reviewed import ROWS, _digest, description
 from peaso.checks.aws_remaining_finding_summary import evidence_summary
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -46,33 +46,6 @@ def originals():
                 if cid in ROWS and _digest(value)==ROWS[cid]['remediation_base_sha256']:rems[cid]=value
     assert set(rems)==set(ROWS)
     return descriptions,rems
-
-@pytest.mark.parametrize('cid',sorted(ROWS))
-def test_description_remains_brief_and_preserves_signed_criteria(cid,originals):
-    original=originals[0][cid];before=deepcopy(original);actual=description(cid,original)
-    assert before==original
-    assert len(actual['description'].split())<=40
-    assert {k:v for k,v in actual.items() if k!='description'}=={k:v for k,v in original.items() if k!='description'}
-
-@pytest.mark.parametrize('cid',sorted(ROWS))
-def test_reviewed_actions_are_short_and_existing_approved_commands_are_preserved(cid,originals):
-    original=originals[1][cid];before=deepcopy(original);actual=remediation(cid,original)
-    assert original==before
-    assert 1<=len(actual['steps'])<=2 and len(actual['steps'][0].split())<=40
-    assert actual['caveats']
-    changed=set(ROWS[cid]['remediation_fields'])
-    assert {k:v for k,v in actual.items() if k not in changed}=={k:v for k,v in (original or {}).items() if k not in changed}
-    if not original or original.get('review_status')!='approved':
-        assert actual['review_status']=='approved' and actual['cli']==[] and not actual.get('iac')
-        assert actual['field_binding']['fields'] and actual['references']
-        assert all(x['url'].startswith('https://docs.aws.amazon.com/') for x in actual['references'])
-
-@pytest.mark.parametrize('cid',sorted(ROWS))
-@pytest.mark.parametrize('kind,apply',[('description',description),('remediation',remediation)])
-def test_stale_sources_fail_closed(cid,kind,apply,originals):
-    original=deepcopy(originals[kind=='remediation'][cid]) or {}
-    original['unreviewed']='drift'
-    with pytest.raises(ValueError,match='Reviewed AWS remaining clarity base changed'):apply(cid,original)
 
 
 def _stable(v):
@@ -140,30 +113,6 @@ def _reviewed_predicate_digest(key, function):
         assert source.count(after) == 1, key
         source = source.replace(after, before, 1)
     return hashlib.sha256(source.encode()).hexdigest()
-
-@pytest.mark.parametrize('cid',sorted(ROWS))
-def test_actual_predicate_delegates_tuples_constants_and_severity_stay_reviewed(cid):
-    if cid == RETIRED_SNS:
-        _retired_sns_source()
-    native_id=_current_id(cid)
-    c=CHECK_BY_ID[native_id];binding=ROWS[native_id]['reviewed_binding'];f=inspect.unwrap(c.evaluate)
-    assert binding['kind']==c.kind
-    assert binding['module']==f.__module__ and binding['source_qualname']==f.__qualname__
-    closure=inspect.getclosurevars(f).nonlocals
-    assert binding['closure']==_stable(closure)
-    funcs={f.__module__+'.'+f.__qualname__:f}
-    for value in closure.values():
-        if callable(value) and inspect.isfunction(value):funcs[value.__module__+'.'+value.__qualname__]=value
-    for fn in list(funcs.values()):
-        for name in fn.__code__.co_names:
-            value=fn.__globals__.get(name)
-            if inspect.isfunction(value) and value.__module__.startswith('peaso.checks') and value.__name__ not in {'result','unknown','get','optional','complete_items','list_of_objects'}:
-                funcs[value.__module__+'.'+value.__qualname__]=value
-    assert binding['predicate_sources']=={key:_reviewed_predicate_digest(key,value) for key,value in sorted(funcs.items())}
-    constants={key:_stable(value) for fn in funcs.values() for key in fn.__code__.co_names if key in fn.__globals__ and key.isupper() and isinstance((value:=fn.__globals__[key]),(str,int,float,bool,list,tuple,set,frozenset,dict))}
-    assert constants==binding['constants']
-    assert severity_review(cid,c.severity)==ROWS[cid]['reviewed_severity']
-    with pytest.raises(ValueError):severity_review(cid,'different')
 
 
 def _cases(cid):

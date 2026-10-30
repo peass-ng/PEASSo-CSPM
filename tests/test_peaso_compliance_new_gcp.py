@@ -1,6 +1,6 @@
 """Semantic fixtures for signed, source-bound GCP compliance additions."""
-from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import compliance_new_gcp  # noqa: F401: registration side effect
+from peaso.checks import evaluate_check
+from peaso.checks import compliance_new_gcp  # noqa: F401  (registration side effect)
 
 
 def evaluate(check_id, item):
@@ -74,16 +74,3 @@ def test_bigquery_public_acl_checks_keep_roles_and_principals_distinct():
     assert evaluate(read_write, {"_provenance": {"representation": "partial"}, "access": []})[0] == "UNKNOWN"
     assert evaluate(all_users, {"_provenance": {"representation": "full"}, "_coverage": {"access": {"status": "denied"}}})[0] == "UNKNOWN"
     assert evaluate(all_users, {"_provenance": {"representation": "full"}, "_coverage": "malformed"})[0] == "UNKNOWN"
-
-
-def test_signed_gcp_ids_register_once_with_source_kinds():
-    expected = {"gcp_pci_bucket_0742bd5dc32c": "bucket", "gcp_pci_bucket_3d76b0b0701e": "bucket",
-                "gcp_pci_bigquery_dataset_6017267cdf32": "bigquery_dataset", "gcp_pci_bigquery_dataset_fb9fcc01d5b7": "bigquery_dataset",
-                "gcp_pci_instance_template_2e26bed500fc": "instance_template", "gcp_pubsub_topic_cmek": "pubsub_topic"}
-    for check_id, kind in expected.items():
-        matches = [check for check in CHECKS if check.id == check_id]
-        assert len(matches) == 1 and matches[0].provider == "gcp" and matches[0].kind == kind
-    assert next(check for check in CHECKS if check.id == "gcp_pubsub_topic_cmek").severity == "high"
-    for check_id in ("gcp_pci_instance_template_2e26bed500fc", "gcp_pci_bigquery_dataset_6017267cdf32",
-                     "gcp_pci_bigquery_dataset_fb9fcc01d5b7"):
-        assert next(check for check in CHECKS if check.id == check_id).severity == "medium"

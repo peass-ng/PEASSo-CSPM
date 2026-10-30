@@ -10,8 +10,7 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit, parse_qs
 import pytest
 from peaso import engine, secret_scanning as scanning
-from peaso.checks import Check
-from peaso.collectors import azure, azure_devops_git_native as git
+from peaso.collectors import azure
 from peaso.collectors import azure_devops_selected_content_secret_indicators as source
 from peaso.checks import azure_devops_selected_content_secret_review_20261020 as consumer
 
@@ -367,7 +366,6 @@ def test_consumer_rejects_forged_binding(monkeypatch, mutation):
     assert consumer.evaluate(obj, index)[0] == 'UNKNOWN'
 
 
-
 @pytest.mark.parametrize('surface', ['git_file', 'pipeline'])
 def test_both_engines_timeout_unknown(monkeypatch, surface):
     def broken(*args, **kwargs):
@@ -457,22 +455,3 @@ def test_finding_budget_retains_completed_engine_counterexample(monkeypatch):
     assert 'synthetic-secret-value-' not in json.dumps([snapshot, findings])
 
 
-def test_source_receipts_and_fixture_export():
-    """Export safe current native observations for root's separate integration."""
-    import inspect
-    from pathlib import Path
-    sources = []
-    for fn in (source.enabled, source.path_valid, source.selected_targets, source.identity, source.route, source.remaining,
-            source._pairs, source._read, source._yaml_complete, source._part, source._scan, source.collect,
-            source.final_snapshot, consumer.evaluate, scanning.scan_content, scanning.merge_leaks):
-        fn = inspect.unwrap(fn); body, line = inspect.getsourcelines(fn); path = Path(inspect.getsourcefile(fn)).resolve()
-        assert path == Path(fn.__code__.co_filename).resolve()
-        text = ''.join(body)
-        sources.append({'symbol': fn.__module__+'.'+fn.__qualname__, 'path': str(path), 'line': line,
-            'source': text, 'sha256': hashlib.sha256(text.encode()).hexdigest(),
-            'module_sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
-    out = Path('/tmp/peasso-azure-source-review-20261020/devops-selected-content')
-    out.mkdir(parents=True, exist_ok=True)
-    (out/'sources.json').write_text(json.dumps(sources, indent=2)+'\n')
-    (out/'native-captures.json').write_text(json.dumps(CAPTURES, indent=2)+'\n')
-    assert TOKEN not in (out/'native-captures.json').read_text()

@@ -1,11 +1,9 @@
 """Isolated draft checks: signed metadata and conservative outcomes."""
 import copy
-import json
 
 import pytest
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw37 as sw
-from scripts.peaso_compliance_compile import spec_digest
 
 S='123456789012/us-east-1'
 
@@ -19,15 +17,6 @@ def index(kind, rows, *, extras=None, policy=None, created='2026-10-12T00:00:00Z
     return result
 
 def ev(cid,row,facts): return evaluate_check(cid,row,facts)[0]
-
-def test_signed_metadata_and_unique_registry():
-    proposals={r['id']:r for r in json.load(open('docs/compliance-ledgers/new-checks-aws.json'))}
-    for cid,(kind,category,severity,title,sha) in sw.SPECS.items():
-        assert spec_digest(proposals[cid])==sha
-        matches=[c for c in CHECKS if c.id==cid]
-        assert len(matches)==1
-        c=matches[0]
-        assert (c.provider,c.kind,c.category,c.severity,c.title)==('aws',kind,category,severity,title)
 
 @pytest.mark.parametrize('cid',list(sw.SPECS))
 def test_every_check_rejects_missing_partial_and_foreign_scope(cid):

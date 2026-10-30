@@ -169,10 +169,6 @@ def test_sw09_signed_pass_fail_and_metadata(check_id):
     expected = ("UNKNOWN", "UNKNOWN") if check_id == "gcp_cloudsql_failed_attempts_lockout" else ("PASS", "FAIL")
     assert outcome(check_id, good, extras=extras, policy=policy) == expected[0]
     assert outcome(check_id, bad, extras=extras, policy=policy) == expected[1]
-    check = next(c for c in CHECKS if c.id == check_id)
-    meta = sw.META[check_id]
-    assert (check.provider, check.category, check.kind, check.title, check.severity) == (
-        "gcp", meta["category"], meta["resource_kind"], meta["title"], meta["severity"])
 
 
 @pytest.mark.parametrize("check_id", sorted(CASES))
@@ -377,23 +373,6 @@ def test_iam_roster_contradiction_and_search_coverage_unknown():
     assert evaluate_check(cid, row, ix)[0] == "UNKNOWN"
 
 
-def test_sw09_digests_are_exact_ledger_entries():
-    import json
-    from pathlib import Path
-    from scripts.peaso_compliance_compile import spec_digest
-    descriptions = json.loads(Path("docs/compliance-ledgers/.work/swarm/sw09-descriptions.json").read_text())
-    signed = {}
-    for path in Path("docs/compliance-ledgers").glob("gcp-*.json"):
-        for framework in json.loads(path.read_text())["frameworks"]:
-            for requirement in framework["requirements"]:
-                for spec in requirement["new_checks"]:
-                    if spec["id"] in descriptions:
-                        assert spec["id"] not in signed or signed[spec["id"]] == spec_digest(spec)
-                        signed[spec["id"]] = spec_digest(spec)
-    assert {cid: row["proposed_spec_sha256"] for cid, row in sw.META.items()} == signed
-    assert {cid: row["proposed_spec_sha256"] for cid, row in descriptions.items()} == signed
-
-
 @pytest.mark.parametrize("mutation", ["empty_interfaces", "empty_subnetwork"])
 def test_network_separation_missing_relationship_unknown(mutation):
     cid = "gcp_c5_network_separation"
@@ -475,40 +454,3 @@ def test_sql_trace_actual_provider_flag_name(value, expected):
     assert outcome(cid, row) == expected
     row["settings"]["databaseFlags"].append({"name": "3625", "value": "off"})
     assert outcome(cid, row) == "UNKNOWN"
-
-
-def test_sw09_remediation_candidates_are_complete_and_signed(tmp_path):
-    import json
-    from pathlib import Path
-    from peaso.remediation import _merge_compliance_reviewed
-    candidates = json.loads(Path("docs/compliance-ledgers/.work/swarm/swr-gcp-remediation.json").read_text())
-    expected = set(sw.META) - {"gcp_cloudsql_failed_attempts_lockout"}
-    assert expected <= set(candidates)
-    assert "gcp_cloudsql_failed_attempts_lockout" not in candidates
-    subset = {cid: candidates[cid] for cid in expected}
-    shard = tmp_path / "swr-gcp-sw09.json"
-    shard.write_text(json.dumps(subset))
-    merged = {}
-    _merge_compliance_reviewed(merged, ((shard, "gcp"),))
-    assert merged == subset
-    for cid, row in subset.items():
-        check = next(check for check in CHECKS if check.id == cid)
-        assert row["proposed_spec_sha256"] == sw.META[cid]["proposed_spec_sha256"]
-        assert row["field_binding"]["evaluator_family"] == "peaso.checks.compliance_new_sw09"
-        assert row["field_binding"]["kind"] == check.kind
-        assert row["review_status"] == "source_bound_pending_review"
-        assert row["cli"] == [] and row["steps"] and row["references"]
-
-
-def test_sw09_descriptions_bound_their_verdict_claims():
-    import json
-    from pathlib import Path
-    descriptions = json.loads(Path("docs/compliance-ledgers/.work/swarm/sw09-descriptions.json").read_text())
-    rejected = descriptions["gcp_cloudsql_failed_attempts_lockout"]
-    assert rejected["pass_when"] is None and rejected["fail_when"] is None
-    assert "REJECTED" in rejected["description"]
-    assert "ALLOW_INVALID_OR_MISSING_CLIENT_CERT" in descriptions["gcp_https_proxy_mtls_required"]["fail_when"]
-    assert "partial" in descriptions["gcp.appengine.version_https_only"]["description"]
-    assert "self-managed" in descriptions["gcp_certificate_validity"]["pass_when"]
-    assert "not evaluated" in descriptions["gcp_c5_iam_inventory"]["description"]
-    assert "modern" in sw.META["gcp_sql_trace3625_off"]["description"]

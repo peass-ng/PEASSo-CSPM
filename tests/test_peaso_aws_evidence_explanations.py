@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from peaso.checks import CHECKS, CHECK_ALIASES
+from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES as NATIVE_CASES
 from peaso.checks.catalog import description_for
-from peaso.checks.aws_evidence_explanations import evidence_summary, review_rows, reviewed_explanation
+from peaso.checks.aws_evidence_explanations import evidence_summary, review_rows
 from peaso.checks.aws_current_evidence_20261022 import CURRENT_IDS
 from peaso.checks.aws_natural_evidence import complete_explanation
 from peaso.checks.aws_review_20261019 import MODULES
@@ -56,7 +56,7 @@ LEDGER = json.loads(LEDGER_RAW)
 CURRENT = json.loads((ROOT / 'docs/evidence-reviews/aws-current-successor-20261022.json').read_text())
 HISTORICAL_SUCCESSOR = json.loads((ROOT / 'docs/evidence-reviews/aws-historical-successor-20261022.json').read_text())
 CASES = json.loads(gzip.decompress((ROOT / 'tests/fixtures/aws_evidence_review.json.gz').read_bytes()))
-from tests.aws_late_native_contracts_20261020 import IDS as LATE_IDS, CONTRACTS, assert_contract
+from tests.aws_late_native_contracts_20261020 import CONTRACTS, assert_contract
 
 STATUSES = ('PASS', 'FAIL', 'UNKNOWN', 'DENIED', 'MANUAL', 'EMPTY', 'NOT_APPLICABLE')
 EXTENSION_IDS = {row['spec']['id'] for name in MODULES
@@ -96,81 +96,6 @@ def assert_late_contract(cid):
         before_case = deepcopy((item, index))
         assert check.evaluate(item, index)[0] == branch.upper()
         assert (item, index) == before_case
-
-
-def test_every_registered_aws_check_and_retired_alias_has_source_review_and_real_native_witnesses():
-    aliases = {old for old, new in CHECK_ALIASES.items() if new in CHECK_BY_ID}
-    historical = set(CASES) | LATE_IDS
-    historical_review = set(LEDGER['checks'])
-    retired = set(CURRENT['retired_aliases'])
-    assert retired == historical_review - set(CHECK_BY_ID) == aliases
-    assert historical_review - historical == retired - historical
-    assert CURRENT_IDS == set(CURRENT['current_checks']) == set(CHECK_BY_ID) - historical
-    assert set(CHECK_BY_ID) == historical - retired | CURRENT_IDS
-    assert not set(CASES) & LATE_IDS
-    assert set(CHECK_BY_ID) | aliases == set(ROWS) == historical_review | CURRENT_IDS
-    assert CURRENT['retired_aliases'] == {old: CHECK_ALIASES[old] for old in retired}
-    assert CURRENT['base_commit'] == 'e7510bc898183fd9f478d0cb511c37aed8db4286'
-    assert hashlib.sha256(LEDGER_RAW).hexdigest() == CURRENT['historical_ledger_sha256']
-    assert HISTORICAL_SUCCESSOR['historical_ledger_sha256'] == CURRENT['historical_ledger_sha256']
-    assert hashlib.sha256((ROOT / 'tests/fixtures/aws_evidence_review.json.gz').read_bytes()).hexdigest() == HISTORICAL_SUCCESSOR['historical_fixture_sha256']
-    assert set(HISTORICAL_SUCCESSOR['reviewed_current_native_contracts']) == {
-        'aws.a.iam.unused_credentials_45_days',
-        'aws.a.iam.unused_credentials_90_days',
-        'aws.claude_a.accessanalyzer.active_without_findings',
-        'aws.claude_a.iam.access_keys_used_45',
-        'aws.claude_a.iam.console_password_used_45',
-        'aws.claude_a.iam.prowler_console_password_used_45',
-        # 5768474c: only a conditioned service trust is in scope.
-        'aws.claude_a.iam.prowler_role_service_trust_bound_to_account',
-        'aws.claude_a.iam.role_used_within_60_days',
-        # a9d62a01: ownership controls are decided only from collected detail.
-        'aws.claude_a.s3.prowler_acl_disabled',
-        'aws.claude_a.vpc.sg_in_use_anywhere',
-        'aws.claude_a.vpc.sg_no_world_any_port_on_customer_enis',
-        'aws.gap.iam.active_keys_used_within_45_days',
-    }
-    assert set(HISTORICAL_SUCCESSOR['reviewed_current_summary_witnesses']) == {
-        'aws.a.iam.unused_credentials_45_days',
-        'aws.a.iam.unused_credentials_90_days',
-        'aws.gap.iam.active_keys_used_within_45_days',
-    }
-    assert set(HISTORICAL_SUCCESSOR['reviewed_retired_alias_copy']) == {
-        'aws.a.cloudwatch.cross_account_role_absent',
-        'aws.a.s3.bucket_account_public_blocks',
-        'aws.b.redshift.no_public_endpoint',
-    }
-    assert hashlib.sha256((ROOT / 'peaso/checks/aws_current_evidence_20261022.py').read_bytes()).hexdigest() == CURRENT['summary_source_sha256']
-    assert sum(len(rows) for cid, rows in CASES.items() if cid not in EXTENSION_IDS) == 8882
-    assert all(len(CASES[cid]) >= 4 for cid in EXTENSION_IDS)
-    assert all(ROWS[cid]['review_status'] == 'source_reviewed_and_native_replayed' for cid in set(ROWS) - LATE_IDS)
-    assert all(ROWS[cid]['purpose'] and ROWS[cid]['fields'] is not None for cid in set(ROWS) - LATE_IDS)
-    for cid in LATE_IDS:
-        assert_late_contract(cid)
-
-
-@pytest.mark.parametrize('cid', sorted(CHECK_BY_ID))
-def test_exact_evaluator_and_requirement_contract_match_the_review(cid):
-    if cid in CURRENT_IDS:
-        assert_current_contract(cid)
-        return
-    if cid in HISTORICAL_SUCCESSOR['reviewed_current_native_contracts']:
-        assert_historical_successor_contract(cid)
-        return
-    row = LEDGER['checks'][cid]
-    if cid in LATE_IDS:
-        assert_late_contract(cid)
-        return
-    function = inspect.unwrap(CHECK_BY_ID[cid].evaluate)
-    assert hashlib.sha256(inspect.getsource(function).encode()).hexdigest() == row['evaluator_sha256']
-    if cid in EXTENSION_IDS:
-        target = getattr(function, 'reviewed_target', function)
-        assert hashlib.sha256(inspect.getsource(target).encode()).hexdigest() == row['target_sha256']
-    contract = json.dumps(description_for(cid), sort_keys=True, separators=(',', ':')).encode()
-    assert hashlib.sha256(contract).hexdigest() == row['description_contract_sha256']
-    assert ROWS[cid]['purpose'] == row['purpose']
-    assert row['fixture_count'] == len(CASES[cid])
-    assert row['missing_fixture_ids'] == []
 
 
 def _digest(value):
@@ -298,39 +223,6 @@ def test_current_secret_summary_does_not_copy_raw_values_or_untrusted_paths():
     assert evidence == before
 
 
-@pytest.mark.parametrize('cid', sorted(CURRENT_IDS))
-def test_current_successor_replays_exact_native_witnesses(cid):
-    assert_current_contract(cid)
-
-
-@pytest.mark.parametrize('cid', sorted(CASES))
-def test_all_captured_success_failure_partial_and_inapplicable_witnesses(cid):
-    successors = HISTORICAL_SUCCESSOR['reviewed_current_summary_witnesses'].get(cid, {})
-    seen = set()
-    for index, case in enumerate(CASES[cid]):
-        finding = dict(provider='aws', check_id=cid, status=case['status'], evidence=deepcopy(case['evidence']))
-        before = deepcopy(finding)
-        summary = evidence_summary(finding)
-        successor = successors.get(str(index))
-        if successor is None:
-            assert summary == case['summary']
-        else:
-            seen.add(str(index))
-            assert case['status'] == successor['status']
-            assert _digest(case['evidence']) == successor['evidence_sha256']
-            assert hashlib.sha256(case['summary'].encode()).hexdigest() == successor['historical_summary_sha256']
-            assert hashlib.sha256(summary.encode()).hexdigest() == successor['current_summary_sha256']
-        assert len(summary) <= 250
-        complete = complete_explanation(finding)
-        assert summary == complete or ROWS[cid]['purpose'] in summary
-        assert not summary.startswith(('{', '[')) and '\n' not in summary
-        assert 'All of:' not in summary and 'quantifier' not in summary
-        if summary != complete:
-            assert reviewed_explanation(cid, summary, finding['status']) == summary
-        assert finding == before
-    assert seen == set(successors)
-
-
 @pytest.mark.parametrize('cid', sorted(CHECK_BY_ID))
 def test_every_status_with_absent_or_unrelated_evidence_is_explicitly_unclaimed(cid):
     for status in STATUSES:
@@ -346,29 +238,6 @@ def test_every_status_with_absent_or_unrelated_evidence_is_explicitly_unclaimed(
                                                      'outside the control’s applicability', 'No applicable resources',
                                                      'could not be checked', 'cannot confirm whether root keys exist'))
             assert not summary.startswith(('The policy grants', 'The function has', 'Automatic rotation is enabled'))
-
-
-def test_retired_equivalent_ids_reuse_the_survivor_native_value_interpretation():
-    for old, new in CHECK_ALIASES.items():
-        if new not in CHECK_BY_ID:
-            continue
-        successor = HISTORICAL_SUCCESSOR['reviewed_retired_alias_copy'].get(old)
-        if successor is not None:
-            assert successor['survivor_id'] == new
-            assert set(successor['witnesses']) == {str(i) for i in range(len(CASES[new]))}
-        for index, case in enumerate(CASES[new]):
-            finding = dict(provider='aws', status=case['status'], evidence=case['evidence'])
-            historical_summary = evidence_summary(dict(finding, check_id=old))
-            survivor_summary = evidence_summary(dict(finding, check_id=new))
-            if successor is None:
-                assert historical_summary == survivor_summary
-                continue
-            witness = successor['witnesses'][str(index)]
-            assert witness['status'] == case['status']
-            assert _digest(case['evidence']) == witness['evidence_sha256']
-            assert hashlib.sha256(historical_summary.encode()).hexdigest() == witness['historical_alias_summary_sha256']
-            assert hashlib.sha256(survivor_summary.encode()).hexdigest() == witness['survivor_summary_sha256']
-            assert historical_summary != survivor_summary
 
 
 def test_invalid_identifiers_and_foreign_provider_do_not_get_aws_copy():

@@ -5,25 +5,20 @@ and emitted paths only; external S3 origin existence stays unresolved.
 """
 from copy import deepcopy
 from datetime import datetime, timezone
-from hashlib import sha256
-import inspect
 import json
 from pathlib import Path
 
 import boto3
-import botocore
 from botocore.stub import Stubber
 import pytest
 
 from peaso.collectors import aws
 from peaso.engine import evaluate_snapshot
 from scripts import audit_aws_native_contracts as native
-from scripts.audit_aws_field_producers import callback_graph, field_paths, pipeline_source_fingerprint
 
 ACCOUNT, REGION = '123456789012', 'us-east-1'
 STAMP = datetime(2026, 10, 19, tzinfo=timezone.utc)
 ROOT = Path(__file__).resolve().parents[1]
-OUT = Path('/tmp/peasso-aws-review-20261019/network-cross-service-sdk')
 IDS = [
  'aws.c2b.bedrock.vpc_endpoints',
  'aws.c2b.cloudfront.s3_origin_bucket_exists',
@@ -40,18 +35,10 @@ ACLID = '11111111-2222-3333-4444-555555555555'
 ACLARN = f'arn:aws:wafv2:{REGION}:{ACCOUNT}:regional/webacl/review/{ACLID}'
 STAGEARN = f'arn:aws:apigateway:{REGION}::/restapis/abc123/stages/prod'
 TOKEN = 'Complex123!SyntheticOnly'  # Synthetic; never verified.
-RECEIPTS = []
-
-
-@pytest.fixture(scope='module', autouse=True)
-def save_receipts():
-    yield
-    OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / 'receipts.json').write_text(json.dumps(RECEIPTS, indent=2, sort_keys=True) + '\n')
 
 
 @pytest.fixture
-def pipeline(monkeypatch, record_property):
+def pipeline(monkeypatch):
     session = boto3.Session(aws_access_key_id='offline', aws_secret_access_key='offline', region_name=REGION)
     original_requests = aws.Requests
 
@@ -120,30 +107,6 @@ def pipeline(monkeypatch, record_property):
         assert findings and len({f['status'] for f in findings}) == 1, findings
         cached = [future.result() for future in requests._cache.values() if future.done() and not future.exception()]
         assert TOKEN not in json.dumps([snapshot, findings, cached], default=str)
-        pipeline_hash = pipeline_source_fingerprint()
-        source_hash = sha256(Path(__file__).read_bytes()).hexdigest()
-        collections = []
-        for envelope in snapshot['collections']:
-            if envelope['type'] not in {CHECKS[cid].kind, *CHECKS[cid].dependencies}:
-                continue
-            paths = sorted(set().union(*(field_paths(row) for row in envelope['items']))) if envelope['items'] else []
-            collections.append({'kind': envelope['type'], 'scope': envelope['scope'], 'status': envelope['status'], 'paths': paths})
-            if paths:
-                record_property('aws_field_emission', json.dumps({'kind': envelope['type'], 'paths': paths,
-                    'test_source': 'tests/' + Path(__file__).name, 'test_source_sha256': source_hash,
-                    'pipeline_source_fingerprint': pipeline_hash,
-                    'pipeline': 'botocore Stubber -> Requests.call -> aws.collect -> registered consumer',
-                    'operations': sorted({c['service'] + ':' + c['operation'] for c in calls}),
-                    'semantic_completeness_proven': False}))
-        callbacks = native.source_ref(inspect.unwrap(CHECKS[cid].evaluate))
-        RECEIPTS.append({'id': cid, 'scenario': scenario, 'status': findings[0]['status'], 'finding_count': len(findings),
-            'collections': collections, 'requests': calls, 'Requests_call_invocations': invocations,
-            'collector_call_count': snapshot['metadata']['calls'], 'consumer': callbacks,
-            'consumer_source_manifest': {r['file']: sha256((ROOT / r['file']).read_bytes()).hexdigest()
-                for r in (native.source_ref(fn) for fn in callback_graph(CHECKS[cid]))},
-            'test_source_sha256': source_hash, 'pipeline_source_fingerprint': pipeline_hash,
-            'botocore_version': botocore.__version__, 'semantic_completeness_proven': False,
-            'raw_canary_absent_from_cache_snapshot_findings': True})
         return findings[0]['status'], snapshot, calls
     return run
 

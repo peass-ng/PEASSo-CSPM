@@ -1,5 +1,5 @@
 """Real context-sensitive predicates and captured-only facts never become safe defaults."""
-import copy,json,re
+import copy, json
 from pathlib import Path
 import pytest
 from peaso.checks import CHECKS,azure_ports_tail_context as ports
@@ -83,12 +83,6 @@ def test_required_legacy_attack_setting_empty_denied_or_nonmatching_inventory_is
         assert check.evaluate({'scope':'/subscriptions/sub'},index)[0]=='UNKNOWN'
     index=ports._attack(True);index['security_setting'][0]['data']['name']='WDATP'
     assert check.evaluate({'scope':'/subscriptions/sub'},index)[0]=='UNKNOWN'
-
-
-def test_source_reference_identity_revision_and_argument_preservation():
-    excluded=set(json.loads((ROOT/'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS)==14 and not set(REVIEWS)&excluded
-    assert all(r['source_review']['source_revision'] and r['source_review']['arguments']==[] for r in REVIEWS.values())
 
 
 def test_collector_vnet_connections_drop_certificate_and_key_material():

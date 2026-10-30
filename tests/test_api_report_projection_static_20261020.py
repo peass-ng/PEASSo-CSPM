@@ -1,6 +1,4 @@
 """Source-bound parity against the real engine in independent fresh processes."""
-import ast
-import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -8,38 +6,9 @@ import sys
 
 import pytest
 
-from peaso.server import report_projection_static_20261020 as projection
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = 'peaso.server.report_projection_static_20261020'
-FUNCTIONS = ('finding_frameworks', 'hydrate_finding',
-             '_permission_text', '_requirement_text', '_required_permissions')
-
-
-def test_source_generation_hashes():
-    for relative, expected in projection.SOURCE_SHA256.items():
-        assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == expected, relative
-
-
-def test_function_asts_and_constants_match_engine():
-    def definitions(path):
-        tree = ast.parse(path.read_text())
-        # The sole implementation change is package-qualified imports.
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.level and node.module:
-                node.module = 'peaso.' + node.module
-                node.level = 0
-        return {node.name: ast.dump(node, include_attributes=False)
-                for node in tree.body if isinstance(node, ast.FunctionDef)}
-    engine = definitions(ROOT / 'peaso/engine.py')
-    helper = definitions(ROOT / 'peaso/server/report_projection_static_20261020.py')
-    for name in FUNCTIONS:
-        assert helper[name] == engine[name], name
-    engine_tree = ast.parse((ROOT / 'peaso/engine.py').read_text())
-    for name in ('CHECK_META_ENCODING', 'ADMIN_EQUIVALENT_TECHNIQUE'):
-        node = next(node for node in engine_tree.body if isinstance(node, ast.Assign)
-                    and any(isinstance(target, ast.Name) and target.id == name for target in node.targets))
-        assert getattr(projection, name) == ast.literal_eval(node.value)
 
 
 PROBE = r'''

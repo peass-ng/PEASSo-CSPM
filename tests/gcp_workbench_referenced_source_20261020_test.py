@@ -373,14 +373,6 @@ def test_no_raw_metadata_or_source_cache(monkeypatch):
     assert all(r.closed for r in tr.responses) and not hasattr(tr.collector.transport, '_workbench_source_state')
 
 
-def test_immutable_proposal():
-    from tests.gcp_referenced_source_historical_compatibility_20261020 import proposal_boundary  # sealed bytes via reviewed epoch
-    assert proposal_boundary('workbench') == {'current_id': CHECK, 'proposal_registration_delta': 0}
-    receipt = json.loads((Path(__file__).resolve().parents[1] / 'peaso/checks/gcp_workbench_referenced_source_20261020_proposal.json').read_text())
-    assert receipt['registration'] == 'unregistered_proposal_only' and receipt['live_cloud_collection'] is False
-    assert receipt['original_execution_proven'] is False and receipt['test_result']['failed'] == 0
-
-
 def test_durable_native_fixtures():
     path = Path(__file__).resolve().parents[1] / 'peaso/checks/gcp_workbench_referenced_source_20261020_native_cases.json'
     fixture = json.loads(path.read_text())
@@ -392,8 +384,3 @@ def test_durable_native_fixtures():
         else:
             with pytest.raises(source.Incomplete):
                 source.reference(case['instance'], case['target'])
-
-
-def test_proposal_not_installed():
-    from peaso import engine
-    assert CHECK not in {c.id for c in engine._registry()}

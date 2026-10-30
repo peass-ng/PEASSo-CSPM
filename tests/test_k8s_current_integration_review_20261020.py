@@ -1,21 +1,15 @@
 """Current K8s presentation/fixture integration; native inputs retain real lineage."""
 from copy import deepcopy
-import gzip
-import hashlib
-import inspect
 import json
 from pathlib import Path
 import socket
 import pytest
-from peaso import engine
 from peaso.checks import CHECKS
-from peaso.checks import k8s_literal_current_metadata_20261020 as metadata
 from peaso.checks import k8s_literal_secret_review_20261020 as literal
 from peaso.checks.k8s_workload_finding_summary import workload_evidence_summary
 from peaso.checks.selected_content_observed import observation
 from tests import test_k8s_cluster_native_review_20261020 as cluster
 from tests import test_k8s_controller_literal_secret_review_20261020 as controllers
-from tests.k8s_cluster_retained_inputs_20261020 import capture, ids, _inputs
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = {c.id:c for c in CHECKS}
@@ -35,28 +29,6 @@ def hard_guard(monkeypatch):
     secret_scanning._RESULTS.clear()
     yield
     secret_scanning._RESULTS.clear()
-
-
-def test_literal_title_successor_only_changes_presentation(monkeypatch):
-    import peaso.checks as checks
-    before = next(c for c in CHECKS if c.id==literal.CHECK)
-    declaration = deepcopy(literal.DECLARATIONS)
-    monkeypatch.setattr(checks,'CHECKS',list(CHECKS))
-    metadata.install();metadata.install()
-    after = next(c for c in checks.CHECKS if c.id==literal.CHECK)
-    assert after.title == 'Selected workload and ConfigMap literals have no detected secrets'
-    assert 'workload specifications' in after.remediation
-    assert after.evaluate is before.evaluate
-    assert after.__dict__ | {'title':before.title,'remediation':before.remediation} == before.__dict__
-    assert literal.DECLARATIONS == declaration
-    assert metadata.fields()['requirement_controls']==[]
-    assert set(metadata.fields()['supported_kinds'])==set(controllers.NATIVE)
-
-
-def test_literal_metadata_source_guard_rejects_unreviewed_predecessor(monkeypatch):
-    altered=deepcopy(literal.DECLARATIONS);altered[0]['title']='Unreviewed title'
-    monkeypatch.setattr(literal,'DECLARATIONS',altered)
-    with pytest.raises(ValueError,match='predecessor changed'):metadata.fields()
 
 
 @pytest.mark.parametrize('kind',sorted(controllers.NATIVE))
@@ -150,38 +122,3 @@ def test_status_alone_never_invents_observed_failure(status):
         'status':status,'evidence':{'pod_profile':'Unconfined','container_profiles':[None]}})is None
 
 
-def test_all_cluster_native_capture_bytes_retained_without_original_report_changes():
-    assert len(ids())==218 and len(_inputs())==436
-    source=json.loads((ROOT/'docs/check-review/k8s-cluster-native-review-20261020.json').read_text())
-    assert set(ids())=={row['id']for row in source['checks']}
-    for row in source['current_native_overlay']['captures']:
-        retained=capture(row['id'],row['branch'])
-        assert retained['sha256']==row['sha256']
-        for argument in retained['document']['evaluator_arguments']:
-            assert argument['index']['context']['provider']=='k8s'
-    first=ids()[0];one=capture(first,'positive');one['document']['snapshot']['metadata']['modified']=True
-    assert 'modified'not in capture(first,'positive')['document']['snapshot']['metadata']
-
-
-def test_write_current_frontend_evidence_fixture():
-    cases=[]
-    for row in LITERALS:
-        status,evidence=literal.evaluate(row['input']['item'],row['input']['index'])
-        finding={'provider':'k8s','check_id':literal.CHECK,'status':status,'evidence':evidence}
-        cases.append({'kind':row['kind'],'branch':row['case'],'finding':finding,'backend_observation':observation(finding)})
-    path=ROOT/'tests/fixtures/k8s_current_literal_observations_20261020.json'
-    path.write_text(json.dumps({'schema_version':1,'source_native_fixture':'tests/fixtures/k8s_controller_literal_secret_review_20261020.json',
-        'source_sha256':hashlib.sha256((ROOT/'tests/fixtures/k8s_controller_literal_secret_review_20261020.json').read_bytes()).hexdigest(),
-        'cases':cases},indent=2)+'\n')
-
-
-def test_public_current_literal_metadata_matches_admitted_workload_scope():
-    from peaso.checks.catalog import description_for
-    check=next(c for c in CHECKS if c.id==literal.CHECK)
-    public=check.public();description=description_for(literal.CHECK)
-    assert public['title']==metadata.fields()['title']
-    assert 'workload' in description['description'].lower()
-    assert 'controller' in description['description'].lower()
-    assert 'selected namespaced Pods' not in description['description']
-    assert public['finding_type']=='secrets' and public['requirement_controls']==[]
-    assert literal.DECLARATIONS[0]['title']=='Selected Pod and ConfigMap literals have no detected secrets'

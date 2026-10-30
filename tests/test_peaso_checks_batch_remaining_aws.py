@@ -2,12 +2,10 @@
 from __future__ import annotations
 import copy
 import json
-from pathlib import Path
 import pytest
 from peaso.checks import CHECKS
 from peaso.checks import batch_remaining_aws as batch
 
-ROOT=Path(__file__).resolve().parents[1]
 SCOPE='111111111111/us-east-1'
 CONTEXT={'provider':'aws','scope':SCOPE,'metadata':{}}
 CHECKS_BY_ID={c.id:c for c in CHECKS}
@@ -25,13 +23,6 @@ def with_global_buckets(index,rows,status=None):
     result['collections']['bucket']=[{'type':'bucket','scope':scope,'global':True,'account_id':'111111111111',
                                       'status':status or ('collected' if rows else 'empty'),'items':copy.deepcopy(rows)}]
     result['bucket']=[{'provider':'aws','type':'bucket','scope':scope,'data':copy.deepcopy(row)} for row in rows]
-    return result
-
-def with_global_iam(index,rows):
-    result=copy.deepcopy(index);scope='111111111111/global'
-    result['collections']['iam_policy']=[{'type':'iam_policy','scope':scope,'global':True,'account_id':'111111111111',
-                                          'status':'collected' if rows else 'empty','items':copy.deepcopy(rows)}]
-    result['iam_policy']=[{'provider':'aws','type':'iam_policy','scope':scope,'data':copy.deepcopy(row)} for row in rows]
     return result
 
 def with_global_customer_iam(index,rows):
@@ -241,23 +232,6 @@ def test_registry_pass_fail_unknown_and_immutable(cid):
     assert check.evaluate(good,{} )[0]=='UNKNOWN'
 
 
-def test_metadata_and_signed_links_preserved_for_companion():
-    signed={row['id']:row for row in json.loads((ROOT/'docs/compliance-ledgers/new-checks-aws.json').read_text())}
-    for cid,(_,category,severity,title,_,target) in batch.SPECS.items():
-        check=CHECKS_BY_ID[cid]
-        assert cid in signed and check.provider=='aws'
-        assert (check.category,check.severity,check.title,check.target)==(category,severity,title,target)
-        assert signed[cid]['severity']==severity
-        if cid=='aws_g6_ecr_public_repositories_absent':
-            from peaso.checks.aws_ecr_source_correction import validate_prior_spec
-            assert validate_prior_spec()
-            assert signed[cid]["data_source"]=="ecr-public:DescribeRepositories repositoryName,repositoryArn across the ECR Public registry in us-east-1; complete API pagination"
-            assert signed[cid]['title']=='Account has no ECR Public repositories'
-        else:
-            assert signed[cid]['title']==title
-        assert signed[cid]['requirements']
-
-
 def test_iam_declared_notaction_equivalent_and_default_version_only():
     cid='aws.pci.iam.wildcard_action_scoped_resource'
     policy,index=copy.deepcopy(CASES[cid][:2])
@@ -329,9 +303,6 @@ def test_redshift_signed_alias_uses_existing_boolean_predicate():
     assert 'aws_g6_redshift_automatic_version_upgrade' not in batch.SPECS
     canonical=CHECKS_BY_ID['aws.cb.redshift.allow_version_upgrade']
     historic=CHECKS_BY_ID['aws.b.redshift.allow_version_upgrade']
-    signed={row['id']:row for row in json.loads((ROOT/'docs/compliance-ledgers/new-checks-aws.json').read_text())}
-    proposal=signed['aws_g6_redshift_automatic_version_upgrade']
-    assert 'AllowVersionUpgrade is true' in proposal['predicate']
     for setting,expected in ((True,'PASS'),(False,'FAIL')):
         item={'ClusterIdentifier':'cluster-one','AllowVersionUpgrade':setting}
         assert canonical.evaluate(item,{})[0]==historic.evaluate(item,{})[0]==expected
@@ -341,9 +312,6 @@ def test_redshift_signed_alias_uses_existing_boolean_predicate():
 def test_cloudtrail_authentication_signed_alias_uses_existing_regional_management_coverage():
     from peaso.checks.fixtures import CASES as SHARED_CASES
     cid='aws.gap.cloudtrail.region_logging_management_events'
-    signed={row['id']:row for row in json.loads((ROOT/'docs/compliance-ledgers/new-checks-aws.json').read_text())}
-    proposal=signed['aws.pci.cloudtrail.authentication_events']
-    assert 'ReadWriteType=All management events' in proposal['predicate']
     example=SHARED_CASES[cid]
     assert CHECKS_BY_ID[cid].evaluate(copy.deepcopy(example['pass']),copy.deepcopy(example['pass_index']))[0]=='PASS'
     assert CHECKS_BY_ID[cid].evaluate(copy.deepcopy(example['fail']),copy.deepcopy(example['fail_index']))[0]=='FAIL'

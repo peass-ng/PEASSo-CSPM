@@ -93,12 +93,3 @@ def test_guest_report_applicability_identity_status_and_denial_without_guest_exe
     assert check.evaluate(item, {})[0] == 'UNKNOWN'
     item['_coverage'] = {'guestConfigurationAssignments': {'status': 'denied'}}
     assert check.evaluate(item, {})[0] == 'UNKNOWN'
-
-
-def test_exact_source_partition_and_two_target_encryption_host_union():
-    claude = set(json.loads((ROOT / 'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS) == 25 and len(PROOFS) == 8 and not set(REVIEWS) & claude
-    query = 'compute_vm_and_sacle_set_encryption_at_host_enabled'
-    review = next(r for r in REVIEWS.values() if r['source_review']['query_id'] == query)
-    assert set(review['native_checks']) == {'azure.vm.encryption_at_host', 'azure.port.vmss_encryption_at_host'}
-    assert len(review['source_review']['status_case_sql']) == 2

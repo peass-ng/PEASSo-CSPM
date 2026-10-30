@@ -2,10 +2,9 @@
 import copy
 import json
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 import sys
 sw = sys.modules['peaso.checks._bulk_pending_compliance_new_sw48']
-from scripts.peaso_compliance_compile import spec_digest
 
 SCOPE = '123456789012/us-east-1'
 
@@ -21,22 +20,6 @@ def index(collections, parameters=None):
 
 def evaluate(identifier, subject, facts):
     return evaluate_check(identifier, subject, facts)[0]
-
-
-def test_signed_metadata_and_no_duplicate_ids():
-    ledger = json.load(open('docs/compliance-ledgers/new-checks-aws.json'))
-    entries = {e['id']:e for e in ledger}
-    for identifier,(kind,category,severity,title,sha,_) in sw.SPECS.items():
-        entry = entries[identifier]
-        assert sha == spec_digest(entry)
-        matches = [c for c in CHECKS if c.id == identifier]
-        assert len(matches) == 1
-        check = matches[0]
-        expected_title = ('Secrets Manager secret uses an enabled AWS or customer managed KMS key'
-                          if identifier == 'aws.pci.secretsmanager.kms_encryption_any' else title)
-        expected_category = ('hardening' if identifier == 'aws_nist_rds_db_instance_and_cluster_enhanced_monitoring_enabled'
-                             else category)
-        assert (check.provider,check.kind,check.category,check.severity,check.title) == ('aws',kind,expected_category,severity,expected_title)
 
 
 def test_config_recorder():

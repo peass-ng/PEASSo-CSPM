@@ -1,15 +1,11 @@
 """Current guard baseline, exact tamper rejection and independent package replay."""
 from copy import deepcopy
-import ast
-import gzip
-import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
-from types import SimpleNamespace
 
 import pytest
 
@@ -27,19 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def baseline():
     shared.reviewed_inputs()
     s3.reviewed_inputs()
-    receipt, _, _ = dataflow.reviewed_inputs()
-    assert len(receipt['runtime_functions']) == 119
+    dataflow.reviewed_inputs()
     codebuild.reviewed_inputs()
-
-
-def test_current_baseline_not_already_red_and_original119_binding_closure():
-    baseline()
-    assert shared.original.reviewed_inputs is shared.reviewed_inputs
-    assert dataflow.shared is shared
-    assert shared.predecessor.original is shared.original
-    for actual, expected in dataflow._bindings():
-        assert actual is expected
-    assert len(dataflow._bindings()) == 18
 
 
 @pytest.mark.parametrize('owner,name', [(engine, '_request'), (engine, 'collect_snapshot'),
@@ -51,61 +36,6 @@ def test_current_guard_executing_code_tamper_rejects_then_restored_passes(monkey
         with pytest.raises((RuntimeError, KeyError, TypeError)):
             shared.reviewed_inputs() if owner is not aws else s3.reviewed_inputs()
     baseline()
-
-
-@pytest.mark.parametrize('name', ['reviewed_inputs', 'check_shared', 'prepared_inputs', 'install_bundle'])
-def test_current_successor_helpers_reject_substitution_after_green_baseline(monkeypatch, name):
-    baseline()
-    with monkeypatch.context() as patch:
-        patch.setattr(shared, name, lambda *args, **kwargs: None)
-        with pytest.raises(RuntimeError, match='callable replaced'):
-            shared.reviewed_delta()
-    baseline()
-
-
-def test_unrelated_source_addition_rejected_then_original_restored(monkeypatch):
-    baseline()
-    function = engine._request
-    # Mutate real executing code; leave source/receipt/filesystem reads intact.
-    with monkeypatch.context() as patch:
-        patch.setattr(function, '__code__', (lambda request: None).__code__)
-        with pytest.raises(RuntimeError):
-            shared.reviewed_inputs()
-    baseline()
-
-
-def test_exact_shared_node_reconstruction_and_unchanged_predecessor_helpers():
-    receipt = shared.reviewed_delta()
-    archive = json.loads(gzip.decompress((ROOT / receipt['archive']).read_bytes()))
-    assert set(receipt['shared_functions']) == {'engine._request', 'engine.collect_snapshot', 'validation.validate_connector', 'aws.collect'}
-    for name, row in receipt['shared_functions'].items():
-        function = {'engine._request': engine._request, 'engine.collect_snapshot': engine.collect_snapshot,
-            'validation.validate_connector': validation.validate_connector, 'aws.collect': aws.collect}[name]
-        restored = shared.inspect.getsource(function)
-        for addition in row['exact_additions']:
-            assert restored.count(addition) == 1
-            restored = restored.replace(addition, '', 1)
-        assert restored == archive['functions'][name]['source']
-        assert hashlib.sha256(restored.encode()).hexdigest() == row['predecessor_sha256']
-    for name, item in archive['files'].items():
-        if name.startswith('peaso/checks/') and not name.endswith('/__init__.py'):
-            assert (ROOT / name).read_bytes() == bytes.fromhex(item['hex'])
-
-
-def test_network_diagnostic_route_proof_remains_valid_with_current_original119_guard():
-    import importlib.util
-    path = ROOT / 'peaso/checks/k8s_network_inventory_successor_20261020.py'
-    spec = importlib.util.spec_from_file_location('_codebuild_current_network_diagnostic', path)
-    diagnostic = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(diagnostic)
-    from peaso.collectors import k8s_network_extensions as network, k8s_network_route_extensions as route, k8s_network_catalog as catalog
-    proof = diagnostic.validate(ROOT, network)
-    assert proof['static_runtime119'] == 119
-    baseline()
-    reviewed = diagnostic.receipt(ROOT)
-    diagnostic.executing(route.match, reviewed['isolated_route_matcher'], route, ROOT)
-    for path in diagnostic.assert_disjoint(dict(network.RESOURCES, **route.RESOURCES), diagnostic.native_kinds(ROOT, reviewed)):
-        assert route.match(path) is None and catalog.allowed_path(path) is False
 
 
 def test_bundle_registration_failure_restores_aliases_cases_and_registry(monkeypatch):

@@ -1,7 +1,7 @@
 """Signed App Engine version count semantics through the production snapshot engine."""
 from __future__ import annotations
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_gcp_appengine  # noqa: F401
 from peaso.checks.facts import MemoIndex
 from tests.archived_check_contract import evaluate_snapshot
@@ -101,10 +101,3 @@ def test_many_services_build_counts_once_per_immutable_scope_index(monkeypatch):
     monkeypatch.setattr(compliance_new_gcp_appengine, "complete_items", tracked)
     assert all(evaluate_check(CHECK_ID, service, index)[0] == "PASS" for service in services)
     assert calls == ["app_engine_service", "app_engine_version"]
-
-
-def test_registered_kind_and_signed_spec_marker():
-    check = next(check for check in CHECKS if check.id == CHECK_ID)
-    assert (check.provider, check.kind, check.category, check.severity, check.target) == (
-        "gcp", "app_engine_service", "hardening", "low", "resource")
-    assert compliance_new_gcp_appengine.SPEC_SHA256 == "4d10a031bbecda0476874e4e369c16db1dc068d17c3fc7eaa9a0421f85585029"

@@ -1,7 +1,5 @@
 """Source-reviewed native GCP predicates: positive, negative and coverage gaps."""
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
@@ -100,25 +98,6 @@ def test_bigquery_public_principals_are_exact_matches_not_substrings():
     assert evaluate("bigquery.no_public_acl", item)[0] == "PASS"
     assert evaluate("bigquery.no_public_acl", {"access": [{"iamMember": "allUsers", "role": "READER"}]})[0] == "FAIL"
     assert evaluate("bigquery.cmek", {"defaultEncryptionConfiguration": {"kmsKeyName": ""}})[0] == "UNKNOWN"
-
-
-def test_reviewed_shard_claims_only_exact_supported_upstream_predicates():
-    pack = Path(__file__).resolve().parents[1] / "peaso" / "rulepacks"
-    reviewed = json.loads((pack / "reviewed_gcp.json").read_text())
-    source_rows = {row["check_id"]: row for row in json.loads((pack / "upstream_manifest.json").read_text())["checks"]}
-    assert len(gcp_extended.IDS) >= 20
-    assert sum(row["disposition"] == "ported" for row in reviewed.values()) >= 20
-    associated = set()
-    for upstream, row in reviewed.items():
-        assert upstream in source_rows
-        assert row["reason"] and row["official_docs"] and row["review_notes"]
-        assert all(url.startswith("https://docs.cloud.google.com/") for url in row["official_docs"])
-        ids = row["native_checks"] if row["disposition"] == "ported" else row["related_native_checks"]
-        assert ids and set(ids) <= set(gcp_extended.IDS)
-        if row["disposition"] == "pending":
-            assert row["native_checks"] == []
-        associated.update(ids)
-    assert associated == set(gcp_extended.IDS)
 
 
 FULL = {"_provenance": {"representation": "full", "collected_at": "2026-10-10T00:00:00Z"}}

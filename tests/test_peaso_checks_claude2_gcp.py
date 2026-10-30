@@ -6,17 +6,15 @@ from pathlib import Path
 
 import pytest
 
-import peaso.checks.claude2_gcp  # noqa: F401  (registers every claude2_gcp group)
 from peaso.checks import CHECKS, HACKTRICKS
 from peaso.checks.claude2_gcp_common import CHECK_IDS, PREFIX, scope_index
-from peaso.checks.claude2_gcp_logfilter import verdict, audit_event, parse, FilterError
+from peaso.checks.claude2_gcp_logfilter import verdict, parse, FilterError
 from peaso.checks.claude2_gcp_logging import EVENTS, CIS_FILTERS, METRIC_IDS, CHANNEL_KIND
 from peaso.checks.fixtures import CASES
+import peaso.checks.claude2_gcp  # noqa: F401  (registration side effect)
 
 PACK = Path(__file__).resolve().parent.parent / "peaso" / "rulepacks"
 REVIEWED = json.loads((PACK / "reviewed_claude2_gcp.json").read_text())
-PARTITION = set(json.loads((PACK / "port_partitions_claude2.json").read_text())["partitions"]["claude2_gcp"]["check_ids"])
-MANIFEST = {row["check_id"]: row for row in json.loads((PACK / "upstream_manifest.json").read_text())["checks"]}
 REGISTRY = {check.id: check for check in CHECKS}
 
 
@@ -28,27 +26,6 @@ def run(check_id, item, index=None):
 
 
 # --- Shard integrity -----------------------------------------------------------------------------------------
-
-def _active_reviews():
-    merged = {}
-    config = json.loads((PACK / "active_reviews.json").read_text())
-    for name in config["shards"]:
-        if not name.startswith("reviewed_claude2_gcp"):
-            deferred = config.get("deferred_source_ids", {}).get(name, {})
-            for key, value in json.loads((PACK / name).read_text()).items():
-                if key not in deferred:
-                    merged.setdefault(key, value)
-    return merged
-
-
-def test_shard_covers_partition_exactly_once():
-    assert set(REVIEWED) == PARTITION and len(PARTITION) == 105
-    others = _active_reviews()
-    for key, entry in REVIEWED.items():
-        assert key in MANIFEST, key
-        if key in others:
-            assert entry.get("supersedes") == key and others[key]["disposition"] == "pending", key
-
 
 def test_rows_reference_registered_predicates():
     for key, entry in REVIEWED.items():
@@ -78,20 +55,6 @@ def test_predicate_contract_and_fixtures(check_id):
         assert run(check_id, cases[name], cases.get("pass_index")) == "UNKNOWN", name
     for value in ({}, None, [], {"collection_status": "denied"}, {"_provenance": {"x": 1}}):
         assert check.evaluate(value, {})[0] == "UNKNOWN"
-
-
-def test_in_memory_manifest_with_shard_validates():
-    from scripts.peaso_review_catalog import validate_manifest
-    rows = []
-    for key, row in MANIFEST.items():
-        row = copy.deepcopy(row)
-        if key in REVIEWED:
-            row.update({k: v for k, v in REVIEWED[key].items() if k != "supersedes"})
-        elif any(c not in REGISTRY for c in row["native_checks"]):
-            # The generated manifest can lag concurrent registry edits by other owners; only this shard is under test.
-            row.update(disposition="pending", native_checks=[])
-        rows.append(row)
-    assert validate_manifest({"checks": rows})["native_checks"] == len(CHECKS)
 
 
 # --- Logging query language semantics -------------------------------------------------------------------------

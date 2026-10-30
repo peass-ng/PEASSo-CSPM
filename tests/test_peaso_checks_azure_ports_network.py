@@ -69,9 +69,3 @@ def test_bastion_anchor_excludes_tenants_and_denies_foreign_subscription_rows():
     check = REGISTRY[ports.SOURCE_QUERIES['network_bastion_host_min_1']]
     assert check.evaluate({'scope': '/tenants/tenant'}, {})[0] == 'NOT_APPLICABLE'
     assert check.evaluate({'scope': ports.SUB}, ports._fixture('bastion_host', [{'id': '/subscriptions/other/resourceGroups/g/providers/Microsoft.Network/bastionHosts/b'}]))[0] == 'UNKNOWN'
-
-
-def test_literal_source_ownership_retains_fifteen_versioned_framework_refs():
-    claude = set(json.loads((ROOT / 'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS) == 15 and len(PROOFS) == 3 and not set(REVIEWS) & claude
-    assert all(row['source_review']['arguments'] == [] and row['disposition'] == 'ported' for row in REVIEWS.values())

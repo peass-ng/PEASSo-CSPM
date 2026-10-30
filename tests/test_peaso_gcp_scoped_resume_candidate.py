@@ -1,5 +1,4 @@
 """Exact scoped resume path without cloud calls or source-guard substitutes."""
-import copy
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 
@@ -134,22 +133,3 @@ def test_parallel_scheduler_saved_kind_scope_owns_both_native_views_once():
     assert instance.collections[('project', 'projects/a')]['source_requests'] == ['req-saved-a']
 
 
-def test_existing_reviewed_source_owner_rejects_resume_source_tamper():
-    from peaso import private_reviewed_collector_successor_20261022 as reviewed
-    from peaso import private_secret_source_epoch_20261021 as epoch
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    source = root / 'peaso/collectors/gcp.py'
-    original = source.read_bytes()
-    expected = epoch.source_rows()['peaso/collectors/gcp.py']['before_sha256']
-    assert reviewed.predecessor_bytes('peaso/collectors/gcp.py', original, expected, root)
-    try:
-        source.write_bytes(original + b'\n# tampered scoped resume source\n')
-        # The exact finite bridge rejects changed bytes before the historical
-        # collector inverse runs; the same tamper must still fail closed.
-        with pytest.raises(epoch.AdmissionError, match='finite successor current source changed'):
-            reviewed.predecessor_bytes('peaso/collectors/gcp.py', source.read_bytes(), expected, root)
-    finally:
-        source.write_bytes(original)
-    assert source.read_bytes() == original

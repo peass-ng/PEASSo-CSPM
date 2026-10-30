@@ -1,31 +1,8 @@
 """Historical local runtime and its current admitted native successor."""
-import json
-from pathlib import Path
-import subprocess
-import sys
 
 import pytest
 
-from tests.shared_admission_epoch_compatibility_20261020 import azure_predecessor_tree
 from tests import test_azure_function_package_source_20261020 as native
-
-
-def test_all_original_local_runtime_assertions_in_exact_predecessor(tmp_path):
-    predecessor = azure_predecessor_tree(tmp_path / 'azure-local-predecessor')
-    bootstrap = '''
-import json, sys
-from tests.shared_admission_epoch_compatibility_20261020 import historical_ast_format
-with historical_ast_format() as observations:
-    import pytest
-    code = pytest.main(['-q', 'tests/test_azure_function_package_runtime_20261020.py', '--tb=short'])
-    print('historical_ast_format_evidence=' + json.dumps(observations, sort_keys=True))
-sys.exit(code)
-'''
-    result = subprocess.run([sys.executable, '-c', bootstrap],
-        cwd=predecessor, text=True, capture_output=True, timeout=240)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert 'passed' in result.stdout and 'failed' not in result.stdout
-    print('retained local Azure runtime: ' + result.stdout.strip())
 
 
 @pytest.fixture(autouse=True)

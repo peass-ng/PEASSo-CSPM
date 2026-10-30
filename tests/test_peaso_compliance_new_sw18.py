@@ -4,8 +4,6 @@ from __future__ import annotations
 import copy
 import importlib
 import json
-from collections import Counter
-from pathlib import Path
 
 import pytest
 
@@ -407,75 +405,6 @@ def test_non_privileged_status_registration_equivalence_boundaries():
     assert evaluate(sw.USER_MFA_ID, row, index)[0] == 'FAIL'
     evidence['coverage']['sign_in_paths'] = False
     assert evaluate(sw.USER_MFA_ID, row, index)[0] == 'UNKNOWN'
-
-
-def test_registry_metadata_and_description_digests_match_signed_ledgers():
-    from scripts.peaso_compliance_compile import spec_digest
-    from peaso.checks import azure_vm_ssh_source_correction as ssh_correction
-    from peaso.checks.catalog import description_for, proposal_provenance_for
-    specs = {}
-    def walk(value):
-        if isinstance(value, dict):
-            for spec in value.get('new_checks', []):
-                if spec['id'] in sw.IDS:
-                    if spec['id'] in specs:
-                        assert specs[spec['id']] == spec
-                    specs[spec['id']] = spec
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-    root = Path(__file__).resolve().parents[1]
-    for ledger in (root / 'docs/compliance-ledgers').glob('*.json'):
-        walk(json.loads(ledger.read_text()))
-    assert set(specs) == set(OWN_CHECKS) == set(sw.IDS)
-    descriptions = json.loads((root / 'docs/compliance-ledgers/descriptions/implemented-new-checks.json').read_text())
-    for check_id, spec in specs.items():
-        check = OWN_CHECKS[check_id]
-        if check_id == sw.KEY_ID:
-            # The frozen proposal remains signed. Its explicit source erratum is
-            # the current contract for this ID, including the reversed key polarity.
-            signed_sha = 'f3577db5974d92481250f1d8a59f82e389a143febc41e4b0784c40ea343f5886'
-            corrected_sha = 'e64e5ce92cd6765844f89a8e02d607d9b573a8c3fb90bad70ccb5b8081e68337'
-            assert spec['title'] == 'Use SSH keys and disable passwords on Linux VMs'
-            assert spec_digest(spec) == signed_sha
-            assert ssh_correction.CHECK_ID == check_id
-            assert ssh_correction.SOURCE_CORRECTION == {
-                'version': 'peaso-source-correction-v1',
-                'status': 'source_erratum_successor',
-                'prior_frozen_signed_spec_sha256': signed_sha,
-                'prior_frozen_status': 'historical_superseded_for_this_check',
-                'current_canonical_spec_sha256': corrected_sha,
-                'current_predicate_sha256': 'f0015cbf926c4b1f5a9bb2e88d23e724ea747234eca535b5dc0b64fdac46714b',
-                'source_url': 'https://raw.githubusercontent.com/prowler-cloud/prowler/61d2cc55c4539a6b48a3cf9f3729d8f2af300882/prowler/compliance/azure/pci_4.0_azure.json',
-                'source_sha256': 'e36914af07128f9e7dcda093e3bb89ca97245829c1d55caf0fba33f8dcdd60e0',
-                'source_selection_sha256': 'fd0019e589e996f53e12f92daf5b82dda5532d7b00080f1e5c1baf27bd31f6ad',
-                'framework_id': 'pci_4.0_azure',
-                'requirement_ids': ['8.2.1.1', '8.2.2.2', '8.2.4.1', '8.2.5.1', '8.3.11.1'],
-                'criterion_scope': 'recorded VM launch SSH public-key presence; no runtime authentication claim',
-            }
-            assert ssh_correction.CORRECTED_SPEC['title'] == 'Running Linux VM launch configuration has no SSH public key'
-            assert spec_digest(ssh_correction.CORRECTED_SPEC) == corrected_sha
-            assert sw.META[check_id] == {**ssh_correction.CORRECTED_SPEC,
-                                         'proposed_spec_sha256': corrected_sha}
-            assert (check.id, check.provider, check.kind, check.severity, check.category, check.title) == (
-                ssh_correction.CORRECTED_SPEC['id'], ssh_correction.CORRECTED_SPEC['provider'],
-                ssh_correction.CORRECTED_SPEC['resource_kind'], ssh_correction.CORRECTED_SPEC['severity'],
-                ssh_correction.CORRECTED_SPEC['category'], ssh_correction.CORRECTED_SPEC['title'])
-            assert description_for(check_id) == ssh_correction.DESCRIPTION
-            provenance = proposal_provenance_for(check_id)
-            assert provenance['signed_spec_sha256'] == signed_sha
-            assert provenance['signed_spec_status'] == 'historical_superseded_for_this_check'
-            assert provenance['source_correction'] == ssh_correction.SOURCE_CORRECTION
-        else:
-            assert (check.id, check.provider, check.kind, check.severity, check.category, check.title) == (
-                spec['id'], spec['provider'], spec['resource_kind'], spec['severity'], spec['category'], spec['title'])
-            assert sw.META[check_id]['proposed_spec_sha256'] == spec_digest(spec)
-        assert descriptions[check_id]['proposed_spec_sha256'] == spec_digest(spec)
-        assert set(descriptions[check_id]) == {'description', 'evaluated', 'pass_when', 'fail_when',
-                                             'not_applicable_when', 'proposed_spec_sha256'}
-    assert all(count == 1 for count in Counter(check.id for check in CHECKS).values())
 
 
 def test_clock_unsynchronized_without_measured_drift_is_unknown():

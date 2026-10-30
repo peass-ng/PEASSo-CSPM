@@ -9,10 +9,8 @@ from botocore.stub import Stubber
 
 from peaso import engine
 from peaso.collectors import aws
-from peaso.checks import CHECKS, evaluate_check
-from peaso.checks.aws_pci_iam_scoped_source_correction import (
-    CHECK_ID, FROZEN_SPEC, PRIOR_FROZEN_SPEC_SHA256, validate_prior_spec,
-)
+from peaso.checks import evaluate_check
+from peaso.checks.aws_pci_iam_scoped_source_correction import CHECK_ID
 from peaso.snapshot import make_snapshot
 
 ACCOUNT = "123456789012"
@@ -138,11 +136,3 @@ def test_exact_projection_and_default_version_guards(monkeypatch):
     assert evaluate_check(CHECK_ID, foreign["iam_customer_policy"][0]["data"], foreign)[0] == "UNKNOWN"
 
 
-def test_historical_proposal_hash_and_registered_target():
-    from pathlib import Path
-    rows = json.loads((Path(__file__).resolve().parents[1] / "docs/compliance-ledgers/new-checks-aws.json").read_text())
-    validate_prior_spec(next(row for row in rows if row.get("id") == CHECK_ID))
-    validate_prior_spec(FROZEN_SPEC)
-    assert PRIOR_FROZEN_SPEC_SHA256 == "704541e545d3efa379f411ebef70f39965c1db02496bddda6853da2c2132b820"
-    check, = [c for c in CHECKS if c.id == CHECK_ID]
-    assert check.kind == "iam_customer_policy" and check.dependencies == ["iam_customer_policy"]

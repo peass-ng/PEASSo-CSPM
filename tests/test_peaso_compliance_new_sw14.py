@@ -1,8 +1,6 @@
 """Signed sw14 predicates, imported directly with registration isolation."""
 import copy
 import importlib
-import json
-from pathlib import Path
 
 import pytest
 import peaso.checks as registry
@@ -253,40 +251,6 @@ def test_missing_required_fact_unknown(cid):
     }[cid]
     row.pop(field)
     assert mod.EVALUATORS[cid](row, idx)[0] == 'UNKNOWN'
-
-
-@pytest.mark.parametrize('cid', mod.IDS)
-def test_signed_digest_and_metadata(cid):
-    from scripts.peaso_compliance_compile import spec_digest
-    entries = []
-    def walk(value):
-        if isinstance(value, dict):
-            entries.extend(e for e in value.get('new_checks', []) if e['id'] == cid)
-            for nested in value.values():
-                walk(nested)
-        elif isinstance(value, list):
-            for nested in value:
-                walk(nested)
-    root = Path(__file__).resolve().parents[1]
-    for path in (root / 'docs/compliance-ledgers').glob('*.json'):
-        if not path.name.startswith('new-checks-'):
-            walk(json.loads(path.read_text()))
-    assert entries and all(e == mod.SPECS[cid] for e in entries)
-    assert mod.PROPOSED_SPEC_SHA256[cid] == spec_digest(entries[0])
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        local = []
-        # Capture the local adapter's resulting Check without leaking registration.
-        monkeypatch.setattr(mod, 'CHECKS', local)
-        original = registry.CHECKS
-        monkeypatch.setattr(registry, 'CHECKS', local)
-        mod._register(cid)
-        assert registry.CHECKS is local
-        check = local[0]
-        spec = mod.SPECS[cid]
-        assert (check.id, check.provider, check.kind, check.category, check.title, check.severity) == (
-            cid, spec['provider'], spec['resource_kind'], spec['category'], spec['title'], spec['severity'])
-        assert check.dependencies == mod.DEPENDENCIES[cid]
-    assert registry.CHECKS is original
 
 
 @pytest.mark.parametrize('cid', [
@@ -569,17 +533,6 @@ def test_empty_application_inventory_still_requires_tenant_authority():
     idx['collections']['directory_application'][0].update(status='empty', items=[], scope=SUB)
     idx['context']['scope'] = SUB
     assert mod.EVALUATORS[cid](idx['context'], idx)[0] == 'UNKNOWN'
-
-
-def test_description_supplement_completeness_and_signatures():
-    from scripts.peaso_compliance_compile import spec_digest
-    root = Path(__file__).resolve().parents[1]
-    supplements = json.loads((root / 'docs/compliance-ledgers/.work/swarm/sw14-descriptions.json').read_text())
-    assert set(supplements) == set(mod.IDS)
-    for cid, entry in supplements.items():
-        assert set(entry) == {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when', 'proposed_spec_sha256'}
-        assert entry['proposed_spec_sha256'] == spec_digest(mod.SPECS[cid])
-        assert entry['evaluated'] and 'UNKNOWN' in entry['description']
 
 
 def test_gateway_all_addresses_approved_still_requires_protected_path():

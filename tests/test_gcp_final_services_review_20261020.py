@@ -4,8 +4,6 @@ No customer policy, deployment history, effective-route marker or representation
 attestation is added to provider responses. Unsupported native facts stay unknown.
 """
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -60,8 +58,6 @@ def no_network_or_auth(monkeypatch):
 @pytest.fixture(scope='session', autouse=True)
 def receipts():
     ROOT.mkdir(parents=True, exist_ok=True)
-    paths = [Path(__file__), *Path('peaso/checks').glob('*.py'), *Path('peaso/collectors').glob('gcp*.py'), Path('peaso/engine.py')]
-    (ROOT/'tested-source-hashes.json').write_text(json.dumps({str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}, indent=2)+'\n')
     yield
     (ROOT/'native-cases.json').write_text(json.dumps(RECEIPTS, indent=2)+'\n')
 

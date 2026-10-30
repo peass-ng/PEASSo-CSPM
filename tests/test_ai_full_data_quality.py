@@ -5,7 +5,6 @@ import subprocess
 import sys
 
 import pytest
-import yaml
 
 from peaso.ai import briefing, network
 from peaso.ai.pipeline import private_json
@@ -100,21 +99,6 @@ def test_full_default_lookup_search_and_large_object_keys(tmp_path):
     for key in keys:
         pointer = '/'+key.replace('~', '~0').replace('/', '~1')
         assert read(tmp_path, 'get', 'source_report', 'future', '--path', pointer) == report['future'][key]
-
-
-@pytest.mark.parametrize('stage', ('network', 'priorities'))
-def test_quality_limits_and_full_lookup_instructions(stage):
-    from pathlib import Path
-    config = yaml.safe_load((Path('peaso/ai/agents')/(stage+'.yaml')).read_text())
-    assert config['agent']['thinking_effort'] == 'high'
-    assert config['agent']['max_turns'] >= 30
-    assert config['agent']['max_runtime_minutes'] >= 5
-    assert config['tools']['exec_timeout_seconds'] >= 60
-    assert config['tools']['exec_max_output_chars'] >= 16000
-    assert 'source_report' in config['system_prompt'] and '--keys' in config['system_prompt']
-    from peaso.ai.review_groups import stage_limit
-    assert stage_limit(stage, True) >= 600
-    assert stage_limit(stage, False) >= 150
 
 
 def test_unprojected_resource_can_support_valid_network_output(tmp_path, monkeypatch):

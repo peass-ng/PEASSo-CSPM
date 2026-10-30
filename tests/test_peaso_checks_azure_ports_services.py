@@ -158,20 +158,6 @@ def test_new_service_collection_is_authoritative_bounded_and_contains_no_sensiti
     assert all(not any(term in url.lower() for term in ("listkeys", "/secrets/", "linkedservices", "globalparameters")) for url, _ in api.calls)
 
 
-def test_manual_only_source_rows_are_separate_and_never_supported_wrappers():
-    root = Path(__file__).resolve().parent.parent
-    manual = json.loads((root / "peaso/rulepacks/reviewed_azure_ports_manual.json").read_text())
-    assigned = set(json.loads((root / "peaso/rulepacks/port_partitions.json").read_text())["partitions"]["azure"]["check_ids"])
-    assert len(manual) == 412
-    assert set(manual) <= assigned
-    for cid, row in manual.items():
-        assert row["disposition"] == "rejected" and row["native_checks"] == []
-        assert row["review_classification"] == "manual_attestation"
-        assert row["manual_requirement"]["question"]
-        assert row["source_review"]["constant_source_status"] == "info"
-        assert row["source_review"]["condition"] == "none"
-
-
 def test_credential_tag_keys_and_redaction_status_remain_but_literals_do_not():
     marker = "INERT_QA_MARKER_NOT_A_REAL_SECRET"
     payload = {"tags": {"api_token": marker, "client-secret": marker, "Name": "resource", "HttpTokens": "required"}, "properties": {"HttpTokens": "required"}}

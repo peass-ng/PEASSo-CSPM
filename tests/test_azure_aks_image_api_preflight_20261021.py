@@ -1,5 +1,4 @@
 """Selected AKS intake uses exact native validation without native registry startup."""
-import ast
 import json
 from pathlib import Path
 import subprocess
@@ -24,18 +23,6 @@ assert module.association.__file__ == str(root / 'peaso/k8s_image_source_associa
                                capture_output=True, text=True, timeout=25)
     assert completed.returncode == 0, completed.stderr
 
-def test_selector_and_context_validation_match_native_source():
-    pure=ast.parse((ROOT/'peaso/server/content_selection_preflight_20261021.py').read_text())
-    native=ast.parse((ROOT/'peaso/collectors/azure_selected_aks_image_20261021.py').read_text())
-    factory=next(n for n in pure.body if isinstance(n,ast.FunctionDef) and n.name=='_make_aks_image')
-    selector=next(n for n in native.body if isinstance(n,ast.FunctionDef) and n.name=='selected_targets')
-    copied=next(n for n in factory.body if isinstance(n,ast.FunctionDef) and n.name=='selected_targets')
-    assert ast.dump(selector,include_attributes=False)==ast.dump(copied,include_attributes=False)
-    source=ast.parse((ROOT/'peaso/collectors/azure_aks_workloads_native.py').read_text())
-    normalize=next(n for n in source.body if isinstance(n,ast.FunctionDef) and n.name=='normalize')
-    start=next(i for i,n in enumerate(normalize.body) if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='contexts' for t in n.targets))
-    contexts=next(n for n in factory.body if isinstance(n,ast.FunctionDef) and n.name=='normalize_contexts')
-    assert [ast.dump(n,include_attributes=False) for n in normalize.body[start:-1]]==[ast.dump(n,include_attributes=False) for n in contexts.body[1:-1]]
 
 def test_hosted_aks_registry_auth_is_structured_without_native_boot():
     # A disposable CA is test material, never cloud auth or a published credential.

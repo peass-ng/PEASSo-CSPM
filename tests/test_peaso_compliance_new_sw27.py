@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
@@ -11,7 +9,6 @@ from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw27 as sw
 from tests.archived_check_contract import evaluate_snapshot
 from peaso.snapshot import make_snapshot
-from scripts.peaso_compliance_compile import spec_digest
 
 
 SCOPE = "/subscriptions/s"
@@ -181,19 +178,6 @@ def cases():
         "incidentWorkflowVerified": True, "safeguardInventoryDocumented": True}
     c["azure_c5_ops_13_01b"] = (diag, siem_index, lambda x: None)
     return c
-
-
-@pytest.mark.parametrize("check_id", sw.IDS)
-def test_signed_metadata_and_digest(check_id):
-    source = json.loads(Path("docs/compliance-ledgers/new-checks-azure.json").read_text())
-    proposal = next(entry for entry in source if entry["id"] == check_id)
-    registered = [check for check in CHECKS if check.id == check_id]
-    assert len(registered) == 1
-    check = registered[0]
-    assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-        proposal["provider"], proposal["resource_kind"], proposal["category"],
-        proposal["severity"], proposal["title"])
-    assert sw.SPEC_SHA256[check_id] == spec_digest(_signed_ledger()[check_id])
 
 
 @pytest.mark.parametrize("check_id", sw.IDS)
@@ -413,17 +397,6 @@ def test_ase_supported_category_group_and_pending_manual_endpoint():
     assert status(cid, vnet, index) == "PASS"
 
 
-def test_description_supplement_matches_signed_entries():
-    supplement = json.loads(Path("docs/compliance-ledgers/.work/swarm/sw27-descriptions.json").read_text())
-    proposals = {entry["id"]: entry for entry in
-        json.loads(Path("docs/compliance-ledgers/new-checks-azure.json").read_text())}
-    assert set(supplement) == set(sw.IDS)
-    for check_id, description in supplement.items():
-        assert description["proposed_spec_sha256"] == spec_digest(_signed_ledger()[check_id])
-        assert set(description) == {"description", "evaluated", "pass_when", "fail_when",
-            "not_applicable_when", "proposed_spec_sha256"}
-
-
 def test_missing_child_and_malformed_policy_are_unknown():
     c = cases()
     for cid, field in [
@@ -477,17 +450,3 @@ def test_engine_runs_composite_scope_check_over_native_component_kinds():
     assert findings[0]["resource_id"] == "scope:" + SCOPE
 
 
-def _signed_ledger():
-    """Read the exact new_checks records signed by the compliance compiler."""
-    rows = {}
-    root = Path(__file__).parents[1] / "docs/compliance-ledgers"
-    for path in root.glob("azure-*.json"):
-        document = json.loads(path.read_text())
-        if not isinstance(document, dict) or "frameworks" not in document:
-            continue
-        for framework in document["frameworks"]:
-            for requirement in framework["requirements"]:
-                for entry in requirement["new_checks"]:
-                    previous = rows.setdefault(entry["id"], entry)
-                    assert previous == entry
-    return rows

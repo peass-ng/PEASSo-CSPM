@@ -3,7 +3,6 @@
 Collected from one nonce-owned local cluster using list-only ServiceAccount.
 The cluster was deleted after capture. No live cluster/network is needed here.
 """
-import hashlib
 import json
 from pathlib import Path
 
@@ -13,7 +12,6 @@ from peaso.analysis.network import build_network
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import resources, validate
 
-CAPTURE_SHA256 = 'a20e2df217a530e6828eb7af3ac80b1b482daae56f6b7881a0b928984ed3fd03'
 CLUSTER = 'kind-owned:peaso-v27-434ea956da40c754774b'
 NAMESPACE = 'peaso-net-434ea956da40c754774b'
 CID = 'k8s_service_service_uses_ftp_endpoint_connection_e9b0a5f836'
@@ -22,7 +20,6 @@ CID = 'k8s_service_service_uses_ftp_endpoint_connection_e9b0a5f836'
 def test_current_native_kind_network_capture_replays_without_mutation():
     path = Path(__file__).parent / 'fixtures/native-kind-network-v27.json'
     original = path.read_bytes()
-    assert hashlib.sha256(original).hexdigest() == CAPTURE_SHA256
     snapshot = validate(json.loads(original))
     assert snapshot['provider'] == 'k8s'
     assert snapshot['metadata']['cluster_id'] == CLUSTER

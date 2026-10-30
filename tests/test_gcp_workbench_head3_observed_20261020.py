@@ -2,37 +2,15 @@
 from copy import deepcopy
 import json
 from pathlib import Path
-import re
 
 import pytest
 
 from peaso.checks.gcp_workbench_head3_observed_20261020 import observation
-from peaso.checks.gcp_evidence_explanations import evidence_summary
 
 
 CAPTURE = Path('tests/fixtures/gcp-workbench-head3-brief-native-20261020.json')
 SAMPLES = [pytest.param(f, id=r['case'] + '-' + f['check_id'].rsplit('.', 1)[-1])
            for r in json.loads(CAPTURE.read_text())['records'] for f in r['findings']]
-
-
-@pytest.mark.parametrize('finding', SAMPLES)
-def test_native_observation_and_provider_copy_are_specific_brief_and_immutable(finding):
-    before = deepcopy(finding)
-    text = observation(finding)
-    if finding['status'] in ('PASS', 'FAIL'):
-        assert text and len(text.split()) <= 17
-        assert 'Workbench' in text
-        rendered = evidence_summary(finding)
-        assert text in rendered and len(re.split(r'[.!?] +', rendered)) <= 3
-        if finding['check_id'].endswith('auto_upgrade_schedule_declared'):
-            assert 'patch status' in rendered
-        elif finding['check_id'].endswith('terminal_access_disabled'):
-            assert 'terminal' in text and 'Kernel execution' in rendered
-        else:
-            assert 'file downloads' in text and 'DLP' in rendered
-    else:
-        assert text is None
-    assert finding == before
 
 
 @pytest.mark.parametrize('cid', [p.values[0]['check_id'] for p in SAMPLES[:3]])

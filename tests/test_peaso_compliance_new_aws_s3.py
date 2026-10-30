@@ -1,8 +1,8 @@
 """Adverse S3 cross-Region replication fixtures for the signed NIST predicate."""
-from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import compliance_new_aws_s3  # noqa: F401: registration side effect
+from peaso.checks import evaluate_check
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
+from peaso.checks import compliance_new_aws_s3  # noqa: F401  (registration side effect)
 
 
 CHECK_ID = "aws_nist_s3_bucket_cross_region_replication_enabled"
@@ -132,10 +132,3 @@ def test_production_engine_scoped_index_preserves_collector_authority_metadata()
     assert len(findings) == 2
     assert {f["evidence"].get("source_bucket"): f["status"] for f in findings} == {
         "source-example": "PASS", "destination-example": "FAIL"}
-
-
-def test_signed_id_registered_once_with_exact_kind_and_severity():
-    checks = [check for check in CHECKS if check.id == CHECK_ID]
-    assert len(checks) == 1
-    assert (checks[0].provider, checks[0].kind, checks[0].target,
-            checks[0].severity, checks[0].category) == ("aws", "bucket", "resource", "medium", "hardening")

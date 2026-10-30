@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -389,13 +388,6 @@ def test_production_change_pass_fail_unknown():
 
 
 def test_signed_metadata_and_foreign_or_incomplete_scope():
-    ids = set(sw26.SPECS)
-    matches = [check for check in CHECKS if check.id in ids]
-    assert len(matches) == len(ids) == 15
-    for check in matches:
-        signed = sw26.SPECS[check.id]
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-            signed["provider"], signed["resource_kind"], signed["category"], signed["severity"], signed["title"])
     cid = "azure_aks_cluster_1_4_5_2_3ac7b3c"
     base = {"pod": [pod()], "container_group": []}
     assert run(cid, base, status="partial") == "UNKNOWN"

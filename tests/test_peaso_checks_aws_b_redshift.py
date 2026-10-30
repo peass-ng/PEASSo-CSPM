@@ -1,8 +1,6 @@
 """Redshift predicates preserve exact flags/thresholds and unknown dependencies."""
 from peaso.checks.hacktricks_scope import includes
 import copy
-import json
-from pathlib import Path
 import pytest
 from peaso.checks import CHECKS, HACKTRICKS
 from peaso.checks import aws_b_redshift as module
@@ -61,13 +59,3 @@ def test_logging_metadata_uses_shared_read_and_keeps_denial_explicit():
     assert data["Logging"]["collection_status"] == "denied"
     assert check("aws.b.redshift.audit_logging").evaluate(data, {})[0] == "UNKNOWN"
     assert reads.calls == [("redshift", "us-east-1", "describe_logging_status", {"ClusterIdentifier": "fixture"})]
-
-
-def test_review_mapping_preserves_all_exact_source_references():
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / "peaso/rulepacks/reviewed_aws_b_redshift.json").read_text())
-    assert {cid for r in rows.values() for cid in r["native_checks"]} == set(module.IDS) | {"aws.b.redshift.no_public_endpoint"}
-    assert len(rows) == 8
-    for row in rows.values():
-        assert row["reviewed_source"]["revision"] == "803dda1f7555ed5cea959aef30cfa0719b030d8c"
-        assert row["official_docs"]

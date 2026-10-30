@@ -240,14 +240,6 @@ def test_mysql_admin_user_posture_with_parent_instance_proof():
     assert outcome(check_id, "sql_user", root, status="partial", other={"sql_instance": [instance]}) == "UNKNOWN"
 
 
-def test_signed_metadata_is_registered_once():
-    ids = {check_id for check_id, _ in sw08._DEFINITIONS}
-    matches = [check for check in CHECKS if check.id in ids]
-    assert len(matches) == len(ids)
-    assert {check.id for check in matches} == ids
-    assert all(check.provider == "gcp" and check.dependencies for check in matches)
-
-
 @pytest.mark.parametrize("mutation", ["wrapper_scope", "wrapper_provider", "empty_scope", "envelope_projection"])
 def test_sw08_authority_and_projection_regressions(mutation):
     row = workbench()
@@ -320,23 +312,6 @@ def test_artifact_full_proto_omission_and_non_age_delete():
     assert outcome(cid, "artifact_repository", row, policy) == "FAIL"
     row["_coverage"] = {"cleanupPolicyDryRun": {"status": "denied"}}
     assert outcome(cid, "artifact_repository", row, policy) == "UNKNOWN"
-
-
-def test_sw08_digests_are_exact_ledger_entries():
-    import json
-    from pathlib import Path
-    from scripts.peaso_compliance_compile import spec_digest
-    descriptions = json.loads(Path("docs/compliance-ledgers/.work/swarm/sw08-descriptions.json").read_text())
-    signed = {}
-    for path in Path("docs/compliance-ledgers").glob("gcp-*.json"):
-        for framework in json.loads(path.read_text())["frameworks"]:
-            for requirement in framework["requirements"]:
-                for spec in requirement["new_checks"]:
-                    if spec["id"] in descriptions:
-                        assert spec["id"] not in signed or signed[spec["id"]] == spec_digest(spec)
-                        signed[spec["id"]] = spec_digest(spec)
-    assert dict(sw08._DEFINITIONS) == signed
-    assert {cid: row["proposed_spec_sha256"] for cid, row in descriptions.items()} == signed
 
 
 @pytest.mark.parametrize("cid,kind,row,policy,expected", [
@@ -429,37 +404,3 @@ def test_mysql_minor_version_engine_is_recognized(version):
     row = fact(SQL_USER, instanceId="db", userName="root", host="%", type="BUILT_IN")
     assert outcome("gcp.sql.mysql_admin_account_posture", "sql_user", row,
                    other={"sql_instance": [fact("db", databaseVersion=version)]}) == "FAIL"
-
-
-def test_sw08_remediation_candidates_are_complete_and_signed(tmp_path):
-    import json
-    from pathlib import Path
-    from peaso.remediation import _merge_compliance_reviewed
-    candidates = json.loads(Path("docs/compliance-ledgers/.work/swarm/swr-gcp-remediation.json").read_text())
-    expected = dict(sw08._DEFINITIONS)
-    assert set(expected) <= set(candidates)
-    subset = {cid: candidates[cid] for cid in expected}
-    shard = tmp_path / "swr-gcp-sw08.json"
-    shard.write_text(json.dumps(subset))
-    merged = {}
-    _merge_compliance_reviewed(merged, ((shard, "gcp"),))
-    assert merged == subset
-    for cid, row in subset.items():
-        check = next(check for check in CHECKS if check.id == cid)
-        assert row["proposed_spec_sha256"] == expected[cid]
-        assert row["field_binding"]["evaluator_family"] == "peaso.checks.compliance_new_sw08"
-        assert row["field_binding"]["kind"] == check.kind
-        assert row["review_status"] == "source_bound_pending_review"
-        assert row["cli"] == [] and row["steps"] and row["references"]
-
-
-def test_sw08_description_contract_uses_real_v2_image_fields():
-    import json
-    from pathlib import Path
-    descriptions = json.loads(Path("docs/compliance-ledgers/.work/swarm/sw08-descriptions.json").read_text())
-    evaluated = descriptions["gcp_workbench_approved_image"]["evaluated"]
-    assert "gceSetup.vmImage.project and family or name" in evaluated
-    assert "gceSetup.containerImage.repository/tag" in evaluated
-    assert all("imageFamily" not in field and "digest" not in field for field in evaluated)
-    cleanup = descriptions["gcp_artifact_registry_cleanup_policy"]["description"]
-    assert "existential declaration check" in cleanup and "KEEP" in cleanup

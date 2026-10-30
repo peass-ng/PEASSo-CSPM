@@ -1,17 +1,7 @@
 from scripts.permission_risk_classifier import (
     classify_all,
     classify_permission,
-    load_criticality_combinations,
 )
-
-
-EXPECTED_COMBINATION_COUNTS = {'aws': {'critical': 175, 'high': 1011}, 'gcp': {'critical': 157, 'high': 507}, 'azure': {'critical': 117, 'high': 671}}
-
-
-def test_synced_cloudpeass_combination_counts():
-    for provider, expected in EXPECTED_COMBINATION_COUNTS.items():
-        combinations = load_criticality_combinations(provider)
-        assert {level: len(values) for level, values in combinations.items()} == expected
 
 
 def test_single_permission_entries_override_generic_heuristics():

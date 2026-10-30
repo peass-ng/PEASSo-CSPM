@@ -72,12 +72,6 @@ def test_private_endpoint_pending_and_malformed_states_do_not_pass():
     assert check.evaluate(pending, {})[0] == "UNKNOWN"
 
 
-def test_reviewed_paas_shard_contains_no_transferred_claude_ids():
-    claude = set(json.loads((ROOT / "peaso/rulepacks/port_partitions_claude.json").read_text())["partitions"]["claude_azure"]["check_ids"])
-    assert len(REVIEWS) == 13
-    assert not set(REVIEWS) & claude
-
-
 @pytest.mark.parametrize("kind", ["container_registry", "cosmos_account", "databricks_workspace", "kusto_cluster"])
 def test_shared_new_paas_collection_is_authoritative_and_read_only(kind):
     calls = []

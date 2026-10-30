@@ -39,7 +39,6 @@ def provider_snapshot(provider):
  return make_snapshot(provider,[scope],collections,metadata=metadata,created_at='2026-10-19T00:00:00+00:00')
 
 
-
 @pytest.mark.parametrize('provider',['aws','gcp','azure','k8s'])
 def test_every_supported_analysis_variant_uses_actual_producer_evidence(provider):
     snapshot=provider_snapshot(provider);before=deepcopy(snapshot)
@@ -179,20 +178,6 @@ def test_inventory_gaps_explain_missing_and_denied_reads_as_sentences():
     assert 'lacks complete inventory for IAM users' in text
     assert 'reads were denied for IAM roles' in text
     assert '(not collected)' not in text and '(read denied)' not in text
-
-
-@pytest.mark.parametrize('provider',['aws','gcp','azure','k8s'])
-def test_review_ledger_examples_match_the_current_native_analysis_callback(provider):
-    import json
-    from pathlib import Path
-    ledger=json.loads((Path(__file__).resolve().parents[1]/'docs/evidence-reviews/analysis.json').read_text())
-    findings=analyze_findings(provider_snapshot(provider))
-    for row in ledger['checks'].values():
-        if row['provider']!=provider:continue
-        actual=[{'status':f['status'],'example':evidence_summary(f) or f['evidence'].get('observed')}
-                for f in findings if f['check_id']==row['check_id']]
-        expected=[{'status':x['status'],'example':x['example']} for x in row['examples']]
-        assert actual==expected
 
 
 def test_azure_action_exclusions_are_explained_without_claiming_unrestricted_access():

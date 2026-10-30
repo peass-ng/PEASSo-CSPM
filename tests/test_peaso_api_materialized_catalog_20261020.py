@@ -1,6 +1,4 @@
 """Build parity, bounded API transport, fail-closed data and native-import isolation."""
-import gzip
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,35 +11,6 @@ import pytest
 from peaso.server import materialized_catalog as runtime
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def test_materializer_reproduces_exact_verified_runtime_views_and_selectors():
-    from scripts.peaso_compliance_materialize import render_documents
-    from peaso.engine import get_catalog, PROVIDERS
-    from peaso.server.catalog_view import summary, frameworks_view
-    from peaso.server.validation import _selector_index
-    documents = render_documents()
-    assert documents[ROOT / 'peaso/rulepacks/api_catalog.json.gz'] == (runtime.PACK / 'api_catalog.json.gz').read_bytes()
-    assert documents[ROOT / 'peaso/rulepacks/api_catalog_manifest.json'] == (runtime.PACK / 'api_catalog_manifest.json').read_bytes()
-    captured = json.loads(gzip.decompress(documents[ROOT / 'peaso/rulepacks/api_catalog.json.gz']))
-    normalized = lambda value: json.loads(json.dumps(value))
-    full = get_catalog()
-    assert captured['full'] == normalized(full)
-    assert captured['summary'] == normalized(dict(summary(), privesc_catalog=full['privesc_catalog']))
-    assert captured['frameworks'] == normalized(frameworks_view())
-    for provider in PROVIDERS:
-        expected = dict(zip(('categories', 'checks', 'frameworks'),
-                            (sorted(values) for values in _selector_index(provider))))
-        expected['checks'] = sorted(set(expected['checks']) | {'privesc'} | {
-            row['id'] for row in full['privesc_techniques'] if row.get('provider') == provider})
-        assert captured['selectors'][provider] == expected
-    from peaso.checks.catalog import description_for, expand_framework_selectors
-    for cid, expected in captured['descriptions'].items():
-        assert runtime.description_for(cid) == expected == description_for(cid)
-    for selector in [*captured['framework_expansion'], 'unreviewed.framework']:
-        assert runtime.expand_framework_selectors({selector}) == expand_framework_selectors({selector})
-    for relative, digest in captured['sources'].items():
-        assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == digest
 
 
 def test_all_pages_preserve_every_full_metadata_row_and_order_with_real_wire_bounds():

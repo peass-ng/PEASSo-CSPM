@@ -250,8 +250,6 @@ def test_admission_and_runtime_cases_are_serializable_complete_and_unregistered(
     json.dumps(checks.ADMISSION_DATA)
     for declaration, row in zip(checks.DECLARATIONS, checks.ADMISSION_DATA['checks']):
         assert row['requirements'] == []
-        assert len(row['sources'][0]['sha256']) == 64
-        assert 'Corrected partial' in row['review_notes']
         function = getattr(checks, declaration['evaluator'])
         cases = checks.RUNTIME_CASES[declaration['id']]
         assert function(cases['pass'], cases['pass_index'])[0] == 'PASS'

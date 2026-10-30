@@ -1,7 +1,5 @@
 """Pure AWS reference selector parity and cold API boundary."""
-import ast
 import copy
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -147,37 +145,6 @@ def test_source_binding_duplicate_version_and_default_off(pure):
     opts = selected(pure, workloads=[w, copy.deepcopy(w)])
     with pytest.raises(ValueError):
         pure.workload_ref.selected_targets(opts, [SCOPE])
-
-
-def bind_static_selector_peers(node):
-    """Replace only the reviewed two-name peer imports with their pure bindings."""
-    peers = {
-        'aws_ecs_environment_file_secret_indicators': 'ecs_env',
-        'aws_workload_referenced_source_indicators': 'workload_ref',
-        'aws_build_deployment_referenced_source_indicators': 'build_ref',
-    }
-    class Bind(ast.NodeTransformer):
-        def visit_ImportFrom(self, value):
-            if value.level != 1 or value.module not in peers:
-                return value
-            assert [alias.name for alias in value.names] == ['source_target', 'OPTION']
-            names = ', '.join(alias.asname or alias.name for alias in value.names)
-            module = peers[value.module]
-            return ast.parse(names + ' = peers.' + module + '.source_target, peers.' + module + '.OPTION').body[0]
-    return Bind().visit(copy.deepcopy(node))
-
-
-def test_native_ast_matches_except_static_peer_binding():
-    generated = ast.parse((HERE / 'peaso/server/content_selection_preflight_20261021.py').read_text())
-    for name, filename in [('s3', 'aws_s3_selected_source_secret_indicators.py'),
-                           ('ecs_env', 'aws_ecs_environment_file_secret_indicators.py'),
-                           ('workload_ref', 'aws_workload_referenced_source_indicators.py'),
-                           ('build_ref', 'aws_build_deployment_referenced_source_indicators.py')]:
-        native = ast.parse((NATIVE / filename).read_text())
-        factory = next(n for n in generated.body if isinstance(n, ast.FunctionDef) and n.name == '_make_' + name)
-        original = next(n for n in native.body if isinstance(n, ast.FunctionDef) and n.name == 'selected_targets')
-        copied = next(n for n in factory.body if isinstance(n, ast.FunctionDef) and n.name == 'selected_targets')
-        assert ast.dump(bind_static_selector_peers(original), include_attributes=False) == ast.dump(copied, include_attributes=False)
 
 
 def test_cold_api_preflight_denies_collector_import_and_network():

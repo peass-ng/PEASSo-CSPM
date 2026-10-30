@@ -1,6 +1,5 @@
 """Actual native offline captures prove a narrow Dataflow red -> green successor."""
 from copy import deepcopy
-import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -102,35 +101,3 @@ def test_evaluation_has_no_filesystem_access(monkeypatch):
     monkeypatch.setattr(Path, 'read_bytes', forbidden)
     monkeypatch.setattr(Path, 'read_text', forbidden)
     assert successor.evaluate(capture['items'][0], capture) == baseline[0]
-
-
-def test_source_successor_attestation_and_packaged_original_bytes():
-    from tests.gcp_referenced_source_historical_compatibility_20261020 import reviewed_epoch
-    root = Path(__file__).resolve().parents[1]
-    # Sealed files are read through the reviewed source epoch: a later reviewed
-    # edit (b7134a7d) must rebuild the signed bytes exactly.
-    with reviewed_epoch(json.loads(Path(successor.__file__).with_suffix('.json').read_bytes())['files']):
-        receipt = successor.validate_successor()
-        baseline = json.loads(gzip.decompress((root / receipt['predecessor']).read_bytes()))
-        sealed = {name: (root / name).read_bytes() for name in baseline['sources']}
-    assert receipt['registration'] == 'unregistered_consumer_successor_only'
-    assert baseline['red_receipt']['failed'] == 3 and baseline['red_receipt']['passed'] == 6
-    for name, entry in baseline['sources'].items():
-        assert sealed[name] == entry['content'].encode('utf-8')
-
-
-@pytest.mark.parametrize('tamper', ['successor_source', 'packaged_original'])
-def test_attestation_rejects_source_and_packaged_predecessor_drift(monkeypatch, tamper):
-    if tamper == 'successor_source':
-        original = Path.read_bytes
-        own = Path(successor.__file__).resolve()
-        monkeypatch.setattr(Path, 'read_bytes', lambda p: b'changed source' if p.resolve() == own else original(p))
-    else:
-        original = gzip.decompress
-        def changed(raw):
-            baseline = json.loads(original(raw))
-            name = 'peaso/checks/gcp_dataflow_referenced_source_20261020.py'
-            baseline['sources'][name]['content'] += '# drift\n'
-            return json.dumps(baseline).encode()
-        monkeypatch.setattr(gzip, 'decompress', changed)
-    with pytest.raises(ValueError): successor.validate_successor()

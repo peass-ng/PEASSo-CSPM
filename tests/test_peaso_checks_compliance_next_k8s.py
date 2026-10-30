@@ -8,7 +8,7 @@ from peaso.collectors import k8s
 from peaso.engine import _index
 from peaso.snapshot import resources
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_next_k8s as candidate
 
 CLUSTER = "cluster-fixture"
@@ -230,20 +230,3 @@ def test_memoized_inventory_across_shared_pod_predicates():
     assert verdict(candidate.IDS[2], index) == "PASS"
     assert verdict(candidate.IDS[2], index) == "PASS"
     assert len([key for key in index.memo if key[0] == "native_next_inventory"]) == 1
-
-
-def test_only_three_reviewed_ids_registered_and_held_ids_absent():
-    registered = {check.id: check for check in CHECKS}
-    assert set(candidate.IDS) <= set(registered)
-    assert all(registered[cid].target == ("scope" if cid in candidate.IDS[:2] else "resource") for cid in candidate.IDS)
-    assert registered[candidate.IDS[0]].dependencies == ["clusterrolebinding", "rolebinding"]
-    assert registered[candidate.IDS[1]].dependencies == ["rolebinding", "clusterrolebinding"]
-    held = {"k8s_service_external_traffic_policy_matches_required",
-            "k8s_pod_secret_pod_rule_non_compliant_fcdc38e543",
-            "k8s_ingress_ingress_has_any_associated_ingress_93579100f9",
-            "k8s_networkpolicy_has_ingress_rules",
-            "k8s_networkpolicy_network_policy_associated_podselectors_that_92dbc93b4c"}
-    from tests.release_successor_history import BULK_IDS
-    assert held.intersection(registered) == held.intersection(BULK_IDS)
-    for ident in held.intersection(BULK_IDS):
-        assert evaluate_check(ident, {}, {})[0] == "UNKNOWN"

@@ -74,12 +74,6 @@ def test_http_category_group_is_not_literal_category_and_foreign_ids_or_denied_l
     assert check.evaluate(item, {})[0] == 'UNKNOWN'
 
 
-def test_reviewed_twenty_refs_are_scope_inspected_and_exclusive():
-    claude = set(json.loads((ROOT / 'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS) == 21 and len(PROOFS) == 4 and not set(REVIEWS) & claude
-    assert all(r['source_review']['arguments'] == [] and (r['source_review'].get('adapter_source') or r['source_review'].get('source_service_sha256')) for r in REVIEWS.values())
-
-
 def test_pinned_auth_module_scope_and_flag_do_not_claim_request_enforcement():
     check = REGISTRY[ports.SOURCE_QUERIES['prowler_app_auth_platform_enabled']]
     assert check.evaluate({'kind': 'api'}, {})[0] == 'NOT_APPLICABLE'

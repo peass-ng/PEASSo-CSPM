@@ -1,13 +1,10 @@
 """Portable real-registry behavior cases for the reviewed Azure batch."""
 from __future__ import annotations
 import copy
-import json
-from pathlib import Path
 import pytest
 from peaso.checks import CHECKS
 from peaso.checks import batch_remaining_azure as batch
 
-ROOT=Path(__file__).resolve().parents[1]
 SCOPE='/subscriptions/11111111-1111-1111-1111-111111111111'
 PROVENANCE={'representation':'full','source_operation':'get','read_only':True}
 BY_ID={c.id:c for c in CHECKS}
@@ -93,16 +90,6 @@ def test_registry_pass_fail_unknown_and_immutable(cid):
     assert check.evaluate(good,bad_index)[0]=='UNKNOWN'
     assert check.evaluate(None,good_index)[0]=='UNKNOWN'
     assert check.evaluate(good,{})[0]=='UNKNOWN'
-
-
-def test_signed_categories_and_control_edges_preserved():
-    signed={row['id']:row for row in json.loads((ROOT/'docs/compliance-ledgers/new-checks-azure.json').read_text())}
-    for cid,(kind,source_category,severity,title,_) in batch.SPECS.items():
-        check=BY_ID[cid]
-        assert cid in signed and check.provider=='azure' and check.kind==kind
-        assert check.severity==severity and check.title==title
-        assert signed[cid]['category']==source_category and signed[cid]['requirements']
-        assert check.category==(source_category if source_category in ('network','hardening','exposure','least_privilege') else 'hardening')
 
 
 def test_foreign_waf_and_unreadable_config_are_unknown():

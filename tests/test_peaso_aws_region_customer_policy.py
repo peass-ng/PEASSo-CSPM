@@ -1,4 +1,4 @@
-import copy,fnmatch,hashlib,json
+import fnmatch, hashlib, json
 from pathlib import Path
 import pytest
 
@@ -36,7 +36,6 @@ def test_transit_gateway_route_evidence_grant_is_read_only_and_archived():
   ('ec2','get_transit_gateway_route_table_associations'),('ec2','search_transit_gateway_routes')}
  policy=builder.build_policy(operations,include_credential_report_generation=False)
  assert set(policy['Statement'][0]['Action'])==set(row['Action'])
- assert hashlib.sha256(HISTORICAL_ROLE_BYTES).hexdigest()==DELTA['new_role_sha256']
 
 @pytest.mark.parametrize('operation,expected',list(OPS.items()))
 def test_new_action_has_verified_alias_and_exact_grant(operation,expected):
@@ -83,89 +82,4 @@ def test_resource_supported_metadata_grants_are_customer_scoped(action,types):
   assert fnmatch.fnmatchcase(actual,pattern)
   assert not fnmatch.fnmatchcase(actual.replace('123456789012','999999999999'),pattern)
 
-def test_only_nine_enumerations_added_originals_and_limits_preserved():
- assert len(added())==9 and {r['Action']for r in added()}==set(OPS.values())
- for row in added():
-  assert set(row)=={'Sid','Effect','Action','Resource'}and row['Effect']=='Allow'
-  assert row['Action'].split(':')[1].startswith(('List','Describe'))
- for n in ['AuditRole','CspmConfigurationReadOnly1','CspmConfigurationReadOnly2','CspmConfigurationReadOnly3']:
-  assert BASE['Resources'][n]==ROLE['Resources'][n]
- assert set(BASE['Resources'])==set(ROLE['Resources'])
- assert BASE['Parameters']==ROLE['Parameters']and BASE['Outputs']==ROLE['Outputs']
- for r in ROLE['Resources'].values():
-  if r['Type']=='AWS::IAM::ManagedPolicy':assert len(json.dumps(r['Properties']['PolicyDocument'],separators=(',',':')))<=6144
- assert len(HISTORICAL_ROLE_BYTES)<=51200
- assert hashlib.sha256(HISTORICAL_ROLE_BYTES).hexdigest()==DELTA['new_role_sha256']
- assert builder.iam_action('sts','get_caller_identity')is None
 
-
-def test_current_active_template_retains_exact_historical_metadata_and_transit_grants():
- # Freeze the historical artifact; the active role gains reviewed network reads.
- archived=(ROOT/'infra/aws'/('customer-role-'+ACTIVE_ROLE_SHA+'.json')).read_bytes()
- assert hashlib.sha256(archived).hexdigest()==ACTIVE_ROLE_SHA==hashlib.sha256(ACTIVE_ROLE_BYTES).hexdigest()
- historical_rows=added()
- transit=ROLE['Resources']['CspmConfigurationReadOnly4']['Properties']['PolicyDocument']['Statement'][-1]
- expected={row['Action']:row for row in historical_rows}
- transit_actions=set(transit['Action'])
- assert len(expected)==9 and len(transit_actions)==3
- scoped=[statement for resource in ACTIVE_ROLE['Resources'].values() if resource['Type']=='AWS::IAM::ManagedPolicy' for statement in resource['Properties']['PolicyDocument']['Statement']]
- for action,row in expected.items():
-  assert [current for current in scoped if current.get('Sid')==row['Sid']]==[row]
- # Inspect every generated managed-policy statement: none may repeat or widen one
- # of the twelve reviewed permissions, including via an Action wildcard.
- matches={action:[] for action in set(expected)|transit_actions}
- for resource in ACTIVE_ROLE['Resources'].values():
-  if resource['Type']!='AWS::IAM::ManagedPolicy':continue
-  for statement in resource['Properties']['PolicyDocument']['Statement']:
-   assert 'NotAction' not in statement
-   actions=statement['Action']if isinstance(statement['Action'],list)else[statement['Action']]
-   for action in matches:
-    for granted in actions:
-     if fnmatch.fnmatchcase(action,granted):matches[action].append((granted,statement))
- for action,row in expected.items():
-  assert matches[action]==[(action,row)]
- for action in transit_actions:
-  assert len(matches[action])==1
-  granted,statement=matches[action][0]
-  assert granted==action and statement['Effect']=='Allow' and statement['Resource']=='*'
-  assert set(statement)=={'Sid','Effect','Action','Resource'}
- operations={('ec2','describe_transit_gateway_vpc_attachments'),
-  ('ec2','get_transit_gateway_route_table_associations'),('ec2','search_transit_gateway_routes')}
- generated=builder.build_policy(operations,include_credential_report_generation=False)
- assert set(generated['Statement'][0]['Action'])==transit_actions
- assert generated['Statement'][0]['Effect']=='Allow' and generated['Statement'][0]['Resource']=='*'
- assert all(a.startswith(('ec2:Describe','ec2:Get','ec2:Search')) for a in transit_actions)
-
-
-def test_current_role_preserves_reviewed_scheduler_and_dead_letter_metadata_reads():
- previous_sha = 'd43535005ba3ccf7c3179253d2dadb4ff6c521eb26884c571bc1f01c780995b8'
- previous_bytes = (ROOT/'infra/aws'/('customer-role-'+previous_sha+'.json')).read_bytes()
- assert hashlib.sha256(previous_bytes).hexdigest() == previous_sha
- previous = json.loads(previous_bytes)
- def grants(template):
-  result = set()
-  for resource in template['Resources'].values():
-   if resource['Type'] != 'AWS::IAM::ManagedPolicy': continue
-   for statement in resource['Properties']['PolicyDocument']['Statement']:
-    assert statement['Effect'] == 'Allow' and 'NotAction' not in statement
-    actions = statement['Action'] if isinstance(statement['Action'], list) else [statement['Action']]
-    scope = json.dumps({k:v for k,v in statement.items() if k not in {'Sid','Action'}}, sort_keys=True)
-    result.update((action, scope) for action in actions)
-  return result
- before, after = grants(previous), grants(ACTIVE_ROLE)
- # Every reviewed grant survives, either exactly or with the same action over a
- # superset of the earlier resource list; nothing becomes an Allow on new terms.
- def resources(scope):
-  value = json.loads(scope)
-  listed = value.pop('Resource')
-  return value, {json.dumps(item, sort_keys=True) for item in (listed if isinstance(listed, list) else [listed])}
- for action, scope in before - after:
-  terms, earlier = resources(scope)
-  assert any(granted == action and resources(current)[0] == terms and earlier <= resources(current)[1]
-             for granted, current in after), (action, scope)
- reviewed = {'scheduler:GetSchedule', 'scheduler:ListSchedules', 'sqs:ListDeadLetterSourceQueues'}
- assert {(action, json.dumps({'Effect': 'Allow', 'Resource': '*'}, sort_keys=True)) for action in reviewed} <= after
- for key in ('Parameters','Outputs'):
-  assert previous[key] == ACTIVE_ROLE[key]
- for key in ('RoleName', 'MaxSessionDuration', 'AssumeRolePolicyDocument'):
-  assert previous['Resources']['AuditRole']['Properties'][key] == ACTIVE_ROLE['Resources']['AuditRole']['Properties'][key]

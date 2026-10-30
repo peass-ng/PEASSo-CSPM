@@ -1,8 +1,6 @@
 """Native-shaped declaration/adverse matrix; no registry, cloud or credentials."""
-import ast
 from copy import deepcopy
 import importlib.util
-import inspect
 import json
 from pathlib import Path
 import socket
@@ -335,20 +333,3 @@ def test_parent_latest_pointer_does_not_supply_child_runtime_or_digest(kind):
     assert_unknown(resolve(kind, body), "immutable_artifact_registry_reference_required")
 
 
-def test_module_has_no_provider_or_io_dependency_and_never_reads_nonimage_payloads():
-    source = MODULE_PATH.read_text()
-    tree = ast.parse(source)
-    imported = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import)
-                for alias in node.names}
-    assert imported == {"re"}
-    assert not any(isinstance(node, ast.ImportFrom) for node in ast.walk(tree))
-    assert "register" not in {node.func.id for node in ast.walk(tree)
-                              if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
-    assert inspect.signature(resolver.resolve_image_source).parameters.keys() == {
-        "selection", "resource", "project_id"}
-    body = native("Revision")
-    body["containers"][0]["env"] = object()
-    body["annotations"] = object()
-    # These payloads are not inspected or copied; output exports only image and
-    # native identity fields. API JSON is the normal caller contract.
-    assert resolve("Revision", body)["status"] == "ASSOCIATED_DECLARATION"

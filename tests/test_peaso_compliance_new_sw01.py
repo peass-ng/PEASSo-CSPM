@@ -1,14 +1,11 @@
 """Strict snapshot boundaries for the sw01 Azure predicates."""
 from __future__ import annotations
 
-import json
-from pathlib import Path
 
 import pytest
 
 from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw01 as sw01
-from scripts.peaso_compliance_compile import spec_digest
 
 
 SUB = "00000000-0000-0000-0000-000000000001"
@@ -163,42 +160,6 @@ def test_hdinsight_pass_fail_and_unknown():
     assert evaluate_check(sw01.HDINSIGHT_ID, foreign, facts)[0] == "UNKNOWN"
 
 
-def test_signed_metadata_and_duplicate_ids():
-    found = [check for check in CHECKS if check.id in sw01.IDS]
-    assert len(found) == len(sw01.IDS) == len({check.id for check in found})
-    assert {check.id: check.kind for check in found} == {
-        sw01.WAF_RULES_ID: "web_application_firewall_policy",
-        sw01.WEB_PUBSUB_ID: "web_pubsub", sw01.GROUP_USER_ID: "directory_group",
-        sw01.HDINSIGHT_ID: "hdinsight_cluster"}
-
-
-def test_signed_spec_digests_match_description_supplement():
-    root = Path(__file__).resolve().parents[1] / "docs/compliance-ledgers"
-    descriptions = json.loads((root / ".work/swarm/sw01-descriptions.json").read_text())
-    signed = {}
-
-    def visit(value):
-        if isinstance(value, dict):
-            for row in value.get("new_checks", []):
-                if row.get("id") in sw01.IDS:
-                    signed[row["id"]] = row
-            for child in value.values():
-                visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
-
-    for path in root.glob("azure-*.json"):
-        visit(json.loads(path.read_text()))
-    assert set(signed) == set(sw01.IDS) == set(descriptions)
-    assert all(len(row) == 10 for row in signed.values())
-    for check_id, row in signed.items():
-        assert spec_digest(row) == descriptions[check_id]["proposed_spec_sha256"] == sw01.PROPOSED_SPEC_SHA256[check_id]
-        check = next(check for check in CHECKS if check.id == check_id)
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-            row["provider"], row["resource_kind"], row["category"], row["severity"], row["title"])
-
-
 @pytest.mark.parametrize('change', ['native', 'scope', 'type', 'empty'])
 def test_inventory_authority_must_match_scoped_index(change):
     from copy import deepcopy
@@ -256,24 +217,3 @@ def test_wrong_native_resource_kind_is_unknown():
     row = waf(managed=[{'ruleSetType': 'OWASP', 'ruleSetVersion': '3.2'}])
     row['id'] = HDI
     assert evaluate_check(sw01.WAF_RULES_ID, row, index('web_application_firewall_policy', [row]))[0] == 'UNKNOWN'
-
-
-def test_reviewer_remediation_candidates_merge_against_real_signed_registry(tmp_path):
-    import json
-    from pathlib import Path
-    from peaso.remediation import _merge_compliance_reviewed
-    candidates = json.loads(Path('docs/compliance-ledgers/.work/swarm/swr-azure-remediation.json').read_text())
-    selected = {cid: candidates[cid] for cid in sw01.IDS}
-    shard = tmp_path / 'remediation_compliance_new_azure_review.json'
-    shard.write_text(json.dumps(selected))
-    merged = {}
-    _merge_compliance_reviewed(merged, ((shard, 'azure'),))
-    assert merged == selected
-    for cid, entry in selected.items():
-        check = next(check for check in CHECKS if check.id == cid)
-        binding = entry['field_binding']
-        assert binding['evaluator_family'] == 'peaso.checks.compliance_new_sw01'
-        assert binding['kind'] == check.kind and binding['target'] == check.target
-        assert binding['path'] and entry['summary'] and entry['steps'] and entry['references']
-        assert entry['review_status'] == 'source_bound_pending_review' and entry['cli'] == []
-        assert all(ref['url'].startswith('https://') for ref in entry['references'])

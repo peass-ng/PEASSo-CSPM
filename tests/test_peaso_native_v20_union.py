@@ -1,15 +1,13 @@
 """Union boundaries: owner inputs before I/O and the exact new IAM delta."""
-import copy,json,hashlib
-from pathlib import Path
+import copy,json
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 from fastapi import HTTPException
-from peaso.collectors import azure,collect_live
+from peaso.collectors import azure
 from peaso.server.validation import validate_connector
 from tests.archived_check_contract import evaluate_snapshot, plan_collection
 from scripts import peaso_deploy_customer_policy as policy
-from tests.customer_policy_history import historical_role_bytes, historical_derivative_sha256
 from test_peaso_azure_diagnostics_storage_retention import fixture,API,SUB,SCOPE,CHECK,ROUTES
 OPS=[('iam','get_role'),('iam','get_context_keys_for_principal_policy'),('iam','simulate_principal_policy'),('codecommit','list_repositories'),('codecommit','list_pull_requests'),('codecommit','get_pull_request'),('codecommit','describe_pull_request_events'),('codecommit','get_pull_request_approval_states')]
 ACTIONS=['iam:GetRole','iam:GetContextKeysForPrincipalPolicy','iam:SimulatePrincipalPolicy','codecommit:ListRepositories','codecommit:ListPullRequests','codecommit:GetPullRequest','codecommit:DescribePullRequestEvents','codecommit:GetPullRequestApprovalStates']
@@ -24,23 +22,6 @@ def test_exact_one_metadata_read_never_adds_another_grant(op,action):
  elif op[1]=='list_repositories':assert resource=='*'
  else:assert resource=={'Fn::Sub':'arn:${AWS::Partition}:codecommit:*:${AWS::AccountId}:*'}
  assert all(policy.policy_size(d)<=6144 for d in docs)
-
-
-def test_current_role_adds_only_eight_reads_and_preserves_every_old_resource():
- before=json.loads(historical_role_bytes('7da8ecb219db8799e87cab5b4a632f6d40c7e4d6f5cb5c4cd1eea1a6fbdd2fe6'))
- # Preserve this V20 transition against pinned synthetic historical roles.
- successor='a4c004efe171a0c94977fefc31fbc30c0d879b7c4e98875862aa498aa4d7a873'
- raw=historical_role_bytes(successor);after=json.loads(raw)
- assert hashlib.sha256(raw).hexdigest()==historical_derivative_sha256(successor)
- assert before['Parameters']==after['Parameters']and before['Outputs']==after['Outputs']
- assert before['Resources'].keys()==after['Resources'].keys()
- for name in before['Resources']:
-  if name!='CspmConfigurationReadOnly4':assert before['Resources'][name]==after['Resources'][name]
- old=before['Resources']['CspmConfigurationReadOnly4']['Properties']['PolicyDocument']['Statement']
- new=after['Resources']['CspmConfigurationReadOnly4']['Properties']['PolicyDocument']['Statement']
- assert new[:len(old)]==old and len(new)-len(old)==8
- assert {s['Action']for s in new[len(old):]}==set(ACTIONS)
- assert [policy.policy_size(after['Resources'][f'CspmConfigurationReadOnly{n}']['Properties']['PolicyDocument'])for n in range(1,5)]==[6136,6129,5819,3412]
 
 
 @pytest.mark.parametrize('mode',['injected_observation','invalid_retention','foreign_scope','bad_options'])
@@ -91,35 +72,6 @@ def test_repeated_policy_generation_reuses_every_sdk_model_name_map():
  assert cold.misses>64
  assert warm.misses==cold.misses
  assert warm.hits>cold.hits
-
-
-def test_controltower_successor_adds_only_seven_exact_reads_and_preserves_v20():
- before=json.loads(historical_role_bytes('a4c004efe171a0c94977fefc31fbc30c0d879b7c4e98875862aa498aa4d7a873'))
- successor='0484deedf711ac855f691e08531561c5b29abff7e46fa16320b79a32465eb6b2'
- raw=historical_role_bytes(successor);after=json.loads(raw)
- assert hashlib.sha256(raw).hexdigest()==historical_derivative_sha256(successor)
- assert before['Parameters']==after['Parameters'] and before['Outputs']==after['Outputs']
- assert before['Resources'].keys()==after['Resources'].keys()
- for name in before['Resources']:
-  if name!='CspmConfigurationReadOnly4':assert before['Resources'][name]==after['Resources'][name]
- old=before['Resources']['CspmConfigurationReadOnly4']['Properties']['PolicyDocument']['Statement']
- new=after['Resources']['CspmConfigurationReadOnly4']['Properties']['PolicyDocument']['Statement']
- assert new[:len(old)]==old
- extra=new[len(old):]
- actions={a for row in extra for a in ([row['Action']]if isinstance(row['Action'],str)else row['Action'])}
- assert actions=={'controltower:GetHomeRegion','controltower:ListLandingZones','controltower:GetLandingZone','controltower:DescribeLandingZoneConfiguration','controltower:GetAvailableUpdates','controltower:GetLandingZoneDriftStatus','controltower:GetLandingZoneStatus'}
- scoped=[row for row in extra if row['Resource']!='*']
- assert len(scoped)==1 and scoped[0]['Action']=='controltower:GetLandingZone'
- assert scoped[0]['Resource']=={'Fn::Sub':'arn:${AWS::Partition}:controltower:*:${AWS::AccountId}:landingzone/*'}
- assert [policy.policy_size(after['Resources'][f'CspmConfigurationReadOnly{n}']['Properties']['PolicyDocument'])for n in range(1,5)]==[6136,6129,5819,4025]
- for source_id in (
-  '0eeba5694a23a8fd93013b1c15dd2bfbc3f0ec4de7554a9a9405b0306b611e6d',
-  '2b6825b57ea8d5a443b35e5fda86bc97eda6324721dcfd002b52a8cf356cd92f',
-  '7da8ecb219db8799e87cab5b4a632f6d40c7e4d6f5cb5c4cd1eea1a6fbdd2fe6',
-  'a4c004efe171a0c94977fefc31fbc30c0d879b7c4e98875862aa498aa4d7a873',
-  successor,
- ):
-  assert hashlib.sha256(historical_role_bytes(source_id)).hexdigest()==historical_derivative_sha256(source_id)
 
 
 # Reuse a synthetic CA fixture; this test exercises only the newly composed path.

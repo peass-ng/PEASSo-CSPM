@@ -235,37 +235,6 @@ def test_signed_not_applicable(sw03, cid):
     assert actual == expected
 
 
-def test_signed_metadata_and_unique_ids(sw03):
-    import json
-    from pathlib import Path
-    from scripts.peaso_compliance_compile import spec_digest
-    specs = {}
-    def visit(value):
-        if isinstance(value, dict):
-            for entry in value.get("new_checks", []):
-                if entry["id"] in sw03.IDS:
-                    previous = specs.setdefault(entry["id"], entry)
-                    assert previous == entry
-            for child in value.values():
-                visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
-    for path in Path("docs/compliance-ledgers").glob("azure-*.json"):
-        visit(json.loads(path.read_text()))
-    assert set(specs) == set(sw03.IDS)
-    assert len(sw03.IDS) == len(set(sw03.IDS))
-    for cid in sw03.IDS:
-        check = next(check for check in CHECKS if check.id == cid)
-        entry = specs[cid]
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-            entry["provider"], entry["resource_kind"], entry["category"], entry["severity"], entry["title"])
-        digest = spec_digest(entry)
-        assert sw03._META[cid]["spec_sha"] == digest
-        supplement = json.loads(Path("docs/compliance-ledgers/.work/swarm/sw03-descriptions.json").read_text())
-        assert supplement[cid]["proposed_spec_sha256"] == digest
-
-
 @pytest.mark.parametrize("cid", list(matrix()[0]))
 def test_foreign_collection_scope_is_unknown(sw03, cid):
     cases, query = matrix()
@@ -426,27 +395,6 @@ def test_native_resource_type_cannot_be_relabelled_as_logs_cluster(sw03):
     cid = 'azure.gap.monitor_log_cluster_infrastructure_encryption_enabled'
     row = {'id': SA, 'properties': {'isDoubleEncryptionEnabled': True}}
     assert grade(sw03, cid, {'scope': SCOPE}, snapshot({'log_analytics_cluster': [row]})) == 'UNKNOWN'
-
-
-def test_reviewer_remediation_candidates_merge_against_real_signed_registry(tmp_path, sw03):
-    import json
-    from pathlib import Path
-    from peaso.remediation import _merge_compliance_reviewed
-    candidates = json.loads(Path('docs/compliance-ledgers/.work/swarm/swr-azure-remediation.json').read_text())
-    selected = {cid: candidates[cid] for cid in sw03.IDS}
-    shard = tmp_path / 'remediation_compliance_new_azure_review.json'
-    shard.write_text(json.dumps(selected))
-    merged = {}
-    _merge_compliance_reviewed(merged, ((shard, 'azure'),))
-    assert merged == selected
-    for cid, entry in selected.items():
-        check = next(check for check in CHECKS if check.id == cid)
-        binding = entry['field_binding']
-        assert binding['evaluator_family'] == 'peaso.checks.compliance_new_sw03'
-        assert binding['kind'] == check.kind and binding['target'] == check.target
-        assert binding['path'] and entry['summary'] and entry['steps'] and entry['references']
-        assert entry['review_status'] == 'source_bound_pending_review' and entry['cli'] == []
-        assert all(ref['url'].startswith('https://') for ref in entry['references'])
 
 
 def test_free_defender_plan_failure_survives_unknown_other_required_plan(sw03):

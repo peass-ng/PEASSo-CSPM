@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import copy
-import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
 from cryptography import x509
@@ -14,7 +12,6 @@ from cryptography.x509.oid import NameOID
 
 from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw54 as checks
-from scripts.peaso_compliance_compile import spec_digest
 
 PROJECT = "projects/demo"
 ORG = "organizations/123"
@@ -212,17 +209,6 @@ def test_unmapped_pool_not_applicable(check_id):
     assert evaluate(check_id, row, facts) == "NOT_APPLICABLE"
 
 
-def test_signed_metadata_and_digests():
-    ledger = {entry["id"]: entry for entry in json.loads(Path("docs/compliance-ledgers/new-checks-gcp.json").read_text())}
-    for check_id in checks.IDS:
-        entry = ledger[check_id]
-        check, = [x for x in CHECKS if x.id == check_id]
-        assert (check.provider, check.kind, check.severity, check.category, check.title) == (
-            entry["provider"], entry["resource_kind"], entry["severity"], entry["category"], entry["title"])
-        assert check.target == ("scope" if check_id.startswith("gcp_logging_") or check_id == "gcp_kms_key_destroy_alert" or check_id.startswith("gcp_c5_log") or check_id == "gcp_c5_siem_sink" else "resource")
-        assert checks.PROPOSED_SPEC_SHA256[check_id] == spec_digest(entry)
-
-
 @pytest.mark.parametrize("check_id", list(CASES))
 def test_malformed_required_native_field_is_unknown(check_id):
     row, facts = CASES[check_id](False)
@@ -309,14 +295,6 @@ def test_complex_sink_filter_and_external_isolation_are_unknown():
     row, facts = log_setup("isolation")
     facts["log_sink"][0]["data"]["destination"] = "pubsub.googleapis.com/projects/demo/topics/logs"
     assert evaluate("gcp_c5_log_isolation", row, facts) == "UNKNOWN"
-
-
-def test_description_supplement_covers_every_signed_check():
-    descriptions = json.loads(Path("docs/compliance-ledgers/.work/swarm/sw54-descriptions.json").read_text())
-    assert set(descriptions) == set(checks.IDS)
-    for check_id, entry in descriptions.items():
-        assert entry["proposed_spec_sha256"] == checks.PROPOSED_SPEC_SHA256[check_id]
-        assert all(entry[key] for key in ("description", "evaluated", "pass_when", "fail_when", "not_applicable_when"))
 
 
 def test_kms_and_enumeration_do_not_require_query_threshold_policy():

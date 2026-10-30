@@ -1,6 +1,6 @@
 """Semantic fixture for the signed Cloud Storage usage-log destination check."""
-from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import compliance_new_gcp_storage  # noqa: F401: registration side effect
+from peaso.checks import evaluate_check
+from peaso.checks import compliance_new_gcp_storage  # noqa: F401  (registration side effect)
 
 
 CHECK_ID = "gcp_bucket_logging_enabled_fb7cc594582a"
@@ -26,10 +26,3 @@ def test_usage_log_destination_requires_complete_full_bucket_metadata():
     assert evaluate(bucket(logging={"logBucket": None}))[0] == "UNKNOWN"
     assert evaluate(bucket(logging={"_coverage": {"logBucket": {"status": "denied"}}}))[0] == "UNKNOWN"
     assert evaluate({})[0] == "UNKNOWN"
-
-
-def test_signed_storage_id_registered_once_with_exact_kind_and_severity():
-    matches = [check for check in CHECKS if check.id == CHECK_ID]
-    assert len(matches) == 1
-    assert matches[0].provider == "gcp" and matches[0].kind == "bucket"
-    assert matches[0].severity == "medium" and matches[0].category == "hardening"

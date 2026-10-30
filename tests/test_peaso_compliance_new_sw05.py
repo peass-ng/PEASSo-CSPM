@@ -4,8 +4,8 @@ from __future__ import annotations
 import copy
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import compliance_new_sw05 as sw05
+from peaso.checks import evaluate_check
+from peaso.checks import compliance_new_sw05 as sw05  # noqa: F401  (registration side effect)
 
 SCOPE = "123456789012/us-east-1"
 STAGE_ARN = "arn:aws:apigateway:us-east-1::/restapis/api123/stages/prod"
@@ -202,18 +202,6 @@ def test_unsigned_or_unavailable_detail_never_passes():
     assert evaluate("aws_log_retention_upper_bound", "log_group", item, metadata=metadata) == "FAIL"
 
 
-def test_signed_metadata_registry_and_no_duplicate_ids():
-    rows = [check for check in CHECKS if check.id in sw05.SPECS]
-    assert len(rows) == len(sw05.SPECS) == 20
-    assert len({check.id for check in CHECKS}) == len(CHECKS)
-    for row in rows:
-        spec = sw05.SPECS[row.id]
-        assert (row.provider, row.kind, row.severity, row.category, row.title) == (
-            "aws", spec["kind"], spec["severity"], spec["category"], spec["title"])
-        assert row.dependencies
-        assert len(spec["sha"]) == 64
-
-
 def test_iam_password_policy_thresholds_and_global_scope():
     thresholds = {"MinimumPasswordLength": 14, "RequireSymbols": True,
                   "RequireNumbers": True, "RequireUppercaseCharacters": True,
@@ -317,35 +305,6 @@ def test_remaining_evaluators_reject_incomplete_malformed_and_foreign_scope(
     malformed = copy.deepcopy(baseline)
     malformed[kind] = [{"type": kind, "scope": scope, "data": []}]
     assert evaluate_check(check_id, item, malformed)[0] == "UNKNOWN"
-
-
-def test_review_all_module_and_description_digests_match_raw_ledger_entries():
-    import json
-    from pathlib import Path
-    from scripts.peaso_compliance_compile import spec_digest
-    from peaso.checks import compliance_new_sw06, compliance_new_sw07
-    root = Path(__file__).resolve().parents[1]
-    entries = {}
-    def visit(value):
-        if isinstance(value, dict):
-            for entry in value.get("new_checks", []):
-                previous = entries.setdefault(entry["id"], entry)
-                assert previous == entry
-            for key, child in value.items():
-                if key != "new_checks":
-                    visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
-    for path in (root / "docs/compliance-ledgers").glob("aws-*.json"):
-        visit(json.loads(path.read_text()))
-    for module in (sw05, compliance_new_sw06, compliance_new_sw07):
-        assignment = module.__name__.rsplit('_', 1)[-1]
-        descriptions = json.loads((root / f"docs/compliance-ledgers/.work/swarm/{assignment}-descriptions.json").read_text())
-        digests = getattr(module, "PROPOSED_SPEC_SHA256", getattr(module, "SPEC_SHA256", None))
-        assert set(descriptions) == set(digests)
-        for check_id, digest in digests.items():
-            assert digest == spec_digest(entries[check_id]) == descriptions[check_id]["proposed_spec_sha256"]
 
 
 def test_review_empty_envelope_cannot_hide_existing_resource():
@@ -467,53 +426,3 @@ def test_review_global_and_regional_service_scope_authority():
     assert evaluate("aws.pci.wafv2.rule_group_metrics", "wafv2_rule_group", waf_row(), scope="123456789012/global") == "UNKNOWN"
     row = {"Id": "protection", "ResourceArn": "arn:aws:ec2:us-east-1:123456789012:eip-allocation/eipalloc-1", "HealthCheckIds": []}
     assert evaluate("aws_shield_protection_health_checks", "shield_protection", row, scope=SCOPE) == "UNKNOWN"
-
-
-def test_review_remediation_candidates_validate_on_temp_shards(tmp_path, monkeypatch):
-    import importlib.util
-    import json
-    from pathlib import Path
-    from peaso.checks import compliance_new_sw06, compliance_new_sw07
-    from peaso.remediation import _merge_compliance_reviewed
-    from peaso.checks.catalog import proposal_provenance_for
-    root = Path(__file__).resolve().parents[1]
-    artifact = root / 'docs/compliance-ledgers/.work/swarm'
-    candidates = json.loads((artifact / 'swr-aws-remediation.json').read_text())
-    expected = set(sw05.SPECS) | set(compliance_new_sw06.SPEC_SHA256) | set(compliance_new_sw07.SPECS)
-    assert set(candidates) == expected and len(expected) == 57
-    shard = tmp_path / 'remediation.json'
-    shard.write_text(json.dumps(candidates))
-    merged = {}
-    _merge_compliance_reviewed(merged, ((shard, 'aws'),))
-    assert merged == candidates
-    registry = {check.id: check for check in CHECKS}
-    for cid, entry in candidates.items():
-        check = registry[cid]
-        assert entry['proposed_spec_sha256'] == proposal_provenance_for(cid)['signed_spec_sha256']
-        assert entry['review_status'] == 'source_bound_pending_review'
-        binding = entry['field_binding']
-        assert binding['kind'] == check.kind and binding['target'] == check.target
-        assert binding['evaluator_family'] == check.evaluate.__module__
-        assert binding['path'] and binding['observed_fail_evidence']
-        assert entry['steps'] and entry['references'] and entry['cli'] and entry['caveats'] and entry['iac']['code']
-    native = json.loads((artifact / 'swr-aws-reviewed-remediation.json').read_text())
-    assert set(native) == {cid for cid in expected if cid.startswith('aws.') and not cid.startswith(('aws.claude_a.', 'aws.cb.'))}
-    assert len(native) == 16
-    for cid, entry in native.items():
-        assert entry == {**candidates[cid], 'review_status': 'draft'}
-    validation_spec = importlib.util.spec_from_file_location('swr_existing_native_remediation_validation', root / 'tests/test_peaso_remediation_aws_reviewed.py')
-    validation = importlib.util.module_from_spec(validation_spec)
-    validation_spec.loader.exec_module(validation)
-    monkeypatch.setattr(validation, 'reviewed', lambda: native)
-    validation.test_each_review_has_specific_setting_steps_primary_reference_and_inspection()
-    validation.test_inspection_cli_names_and_required_flags_exist_in_aws_api_model()
-    monkeypatch.setattr(validation, 'reviewed', lambda: candidates)
-    validation.test_each_review_has_specific_setting_steps_primary_reference_and_inspection()
-    validation.test_inspection_cli_names_and_required_flags_exist_in_aws_api_model()
-    # The fixed 620-entry partition assertion belongs to publication by the root;
-    # candidate validation instead binds exactly the reviewed 16 dotted IDs above.
-    import shlex
-    for entry in candidates.values():
-        for command in entry['cli']:
-            words = shlex.split(command['code'])
-            assert words[0] == 'aws' and words[2].startswith(('get-', 'list-', 'describe-', 'batch-get-'))

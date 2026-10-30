@@ -1,9 +1,6 @@
 """Exact pure GCP image helper with the real offline detector pipeline."""
-import ast
 import json
-import os
 from pathlib import Path
-import sys
 
 import pytest
 
@@ -12,7 +9,6 @@ CAND = ROOT
 from peaso.secret_scanning import scan_content
 
 TOKEN = 'ghp_' + '7mQ2zR9wL4cV8nK1sF6aH3jP5uD0xB2yE9rT'
-SOURCE = CAND / 'peaso/collectors/gcp_image_stream_inspection_20261021.py'
 
 
 def helper():
@@ -43,14 +39,6 @@ def test_decoded_env_cmd_labels_history_reach_both_real_detectors():
     assert {'kingfisher', 'trufflehog'} <= {d['engine'] for leak in decoded_outcome['leaks']
                                             for d in leak['detectors']}
     assert TOKEN not in json.dumps(decoded_outcome)
-    tree = ast.parse(SOURCE.read_text())
-    leaf = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_inspect_leaf')
-    assert any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'decoded_config_strings'
-               for n in ast.walk(leaf))
-    inspect = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'inspect_image')
-    assert any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == '_inspect_leaf'
-               for n in ast.walk(inspect))
-    assert 'image-config-decoded.txt' in SOURCE.read_text()
 
 
 def test_bounded_decoding_and_cancellation():

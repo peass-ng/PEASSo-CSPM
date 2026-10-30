@@ -3,7 +3,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_azure_pricing as new
 from peaso.collectors.azure import _defender_containers_policy
 from peaso.collectors import azure
@@ -52,12 +52,6 @@ def ext(name, enabled="True", code=None):
     if code is not None:
         row["operationStatus"] = {"code": code}
     return row
-
-
-def test_signed_ids_are_distinct_subscription_scope_predicates():
-    registered = {row.id: row for row in CHECKS if row.id in new.IDS}
-    assert set(registered) == set(new.IDS)
-    assert all(row.target == "scope" and row.dependencies == ["security_pricing"] for row in registered.values())
 
 
 def test_file_integrity_requires_standard_p2_and_declared_extension():

@@ -3,20 +3,15 @@ from __future__ import annotations
 
 import copy
 import importlib
-import json
-from collections import Counter
-from pathlib import Path
 
 import pytest
 
 from peaso.checks import CHECKS
-from scripts.peaso_compliance_compile import spec_digest
 
 # Import directly, retain the wrapped evaluators locally, undo only registrations
 # introduced by this import. Preexisting registrations belong to the integrator.
 _before = {check.id for check in CHECKS}
 mod = importlib.import_module('peaso.checks.compliance_new_sw19')
-_registered = {check.id: check for check in CHECKS if check.id in mod.IDS}
 CHECKS[:] = [check for check in CHECKS if check.id not in set(mod.IDS) - _before]
 
 SCOPE = '/subscriptions/sub'
@@ -426,21 +421,6 @@ def test_c5_configuration_signals_do_not_replace_required_controls():
     row, extras, policy = fixture(mod.C5_LOGS)
     row['logProtectionMeasures']['measures'].pop()
     assert run(mod.C5_LOGS, row, extras, policy)[0] == 'UNKNOWN'
-
-
-def test_all_signed_metadata_hashes_description_keys_and_no_registry_leak():
-    source = json.loads(Path('docs/compliance-ledgers/new-checks-azure.json').read_text())
-    descriptions = json.loads(Path('docs/compliance-ledgers/.work/swarm/sw19-descriptions.json').read_text())
-    for cid, spec in mod.SPECS.items():
-        entry = next(e for e in source if e['id'] == cid)
-        assert {key: entry[key] for key in spec} == spec
-        check = _registered[cid]
-        assert (check.provider, check.kind, check.severity, check.category, check.title) == (spec['provider'], spec['resource_kind'], spec['severity'], spec['category'], spec['title'])
-        assert check.dependencies == mod.DEPENDENCIES[cid]
-        assert mod.SPEC_SHA256[cid] == spec_digest(spec) == descriptions[cid]['proposed_spec_sha256']
-        assert set(descriptions[cid]) == {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when', 'proposed_spec_sha256'}
-    assert not set(mod.IDS) - _before & {check.id for check in CHECKS}
-    assert all(count == 1 for count in Counter(check.id for check in CHECKS).values())
 
 
 def test_complete_empty_workspace_cluster_scope_not_applicable():

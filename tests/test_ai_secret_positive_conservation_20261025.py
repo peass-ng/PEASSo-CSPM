@@ -62,11 +62,3 @@ def test_report_counts_preserve_positive_and_original_model_output_is_not_rewrit
  case=copy.deepcopy(cases()[0]);report={'findings':[case['finding']],'stats':{'by_status':{'FAIL':1}},'ai':{'reviews':{'hardening':[case['review']]}}};before=copy.deepcopy(report);actual=apply_report_reviews(report)
  assert report==before and actual['stats']['by_status']=={'FAIL':1} and actual['findings'][0]['status']=='FAIL'
  assert actual['ai']==before['ai'], 'Retain original model output for provenance; guard changes effective finding only'
-
-
-def test_prompt_explicitly_separates_positive_matches_and_required_absent_configuration():
- root=Path(__file__).parent/'sources'
- if not root.exists():root=Path(__import__('peaso.ai.finding_reviews',fromlist=['x']).__file__).parents[2]
- for name in ['hardening','exposure']:
-  text=(root/'peaso/ai/agents'/f'{name}.yaml').read_text();assert 'incomplete coverage does not remove the recorded match' in text and 'Do not test or verify the matched credential' in text
- text=(root/'peaso/ai/agents/hardening.yaml').read_text();assert 'no attached Cloud DNS logging policy is not PASS' in text

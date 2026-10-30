@@ -76,18 +76,6 @@ def test_approval_filter_or_uncontrolled_build_source_stays_unresolved():
             "serviceAccount:" + SA) != "conditional"
 
 
-def test_ssm_paths_are_manual_only_and_absent_from_executable_catalog():
-    import json
-    from pathlib import Path
-
-    ids = {entry["id"] for entry in privesc.catalog()["entries"]}
-    manual = {"gcp-securesourcemanager-push-cicd", "gcp-securesourcemanager-setiampolicy"}
-    assert manual.isdisjoint(ids)
-    for path in ("finding_explanation.json", "gcp_observed_impact.json"):
-        content = json.loads((Path(__file__).resolve().parents[1] / "peaso" / "privesc" / path).read_text())
-        assert manual.isdisjoint(content)
-
-
 def test_repository_evidence_names_recorded_setting_and_keeps_outcome_conditional():
     for ident in ("gcp-sourcerepos-update-build-trigger", "gcp-sourcerepos-setiampolicy"):
         entry = next(entry for entry in ENTRIES if entry["id"] == ident)

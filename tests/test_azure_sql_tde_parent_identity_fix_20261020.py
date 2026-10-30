@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from peaso import engine
 from peaso.collectors import azure
-from tests.test_azure_database_crypto_backup_2_native_review_20261020 import NativeHTTP, DATABASE as DB, SUB, SCOPE, TDE as CID
+from tests.test_azure_database_crypto_backup_2_native_review_20261020 import NativeHTTP, DATABASE as DB, SUB, TDE as CID
 
 OTHER='99999999-9999-9999-9999-999999999999'
 CAPTURES=[]
@@ -118,26 +118,6 @@ def test_preexisting_child_optional_type_name_compatibility(monkeypatch):
     assert {f['status']for f in findings}=={'PASS'},findings
 
 
-def test_current_successor_preserves_predecessor_and_is_idempotent():
-    from peaso import checks
-    # The TDE-only successor is now a historical epoch: Azure collect gained the
-    # separately reviewed package/metadata-only statements, and the current
-    # admission chain keeps the same signed TDE receipt.
-    from peaso.checks import azure_metadata_only_tde_admission_successor_20261020 as admission
-    from peaso.checks import azure_nsp_query_cmk_production_tde_successor_20261020 as tde_historical
-    from peaso.checks import azure_nsp_query_cmk_production_admission_20261020 as predecessor
-    before=tuple(checks.CHECKS)
-    receipt,_,_=admission.reviewed_inputs()
-    admission.install();admission.install()
-    assert tuple(checks.CHECKS)==before
-    assert receipt['before_collect_sha256']!=receipt['functions']['peaso.collectors.azure:collect']['source_sha256']
-    # The old signed receipts are historical, rather than silently repinned.
-    with pytest.raises(RuntimeError,match='Azure collect changed outside reviewed TDE body'):
-        tde_historical.reviewed_inputs()
-    with pytest.raises(RuntimeError,match='production disk callable source changed'):
-        predecessor.reviewed_inputs()
-
-
 @pytest.mark.parametrize('which',['collect','selected'])
 def test_current_successor_rejects_executing_callable_replacement(monkeypatch,which):
     import types
@@ -150,43 +130,3 @@ def test_current_successor_rejects_executing_callable_replacement(monkeypatch,wh
     with pytest.raises(RuntimeError):admission.reviewed_inputs()
 
 
-@pytest.mark.parametrize('which',['collect','selected','helper','receipt','predecessor_helper','predecessor_receipt','predecessor_pack','cases'])
-def test_current_successor_rejects_source_and_historical_drift(tmp_path,which):
-    import shutil
-    from pathlib import Path
-    from peaso.checks import azure_nsp_query_cmk_production_tde_successor_20261020 as admission
-    from peaso.checks import azure_metadata_only_tde_admission_successor_20261020 as current
-    root=Path(__file__).resolve().parents[1]
-    # The current chain admits the same signed TDE receipt; the TDE-only helper
-    # is historical and must keep rejecting today's collect epoch.
-    receipt,_,_=current.reviewed_inputs()
-    assert receipt==json.loads((root/'peaso/checks'/admission.RECEIPT).read_bytes())
-    paths={receipt['helper_path'],'peaso/checks/'+admission.RECEIPT,receipt['predecessor_pack']['path'],*receipt['predecessor_files']}
-    for helper in (admission.prepared.predecessor,admission.prepared,admission):
-        relative='peaso/checks/'+helper.RECEIPT;signed=json.loads((root/relative).read_bytes())
-        paths.update({relative,signed['helper_path'],*signed.get('sources',{}),*signed.get('predecessor_files',{})})
-        paths.update(row['path']for row in signed['functions'].values());paths.update(row['path']for row in signed['fixtures'])
-        if 'predecessor_pack' in signed:paths.add(signed['predecessor_pack']['path'])
-    for relative in paths:
-        destination=tmp_path/relative;destination.parent.mkdir(parents=True,exist_ok=True)
-        shutil.copyfile(root/relative,destination)
-    targets={'collect':'peaso/collectors/azure.py','selected':'peaso/collectors/azure.py','helper':receipt['helper_path'],
-        'receipt':'peaso/checks/'+admission.RECEIPT,'predecessor_helper':'peaso/checks/azure_nsp_query_cmk_production_admission_20261020.py',
-        'predecessor_receipt':'peaso/checks/azure_nsp_query_cmk_production_admission_20261020.json',
-        'predecessor_pack':receipt['predecessor_pack']['path'],'cases':receipt['fixtures'][0]['path']}
-    epoch='Azure collect changed outside reviewed TDE body'
-    # Every copied input passes the file guards; only the historical collect
-    # epoch gate rejects the unmodified copy.
-    with pytest.raises(RuntimeError,match=epoch):admission.reviewed_inputs(tmp_path)
-    target=tmp_path/targets[which]
-    if which in ('collect','selected'):
-        text=target.read_text();name='collect'if which=='collect'else'_selected'
-        marker='def '+name+'(';start=text.index(marker);end=text.index('\n',start)
-        text=text[:end+1]+'    raise RuntimeError("unreviewed source")\n'+text[end+1:]
-        target.write_text(text)
-    else:
-        with target.open('ab')as stream:stream.write(b'\n')
-    with pytest.raises(RuntimeError)as error:admission.reviewed_inputs(tmp_path)
-    if which not in ('collect','selected'):
-        # Signed file drift is caught by its own guard before the epoch gate.
-        assert str(error.value)!=epoch

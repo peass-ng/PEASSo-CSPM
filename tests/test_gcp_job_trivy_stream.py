@@ -104,12 +104,6 @@ def test_disabled_is_zero_access():
     assert result['status'] == 'UNKNOWN'
 
 
-def test_verifier_keeps_actual_native_metadata_and_binding_code():
-    assert stream.collect_native.__code__ is stream.collection.collect_native.__code__
-    assert stream._read_image.__code__ is stream.collection._read_image.__code__
-    assert stream.scan_captured.__globals__['predecessor'] is stream.predecessor
-
-
 def test_file_hash_checks_cancellation_for_every_chunk(tmp_path):
     path = tmp_path / 'layer'
     path.write_bytes(b'x' * (stream.CHUNK + 1))

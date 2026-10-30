@@ -1,6 +1,6 @@
 """Exact60 independent native HTTP -> actual Azure collector -> public engine."""
 from copy import deepcopy
-from datetime import datetime,timedelta,timezone
+from datetime import datetime, timezone
 import json
 import socket
 from urllib.parse import urlsplit,parse_qs
@@ -407,9 +407,6 @@ def test_native_iam_user_guid_case_coherent_join(record_property):
 @pytest.mark.parametrize('cid',['azure.claude.frontdoor_waf_policy_linked','azure.claude.mssql_managed_instance_vulnerability_assessment'])
 def test_native_field_survives_collector_and_default_child_casing(cid,record_property):
  _,rows=run_case(cid,'good',record_property);assert {r['status'] for r in rows}=={'PASS'},rows
-
-
-def test_exact60_conservation():assert len(IDS)==len(set(IDS))==60 and all(c in REGISTRY and REGISTRY[c].provider=='azure' for c in IDS)
 
 
 @pytest.mark.parametrize('cid',IDS)

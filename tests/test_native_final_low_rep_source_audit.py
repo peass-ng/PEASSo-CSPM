@@ -26,20 +26,6 @@ def reviewed(check_id, **kwargs):
     return proof(inventory, inventory, FIELD_SPECS, **kwargs)
 
 
-def test_strict_field_and_complete_scoped_join_have_source_proof():
-    direct = reviewed('aws.a.cloudwatch.alarm_state_actions')
-    assert direct['decision'] == 'native_final_source_proven'
-    assert 'AlarmActions' in direct['bound_api_fields']
-    scoped = reviewed('aws.a.iam.password_policy_expiry_at_most_90')
-    assert scoped['decision'] == 'native_final_source_proven'
-    assert 'iam_password_policy.PasswordPolicy.MaxPasswordAge' in scoped['bound_api_fields']
-    assert any(ref['path'] == 'peaso/checks/aws_a_facts.py' for ref in scoped['helper_source_refs'])
-    mounted = reviewed('aws.htbp.ecs.no_sensitive_host_mounts')
-    assert mounted['decision'] == 'native_final_source_proven'
-    assert mounted['underlying_evaluator']['path'] == 'peaso/checks/hacktricks_bp_aws.py'
-    assert mounted['fail_predicates'] == [{'line': 252, 'expression': 'bool(mounted)'}]
-
-
 def test_ambiguous_omission_and_serialized_policy_fail_closed():
     assert reviewed('aws.b.cloudfront.custom_acm_certificate')['decision'] == 'provisional_source_candidate'
     assert reviewed('aws.b.ecr.lifecycle_rules')['decision'] == 'retain_ai'

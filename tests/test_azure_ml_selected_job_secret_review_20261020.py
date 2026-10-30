@@ -1,6 +1,5 @@
 """Independent exact native ARM bytes -> real transport/collector -> actual public production engine."""
 from copy import deepcopy
-import hashlib
 import inspect
 import io
 import json
@@ -11,10 +10,9 @@ import socket
 import time
 from types import SimpleNamespace
 import pytest
-from peaso import checks,engine,secret_scanning as scanning
+from peaso import engine, secret_scanning as scanning
 from peaso.collectors import azure
 from peaso.collectors import azure_ml_selected_job_secret_indicators as source
-from peaso.collectors import azure_selected_log_sample_secret_indicators as existing
 from peaso.collectors import azure_selected_declaration_secret_indicators as native_http
 from peaso.checks import azure_ml_selected_job_secret_review_20261020 as consumer
 from tests.test_azure_selected_declaration_secret_review_20261020 import jwt
@@ -27,7 +25,6 @@ WORKSPACE=SCOPE+'/resourceGroups/review/providers/Microsoft.MachineLearningServi
 JOB=WORKSPACE+'/jobs/JobCase'
 TOKEN='ghp_'+'7mQ2zR9wL4cV8nK1sF6aH3jP5uD0xB2yE9rT'
 AUTH='offline-ml-client-secret'
-PRODUCTION_TYPES=tuple(azure.TYPES)
 
 
 def target(rid=JOB):return{'resource_id':rid}
@@ -244,20 +241,6 @@ def test_job_name_case_sensitive_selector_identity():
     assert len(source.selected_targets({source.OPTION:[target(),target(JOB.lower())]},[SCOPE]))==2
 
 
-def test_admitted_exact_native_identity_and_no_numbered_framework_edges():
-    from peaso.checks import azure_ml_job_secrets_admission_20261020 as admission
-    from peaso.checks.fixtures import CASES
-    with pytest.raises(RuntimeError,match='reviewed source changed'):
-        admission.reviewed_inputs()
-    cases=json.loads(Path('peaso/checks/azure_ml_job_variants_native_cases_20261021.json').read_text())
-    registered,=[c for c in checks.CHECKS if c.id==source.CHECK]
-    assert source.KIND in PRODUCTION_TYPES and inspect.unwrap(registered.evaluate)is consumer.evaluate
-    assert CASES[source.CHECK]==cases[source.CHECK]
-    for branch in ('pass','fail','unknown'):
-        assert registered.evaluate(cases[source.CHECK][branch],cases[source.CHECK][branch+'_index'])[0]==branch.upper()
-    assert consumer.DECLARATION['requirements']==[]and consumer.DECLARATION['ui_group']=='Secrets'
-
-
 @pytest.mark.parametrize('mutation',['provider','scope','selection','credential','customer','receipt','binding','audience','host','method','capture','part','engine','duplicate','authorized'])
 def test_consumer_rejects_forged_or_incoherent_proof(monkeypatch,mutation):
     snapshot,_,_=collect(monkeypatch);collection=deepcopy(own(snapshot));item=collection['items'][0]
@@ -370,25 +353,6 @@ _CURRENT=json.loads(Path('peaso/checks/azure_ml_job_variants_native_cases_202610
 @pytest.mark.parametrize('branch',['pass','fail','unknown'])
 def test_current_four_read_native_capture_replay(branch):
     assert consumer.evaluate(_CURRENT[branch],_CURRENT[branch+'_index'])[0]==branch.upper()
-
-
-def test_proposal_pins_actual_unwrapped_consumer_and_reachable_sources():
-    import ast
-    from peaso import rawv2_private_source_successor_20261021 as epoch
-    proposal=json.loads(Path('peaso/checks/azure_ml_selected_job_secret_review_20261020_proposal.json').read_text())
-    assert proposal['registration']=='unregistered_proposal_only'
-    historical={}
-    for path,want in proposal['sources'].items():
-        current=Path(path).read_bytes()
-        historical[path]=epoch.source_bytes(path,current,want,Path.cwd())
-        assert hashlib.sha256(historical[path]).hexdigest()==want,path
-    fixture=proposal['fixture'];assert hashlib.sha256(Path(fixture['path']).read_bytes()).hexdigest()==fixture['sha256']
-    raw=historical['peaso/checks/azure_ml_selected_job_secret_review_20261020.py']
-    definitions={node.name:node for node in ast.parse(raw).body if isinstance(node,ast.FunctionDef)}
-    for name,key in [('evaluate','predicate_sha256'),('_evaluate','reachable_helper_sha256')]:
-        node=definitions[name]
-        body=b''.join(raw.splitlines(keepends=True)[node.lineno-1:node.end_lineno])
-        assert hashlib.sha256(body).hexdigest()==proposal['check'][key]
 
 
 def test_current_databricks_account_reader_cannot_be_reused_as_notebook_export():

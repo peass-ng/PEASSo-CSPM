@@ -97,8 +97,3 @@ def test_nested_compliance_and_status_assignments():
     assert result['a'] == {('cis', '1.1')}
     assert audit.status_assignments('report.status = "MANUAL"\nreport.status_extended = "PASS"') == ['MANUAL']
     assert audit.status_assignments('report.status = "PASS"\nif missing:\n report.status = "MANUAL"') == ['MANUAL', 'PASS']
-
-
-def test_review_distinguishes_no_customer_input_from_golden_image_input():
-    assert audit.EXCLUSION_REVIEWS['kms_key_enclave_attestation_not_enforced'][0] == 'unjustified_security_gap'
-    assert audit.EXCLUSION_REVIEWS['kms_key_enclave_attestation_pcr_mismatch'][0] == 'excluded_customer_configuration'

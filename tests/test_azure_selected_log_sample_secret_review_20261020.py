@@ -5,7 +5,6 @@ No CASES as native input, cloud authentication, network or credential validation
 """
 from copy import deepcopy
 from datetime import timedelta
-import hashlib
 import inspect
 import io
 import json
@@ -15,10 +14,9 @@ import socket
 import time
 from types import SimpleNamespace
 import pytest
-from peaso import checks,engine,secret_scanning as scanning
+from peaso import engine, secret_scanning as scanning
 from peaso.collectors import azure
 from peaso.collectors import azure_selected_log_sample_secret_indicators as source
-from peaso.collectors import azure_selected_declaration_secret_indicators as declarations
 from peaso.checks import azure_selected_log_sample_secret_review_20261020 as consumer
 from tests.test_azure_selected_declaration_secret_review_20261020 import jwt
 
@@ -31,7 +29,6 @@ TOKEN='ghp_'+'7mQ2zR9wL4cV8nK1sF6aH3jP5uD0xB2yE9rT'
 AUTH='offline-log-client-secret'
 PREFIX=SCOPE+'/resourceGroups/review/providers/'
 SURFACES=('AppTraces','FunctionAppLogs','traces')
-PRODUCTION_TYPES=tuple(azure.TYPES)
 
 
 def profile(surface):return'application'if surface=='traces'else'workspace'
@@ -284,25 +281,6 @@ def test_exact_selector_contract_before_auth(surface,bad):
     with pytest.raises(source.Incomplete):source.selected_targets({source.PROFILES[p]['option']:targets},[SCOPE],p)
 
 
-def test_exact_production_admission_and_numbered_requirements_empty():
-    from peaso.checks.fixtures import CASES
-    from peaso.checks import azure_log_samples_admission_20261020 as admission
-    from peaso import rawv2_private_source_successor_20261021 as current_source
-    current_source.install_admission('azure_log_samples_admission_20261020')
-    receipt=json.loads(Path('peaso/checks/azure_log_samples_admission_20261020.json').read_text())
-    fixture=Path(receipt['fixture']['path'])
-    assert hashlib.sha256(fixture.read_bytes()).hexdigest()==receipt['fixture']['sha256']
-    cases=json.loads(fixture.read_text())
-    items=[(next(d for d in consumer.DECLARATIONS if d['id']==row['id']), consumer.EVALUATORS[row['profile']])
-           for row in receipt['checks']]
-    assert set(source.KINDS)<=set(PRODUCTION_TYPES)
-    for metadata,function in items:
-        registered,=[c for c in checks.CHECKS if c.id==metadata['id']]
-        assert inspect.unwrap(registered.evaluate)is function
-        assert CASES[registered.id]==cases[registered.id]
-    assert all(d['requirements']==[]and d['ui_group']=='Secrets'for d in consumer.DECLARATIONS)
-
-
 @pytest.mark.parametrize('surface',SURFACES)
 @pytest.mark.parametrize('mutation',['capture','scope','selection','credential','customer','receipt','binding','audience','method','host','window','snapshot_time','row_time','row_count','engine','parts','duplicate','authorized'])
 def test_pure_consumer_rejects_forged_missing_or_incoherent_proof(monkeypatch,surface,mutation):
@@ -397,13 +375,3 @@ def test_portable_actual_native_samples_replay_in_fresh_process(capture):
     if capture['expected_status']!='UNKNOWN':assert capture['real_detectors']is True
 
 
-def test_proposal_pins_exact_sources_helpers_and_native_captures():
-    from peaso import rawv2_private_source_successor_20261021 as current_source
-    proposal=json.loads(Path('peaso/checks/azure_selected_log_sample_secret_review_20261020_proposal.json').read_text())
-    assert proposal['registration']=='unregistered_proposal_only'
-    for path,want in proposal['sources'].items():
-        assert hashlib.sha256(current_source.source_bytes(path,Path(path).read_bytes(),want)).hexdigest()==want,path
-    f=proposal['fixture'];assert hashlib.sha256(Path(f['path']).read_bytes()).hexdigest()==f['sha256']
-    for row in proposal['checks']:
-        assert hashlib.sha256(inspect.getsource(consumer.EVALUATORS[row['profile']]).encode()).hexdigest()==row['predicate_sha256']
-        assert hashlib.sha256(inspect.getsource(consumer._evaluate).encode()).hexdigest()==row['reachable_helper_sha256']

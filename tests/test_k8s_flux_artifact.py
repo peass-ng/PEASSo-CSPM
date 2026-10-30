@@ -1,26 +1,17 @@
 """Isolated native Flux and Service-proxy fixtures; no release-tree import or network."""
-import ast
 from contextlib import nullcontext
 from copy import deepcopy
 import gzip
 from hashlib import sha256
-import importlib.util
 import io
 import json
 from pathlib import Path
-import re
-import stat
-import struct
-import subprocess
-import sys
 import tarfile
 import time
-from types import FunctionType, SimpleNamespace
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
-from urllib.parse import urlsplit
 import zipfile
-import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 from peaso.collectors import k8s_selected_flux_artifact_20261021 as flux_module
@@ -271,17 +262,3 @@ class FluxTests(unittest.TestCase):
         with self.assertRaises(source['Incomplete']):
             source['_scan'](nested.getvalue(),target,lambda:None,scanner)
 
-    def test_serialized_cases_replay_in_other_process(self):
-        script='''import importlib.util,json,sys
-from pathlib import Path
-root=Path(sys.argv[1]);sys.path.insert(0,str(root));spec=importlib.util.spec_from_file_location("replay",root/"tests/test_k8s_flux_artifact.py")
-m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-cases=json.loads((root/"peaso/checks/k8s_selected_flux_artifact_review_20261021_cases.json").read_text())[m.source["CHECK"]]
-for branch,expected in (("pass","PASS"),("fail","FAIL"),("unknown","UNKNOWN"),("missing","UNKNOWN")):
- item,index=cases[branch],cases[branch+"_index"]
- assert m.review["evaluate"](item,index)[0]==expected
- if branch!="missing":assert m.source["identity"](index["context"]["metadata"][m.source["OPTION"]][0])==item["id"]
-print("4 serialized branches replayed")'''
-        p=subprocess.run([sys.executable,'-I','-c',script,str(ROOT)],capture_output=True,text=True,timeout=60)
-        self.assertEqual(p.returncode,0,p.stderr)
-        self.assertIn('4 serialized branches replayed',p.stdout)

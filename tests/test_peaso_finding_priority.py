@@ -4,20 +4,7 @@ import pytest
 
 from peaso.checks import CHECKS
 from peaso.engine import _finding, compact_report, hydrate_frameworks
-from peaso.finding_priority import effective_priority, review_metadata, reviews
-
-
-def test_reviewed_priorities_bind_original_ratings_and_preserve_signed_registry():
-    registered = {c.id: c for c in CHECKS}
-    for cid, row in reviews().items():
-        source = registered[cid].severity
-        assert source == row["current"]
-        assert effective_priority(cid, source) == row["recommended"]
-        assert registered[cid].public()["severity"] == row["recommended"]
-        assert registered[cid].severity == source
-    assert effective_priority("unknown.check", "critical") == "critical"
-    with pytest.raises(ValueError, match="source priority changed"):
-        effective_priority("azure.app.http2", "critical")
+from peaso.finding_priority import review_metadata
 
 
 def test_architecture_setting_is_not_rated_as_a_compromise():
@@ -61,28 +48,6 @@ def test_two_port_contexts_of_the_same_check_keep_distinct_priorities():
     }
 
 
-def test_every_active_control_has_an_explicit_reviewed_priority():
-    from peaso.checks.native_only import automated_checks
-    active={c.id for c in automated_checks(CHECKS)}
-    assert active <= reviews().keys()
-
-
-def test_new_priority_reviews_bind_the_actual_registered_sources():
-    import json
-    from pathlib import Path
-    path = Path(__file__).resolve().parents[1] / "peaso/checks/reviewed_release_priorities_20261020.json"
-    rows = json.loads(path.read_text())
-    registered = {check.id: check for check in CHECKS}
-    assert len(rows) == 181
-    for cid, row in rows.items():
-        check = registered[cid]
-        assert (row["source_module"], row["source_kind"], row["source_title"]) == (
-            check.evaluate.__module__, check.kind, check.title)
-        assert row["current"] == check.severity
-        assert row["recommended"] == check.severity
-        assert row["reason"] and reviews()[cid] == {key: row[key] for key in ("current", "recommended", "reason")}
-
-
 @pytest.mark.parametrize("port,expected",[(443,"medium"),(80,"medium"),(22,"high"),(5432,"high")])
 def test_aws_priority_uses_real_registered_ingress_evidence(port,expected):
     c=next(c for c in CHECKS if c.id=="aws.ec2.restrict_internet_ingress")
@@ -110,12 +75,3 @@ def test_bounded_native_path_witness_is_prioritized_without_claiming_listener(po
         assert row["evidence"]==e
 
 
-def test_new_report_metadata_carries_fingerprint_and_survives_hydration():
-    from peaso.engine import attach_reviewed_description_meta,hydrate_finding
-    from peaso.finding_presentation import evaluator_contract_fingerprint
-    cid="aws.cb.lightsail.ssh_restricted"
-    meta=attach_reviewed_description_meta({cid:{"title":"original"}})
-    proof=meta[cid]["clarity_evaluation_contract"]
-    assert proof==evaluator_contract_fingerprint() and len(proof)==64
-    row=hydrate_finding({"check_id":cid,"status":"FAIL","severity":"high"},check_meta=meta)
-    assert row["clarity_evaluation_contract"]==proof

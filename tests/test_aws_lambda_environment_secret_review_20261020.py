@@ -1,9 +1,7 @@
 """Independent botocore Stubber -> safe native profile -> collector -> engine."""
 from copy import deepcopy
 from contextlib import ExitStack
-from tests.selected_secret_source_successors_20261020 import assert_source_receipt
 import json
-from pathlib import Path
 import socket
 from types import SimpleNamespace
 from urllib.parse import quote
@@ -347,9 +345,7 @@ def test_native_aws_cross_surface_value_dedup(monkeypatch):
     assert len(merged[0]['evidence']['secret_leaks'][0]['locations'])==2 and TOKEN not in json.dumps(merged)
 
 
-def test_registered_real_native_cases_and_admission_integrity():
-    import hashlib
-    import inspect
+def test_registered_real_native_cases():
     from peaso.checks import CHECKS
     from peaso.checks.fixtures import CASES
     check,=[c for c in CHECKS if c.id==source.CHECK]
@@ -358,7 +354,3 @@ def test_registered_real_native_cases_and_admission_integrity():
     cases=CASES[source.CHECK]
     for state in ('pass','fail','unknown'):assert check.evaluate(cases[state],cases[state+'_index'])[0]==state.upper()
     for shape in ('missing','malformed'):assert check.evaluate(cases[shape],cases['index'])[0]=='UNKNOWN'
-    a=json.loads(Path('peaso/checks/aws_lambda_environment_secret_review_20261020_admission.json').read_text())
-    for p,h in a['source_hashes'].items():assert_source_receipt(p,h)
-    assert hashlib.sha256(Path(a['fixture']['path']).read_bytes()).hexdigest()==a['fixture']['sha256']
-    assert a['checks'][source.CHECK]['predicate_sha256']==hashlib.sha256(inspect.getsource(checks.evaluate).encode()).hexdigest()

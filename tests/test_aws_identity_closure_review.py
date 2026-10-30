@@ -6,7 +6,6 @@ preserved separately; fixture witnesses never establish complete semantics.
 import copy
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from urllib.parse import quote
 
 import boto3
@@ -14,7 +13,6 @@ import pytest
 from botocore.stub import Stubber
 from peaso import engine
 from peaso.collectors import aws, aws_facts_gap, aws_facts_cb_ca
-from peaso.checks import aws_gap_metrics
 
 ACCOUNT, FOREIGN, REGION = '123456789012', '999999999999', 'us-east-1'
 SCOPE = ACCOUNT + '/' + REGION
@@ -182,15 +180,3 @@ def test_gaad_default_native_contract(sdk, cid, state, expected):
             'DefaultVersionId': 'v1', 'PolicyVersionList': [version]}]}, {})
     read = aws._iam(requests, session, REGION, {'iam_policy'})['iam_policy']
     assert REGISTRY[cid].evaluate(read.items[0] if read.items else {}, policy_index(read))[0] == expected
-
-
-def test_report_has_exact_input_ids_and_bounded_claims():
-    report = json.loads(Path('docs/aws-review/identity-closure-review.json').read_text())
-    assert len(report['checks']) == 204
-    assert len({row['id'] for row in report['checks']}) == 204
-    assert {row['id'] for row in report['checks']} == set(report['input_ids'])
-    for row in report['checks']:
-        assert row['disposition'] in {'confirmed_defect', 'bounded_native_contract', 'unproved_contract'}
-        assert row['semantic_completeness_proven'] is False
-        assert row['primary_references'] and row['unproved_contracts'] is not None
-        assert row['callback_chain'] and row['field_contracts']

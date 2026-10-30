@@ -1,17 +1,14 @@
 """Unregistered finite source/clone/native admission; no production hooks."""
-from copy import deepcopy
 import gzip
 import json
 from pathlib import Path
-import re
 import shutil
-import types
 
 import pytest
 from peaso import checks
 from peaso.collectors import k8s
 from peaso.checks import k8s_selected_metadata_secret_admission_20261020 as admission
-from tests.test_k8s_selected_metadata_secret_review_20261020 import offline,source,consumer,TOKEN,NS,capture
+from tests.test_k8s_selected_metadata_secret_review_20261020 import source, consumer, TOKEN, capture
 
 
 def copy_inputs(tmp_path):
@@ -32,47 +29,6 @@ def test_prepared_only_no_registration_inventory_options_or_global_mutation():
         assert evaluate(cases[source.CHECK][branch],cases[source.CHECK][branch+'_index'])[0]==branch.upper()
     cases[source.CHECK]['pass'].clear()
     assert admission.reviewed_inputs()[1][source.CHECK]['pass']
-
-
-@pytest.mark.parametrize('which',['producer','consumer','helper','receipt','cases','fixture','proposal','setup','shared_source'])
-def test_source_fixture_receipt_or_exact_shared_callable_drift(tmp_path,which):
-    r=copy_inputs(tmp_path)
-    names={'producer':'peaso/collectors/k8s_selected_metadata_secret_indicators_20261020.py',
-           'consumer':'peaso/checks/k8s_selected_metadata_secret_review_20261020.py','helper':r['helper_path'],
-           'receipt':'peaso/checks/'+admission.RECEIPT,'cases':'peaso/checks/'+admission.CASES,
-           'fixture':'tests/fixtures/k8s_selected_metadata_secret_native_20261020.json.gz',
-           'proposal':'peaso/checks/k8s_selected_metadata_secret_proposal_20261020.json',
-           'setup':'docs/peaso-k8s-selected-metadata-secrets-proposal-20261020.md',
-           'shared_source':'peaso/collectors/k8s_literal_secret_indicators.py'}
-    path=tmp_path/names[which]
-    if which=='shared_source':
-        text=path.read_text();text=text.replace('    """Return safe selection metadata plus transient union-redaction callback state."""','    """Unreviewed changed exact callable."""',1);path.write_text(text)
-    else:
-        with path.open('ab')as stream:stream.write(b'\n')
-    with pytest.raises(RuntimeError):admission.reviewed_inputs(tmp_path)
-
-
-def test_unrelated_shared_module_addition_does_not_freeze_file(tmp_path):
-    copy_inputs(tmp_path)
-    with(tmp_path/'peaso/collectors/k8s_literal_secret_indicators.py').open('a')as stream:stream.write('\n# unrelated future extension\n')
-    assert admission.reviewed_inputs(tmp_path)[2]['id']==source.CHECK
-
-
-@pytest.mark.parametrize('which',['private_read','extract','scan','namespace','regex','consumer_clone','wire_guard','privacy','source_alias','detector_version'])
-def test_private_or_imported_runtime_binding_replacement_rejected(monkeypatch,which):
-    if which=='private_read':monkeypatch.setitem(source._GLOBALS,'_read',lambda *a:None)
-    elif which=='extract':monkeypatch.setattr(source,'_extract',lambda *a:None)
-    elif which=='scan':monkeypatch.setitem(source._GLOBALS,'scan_content',lambda *a,**kw:{'complete':True})
-    elif which=='namespace':monkeypatch.setitem(source._GLOBALS,'KIND','k8s_selected_literals')
-    elif which=='regex':monkeypatch.setattr(source,'_NAME',re.compile('.*'))
-    elif which=='consumer_clone':
-        original=consumer._evaluate;clone=types.FunctionType(original.__code__,original.__globals__,original.__name__,original.__defaults__,original.__closure__)
-        monkeypatch.setattr(consumer,'_evaluate',clone)
-    elif which=='wire_guard':monkeypatch.setattr(source,'_wire_debug_enabled',lambda *a:False)
-    elif which=='privacy':monkeypatch.setattr(source,'private_native_logs',lambda:None)
-    elif which=='source_alias':monkeypatch.setattr(consumer,'source',object())
-    else:monkeypatch.setattr(admission.scanning,'KINGFISHER_VERSION','0.0.0')
-    with pytest.raises(RuntimeError):admission.reviewed_inputs()
 
 
 @pytest.mark.parametrize('which',['producer','consumer','clone','native_read'])

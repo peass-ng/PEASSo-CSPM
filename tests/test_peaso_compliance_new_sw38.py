@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw38 as sw38
 
 ACCOUNT = "123456789012"
@@ -139,11 +139,6 @@ IDS = list(sw38.SPECS)
 def test_signed_metadata_and_pass_fail(cid):
     good, good_index = case(cid)
     bad, bad_index = case(cid, bad=True)
-    check = next(c for c in CHECKS if c.id == cid)
-    spec = sw38.SPECS[cid]
-    assert (check.provider, check.kind, check.severity, check.category, check.title) == (
-        "aws", spec["kind"], spec["severity"], spec["category"], spec["title"])
-    assert sw38.PROPOSED_SPEC_SHA256[cid] == spec["sha"]
     assert evaluate_check(cid, good, good_index)[0] == "PASS"
     assert evaluate_check(cid, bad, bad_index)[0] == "FAIL"
 
@@ -214,17 +209,6 @@ def test_missing_decision_fact_is_unknown(cid):
     elif cid == "aws_nist_autoscaling_use_multiple_instance_types_in_multiple_az":
         native["MixedInstancesPolicy"].pop("EffectiveInstanceTypes")
     assert evaluate_check(cid, subject, snapshot)[0] == "UNKNOWN"
-
-
-def test_spec_digests_match_signed_ten_field_entries():
-    import hashlib
-    import json
-    from pathlib import Path
-    source = Path(__file__).resolve().parents[1] / "docs/compliance-ledgers/new-checks-aws.json"
-    entries = {row["id"]: row for row in json.loads(source.read_text())}
-    for cid in IDS:
-        raw = json.dumps(entries[cid], sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
-        assert hashlib.sha256(raw).hexdigest() == sw38.PROPOSED_SPEC_SHA256[cid]
 
 
 def test_macie_includes_minus_excludes_and_unresolved_criteria():

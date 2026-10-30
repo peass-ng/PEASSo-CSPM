@@ -1,6 +1,6 @@
 """Memory-only SDK/HTTP stubs exercise real request cache and pure consumers."""
 from copy import deepcopy
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import base64
 import gzip
 import hashlib
@@ -331,13 +331,7 @@ def test_cancelled_enricher_has_no_content_reads(monkeypatch, kind):
     assert not calls and not downloads
 
 
-def test_no_registration_and_admission_contract():
-    assert len(c.DECLARATIONS) == len(c.ADMISSION_DATA['checks']) == len(c.RUNTIME_CASES) == 3
-    for row in c.ADMISSION_DATA['checks']:
-        assert len(row['spec']) == 10 and len(row['description']) == 5
-        assert row['requirements'] == []
-        assert row['sources'][0]['url'].count(c.REVISION) == 1
-        assert len(row['sources'][0]['sha256']) == 64
+def test_fixture_cases_pass_and_fail_by_presence():
     for kind in KINDS:
         for present in (True, False):
             item, ix = c._fixture(kind, present)

@@ -1,6 +1,4 @@
 """Encrypted source joins with the real offline detectors and private detail API."""
-import ast
-import hashlib
 import importlib.util
 import json
 import os
@@ -46,8 +44,6 @@ def detail_roundtrip(sink, cipher, leaks, resource, scope=SCOPE, check=CHECK):
 ])
 def test_image_config_real_detectors_join_selected_finding(monkeypatch, resource, caller, expression):
     from peaso.collectors import gcp_image_stream_inspection_20261021 as helper
-    source = (HERE / 'peaso/collectors' / caller).read_text()
-    assert 'capture_resource_id=' + expression in source
     uri = 'https://us-central1-docker.pkg.dev/example-project/owned/image'
     manifest_digest = 'sha256:' + 'a' * 64
     config_digest = 'sha256:' + 'b' * 64

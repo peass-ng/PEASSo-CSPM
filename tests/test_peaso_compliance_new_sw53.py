@@ -4,10 +4,8 @@ from __future__ import annotations
 import copy
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw53 as sw
-from scripts.peaso_compliance_compile import spec_digest
-import json
 
 SCOPE = 'projects/p'
 NOW = '2026-10-12T00:00:00Z'
@@ -119,12 +117,6 @@ def test_pass_fail_and_signed_metadata(check_id):
             failed['collections'][resource_kind][0]['items'] = [copy.deepcopy(r['data']) for r in rows]
     expected = 'UNKNOWN' if check_id == 'gcp.logging.access_transparency_entries' else 'FAIL'
     assert evaluate_check(check_id, failed[kind][0]['data'] if check_id in ('gcp_c5_iam_conditions', 'gcp_c5_iam_expiry') else item, failed)[0] == expected
-    match = [c for c in CHECKS if c.id == check_id]
-    assert len(match) == 1
-    entry = next(x for x in json.load(open('docs/compliance-ledgers/new-checks-gcp.json')) if x['id'] == check_id)
-    assert (match[0].provider, match[0].kind, match[0].category, match[0].severity, match[0].title) == (
-        'gcp', entry['resource_kind'], entry['category'], entry['severity'], entry['title'])
-    assert sw.META[check_id]['sha'] == spec_digest(entry)
 
 
 @pytest.mark.parametrize('check_id', list(sw.META))

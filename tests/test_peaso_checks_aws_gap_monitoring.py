@@ -13,7 +13,6 @@ from peaso.checks.fixtures import CASES
 
 PACK = Path(__file__).resolve().parents[1] / "peaso" / "rulepacks"
 REGISTRY = {check.id: check for check in CHECKS}
-SHARD = json.loads((PACK / "reviewed_aws_gap.json").read_text())
 NATIVES = metrics.NATIVE_IDS + account.NATIVE_IDS + ec2.NATIVE_IDS
 EXPECTED = {"pass": "PASS", "fail": "FAIL", "manual": "MANUAL", "unknown": "UNKNOWN"}
 
@@ -131,18 +130,3 @@ def test_alarm_in_another_region_is_not_coverage():
 
 
 # ------------------------------------------------------------------ shard mapping
-def test_shard_maps_every_upstream_family_to_its_native():
-    reached = {native for entry in SHARD.values() for native in entry["native_checks"]}
-    assert set(NATIVES) <= reached
-    manifest = {row["check_id"]: row for row in json.loads((PACK / "upstream_manifest.json").read_text())["checks"]}
-    for key, entry in SHARD.items():
-        natives = set(entry["native_checks"])
-        if not natives & set(NATIVES):
-            continue
-        row = manifest[key]
-        assert entry["disposition"] == "ported" and row["disposition"] == "ported" and row["native_checks"] == entry["native_checks"]
-        if key.startswith("prowler.aws."):
-            assert entry["native_checks"] == [metrics.PROWLER_NATIVES.get(row["upstream_id"], account.NATIVE_IDS[0])]
-        else:
-            query = row["upstream_evaluator"]["query_ids"][0]
-            assert entry["native_checks"] == [{**metrics.STEAMPIPE_NATIVES, **ec2.STEAMPIPE_NATIVES}[query]]

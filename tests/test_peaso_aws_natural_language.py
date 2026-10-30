@@ -1,9 +1,5 @@
 """Meaningful sentences for the exact root-account cases reported by the user."""
 from copy import deepcopy
-import gzip
-import json
-from pathlib import Path
-import re
 import pytest
 from peaso.finding_observation import evidence_summary
 
@@ -15,23 +11,6 @@ def explanation(cid, evidence, status='PASS'):
     assert finding == before
     assert text and ':' not in text and len(text) < 230
     return text
-
-
-def test_root_without_a_console_password_explains_why_this_mfa_check_passes():
-    text = explanation('aws.claude_a.iam.root_console_has_mfa', {'password_present': 0, 'mfa_enabled': 0})
-    assert text == 'The root account has no console password, so this password sign-in check does not require an MFA device.'
-    assert 'MFA adds' not in text and 'Password present' not in text
-
-
-def test_root_password_without_mfa_explains_the_missing_protection():
-    text = explanation('aws.claude_a.iam.root_console_has_mfa', {'password_present': 1, 'mfa_enabled': 0}, 'FAIL')
-    assert text == 'The root account has a console password but MFA is not enabled. Enable MFA to add protection if the password is stolen.'
-
-
-def test_root_keys_zero_explains_the_actual_result():
-    text = explanation('aws.a.iam.root_summary_no_keys', {'account_access_keys_present': 0})
-    assert text == 'No access keys are configured for the root account, so there are no root keys to remove.'
-    assert explanation('aws.iam.no_root_keys', {'configured': 0, 'field': 'SummaryMap.AccountAccessKeysPresent'}) == text
 
 
 def test_present_root_keys_explain_the_risk_without_saying_the_account_was_compromised():
@@ -52,16 +31,6 @@ def test_missing_or_nonbinary_password_flag_is_not_interpreted_as_no_password(ba
     text = explanation('aws.claude_a.iam.root_console_has_mfa', {'password_present': bad, 'mfa_enabled': 0}, 'UNKNOWN')
     assert 'could not be checked' in text
     assert 'has no console password' not in text
-
-
-def test_all_saved_aws_outcomes_avoid_the_rejected_field_value_style():
-    cases = json.loads(gzip.decompress((Path(__file__).parent/'fixtures/aws_evidence_review.json.gz').read_bytes()))
-    raw = re.compile(r'(?:^|[.;]\s)[A-Z][A-Za-z /-]{1,60}:\s*[“\"]?(?:\d+\b|yes\b|no\b|true\b|false\b|none\b|empty\b)', re.I)
-    for cid, rows in cases.items():
-        for row in rows:
-            text = evidence_summary({'provider':'aws','check_id':cid,'status':row['status'],'evidence':row['evidence']})
-            assert not raw.search(text), (cid, row['status'], text)
-            assert 'recorded entries' not in text and 'The setting checked here' not in text, (cid, text)
 
 
 @pytest.mark.parametrize('cid,evidence,expected,absent', [

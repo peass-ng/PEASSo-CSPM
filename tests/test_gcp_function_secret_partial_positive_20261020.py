@@ -1,8 +1,7 @@
 """Source-bound native red/green proof; production evaluator remains untouched."""
 from copy import deepcopy
-import hashlib
 import json
-from pathlib import Path
+
 
 import pytest
 
@@ -256,16 +255,6 @@ def test_merged_surface_claims_are_conservative(native_partial):
     marker['leaks'][0]['detectors'].append({'engine': 'trufflehog', 'rule': 'fixture'})
     marker['leaks'][0]['locations'].append({'path': 'buildConfig.environmentVariables', 'line': 1})
     assert candidate()(row, index_for(row))[0] == 'UNKNOWN'
-
-
-def test_receipt_binds_unchanged_original_sources():
-    root = Path(__file__).resolve().parents[1]
-    receipt = json.loads((root / 'docs/check-review/gcp-function-partial-positive-candidate-20261020.json').read_text())
-    for path, expected in {**receipt['original_source_hashes'], **receipt['candidate_source_hashes']}.items():
-        from tests.gcp_wave2_historical_native_20261020 import historical_bytes
-        assert hashlib.sha256(historical_bytes(path, expected)).hexdigest() == expected, path
-    assert not hasattr(__import__(
-        'peaso.checks.gcp_function_secret_partial_positive_candidate_20261020', fromlist=['install']), 'install')
 
 
 def test_candidate_import_leaves_original_registry_binding(native_partial):

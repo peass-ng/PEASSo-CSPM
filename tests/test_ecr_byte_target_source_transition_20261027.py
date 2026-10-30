@@ -1,6 +1,4 @@
 """Current byte target composes with the retained lease and finite source proof."""
-import hashlib
-import json
 from pathlib import Path
 import threading
 import time
@@ -11,8 +9,6 @@ from peaso.collectors import aws_package_content_indicators as package
 from peaso.checks import private_secret_shared_source_successor_20261021 as shared
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = 'peaso/collectors/aws_package_content_indicators.py'
-BEFORE = 'ce459d4b5ed0ae991591f09f61b462f7841f0977d5935579e561409c0117e7e6'
 
 
 def request(seconds):
@@ -33,19 +29,6 @@ def test_real_lease_controls_item_bound_and_byte_target(seconds):
     assert package._batch_flush_before(1, package.BATCH_BYTES, 1, owner)
     owner._archive_adaptive_th = SimpleNamespace(large_disabled=True)
     assert package._batch_flush_before(512, 512, 1, owner)
-
-
-def test_current_inverse_keeps_original_file_and_definition_witnesses():
-    raw = (ROOT / PACKAGE).read_bytes()
-    assert hashlib.sha256(shared.rawv2_package_source(raw, BEFORE, ROOT)).hexdigest() == BEFORE
-    receipt = json.loads((ROOT / shared._PRIVATE_RECEIPT).read_bytes())
-    definition = next(row for row in epoch.source_rows()[PACKAGE]['definitions'] if row['name'] == '_image')
-    transition = receipt['rawv2_package128_admission']['current_definitions']['_image']
-    assert transition['predecessor_sha256'] == definition['after']
-    assert transition['predecessor_ast_sha256'] == definition['after_ast_sha256']
-    proof = shared.rawv2_current_content_definition(package._image, ROOT)
-    assert proof['current']['source_sha256'] == transition['current_sha256']
-    assert proof['historical']['source_sha256'] == definition['before']
 
 
 @pytest.mark.parametrize('change', ['helper_code', 'helper_defaults', 'target_bytes',

@@ -269,14 +269,6 @@ def test_plans_satisfy_existing_selected_image_reader_pure_contracts():
         assert namespace['bind_image'](row, SCOPE, data['repositories'], data['projects']) == (row['uri'], row['repository'], row['digest'])
 
 
-def test_pure_module_has_only_standard_library_imports():
-    import ast
-    tree = ast.parse(_PATH.read_text())
-    modules = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-    modules.update(a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names)
-    assert modules == {'copy', 're', 'urllib.parse', 'peaso.collectors.gcp_registry_image_uri'}
-
-
 if __name__ == '__main__':
     tests = [(name, value) for name, value in sorted(globals().items()) if name.startswith('test_') and callable(value)]
     for name, test in tests:

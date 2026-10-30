@@ -33,11 +33,3 @@ def test_incomplete_native_fixture_admission_fails_before_changing_registry(monk
     assert tuple(CHECKS) == before
 
 
-def test_narrow_native_replacements_do_not_inherit_stronger_numbered_requirements():
-    root = Path(__file__).resolve().parents[1]
-    rows = json.loads((root / 'docs/compliance-ledgers/native-extensions/azure-automation-aci-20261020.json').read_text())['checks']
-    assert {r['spec']['id'] for r in rows} == {module.AUTOMATION, module.ACI}
-    assert all(r['requirements'] == [] for r in rows)
-    archived = json.loads((root / 'peaso/checks/native_only.json').read_text())['checks']
-    assert archived['azure.gap.automation_account_encrypted_with_cmk']['native_alternative'] == module.AUTOMATION
-    assert archived['azure_pci_10_2_1_1_16']['native_alternative'] == module.ACI

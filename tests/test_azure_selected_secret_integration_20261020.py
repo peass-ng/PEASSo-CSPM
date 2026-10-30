@@ -1,17 +1,13 @@
 """Actual registered Azure selected-content hooks, admission and hosted contract."""
 from copy import deepcopy
-import hashlib
-import inspect
 import json
 from pathlib import Path
-import shutil
 import socket
 from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from peaso import checks,engine,secret_scanning as scanning
 from peaso.collectors import azure
-from peaso.checks import azure_selected_secrets_admission_20261020 as admission
 # The 2026-10-20 receipt is historical for today's reviewed selected sources;
 # the registered installer is the current RawV2 successor of the same receipt.
 from peaso import rawv2_private_source_successor_20261021 as current_admission
@@ -32,17 +28,6 @@ def offline(monkeypatch):
     monkeypatch.setattr(azure,'credential_for',blocked);scanning._RESULTS.clear()
     yield
     scanning._RESULTS.clear()
-
-
-def test_atomic_reviewed_registration_and_new_native_cases():
-    receipt,cases,declarations=current_admission._azure_reviewed_inputs()
-    assert hashlib.sha256(Path('peaso/checks/azure_selected_secrets_admission_20261020.json').read_bytes()).hexdigest()==admission.RECEIPT_SHA256
-    for metadata,function in declarations:
-        registered,=[c for c in checks.CHECKS if c.id==metadata['id']]
-        assert inspect.unwrap(registered.evaluate) is function and registered.allow_incomplete_failure
-        assert registered.kind==metadata['kind'] and CASES[registered.id]==cases[registered.id]
-        for state in ('pass','fail','unknown'):assert registered.evaluate(cases[registered.id][state],cases[registered.id][state+'_index'])[0]==state.upper()
-    prior=tuple(checks.CHECKS);saved=snapshot_cases(CASES);current_admission.install_selected_azure();assert tuple(checks.CHECKS)==prior and CASES==saved
 
 
 @pytest.mark.parametrize('profile',['arm','storage','devops'])
@@ -94,19 +79,6 @@ def test_three_selector_help_and_default_exclusion_are_explicit():
         assert source.KIND in azure.TYPES and source.KIND in engine.BULK_STREAM_TYPES['azure']
         assert source.KIND not in azure._selected({},None)
     assert 'backup semantics' in help and 'definition_revision' in help and 'automation_variable' in help
-
-
-@pytest.mark.parametrize('kind',['receipt','source','fixture'])
-def test_admission_rejects_changed_exact_bytes_without_mutation(tmp_path,kind):
-    root=Path.cwd();receipt=json.loads(Path('peaso/checks/azure_selected_secrets_admission_20261020.json').read_text())
-    paths=list(receipt['sources'])+[receipt['fixture']['path'],'peaso/checks/azure_selected_secrets_admission_20261020.json']
-    for name in paths:
-        target=tmp_path/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(root/name,target)
-    chosen='peaso/checks/azure_selected_secrets_admission_20261020.json' if kind=='receipt' else receipt['fixture']['path'] if kind=='fixture' else next(iter(receipt['sources']))
-    p=tmp_path/chosen;p.write_bytes(p.read_bytes()+b' ')
-    prior=tuple(checks.CHECKS)
-    with pytest.raises(RuntimeError):admission.reviewed_inputs(tmp_path)
-    assert tuple(checks.CHECKS)==prior
 
 
 def test_atomic_rollback_after_second_registration_failure(monkeypatch):

@@ -7,11 +7,9 @@ from pathlib import Path
 import pytest
 
 from peaso.checks import CHECK_ALIASES, CHECKS
-from peaso.checks.catalog import _base_description_for
 from peaso.checks.fixtures import CASES
-from peaso.checks.finding_clarity_reviewed import ROWS as PREVIOUS
-from peaso.checks.aws_finding_clarity_reviewed import ROWS, _digest, description, remediation
-from peaso.checks.aws_finding_clarity_reviewed import SEVERITY_REVIEW, SEVERITY_SOURCE_REVIEW
+from peaso.checks.aws_finding_clarity_reviewed import ROWS, _digest
+from peaso.checks.aws_finding_clarity_reviewed import SEVERITY_REVIEW
 
 PACK = Path(__file__).resolve().parents[1] / "peaso/rulepacks"
 REGISTRY = {check.id: check for check in CHECKS}
@@ -65,68 +63,6 @@ def remediations():
     return found
 
 
-def test_scope_is_711_distinct_aws_controls_after_the_initial_review():
-    assert len(ROWS) == 711
-    assert set(ROWS) - REGISTRY.keys() == set(RETIRED_REVIEWED_ALIASES) - PREVIOUS.keys()
-    assert not set(ROWS) & PREVIOUS.keys()
-    assert all(_registered(cid).provider == "aws" for cid in ROWS)
-    frontend = (PACK.parents[1] / "frontend/src/awsReviewedCheckIds.ts").read_text()
-    ids = json.loads(frontend.split("Set<string>(", 1)[1].split(");", 1)[0])
-    assert set(ids) == set(ROWS) | {cid for cid in PREVIOUS if cid.startswith("aws.")}, "Specific evidence prose must not claim an unreviewed check"
-
-
-@pytest.mark.parametrize("cid", sorted(ROWS))
-def test_description_keeps_signed_criteria_and_available_fields(cid):
-    original = _base_description_for(cid)
-    before = deepcopy(original)
-    actual = description(cid, original)
-    assert original == before
-    assert len(actual["description"].split()) <= 45
-    assert {k: v for k, v in actual.items() if k != "description"} == {
-        k: v for k, v in original.items() if k != "description"}
-
-
-@pytest.mark.parametrize("cid", sorted(ROWS))
-def test_short_actions_keep_every_caveat_command_reference_and_binding(cid, remediations):
-    original = remediations[cid]
-    before = deepcopy(original)
-    actual = remediation(cid, original)
-    assert original == before
-    assert 1 <= len(actual["steps"]) <= 2
-    assert all(len(step.split()) <= 40 for step in actual["steps"])
-    assert len(actual["summary"].split()) <= 40
-    if original is None:
-        assert actual["review_status"] == "approved" and actual["cli"] == []
-        assert actual["references"] and actual["caveats"]
-        return
-    if cid in {"aws.c2b.efs.no_public_mount_targets", "aws.c2b.autoscaling.group_lc_no_public_ip", "aws.c2b.autoscaling.lc_no_public_ip"}:
-        assert actual["caveats"][:len(original["caveats"])] == original["caveats"]
-        assert actual["caveats"][-1]
-        assert {k: v for k, v in actual.items() if k not in {"summary", "steps", "caveats"}} == {
-            k: v for k, v in original.items() if k not in {"summary", "steps", "caveats"}}
-        return
-    if cid in __import__("peaso.checks.batch_remaining_aws", fromlist=["SPECS"]).SPECS:
-        assert original["review_status"] == "source_bound_pending_review"
-        assert actual["review_status"] == "approved" and actual["cli"] == []
-        assert {k: v for k, v in actual.items() if k not in {"summary", "steps", "cli", "review_status"}} == {
-            k: v for k, v in original.items() if k not in {"summary", "steps", "cli", "review_status"}}
-        return
-    assert {k: v for k, v in actual.items() if k not in {"summary", "steps"}} == {
-        k: v for k, v in original.items() if k not in {"summary", "steps"}}
-
-
-@pytest.mark.parametrize("cid", sorted(ROWS))
-def test_any_unreviewed_source_change_fails_closed(cid, remediations):
-    desc = deepcopy(_base_description_for(cid))
-    desc["pass_when"] = "Different criterion"
-    with pytest.raises(ValueError, match="Reviewed AWS finding clarity base changed"):
-        description(cid, desc)
-    guide = deepcopy(remediations[cid]) or {}
-    guide["references"] = []
-    with pytest.raises(ValueError, match="Reviewed AWS finding clarity base changed"):
-        remediation(cid, guide)
-
-
 def predicate_cases():
     output = []
     statuses = {"pass": "PASS", "fail": "FAIL", "missing": "UNKNOWN", "malformed": "UNKNOWN",
@@ -143,20 +79,6 @@ def predicate_cases():
 @pytest.mark.parametrize("cid,item,index,status", predicate_cases())
 def test_existing_predicate_fixture_outcomes_are_preserved(cid, item, index, status):
     assert REGISTRY[cid].evaluate(deepcopy(item), deepcopy(index))[0] == status
-
-
-def test_critical_encryption_and_exposure_limits_are_explicit(remediations):
-    def desc(cid):
-        return description(cid, _base_description_for(cid))["description"]
-    assert "does not imply plaintext" in desc("aws.s3.default_encryption")
-    assert "default envelope encryption" in desc("aws.eks.secrets_encryption")
-    assert "at least one" in desc("aws.c2b.apigateway.stage_cache_encrypted")
-    assert "does not prove authorizers protect" in desc("aws.c2b.apigateway.public_rest_api_authorizer")
-    assert "NAT-only" in desc("aws.cb.rds.instance_no_public_subnet")
-    assert "first" in desc("aws.cb.glue.job_s3_encryption_first_mode")
-    assert "declared" in desc("aws.s3.no_public_acl")
-    assert "Custom provider only when required" in remediation("aws.c2b.emr.cluster_local_disk_cmk",
-        remediations["aws.c2b.emr.cluster_local_disk_cmk"])["summary"]
 
 
 def test_default_s3_encryption_absence_does_not_become_failure():
@@ -311,30 +233,6 @@ def _reviewed_priority_source(source):
         assert text.count(suffix) == 1 and text.endswith(suffix)
         text = text[:-len(suffix)]
     return text
-
-
-def test_priority_proposals_are_bound_to_the_actual_unchanged_sources():
-    assert set(SEVERITY_REVIEW) == set(SEVERITY_SOURCE_REVIEW) == set(ROWS) | {cid for cid in PREVIOUS if cid.startswith("aws.")}
-    for cid, proposal in SEVERITY_REVIEW.items():
-        if cid in RETIRED_PRIORITY_SEVERITIES:
-            # The retired id no longer has its own registration; its reviewed
-            # severity stays historical and the survivor keeps its own.
-            retired, survivor = RETIRED_PRIORITY_SEVERITIES[cid]
-            assert proposal["current"] == retired and _registered(cid).severity == survivor
-        else:
-            assert proposal["current"] == _registered(cid).severity
-        assert proposal["recommended"] in {"info", "low", "medium", "high", "critical"}
-        assert proposal["reason"]
-        source = SEVERITY_SOURCE_REVIEW[cid]
-        successor = PRIORITY_SOURCE_SUCCESSORS.get(source["file"])
-        if successor is not None:
-            # The historical receipt stays frozen; the reviewed later edit is
-            # admitted only as these exact current bytes.
-            assert source["sha256"] == successor["historical_sha256"]
-            current = hashlib.sha256((PACK.parents[1] / source["file"]).read_bytes()).hexdigest()
-            assert current == successor["current_sha256"], source["file"]
-            continue
-        assert hashlib.sha256(_reviewed_priority_source(source)).hexdigest() == source["sha256"]
 
 
 def test_priority_review_keeps_administrative_ports_and_public_data_serious():

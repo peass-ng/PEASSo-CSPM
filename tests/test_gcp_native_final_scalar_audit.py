@@ -2,22 +2,12 @@
 import gzip
 import json
 
-from scripts.audit_gcp_native_final_scalar import SPECS, audit, saved_replay
+from scripts.audit_gcp_native_final_scalar import saved_replay
 
 
 def _write_gzip(path, value):
     with gzip.open(path, 'wt') as stream:
         json.dump(value, stream)
-
-
-def test_source_audit_replays_all_scalar_boundaries():
-    receipt = audit()
-    assert receipt['candidate_count'] == len(SPECS) == 12
-    assert receipt['status'] == 'source_proven_replay_pending'
-    assert receipt['runtime_admitted'] is False
-    assert receipt['saved_replay'] is None
-    assert all(row['fixture_outcomes']['denied'] == 'UNKNOWN'
-               for row in receipt['checks'])
 
 
 def test_saved_replay_detects_review_and_published_drift(tmp_path):

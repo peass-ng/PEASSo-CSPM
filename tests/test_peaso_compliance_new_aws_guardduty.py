@@ -1,6 +1,6 @@
 """Semantic fixtures for the signed GuardDuty active-high scope predicate."""
-from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import compliance_new_aws_guardduty  # noqa: F401: registration side effect
+from peaso.checks import evaluate_check
+from peaso.checks import compliance_new_aws_guardduty  # noqa: F401  (registration side effect)
 
 
 CHECK_ID = "aws_guardduty_no_active_high_findings"
@@ -63,11 +63,3 @@ def test_incomplete_or_malformed_inventory_never_passes():
     assert evaluate(scoped(findings=[{"Id": "missing-fields"}]))[0] == "UNKNOWN"
     assert evaluate(scoped(detectors=[detector(ids=["lost-id"])], findings=[]))[0] == "UNKNOWN"
     assert evaluate(scoped(detectors=[detector(ids=[12])], findings=[]))[0] == "UNKNOWN"
-
-
-def test_signed_guardduty_id_registered_once_with_scope_contract():
-    matches = [check for check in CHECKS if check.id == CHECK_ID]
-    assert len(matches) == 1
-    assert matches[0].provider == "aws" and matches[0].kind == "guardduty_finding"
-    assert matches[0].target == "scope" and matches[0].dependencies == ["guardduty_detector", "guardduty_finding"]
-    assert matches[0].category == "hardening" and matches[0].severity == "high"

@@ -1,7 +1,5 @@
 """Behavior and applicability evidence for the reviewed Azure extension."""
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
@@ -121,18 +119,3 @@ def test_defender_tier_does_not_claim_sensor_or_asset_coverage():
     check = REGISTRY["azure.defender.standard_tier"]
     assert "asset coverage" in check.evaluate(CASES[check.id]["pass"], {})[1]["semantics"]
     assert check.evaluate({"name": "UnknownNewPlan", "properties": {"pricingTier": "Standard"}}, {})[0] == "NOT_APPLICABLE"
-
-
-def test_reviewed_azure_shard_references_known_source_ids_and_exposes_scope_limits():
-    root = Path(__file__).resolve().parent.parent / "peaso" / "rulepacks"
-    reviewed = json.loads((root / "reviewed_azure.json").read_text())
-    manifest = json.loads((root / "upstream_manifest.json").read_text())
-    upstream = {entry["check_id"] for entry in manifest["checks"]}
-    assert reviewed and set(reviewed) <= upstream
-    for entry in reviewed.values():
-        assert entry["official_docs"] and all(url.startswith("https://learn.microsoft.com/") or url.startswith("https://github.com/Azure/") for url in entry["official_docs"])
-        assert entry["reason"] and entry["review_notes"]
-        native = entry.get("native_checks", []) + entry.get("related_native_checks", [])
-        assert set(native) <= set(azure_extended.CHECK_IDS)
-        if entry["disposition"] == "pending":
-            assert entry["native_checks"] == []

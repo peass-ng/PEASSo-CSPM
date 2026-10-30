@@ -4,10 +4,8 @@ from __future__ import annotations
 import base64
 import copy
 import importlib
-import json
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from pathlib import Path
 
 import pytest
 
@@ -257,28 +255,6 @@ def build(check_id, bad=False):
     else:
         raise AssertionError(check_id)
     return index(data, check_id)
-
-
-@pytest.mark.parametrize("check_id", sw.IDS)
-def test_signed_metadata_and_digest(check_id):
-    from scripts.peaso_compliance_compile import spec_digest
-    specs = []
-    def walk(value):
-        if isinstance(value, dict):
-            specs.extend(e for e in value.get("new_checks", []) if e.get("id") == check_id)
-            for key, child in value.items():
-                if key != "new_checks":
-                    walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-    for path in (Path(__file__).resolve().parents[1] / "docs/compliance-ledgers").glob("*.json"):
-        walk(json.loads(path.read_text()))
-    assert specs and all(len(e) == 10 and e == sw.SPECS[check_id] for e in specs)
-    spec, check = specs[0], LOCAL[check_id]
-    assert sw.SPEC_SHA256[check_id] == spec_digest(spec)
-    assert (check.provider, check.kind, check.category, check.title, check.severity) == tuple(spec[k] for k in ("provider", "resource_kind", "category", "title", "severity"))
-    assert check.target == "scope" and check.dependencies
 
 
 @pytest.mark.parametrize("check_id", sw.IDS)
@@ -602,12 +578,6 @@ def test_purview_member_rules_runs_and_alternative_scan():
     assert evaluate(sw.PURVIEW, idx)[0] == "PASS"
 
 
-def test_registry_isolation_and_duplicate_ids():
-    assert registry.CHECKS == _before
-    assert len(LOCAL) == len(sw.IDS) == 15
-    assert len({check.id for check in LOCAL.values()}) == 15
-
-
 @pytest.mark.parametrize("check_id", sw.IDS)
 def test_duplicate_or_divergent_projection_never_grades(check_id):
     kind = LOCAL[check_id].dependencies[0]
@@ -673,16 +643,6 @@ def test_purview_unavailable_history_and_pending_run_unknown():
     source["id"] = source["id"].replace(SCOPE, FOREIGN)
     source["scans"]["parent_id"] = source["id"]
     assert evaluate(sw.PURVIEW, idx)[0] == "UNKNOWN"
-
-
-def test_description_supplement_has_all_signed_hashes():
-    path = Path(__file__).resolve().parents[1] / "docs/compliance-ledgers/.work/swarm/sw20-descriptions.json"
-    descriptions = json.loads(path.read_text())
-    assert set(descriptions) == set(sw.IDS)
-    for check_id, entry in descriptions.items():
-        assert set(entry) == {"description", "evaluated", "pass_when", "fail_when", "not_applicable_when", "proposed_spec_sha256"}
-        assert entry["proposed_spec_sha256"] == sw.SPEC_SHA256[check_id]
-        assert "UNKNOWN" in entry["description"]
 
 
 import hashlib

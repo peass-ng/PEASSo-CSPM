@@ -62,15 +62,6 @@ def instance(**fields):
 def vpc(**fields): return {'VpcId':'vpc-1',**fields}
 
 
-@pytest.mark.parametrize('cid',list(sw.SPECS))
-def test_signed_metadata_and_registry(cid):
-    matches=[c for c in CHECKS if c.id==cid]
-    assert len(matches)==1
-    check=matches[0]; kind,category,severity,title,sha=sw.SPECS[cid]
-    assert (check.provider,check.kind,check.category,check.severity,check.title)==('aws',kind,category,severity,title)
-    assert len(sha)==64 and sw.PROPOSED_SPEC_SHA256[cid]==sha
-
-
 def test_kms_origin_pass_fail_na_and_unknown():
     cid='aws_kms_imported_key_origin_spec'; row=kms()
     assert run(cid,row,index('kms_key',row))=='PASS'

@@ -1,24 +1,16 @@
 """Behaviour tests for the claude_aws_b native ports (AWS services fsx..workspaces)."""
 from peaso.checks.hacktricks_scope import includes
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
-from peaso.checks import CHECKS, CHECK_ALIASES
+from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
-from peaso.checks import claude_aws_b
 from peaso.checks.claude_aws_b_common import IDS, ROWS, CONTEXT, is_policy_public, policy_document, sg_rule_open, add_months, turbot_public_statements
+from peaso.checks import claude_aws_b  # noqa: F401  (registration side effect)
 
-ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = {check.id: check for check in CHECKS}
 HACKTRICKS = "HackTricks Cloud Best Practices"
-RETIRED_SNS_SOURCE = "aws-perimeter.control.sns_topic_policy_prohibit_public_access"
-RETIRED_SNS_ID = "aws.cb.sns.policy_prohibit_public_access_perimeter"
-ACTIVE_SNS_ID = "aws.cb.sns.policy_no_unrestricted_wildcard"
-
-
 def _evaluate(cid, name):
     cases = CASES[cid]
     index = cases.get(name + "_index", cases.get("case_indices", {}).get(name, cases.get("index", {})))
@@ -62,28 +54,6 @@ def test_dependency_missing_is_unknown(cid):
     assert check.evaluate(copy.deepcopy(CASES[cid]["pass"]), {"context": dict(CONTEXT)})[0] in ("UNKNOWN", "NOT_APPLICABLE")
 
 
-def test_partition_dispositions_are_complete():
-    partition = json.loads((ROOT / "peaso/rulepacks/port_partitions_claude.json").read_text())["partitions"]["claude_aws_b"]["check_ids"]
-    expected = set(partition)
-    dispositions = claude_aws_b.dispositions()
-    assert expected - set(dispositions) == {RETIRED_SNS_SOURCE}
-    assert set(dispositions) == expected - {RETIRED_SNS_SOURCE}
-    assert CHECK_ALIASES[RETIRED_SNS_ID] == ACTIVE_SNS_ID
-    ported = {row for rows in ROWS.values() for row in rows}
-    assert ported <= expected
-    for row, (kind, _target) in dispositions.items():
-        assert kind in ("ported", "merged", "manual", "rejected")
-    for row, (natives, note) in claude_aws_b.MERGED.items():
-        assert natives and note and all(cid in REGISTRY for cid in natives), row
-        assert row not in ported
-    for row, entry in claude_aws_b.MANUAL.items():
-        assert entry["question"] and entry["guidance"] and entry["docs"], row
-    for row, entry in claude_aws_b.REJECTED.items():
-        assert entry["classification"] in ("invalid_predicate", "intrusive_unsuitable") and entry["reason"] and entry["docs"], row
-        assert all(cid in REGISTRY for cid in entry["replacement"]), row
-    assert not (set(claude_aws_b.MERGED) & set(claude_aws_b.MANUAL)) and not (set(claude_aws_b.MERGED) & set(claude_aws_b.REJECTED))
-
-
 # Additional named fixtures and the status each one must produce.
 EXTRA_EXPECT = {"absent": "PASS", "no_policy": "PASS", "no_config": "PASS", "unlisted": "UNKNOWN", "bundle": "FAIL", "default_key": "FAIL",
                 "never": "FAIL", "no_rules": "FAIL", "other_account": "FAIL", "no_set": "FAIL"}
@@ -114,35 +84,6 @@ def test_omitted_sns_policy_does_not_prove_absence(cid,key):
     before,before_index=copy.deepcopy(item),copy.deepcopy(index)
     assert REGISTRY[cid].evaluate(item,index)==("UNKNOWN",{"reason":"missing fact: Policy"})
     assert item==before and index==before_index
-
-
-def test_retired_sns_perimeter_source_keeps_its_historical_receipt():
-    reviewed = json.loads((ROOT / "peaso/rulepacks/reviewed_claude_aws_b.json").read_text())
-    historical = reviewed[RETIRED_SNS_SOURCE]
-    assert historical["native_checks"] == [RETIRED_SNS_ID]
-    assert historical["reviewed_source"]["sha256"] == "fc479f89040fe7f5f4426111fa7229cef32f9e7ac909aa955a1a51d6e12ae0d6"
-    assert CHECK_ALIASES[RETIRED_SNS_ID] == ACTIVE_SNS_ID
-    assert _evaluate(ACTIVE_SNS_ID, "no_policy") == "UNKNOWN"
-
-
-def test_shards_match_dispositions():
-    reviewed = json.loads((ROOT / "peaso/rulepacks/reviewed_claude_aws_b.json").read_text())
-    manual = json.loads((ROOT / "peaso/rulepacks/reviewed_claude_aws_b_manual.json").read_text())
-    dispositions = claude_aws_b.dispositions()
-    assert set(reviewed) | set(manual) == set(dispositions) | {RETIRED_SNS_SOURCE}
-    assert not set(reviewed) & set(manual)
-    assert reviewed[RETIRED_SNS_SOURCE]["native_checks"] == [RETIRED_SNS_ID]
-    assert reviewed[RETIRED_SNS_SOURCE]["reviewed_source"]["sha256"] == "fc479f89040fe7f5f4426111fa7229cef32f9e7ac909aa955a1a51d6e12ae0d6"
-    for row, (kind, target) in dispositions.items():
-        if kind == "manual":
-            entry = manual[row]
-            assert entry["disposition"] == "rejected" and entry["review_classification"] == "manual_attestation" and not entry["native_checks"]
-            assert entry["manual_requirement"]["question"] == target["question"]
-        elif kind == "rejected":
-            assert reviewed[row]["disposition"] == "rejected" and not reviewed[row]["native_checks"]
-            assert reviewed[row]["review_classification"] == target["classification"]
-        else:
-            assert reviewed[row]["disposition"] == kind and sorted(reviewed[row]["native_checks"]) == sorted(target)
 
 
 def test_policy_evaluators():

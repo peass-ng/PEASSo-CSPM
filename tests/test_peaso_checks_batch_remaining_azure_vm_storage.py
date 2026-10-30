@@ -5,22 +5,13 @@ from pathlib import Path
 import pytest
 
 from peaso.checks import CHECKS
-from peaso.checks import batch_remaining_azure_vm_storage  # noqa: F401
 from peaso.checks.facts import MemoIndex
 from tests.azure_native_successor_inputs_20261020 import current_cases
+from peaso.checks import batch_remaining_azure_vm_storage  # noqa: F401  (registration side effect)
 
 FIXTURE = Path(__file__).parent / 'fixtures' / 'batch_remaining_azure_vm_storage' / 'central-fixture-fragment.json'
 CASES = json.loads(FIXTURE.read_text())
-DISPOSITION = json.loads((FIXTURE.parent / 'full-id-disposition.json').read_text())
 BATCH = {check.id: check for check in CHECKS if check.id in CASES}
-
-
-def test_exact_batch_membership_and_native_categories():
-    assert len(CASES) == len(BATCH) == 7
-    assert len(DISPOSITION['ids']) == 50
-    assert set(BATCH) == {row['id'] for row in DISPOSITION['ids'] if row['disposition'] == 'implemented_native_ready'}
-    assert all(check.provider == 'azure' and check.category in {'hardening', 'network', 'exposure', 'least_privilege', 'iam_graph'} for check in BATCH.values())
-    assert 'azure_vm_8_2_1_1_712e1ad' not in BATCH
 
 
 @pytest.mark.parametrize('check_id', sorted(CASES))

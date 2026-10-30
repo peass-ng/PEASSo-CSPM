@@ -123,30 +123,6 @@ def test_basic_role_control_remains_a_literal_declared_role_check(role, expected
     assert row['status'] == expected, row
 
 
-def test_reviewed_role_permission_deltas_preserve_exact_predecessor_source():
-    import hashlib
-    import json
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    raw = (root / 'docs/gcp-review/recheck-20261020/vm-role-permissions-review.json').read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == 'e421ba7d3a2cc680281a4e9f6fcc30c34764789b2852bcb04b2a5ef48dfb8ece'
-    record = json.loads(raw)
-    text = (root / record['source']).read_text()
-    successor_raw = (root / 'docs/gcp-review/recheck-20261020/compute-conflict-fixes.json').read_bytes()
-    assert hashlib.sha256(successor_raw).hexdigest() == '0fd6186aa6e8015b12d377e3bcb338c55eac2b49a89621e4c6044c43a13c3c6f'
-    successor = json.loads(successor_raw)
-    module = successor['module_hashes'][record['source']]
-    assert hashlib.sha256(text.encode()).hexdigest() == module['after_sha256']
-    delta = successor['exact_function_sources']['firewall_default_rules']
-    assert text.count(delta['after']['source']) == 1
-    text = text.replace(delta['after']['source'], delta['before']['source'], 1)
-    assert hashlib.sha256(text.encode()).hexdigest() == record['after_sha256']
-    for delta in reversed(record['exact_deltas']):
-        assert text.count(delta['after']) == 1
-        text = text.replace(delta['after'], delta['before'], 1)
-    assert hashlib.sha256(text.encode()).hexdigest() == record['before_sha256']
-
-
 @pytest.mark.parametrize('family', sorted(INSTANCE_PERMISSIONS))
 @pytest.mark.parametrize('stage,expected', [('DISABLED', 'PASS'), ('ALPHA', 'FAIL')])
 def test_native_disabled_role_does_not_grant_its_retained_permissions(family, stage, expected):

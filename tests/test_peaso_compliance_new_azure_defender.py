@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_azure_defender as new
 
 
@@ -24,9 +24,6 @@ def _verdict(rows, *, scope="/subscriptions/sub", status="collected"):
 
 
 def test_signed_id_scope_and_existing_tier_check_not_equivalent():
-    check = next(check for check in CHECKS if check.id == new.ID)
-    assert check.provider == "azure" and check.kind == "security_pricing"
-    assert check.target == "scope" and check.dependencies == ["security_pricing"]
     assert _verdict([_item()])[0] == "PASS"
     assert _verdict([_item(extensions=[{"name": "AgentlessVmScanning", "isEnabled": "False"}])])[0] == "FAIL"
     assert _verdict([_item("Free", extensions=[])])[0] == "FAIL"

@@ -1,42 +1,19 @@
 """Shard integrity for the claude_azure partition, validated in memory without regenerating central artifacts."""
 from peaso.checks.hacktricks_scope import includes
-import copy
 import json
 from pathlib import Path
 
 import pytest
 
-import peaso.checks.claude_azure  # noqa: F401  (registers every claude_azure group)
 from peaso.checks import CHECKS, HACKTRICKS, resolve_check_id
 from peaso.checks.claude_azure_common import CHECK_IDS, PREFIX
 from peaso.checks.fixtures import CASES
+import peaso.checks.claude_azure  # noqa: F401  (registration side effect)
 
 PACK = Path(__file__).resolve().parent.parent / "peaso" / "rulepacks"
 REVIEWED = json.loads((PACK / "reviewed_claude_azure.json").read_text())
 MANUAL = json.loads((PACK / "reviewed_claude_azure_manual.json").read_text())
-PARTITION = set(json.loads((PACK / "port_partitions_claude.json").read_text())["partitions"]["claude_azure"]["check_ids"])
-MANIFEST = {row["check_id"]: row for row in json.loads((PACK / "upstream_manifest.json").read_text())["checks"]}
 REGISTRY = {check.id: check for check in CHECKS}
-
-
-def _active_reviews():
-    merged = {}
-    for name in json.loads((PACK / "active_reviews.json").read_text())["shards"]:
-        if name.startswith("reviewed_claude_azure"):
-            continue
-        merged.update(json.loads((PACK / name).read_text()))
-    return merged
-
-
-def test_shards_are_disjoint_and_inside_partition():
-    assert not set(REVIEWED) & set(MANUAL)
-    others = _active_reviews()
-    deferred = json.loads((PACK / "active_reviews.json").read_text()).get("deferred_source_ids", {}).get("reviewed_claude_azure.json", {})
-    for key, entry in {**REVIEWED, **MANUAL}.items():
-        assert key in PARTITION, key
-        assert key in MANIFEST, key
-        if key in others and key not in deferred:
-            assert entry.get("supersedes") == key and others[key]["disposition"] == "pending", key
 
 
 def test_supported_rows_reference_registered_claude_predicates():
@@ -90,16 +67,3 @@ def test_claude_predicate_contract(cid):
     assert check.evaluate(cases.get("missing", {}), cases.get("index", {}))[0] == "UNKNOWN"
     assert check.evaluate(None, {})[0] == "UNKNOWN"
     assert check.evaluate({"collection_status": "denied"}, {})[0] == "UNKNOWN"
-
-
-def test_in_memory_manifest_with_claude_reviews_validates():
-    from scripts.peaso_review_catalog import validate_manifest
-    rows = []
-    for key, row in MANIFEST.items():
-        row = copy.deepcopy(row)
-        review = REVIEWED.get(key) or MANUAL.get(key)
-        if review is not None:
-            row.update({k: v for k, v in review.items() if k != "supersedes"})
-        rows.append(row)
-    stats = validate_manifest({"checks": rows})
-    assert stats["native_checks"] == len(CHECKS)

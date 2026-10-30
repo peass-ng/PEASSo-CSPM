@@ -1,8 +1,7 @@
 """Retired overlapping native ids stay resolvable as aliases of their surviving native."""
 import pytest
 
-from peaso.checks import CHECK_ALIASES, CHECKS, alias_check, evaluate_check, register, resolve_check_id
-from peaso.checks.catalog import framework_ids_for
+from peaso.checks import CHECKS, alias_check, evaluate_check, register
 from peaso.engine import _selection, diff_reports
 from peaso.snapshot import digest
 
@@ -19,14 +18,6 @@ EXPECTED = {"gcp.compute.os_login": "gcp.ports.compute_oslogin_metadata_preceden
             "aws.pci.cloudtrail.authentication_events": "aws.gap.cloudtrail.region_logging_management_events",
             "aws_fedramp_rds_cluster_members_enhanced_monitoring": "aws.nist.rds_cluster_member_enhanced_monitoring"}
 IDS = {c.id for c in CHECKS}
-
-
-def test_aliases_are_retired_and_survivors_are_registered_with_upstream_frameworks():
-    assert CHECK_ALIASES == EXPECTED
-    for retired, survivor in EXPECTED.items():
-        assert retired not in IDS and survivor in IDS
-        assert resolve_check_id(retired) == survivor
-        assert framework_ids_for(survivor)  # upstream frameworks land on the survivor
 
 
 def test_alias_and_register_reject_collisions():

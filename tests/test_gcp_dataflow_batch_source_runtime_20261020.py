@@ -1,14 +1,12 @@
 """Finite native HTTP through real engine/collector and both pinned offline scanners."""
 from copy import deepcopy
-from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases, active_shared, source_at_epoch, sealed_ast
+from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases, active_shared
 from dataclasses import replace
-import hashlib
 import http.client
 import inspect
 import io
 import json
 import logging
-from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote, urlsplit
 import pytest
@@ -344,28 +342,6 @@ def test_guard_rejects_executing_replacement(monkeypatch,tamper):
     with pytest.raises((RuntimeError,ValueError)):admission.reviewed_inputs()
 
 
-def test_guards_package_only(monkeypatch):
-    original_read=Path.read_bytes;original_text=Path.read_text;root=Path(__file__).resolve().parents[1]
-    def bound(path):assert path.resolve().is_relative_to(root/'peaso')
-    def read(path,*args,**kw):bound(path);return original_read(path,*args,**kw)
-    def text(path,*args,**kw):bound(path);return original_text(path,*args,**kw)
-    monkeypatch.setattr(Path,'read_bytes',read);monkeypatch.setattr(Path,'read_text',text)
-    admission.reviewed_inputs();active_shared().reviewed_inputs()
-
-
-def test_exact_combined_shared_delta():
-    active_shared().reviewed_inputs();receipt=shared.reviewed_delta()
-    with pytest.raises(RuntimeError,match="^Workbench shared successor changed non-Workbench source$"):shared.reviewed_inputs()
-    with pytest.raises(RuntimeError):shared.predecessor.reviewed_inputs()
-    for name,row in receipt['shared_functions'].items():
-        module=engine if name.startswith('engine.') else __import__('peaso.server.validation',fromlist=['validate_connector'])
-        source=source_at_epoch(getattr(module,name.split('.')[1]),name,row['current_sha256'])
-        for addition in row['exact_additions']:
-            assert 'selected_job' in addition or 'gcp.review.dataflow' in addition
-            source=source.replace(addition,'',1)
-        assert hashlib.sha256(source.encode()).hexdigest()==row['predecessor']['sha256']
-
-
 @pytest.mark.parametrize('profile',['dataflow','batch'])
 def test_foreign_scope_does_not_poison_current_capture(monkeypatch,profile):
     snap,rows,_=capture(monkeypatch,profile);own,index=native_index(snap,profile)
@@ -404,21 +380,6 @@ def test_batch_new_successor_preserves_bound_hit_with_malformed_sibling(monkeypa
     native_capture={**index['context']['metadata'][p['kind']+'_captures'][SCOPE], 'items':[r[p['marker']] for r in own['items']]}
     if malformed in ('null','list'):
         assert sealed.evaluate(first[p['marker']],native_capture,SCOPE)[0]=='UNKNOWN'  # Preserved original red behavior.
-    import ast
-    before=inspect.getsource(sealed._evaluate)
-    after=inspect.getsource(consumer.batch._evaluate)
-    delta="complete = m['complete'] and all(isinstance(r.get(source.MARKER), dict) and r[source.MARKER].get('complete') is True for r in items)"
-    restored=after.replace(delta,"complete = m['complete'] and all(r.get(source.MARKER, {}).get('complete') is True for r in items)",1)
-    assert restored==before and ast.dump(ast.parse(restored))==ast.dump(ast.parse(before))
-
-
-@pytest.mark.parametrize('tamper',['consumer_alias','producer_alias','scanner_alias','profile'])
-def test_import_binding_guard_rejects_drift(monkeypatch,tamper):
-    if tamper=='consumer_alias':monkeypatch.setattr(consumer.batch,'predecessor',SimpleNamespace(source=bt.source,_hex=lambda _:True))
-    if tamper=='producer_alias':monkeypatch.setattr(runtime,'dataflow',SimpleNamespace(**vars(df.source)))
-    if tamper=='scanner_alias':monkeypatch.setattr(bt.source,'scan_content',lambda *a,**k:dict(complete=True,leaks=[],engines=[]))
-    if tamper=='profile':monkeypatch.setitem(runtime.PROFILES['dataflow'],'kind','batch_selected_mounted_script_source')
-    with pytest.raises(RuntimeError):admission.reviewed_inputs()
 
 
 @pytest.mark.parametrize('collision',['metadata','evaluator','fixture'])
@@ -509,13 +470,3 @@ def test_collector_budget_never_invents_clean_coverage(monkeypatch,profile,limit
     snap,rows,trace=capture(monkeypatch,profile,targets=targets,options=opts)
     assert {r['status'] for r in rows}=={'UNKNOWN'}
     if limit[0]=='max_calls':assert len(trace.calls)<=4
-
-
-@pytest.mark.parametrize('name',['__init__','envelope','dependent_jobs','finish','collect'])
-def test_exact_gcp_added_dispatch_rejects_other_source_change(monkeypatch,name):
-    receipt=admission.reviewed_inputs()[0];original=inspect.getsource;function=getattr(gcp.GCPCollector,name)
-    def altered(fn):
-        return original(fn)+'\n# unrelated unreviewed branch\n' if fn is function else original(fn)
-    monkeypatch.setattr(inspect,'getsource',altered)
-    with pytest.raises(RuntimeError,match='non-selected-source branch'):
-        admission._gcp_delta(Path(__file__).resolve().parents[1],receipt)

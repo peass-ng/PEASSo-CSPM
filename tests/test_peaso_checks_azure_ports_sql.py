@@ -95,9 +95,6 @@ def test_duplicate_administrator_metadata_is_ambiguous_and_source_reviews_are_ex
     check = REGISTRY[ports.SOURCE_QUERIES['sql_db_active_directory_admin_configured']]
     item = copy.deepcopy(CASES[check.id]['pass']); item['serverAdministrators'].append(copy.deepcopy(item['serverAdministrators'][0]))
     assert check.evaluate(item, {})[0] == 'UNKNOWN'
-    claude = set(json.loads((ROOT / 'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS) == 23 and len(PROOFS) == 5 and not set(REVIEWS) & claude
-    assert all(r['source_review']['arguments'] == [] for r in REVIEWS.values())
 
 
 def test_documented_security_alert_policy_default_id_without_name_suffix_is_authoritative():

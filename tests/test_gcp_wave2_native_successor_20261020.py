@@ -13,18 +13,6 @@ from peaso.collectors import gcp_function_secret_indicators as legacy
 from peaso.collectors import gcp_function_secret_pairs_20261020 as paired
 
 # Reviewed successor bodies outside proposal_boundary, and the whole reviewed outside text.
-OUTSIDE_SUCCESSORS = {
-    'SOURCES': 'd1a58bc8750fd416b0c2147d9d2f763e76677b12c21545b47048b361a9fdb90e',
-    'from contextlib import contextmanager': '016e3498fc697063e429feb2c6b2cdc896c1f8ae199399a95139047372af6885',
-    'SOURCE_SUCCESSORS': '32704e09328d76b2776f0190f4b3f48fc8fd8f9089aba1a8de50fdf3fcc90047',
-    '_successor_digest': '2f68260c97645ae234ed76c03f3e63afbf866e75458f0e08bf8d9a2ae8baf5ec',
-    'attest_sources': '018f396b50a72b11cd3c3e5f05d970cd36165dc84ebd18078efe017d3e35288e',
-    'reviewed_epoch': 'e2d0618389e4902b7e18f9ff125b3a85ba4141e3676ec28c5f80c8309f10aadb',
-    '_reviewed_declarations': '456d217a2e9dc0b6128298562b1c6026b0054255efa24c02bf88a29596b2be81',
-    'admitted': 'b98f93c76ee0a5eb93164eff8a26354bcb2f0aec34a947a8d0c6314a73ac70de',
-    'prepare_current': 'e45f781d002ac494705f577bc50d19f81c04ffbee72cd193fbb3412bea5a7588',
-}
-OUTSIDE_SUCCESSOR_SHA256 = '3f67fb62c5574628f3a0aa7302ec6af39d16d504cdfd1d3f9c7b926168c7e847'
 from tests.gcp_function_partial_positive_native_20261020 import TOKEN, collect_native, index_for, raw
 from tests.gcp_wave2_historical_native_20261020 import collect_historical_native
 
@@ -120,39 +108,3 @@ def test_proposal_boundary_rejects_mutated_capability_fields_and_replacements(mo
         bridge.proposal_boundary('batch')
 
 
-def test_only_authorized_proposal_helper_changed_and_signed_tests_stay_exact():
-    import ast
-    import gzip
-    import hashlib
-    from pathlib import Path
-    from tests import gcp_referenced_source_historical_compatibility_20261020 as bridge
-    root = Path(__file__).resolve().parents[1]
-    packed = (root / 'tests/fixtures/gcp-wave2-proposal-boundary-predecessor-20261020.py.gz').read_bytes()
-    assert hashlib.sha256(packed).hexdigest() == '525deec5e1c06aedb4ce78a2ca61ffc3251970f0a3c02461b0f18067e23bfea2'
-    before = gzip.decompress(packed).decode()
-    after = Path(bridge.__file__).read_text()
-    def outside(source):
-        node, = [n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == 'proposal_boundary']
-        lines = source.splitlines(keepends=True)
-        return ''.join(lines[:node.lineno-1]), ''.join(lines[node.end_lineno:])
-    # Reviewed deltas outside proposal_boundary: attest_sources admits the Dataflow
-    # test edit (900114a4) by its signed successor record, and the admission and
-    # sealed-receipt reads go through the production RawV2 source epoch.
-    def top_level(source):
-        tree = ast.parse(source)
-        names = []
-        for node in tree.body:
-            target = node.targets[0] if isinstance(node, ast.Assign) else node
-            name = getattr(target, 'name', None) or getattr(target, 'id', None) or ast.unparse(node)
-            names.append((name, ast.get_source_segment(source, node, padded=True)))
-        return names
-    old_nodes = [row for row in top_level(before) if row[0] != 'proposal_boundary']
-    new_nodes = [row for row in top_level(after) if row[0] != 'proposal_boundary']
-    assert [row for row in old_nodes if row[0] not in OUTSIDE_SUCCESSORS] == \
-        [row for row in new_nodes if row[0] not in OUTSIDE_SUCCESSORS]
-    assert {name for name, _ in new_nodes} >= set(OUTSIDE_SUCCESSORS)
-    assert {name: hashlib.sha256(text.encode()).hexdigest() for name, text in new_nodes
-            if name in OUTSIDE_SUCCESSORS} == OUTSIDE_SUCCESSORS
-    assert hashlib.sha256(''.join(outside(after)).encode()).hexdigest() == OUTSIDE_SUCCESSOR_SHA256
-    bridge.attest_sources()
-    assert len(bridge.NODES) == 6

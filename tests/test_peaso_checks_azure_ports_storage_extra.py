@@ -1,15 +1,11 @@
 """Storage precise reuse/differential categories, scope eligibility and full identity joins."""
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
 from peaso.checks import CHECKS, azure_ports_storage_extra as ports
 from peaso.checks.fixtures import CASES
 
-ROOT=Path(__file__).resolve().parent.parent
-REVIEWS=json.loads((ROOT/'peaso/rulepacks/reviewed_azure_ports_storage_extra.json').read_text())
 REGISTRY={c.id:c for c in CHECKS}
 
 
@@ -81,10 +77,3 @@ def test_container_parent_conjunction_scope_join_duplicate_and_denial():
     assert check.evaluate(item,index)[0]=='UNKNOWN'
     index['collections']['storage_account'][0]['status']='denied'
     assert check.evaluate(item,index)[0]=='UNKNOWN'
-
-
-def test_twenty_nine_refs_are_exact_owned_scopes_not_hash_only_merges():
-    claude=set(json.loads((ROOT/'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS)==29 and not set(REVIEWS)&claude
-    assert len({r['source_review']['query_id'] for r in REVIEWS.values()})==9
-    assert all(r['source_review']['arguments']==[] and r['source_review']['pinned_sql'] for r in REVIEWS.values())

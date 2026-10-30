@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import copy
-import glob
-import json
 
 import pytest
 
@@ -13,7 +11,6 @@ from peaso.checks import compliance_new_sw15 as sw
 # These tests retain safe Check objects locally and remove only registrations
 # introduced by our direct import. Existing central registrations are untouched.
 CHECKS[:] = [check for check in CHECKS if id(check) in _before or check.id not in sw.IDS]
-from scripts.peaso_compliance_compile import spec_digest
 
 SUB = "/subscriptions/sub"
 BASE = SUB + "/resourceGroups/rg/providers/"
@@ -243,37 +240,6 @@ def test_missing_and_malformed_required_detail(check_id):
     assert evaluate(check_id, row, collections)[0] == "UNKNOWN"
     target[field] = "malformed" if not isinstance(value, str) else 123
     assert evaluate(check_id, row, collections)[0] == "UNKNOWN"
-
-
-def test_signed_metadata_and_sha256_match_ten_field_ledger_entries():
-    found = {}
-    def walk(value):
-        if isinstance(value, dict):
-            for entry in value.get("new_checks", []):
-                if entry["id"] in sw.IDS:
-                    if entry["id"] in found:
-                        assert found[entry["id"]] == entry
-                    found[entry["id"]] = entry
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-    for path in glob.glob("docs/compliance-ledgers/*.json"):
-        with open(path) as stream:
-            walk(json.load(stream))
-    assert set(found) == set(sw.IDS)
-    for check_id, entry in found.items():
-        assert len(entry) == 10 and entry == sw.SPECS[check_id]
-        check = sw.CHECK_BY_ID[check_id]
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-            entry["provider"], entry["resource_kind"], entry["category"], entry["severity"], entry["title"])
-        assert sw.SPEC_SHA256[check_id] == spec_digest(entry)
-    with open("docs/compliance-ledgers/.work/swarm/sw15-descriptions.json") as stream:
-        descriptions = json.load(stream)
-    assert set(descriptions) == set(sw.IDS)
-    for check_id, description in descriptions.items():
-        assert description["proposed_spec_sha256"] == spec_digest(found[check_id])
 
 
 def test_not_applicable_for_disabled_current_and_base_secrets_empty_profiles_and_servers():

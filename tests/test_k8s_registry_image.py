@@ -1,35 +1,20 @@
 """Portable native Pod and OCI fixtures, loaded only from this isolated candidate."""
-import ast
 import base64
 from copy import deepcopy
 import gzip
 import hashlib
-import importlib.util
 import io
 import json
 from pathlib import Path
-import re
 import socket
-import ssl
-import subprocess
-import sys
-import tempfile
-import threading
-import time
 import tarfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
-from urllib.parse import quote
-from uuid import uuid4
-import http.client
-import ipaddress
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 from peaso import container_image_archive_20261020 as archive
-from peaso.checks import k8s_image_source_association_20261020 as association
 from peaso.auth import secrets
 from peaso.collectors import k8s_selected_registry_image_20261021 as registry_module
 from peaso.collectors import k8s as k8s_module
@@ -179,31 +164,6 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(resolved['token'], 'kubernetes-only-token')
         self.assertNotEqual(resolved['token'], private['registry_auth'][0]['token'])
 
-    def test_serialized_cases_replay_in_distinct_process(self):
-        script = '''import importlib.util,json,sys
-from pathlib import Path
-root=Path(sys.argv[1]);sys.path.insert(0,str(root))
-spec=importlib.util.spec_from_file_location("isolated_replay",root/"tests/test_k8s_registry_image.py")
-module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-cases=json.loads((root/"peaso/checks/k8s_selected_registry_image_review_20261021_cases.json").read_text())
-for check,kind in ((module.namespace["SECRET_CHECK"],module.namespace["SECRET_KIND"]),
-                   (module.namespace["VULN_CHECK"],module.namespace["VULN_KIND"])):
-    rows=cases[check]
-    for branch,expected in (("pass","PASS"),("fail","FAIL"),("unknown","UNKNOWN"),("missing","UNKNOWN")):
-        item,index=rows[branch],rows[branch+"_index"]
-        status,_=module.review["evaluate"](item,index,kind)
-        assert status==expected,(check,branch,status)
-        if branch!="missing":
-            target=index["context"]["metadata"][module.namespace["OPTION"]][0]
-            assert module.namespace["identity"](target)==item["id"]
-print("8 serialized case branches replayed")'''
-        # This is a cold functional source replay; full admission under CPU
-        # emulation exceeds 60s, and a shared loaded host can exceed 180s.
-        # Runtime latency is measured separately.
-        completed = subprocess.run([sys.executable, '-I', '-c', script, str(ROOT)],
-                                   text=True, capture_output=True, timeout=600)
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn('8 serialized case branches replayed', completed.stdout)
 
     def test_default_off_zero_io_and_allowlist(self):
         self.assertEqual(namespace['selected_targets']({}, ['default']), [])

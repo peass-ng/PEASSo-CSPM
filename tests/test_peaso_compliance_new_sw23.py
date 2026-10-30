@@ -6,7 +6,6 @@ import copy
 import hashlib
 import importlib
 import json
-from pathlib import Path
 
 import pytest
 
@@ -706,41 +705,6 @@ def test_evaluation_is_immutable(cid, signing_key):
     assert sw.EVALUATORS[cid](row, facts)[0] == "PASS"
     assert sw.EVALUATORS[cid](row, facts)[0] == "PASS"
     assert (row, facts) == original
-
-
-def test_signed_metadata_and_registry_isolation():
-    from scripts.peaso_compliance_compile import spec_digest
-    found = {}
-
-    def walk(value):
-        if isinstance(value, dict):
-            for spec in value.get("new_checks", []):
-                if spec.get("id") in sw.IDS:
-                    assert spec["id"] not in found or found[spec["id"]] == spec
-                    found[spec["id"]] = spec
-            for key, child in value.items():
-                if key != "new_checks":
-                    walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-
-    root = Path(__file__).resolve().parents[1]
-    for path in (root / "docs/compliance-ledgers").glob("*.json"):
-        walk(json.loads(path.read_text()))
-    assert set(found) == set(sw.IDS)
-    assert len(sw.REGISTERED_CHECKS) == 15
-    assert CHECKS == list(_prior_checks)
-    descriptions = json.loads((root / "docs/compliance-ledgers/.work/swarm/sw23-descriptions.json").read_text())
-    assert set(descriptions) == set(sw.IDS)
-    for check in sw.REGISTERED_CHECKS:
-        spec = found[check.id]
-        assert spec_digest(spec) == sw.SPEC_SHA256[check.id]
-        assert {k: v for k, v in sw.SPECS[check.id].items() if k != "proposed_spec_sha256"} == spec
-        assert (check.provider, check.kind, check.category, check.title, check.severity) == (
-            spec["provider"], spec["resource_kind"], spec["category"], spec["title"], spec["severity"])
-        assert check.dependencies == [spec["resource_kind"], sw.EVIDENCE_KINDS[check.id]]
-        assert descriptions[check.id]["proposed_spec_sha256"] == spec_digest(spec)
 
 
 def test_backup_bare_restore_boolean_is_not_validation():

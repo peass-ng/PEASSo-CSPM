@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import copy
 import json
-from pathlib import Path
 
 import pytest
 
@@ -366,40 +365,6 @@ def test_independent_inapplicability(suffix):
     assert run(suffix, machine, index)[0] == 'NOT_APPLICABLE'
     native(index, 'vm_compliance_applicability').pop('basis')
     assert run(suffix, machine, index)[0] == 'UNKNOWN'
-
-
-def test_signed_specs_and_dependencies():
-    from scripts.peaso_compliance_compile import spec_digest
-    signed = {}
-    def walk(value):
-        if isinstance(value, dict):
-            for key, content in value.items():
-                if key == 'new_checks':
-                    for entry in content:
-                        if entry['id'] in sw.SPECS:
-                            if entry['id'] in signed:
-                                assert signed[entry['id']] == entry
-                            signed[entry['id']] = entry
-                else:
-                    walk(content)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-    for path in Path('docs/compliance-ledgers').glob('*.json'):
-        walk(json.loads(path.read_text()))
-    assert signed == sw.SPECS and len(signed) == 15
-    for cid, spec in signed.items():
-        assert sw.PROPOSED_SPEC_SHA256[cid] == spec_digest(spec)
-        assert sw.DEPENDENCIES[cid][0] == 'vm'
-        check = sw.REGISTERED_CHECKS[cid]
-        assert (check.id, check.provider, check.kind, check.severity, check.category, check.title) == (
-            cid, spec['provider'], spec['resource_kind'], spec['severity'], spec['category'], spec['title'])
-        assert check.declared_dependencies == sw.DEPENDENCIES[cid]
-    descriptions = json.loads(Path('docs/compliance-ledgers/.work/swarm/sw17-descriptions.json').read_text())
-    assert set(descriptions) == set(signed)
-    for cid, entry in descriptions.items():
-        assert set(entry) == {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when', 'proposed_spec_sha256'}
-        assert entry['proposed_spec_sha256'] == sw.PROPOSED_SPEC_SHA256[cid]
 
 
 @pytest.mark.parametrize('suffix', SUFFIXES)

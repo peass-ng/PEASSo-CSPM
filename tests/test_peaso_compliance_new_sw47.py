@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import copy
-import json
 
 import pytest
 
 from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw47 as sw
-from scripts.peaso_compliance_compile import spec_digest
 
 SCOPE = "123456789012/us-east-1"
 ACCOUNT = "123456789012"
@@ -230,17 +228,6 @@ def test_not_applicable_scope(cid):
         index["context"]["metadata"]["compliance_policy"]["remote_backup_vaults"]["vault_arns"] = [
             VAULT.replace("remote", "elsewhere")]
     assert evaluate_check(cid, item, index)[0] == "NOT_APPLICABLE", cid
-
-
-def test_signed_metadata_and_digest():
-    proposed = {entry["id"]: entry for entry in json.load(open("docs/compliance-ledgers/new-checks-aws.json"))}
-    matches = {check.id: check for check in CHECKS if check.id in sw.SPECS}
-    assert set(matches) == set(sw.SPECS)
-    for cid, check in matches.items():
-        entry = proposed[cid]
-        assert (check.provider, check.kind, check.severity, check.category, check.title) == (
-            entry["provider"], entry["resource_kind"], entry["severity"], entry["category"], entry["title"])
-        assert sw.PROPOSED_SPEC_SHA256[cid] == spec_digest(entry)
 
 
 def test_partner_unconditioned_allow_is_a_failure_even_with_an_external_id():

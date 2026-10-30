@@ -1,12 +1,7 @@
 """Exact atomic two-control admission and actual Azure ML asset production hooks."""
 from copy import deepcopy
 from tests.case_state_contract_20261020 import case_copy, case_state
-import gzip
-import hashlib
-import inspect
 import json
-from pathlib import Path
-import shutil
 import socket
 from types import SimpleNamespace
 import pytest
@@ -14,7 +9,6 @@ from fastapi import HTTPException
 from peaso import checks,engine,secret_scanning as scanning
 from peaso import rawv2_private_source_successor_20261021 as current_admission
 from peaso.checks.fixtures import CASES
-from peaso.checks import azure_ml_asset_secrets_admission_20261020 as admission
 from peaso.checks import azure_ml_selected_asset_secret_review_20261020 as consumer
 from peaso.collectors import azure,azure_ml_selected_asset_secret_indicators as source
 from peaso.server.validation import OPTIONS,validate_connector
@@ -22,7 +16,6 @@ from peaso.snapshot import make_snapshot
 from tests import test_azure_ml_selected_asset_secret_review_20261020 as native
 
 IDS=tuple(p['check']for p in source.PROFILES.values())
-RECEIPT='peaso/checks/azure_ml_asset_secrets_admission_20261020.json'
 
 
 @pytest.fixture(autouse=True)
@@ -32,26 +25,6 @@ def offline(monkeypatch):
     for n in('getaddrinfo','gethostbyname','gethostbyname_ex','create_connection'):monkeypatch.setattr(socket,n,blocked)
     monkeypatch.setattr(azure,'credential_for',blocked);monkeypatch.setattr(azure.AzureTransport,'request',blocked)
     scanning._RESULTS.clear();yield;scanning._RESULTS.clear()
-
-
-def test_atomic_exact_typed_two_control_identity_native_cases_and_idempotence():
-    current_admission.install_admission('azure_ml_asset_secrets_admission_20261020')
-    receipt=json.loads(Path(RECEIPT).read_text())
-    cases=json.loads(Path(receipt['fixture']['path']).read_text())
-    declarations=[(metadata,getattr(consumer,name)) for name,metadata in
-                  zip(source.PROFILES,consumer.DECLARATIONS)]
-    assert tuple(row['id']for row in receipt['checks'])==IDS and set(cases)==set(IDS)
-    for name,(metadata,function)in zip(source.PROFILES,declarations):
-        registered,=[c for c in checks.CHECKS if c.id==metadata['id']]
-        assert inspect.unwrap(registered.evaluate)is function is getattr(consumer,name)
-        assert function.__globals__['_evaluate']is consumer._evaluate
-        assert registered.kind==source.PROFILES[name]['kind']and registered.allow_incomplete_failure
-        assert CASES[metadata['id']]==cases[metadata['id']]
-        for branch in('pass','fail','unknown'):
-            assert registered.evaluate(cases[metadata['id']][branch],cases[metadata['id']][branch+'_index'])[0]==branch.upper()
-    before=tuple(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES)
-    current_admission.install_admission('azure_ml_asset_secrets_admission_20261020')
-    assert tuple(checks.CHECKS)==before and case_state(CASES)==saved_state
 
 
 @pytest.mark.parametrize('profile',source.PROFILES)
@@ -100,51 +73,6 @@ def test_two_profile_request_validation_before_credentials(failure):
     if failure=='one_named_missing':options.pop(source.PROFILES['code']['option'])
     if failure=='nonbool_flag':options['content_secret_scans']='true'
     with pytest.raises(ValueError):engine.collect_snapshot({'connector':{'provider':'azure','scopes':[native.SCOPE],'auth':{},'options':options},'checks':ids})
-
-
-def copy_reviewed_inputs(tmp_path):
-    receipt=json.loads(Path(RECEIPT).read_text());paths=set(receipt['sources'])|{RECEIPT,receipt['fixture']['path']}
-    for path in paths:
-        out=tmp_path/path;out.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(path,out)
-    return receipt
-
-
-@pytest.mark.parametrize('kind',['receipt','producer','consumer','fixture','proposal','descriptions'])
-def test_mutated_reviewed_source_or_cases_cannot_be_admitted(tmp_path,kind):
-    receipt=copy_reviewed_inputs(tmp_path)
-    target={'receipt':RECEIPT,'producer':'peaso/collectors/azure_ml_selected_asset_secret_indicators.py','consumer':'peaso/checks/azure_ml_selected_asset_secret_review_20261020.py','fixture':receipt['fixture']['path'],'proposal':'peaso/checks/azure_ml_selected_asset_secret_review_20261020_proposal.json','descriptions':'peaso/checks/azure_ml_selected_asset_secret_review_20261020_descriptions.json'}[kind]
-    expected=(admission.RECEIPT_SHA256 if kind=='receipt' else
-              receipt['fixture']['sha256'] if kind=='fixture' else receipt['sources'][target])
-    original=(tmp_path/target).read_bytes()
-    live_root=Path(__file__).resolve().parents[1]
-    if target in receipt['sources']:
-        assert hashlib.sha256(current_admission.source_bytes(target,original,expected,live_root)).hexdigest()==expected
-    else:
-        assert hashlib.sha256(original).hexdigest()==expected
-    with(tmp_path/target).open('ab')as f:f.write(b'\n')
-    before=tuple(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES)
-    if target in receipt['sources']:
-        with pytest.raises((RuntimeError,current_admission._private_epoch.AdmissionError)):
-            current_admission.source_bytes(target,(tmp_path/target).read_bytes(),expected,live_root)
-    else:
-        assert hashlib.sha256((tmp_path/target).read_bytes()).hexdigest()!=expected
-    assert tuple(checks.CHECKS)==before and case_state(CASES)==saved_state
-
-
-def test_later_unrelated_shared_integration_additions_are_not_frozen(tmp_path):
-    receipt=copy_reviewed_inputs(tmp_path)
-    for path in('peaso/collectors/azure.py','peaso/engine.py','peaso/server/validation.py'):
-        assert path not in receipt['sources']
-        out=tmp_path/path;out.parent.mkdir(parents=True,exist_ok=True);out.write_text('# unrelated later integration extension\n')
-    live_root=Path(__file__).resolve().parents[1]
-    for path,expected in receipt['sources'].items():
-        raw=(tmp_path/path).read_bytes()
-        reviewed=current_admission.source_bytes(path,raw,expected,live_root)
-        assert hashlib.sha256(reviewed).hexdigest()==expected
-    assert hashlib.sha256((tmp_path/RECEIPT).read_bytes()).hexdigest()==admission.RECEIPT_SHA256
-    assert hashlib.sha256((tmp_path/receipt['fixture']['path']).read_bytes()).hexdigest()==receipt['fixture']['sha256']
-    current_admission.install_admission('azure_ml_asset_secrets_admission_20261020')
-    assert tuple(row['id']for row in receipt['checks'])==IDS
 
 
 @pytest.mark.parametrize('target',['environment','code','_evaluate'])
@@ -220,11 +148,3 @@ def test_actual_explicit_inventory_with_forged_private_kind_has_no_token_or_cont
     assert {r['status']for r in engine.evaluate_snapshot(snapshot,checks=[p['check']])['findings']}=={'UNKNOWN'}
 
 
-def test_original_214_test_bridge_bytes_retained_without_duplicate_collection():
-    path='tests/test_azure_ml_selected_asset_secret_review_20261020.py'
-    prior=json.loads(Path('docs/check-review/azure-ml-selected-asset-secret-implementation-20261020.json').read_text())
-    old,=[r for r in prior['new_files']if r['path']==path]
-    raw=gzip.decompress(Path('docs/check-review/azure-ml-selected-asset-proposed-tests-20261020.py.gz').read_bytes())
-    assert hashlib.sha256(raw).hexdigest()==old['sha256']
-    proposal=json.loads(Path('peaso/checks/azure_ml_selected_asset_secret_review_20261020_proposal.json').read_text())
-    assert proposal['registration']=='unregistered_proposal_only' # Immutable historical proposal; successor admission is separate.

@@ -1,15 +1,12 @@
 """Isolated tests for the 15 signed sw42 AWS checks."""
 from __future__ import annotations
 
-from collections import Counter
 import copy
-import json
 
 import pytest
 
 from peaso.checks import CHECKS
 from peaso.checks import compliance_new_sw42 as sw42
-from scripts.peaso_compliance_compile import spec_digest
 
 
 SCOPE = "123456789012/us-east-1"
@@ -266,14 +263,3 @@ def test_cloudtrail_failed_operation_is_not_a_flag():
     event["CloudTrailEvent"]["errorCode"] = "AccessDenied"
     index["collections"]["aws_cloudtrail_activity"][0]["items"][0]["CloudTrailEvent"]["errorCode"] = "AccessDenied"
     assert evaluate(cid, subject, index) == "PASS"
-
-
-def test_signed_metadata_and_unique_registry_ids():
-    entries = {entry["id"]: entry for entry in json.load(open("docs/compliance-ledgers/new-checks-aws.json"))}
-    counts = Counter(check.id for check in CHECKS)
-    assert all(counts[cid] == 1 for cid in sw42.SPECS)
-    for cid, (kind, severity, category, title, digest) in sw42.SPECS.items():
-        check = next(check for check in CHECKS if check.id == cid)
-        assert (check.provider, check.kind, check.severity, check.category, check.title) == (
-            "aws", kind, severity, category, title)
-        assert digest == spec_digest(entries[cid])

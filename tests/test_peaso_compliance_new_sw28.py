@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
 from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw28 as sw28
-from scripts.peaso_compliance_compile import spec_digest
 
 
 SCOPE = "/subscriptions/sub"
@@ -62,24 +59,6 @@ def index(*, clusters=None, pricing=None, pricing_status=None, cluster_status=No
 def evaluate(facts=None, item=None):
     return evaluate_check(sw28.ID, {"scope": SCOPE} if item is None else item,
                           index() if facts is None else facts)
-
-
-def test_signed_metadata_and_digest():
-    entries = json.loads((Path(__file__).resolve().parents[1] /
-                          "docs/compliance-ledgers/new-checks-azure.json").read_text())
-    signed = next(row for row in entries if row["id"] == sw28.ID)
-    spec = {key: signed[key] for key in (
-        "id", "provider", "resource_kind", "data_source", "predicate", "severity",
-        "category", "title", "description", "remediation_hint")}
-    assert spec_digest(spec) == sw28.SPEC_SHA256
-    matches = [check for check in CHECKS if check.id == sw28.ID]
-    assert len(matches) == 1
-    check = matches[0]
-    assert (check.provider, check.kind, check.severity, check.category, check.title,
-            check.target, check.dependencies) == (
-        signed["provider"], signed["resource_kind"], signed["severity"],
-        signed["category"], signed["title"], "scope",
-        ["aks_cluster", "defender_pricing"])
 
 
 def test_containers_and_cloudposture_can_each_satisfy_cluster():

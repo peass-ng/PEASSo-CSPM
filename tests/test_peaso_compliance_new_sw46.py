@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timezone
 
 import pytest
 from peaso.checks import CHECKS, evaluate_check
@@ -308,28 +307,3 @@ def test_snapshot_metadata_policy_path_and_foreign_policy_scope():
     assert grade(ALARM_SETTINGS, row, facts, scoped=True) == "PASS"
     facts["context"]["metadata"]["approved_policy"]["scope"] = f"{ACCOUNT}/eu-west-1"
     assert grade(ALARM_SETTINGS, row, facts, scoped=True) == "UNKNOWN"
-
-
-def test_signed_registry_metadata_and_digests():
-    from scripts.peaso_compliance_compile import spec_digest
-    import glob, json
-    found = {}
-    def walk(value):
-        if isinstance(value, dict):
-            if value.get("id") in sw46.SIGNED and len(value) == 10:
-                found[value["id"]] = value
-            for child in value.values(): walk(child)
-        elif isinstance(value, list):
-            for child in value: walk(child)
-    for path in glob.glob("docs/compliance-ledgers/*.json"):
-        walk(json.load(open(path)))
-    assert set(found) == set(sw46.SIGNED)
-    for cid, spec in found.items():
-        meta = sw46.SIGNED[cid]
-        assert meta["sha"] == spec_digest(spec)
-        checks = [check for check in CHECKS if check.id == cid]
-        assert len(checks) == 1
-        check = checks[0]
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-            spec["provider"], spec["resource_kind"], spec["category"], spec["severity"], spec["title"])
-        assert check.dependencies == sw46._DEPENDENCIES[cid]

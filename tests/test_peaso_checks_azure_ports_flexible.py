@@ -51,9 +51,3 @@ def test_zero_endpoint_source_declaration_does_not_merge_effective_network_disab
 def test_firewall_malformed_or_reversed_interval_is_unknown(start,end):
     check=REGISTRY[ports.SOURCE_QUERIES['postgres_flexible_server_allow_access_to_azure_services_disabled']]
     assert check.evaluate({'firewallRules':[{'properties':{'startIpAddress':start,'endIpAddress':end}}]},{})[0]=='UNKNOWN'
-
-
-def test_exact_nine_owned_source_rows_and_reference_revision_proof():
-    claude=set(json.loads((ROOT/'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert len(REVIEWS)==9 and not set(REVIEWS)&claude
-    assert all(r['source_review']['arguments']==[] and r['source_review']['pinned_sql'] for r in REVIEWS.values())

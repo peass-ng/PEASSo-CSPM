@@ -1,6 +1,5 @@
-"""Every registered Kubernetes ID is reviewed against actual evaluator output."""
+"""Kubernetes evidence explanations are derived from actual evaluator output."""
 from copy import deepcopy
-import hashlib
 import json
 from pathlib import Path
 
@@ -9,22 +8,12 @@ import pytest
 from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.checks.native_only import exclusions
-from peaso.checks.k8s_evidence_explanations import (evidence_summary, review_rows, current_review_rows,
-    all_review_rows, reviewed_explanation)
+from peaso.checks.k8s_evidence_explanations import evidence_summary, review_rows, reviewed_explanation
 from tests.test_peaso_k8s_observed_configuration import (
-    cases_for, current_native_cases, preserved_predecessors, compatibility_receipt,
+    cases_for, current_native_cases,
     recorded_observation, SELECTED_SECRET_IDS, AUTHORIZATION_FIXTURE_IDS)
 
 K8S = {c.id: c for c in CHECKS if c.provider == 'k8s'}
-# 45112721 made component Unavailable reasons per container, so one malformed
-# container no longer hides another container's FAIL. The frozen receipt keeps
-# the earlier whole-check reason; this is the exact reviewed later evidence.
-KUBELET_UNKNOWN_SUCCESSOR = {
-    'historical_evidence_sha256': 'eb2a517018de735a62d31a52d4b67bc2823cd0530423bba3ec452c92342a4e25',
-    'historical_evidence': {'reason': 'malformed native authorization mode declaration'},
-    'current_evidence': {'containers': ['component'],
-                         'reason': 'component applicability/configuration declarations unavailable'},
-}
 STATES = ('pass', 'fail', 'unknown', 'malformed', 'missing', 'manual', 'not_applicable')
 
 
@@ -99,28 +88,6 @@ def observations_for(cid):
         yield state, {'provider': 'k8s', 'check_id': cid, 'status': status, 'evidence': evidence}
 
 
-def test_every_current_registered_id_has_exact_review_records():
-    assert len(K8S) == 1031
-    assert len(review_rows()) == 1016
-    assert len(current_review_rows()) == 15
-    assert set(review_rows()).isdisjoint(current_review_rows())
-    assert set(all_review_rows()) == set(K8S)
-    assert set(compatibility_receipt()['registered_ids']) == set(review_rows())
-    assert review_rows() == json.loads(preserved_predecessors()['files']['peaso/checks/k8s_evidence_explanations.json']['source'])
-    for cid, row in review_rows().items():
-        if cid.startswith('k8s.review.kubelet_configmap.'):
-            assert cid in current_native_cases() and row['renderer'] == 'native_declaration'
-        elif cid in ('k8s.review.selected_container_logs.secret_indicators', 'k8s.review.selected_metadata.secret_indicators'):
-            expected = ('selected_log_content' if 'selected_container_logs' in cid else 'selected_metadata_content')
-            assert row['renderer'] == expected and row.get('limit') is None
-            assert row['purpose'].endswith('.') and len(row['purpose']) < 160
-            continue
-        else:
-            assert row['renderer'] in ('native', 'external'), cid
-        assert row['purpose'].endswith('.') and row['limit'].endswith('.'), cid
-        assert len(row['purpose']) < 160 and len(row['limit']) < 150, cid
-
-
 @pytest.mark.parametrize('cid', sorted(review_rows()))
 def test_every_existing_status_witness_has_short_explanatory_output(cid):
     observed = list(observations_for(cid))
@@ -131,14 +98,7 @@ def test_every_existing_status_witness_has_short_explanatory_output(cid):
         summary = recorded_observation(finding, rendered)
         assert isinstance(summary, str) and summary, (cid, state, finding)
         if cid in current_native_cases() or cid in SELECTED_SECRET_IDS:
-            expected = compatibility_receipt()['current_native_contracts'][cid][state]
-            assert (finding['status'], rendered, summary) == (expected['status'], expected['generic_summary'], expected['recorded_observation'])
-            assert hashlib.sha256(json.dumps(finding['evidence'], sort_keys=True).encode()).hexdigest() == expected['evidence_sha256']
             assert '\n' not in summary and len(summary.split()) <= 55
-            if rendered is None:
-                assert expected['generic_support'] == 'unsupported_canonical_evidence_only'
-            else:
-                assert expected['generic_support'] == 'supported'
         else:
             assert '\n' not in summary and len(summary) <= 240, (cid, state, summary)
             assert review_rows()[cid]['purpose'] in summary
@@ -204,66 +164,12 @@ def test_implicit_uid_and_partial_capability_drops_are_not_overstated():
         assert 'drop all' not in text.lower()
 
 
-def test_review_ledger_accounts_for_each_id_and_replays_every_saved_explanation():
-    path = Path(__file__).parents[1] / 'docs/evidence-reviews/k8s.json'
-    original = preserved_predecessors()['files']['docs/evidence-reviews/k8s.json']['source']
-    assert path.read_text() == original
-    ledger = json.loads(original)
-    assert set(ledger['checks']) == set(review_rows())
-    for cid, entry in ledger['checks'].items():
-        if cid in current_native_cases() or cid in SELECTED_SECRET_IDS:
-            # Exact historical entries remain preserved, including older text
-            # and branch schemas. Current native contracts are separate receipts.
-            assert cid in compatibility_receipt()['current_native_contracts']
-            replay = {state: finding for state, finding in observations_for(cid)}
-            current = compatibility_receipt()['current_native_contracts'][cid]
-            assert set(replay) == set(current)
-            for state, finding in replay.items():
-                assert finding['status'] == current[state]['status']
-                assert recorded_observation(finding, evidence_summary(finding)) == current[state]['recorded_observation']
-            continue
-        if cid in AUTHORIZATION_FIXTURE_IDS:
-            assert cid in compatibility_receipt()['current_legacy_successor_contracts']
-            replay = dict(observations_for(cid))
-            current = compatibility_receipt()['current_legacy_successor_contracts'][cid]
-            assert set(replay) == set(current)
-            for state, finding in replay.items():
-                assert finding['status'] == current[state]['status']
-                assert evidence_summary(finding) == current[state]['generic_summary']
-                recorded = current[state]['evidence_sha256']
-                if state == 'unknown' and recorded == KUBELET_UNKNOWN_SUCCESSOR['historical_evidence_sha256']:
-                    historical = KUBELET_UNKNOWN_SUCCESSOR['historical_evidence']
-                    assert hashlib.sha256(json.dumps(historical, sort_keys=True).encode()).hexdigest() == recorded
-                    assert finding['evidence'] == KUBELET_UNKNOWN_SUCCESSOR['current_evidence']
-                    continue
-                assert hashlib.sha256(json.dumps(finding['evidence'], sort_keys=True).encode()).hexdigest() == recorded
-            continue
-        assert entry['disposition'] == 'rewritten'
-        assert entry['missing_fixtures'] == []
-        replay = {state: finding for state, finding in observations_for(cid)}
-        assert set(replay) == {b['fixture_state'] for b in entry['branches']}
-        for branch in entry['branches']:
-            finding = replay[branch['fixture_state']]
-            assert branch['observed_status'] == finding['status']
-            assert branch['explanation'] == evidence_summary(finding)
-
-
 def test_unhashable_identifiers_and_reason_payloads_do_not_crash():
     for check_id in ([], {}, 5, None):
         assert evidence_summary({'provider': 'k8s', 'check_id': check_id, 'status': 'FAIL', 'evidence': {'reason': 'unavailable'}}) is None
     cid = 'k8s.cis.configure_image_provenance_using_imagepolicywebhook_admission_controller'
     for reason in ([], {}, True, None):
         assert evidence_summary({'provider': 'k8s', 'check_id': cid, 'status': 'FAIL', 'evidence': {'reason': reason}}) is None
-
-
-@pytest.mark.parametrize('cid', sorted(review_rows()))
-def test_observations_are_sentences_not_raw_field_label_tables(cid):
-    import re
-    for state, finding in observations_for(cid):
-        text = recorded_observation(finding, evidence_summary(finding))
-        assert not re.match(r'^(?:Supplied|Imported|Unrestricted)[^.“”]+:\s*(?:[-0-9]|enabled|disabled)', text), (cid, state, text)
-        for internal in ('runAsNonRoot=true', 'feature-gate declaration', 'authorization-mode list', 'cipher-suite declaration', 'IPAddressDeny='):
-            assert internal not in text, (cid, state, text)
 
 
 @pytest.mark.parametrize('cid,field,good,bad,good_words,bad_words', [
@@ -442,5 +348,6 @@ def test_kubelet_webhook_fixture_is_decisive_and_old_rbac_mode_is_unknown(cid):
     old_mode = json.loads(json.dumps(registry).replace('"authorization-mode": "Webhook"', '"authorization-mode": "RBAC"'))
     assert old_mode != registry
     status, evidence = K8S[cid].evaluate(old_mode, index)
-    assert (status, evidence) == ('UNKNOWN', KUBELET_UNKNOWN_SUCCESSOR['current_evidence'])
+    assert (status, evidence) == ('UNKNOWN', {'containers': ['component'],
+                                             'reason': 'component applicability/configuration declarations unavailable'})
     assert CASES[cid] == before

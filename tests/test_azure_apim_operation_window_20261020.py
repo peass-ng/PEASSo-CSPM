@@ -3,12 +3,10 @@
 Only the proposed Check is installed locally in this module; no production
 registry or historical CASES input is used to manufacture provider responses.
 """
-import ast
 import base64
 from copy import deepcopy
 from datetime import datetime, timedelta
 import gzip
-import hashlib
 import io
 import json
 import logging
@@ -388,13 +386,6 @@ def test_native_portable_capture_replay():
         assert report['findings'][0]['status'] == case['status']
 
 
-def test_source_receipt_and_no_production_registration():
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    receipt = install_admission('azure_apim_operation_window_admission_20261020')
-    assert receipt['registered'] is False and receipt['admission_recommended'] is False and receipt['research_only'] is True
-    assert source.KIND not in azure.TYPES
-
-
 def test_native_maximum_three_targets_with_shared_budget(monkeypatch):
     targets = [{**deepcopy(TARGET), 'resource_id': APIM + str(i)} for i in range(3)]
     events = [{**row, '_ResourceId': target['resource_id']} for target in targets for row in native_events(['chat'])]
@@ -435,40 +426,3 @@ def test_source_receipt_tampered_helper_refused(monkeypatch):
         source.collect_proposal({'scopes':[SCOPE], 'options':{source.FLAG:True,source.OPTION:[TARGET]}},[source.CHECK],credential=Credential())
 
 
-def source_pack():
-    return json.loads(gzip.decompress((Path(__file__).parent / 'fixtures/azure_apim_operation_source_assessment_20261020.json.gz').read_bytes()))
-
-
-def test_exact_pinned_source_pair_preserved():
-    pack = source_pack()['apim']; baseline, current = pack['captures']
-    for capture in (baseline,current):
-        original = base64.b64decode(capture['original_gzip_base64'])
-        assert hashlib.sha256(original).hexdigest() == capture['retained_sha256']
-        assert gzip.decompress(original).decode() == capture['body']
-        assert hashlib.sha256(capture['body'].encode()).hexdigest() == capture['sha256'] == pack['baseline_expected_sha256']
-    assert baseline['body'] == current['body']
-
-
-def test_native_source_defaults_not_compromise_classifier(monkeypatch):
-    body = source_pack()['apim']['captures'][0]['body']
-    defaults, = [node.args[1] for node in ast.walk(ast.parse(body)) if isinstance(node,ast.Call)
-        and isinstance(node.func,ast.Attribute) and node.func.attr == 'get' and len(node.args) == 2
-        and isinstance(node.args[0],ast.Constant) and node.args[0].value == 'apim_threat_detection_llm_jacking_actions']
-    operations = ast.literal_eval(defaults)
-    assert len(operations) == 20 and round(3 / len(operations),2) > 0.1
-    target = {**TARGET,'operation_ids':operations,'threshold_percent':10}
-    # Legitimate integration smoke tests making three operations have the same
-    # API-visible breadth as abusive calls. No provider field identifies intent.
-    _, finding, _, _ = capture(monkeypatch,targets=[target],events=native_events(operations[:3]))
-    assert finding['status'] == 'FAIL'
-    assert consumer.PROPOSAL['admission_recommended'] is False
-
-
-def test_next_candidate_is_provider_retirement_not_customer_latest_list():
-    next_source = source_pack()['next_candidate']
-    for value in next_source.values():
-        assert hashlib.sha256(value['body'].encode()).hexdigest() == value['sha256']
-    assert 'default     = var.appservice_web_app_latest_python_version' in next_source['appservice_web_app_latest_python_version']['body']
-    body = next_source['app_ensure_python_version_is_latest']['body']
-    assert 'python_latest_version in framework' in body and '"3.12"' in body
-    assert '3.12' in 'PYTHON|3.120'  # Concrete substring false positive.

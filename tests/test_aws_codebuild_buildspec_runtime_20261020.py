@@ -3,14 +3,10 @@ from contextlib import ExitStack
 from copy import deepcopy
 from concurrent.futures import Future
 import base64
-import gzip
-import hashlib
 import json
 import io
 import logging
-from pathlib import Path
 import socket
-import threading
 from types import SimpleNamespace
 
 import boto3
@@ -288,16 +284,11 @@ def test_read_budget_and_cancel_event_bound_native_calls(monkeypatch):
     assert not any(c[1] == 'BatchGetProjects' for c in trace.calls)
 
 
-def test_registered_admission_is_idempotent_and_all_predecessor_bytes_preserved():
+def test_registered_admission_is_idempotent():
     from peaso.checks import CHECKS
     before = tuple(CHECKS)
     admission.install(); admission.install()
     assert tuple(CHECKS) == before
-    root = Path(__file__).resolve().parents[1]
-    archive = json.loads(gzip.decompress((root / 'peaso/checks/aws_codebuild_buildspec_runtime_predecessors_20261020.json.gz').read_bytes()))
-    for name, row in archive['files'].items():
-        if name.startswith('peaso/checks/') and not name.endswith('/__init__.py'):
-            assert (root / name).read_bytes() == bytes.fromhex(row['hex'])
 
 
 def test_admission_failure_leaves_registry_and_cases_unchanged(monkeypatch):

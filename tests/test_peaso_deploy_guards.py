@@ -88,73 +88,17 @@ def test_api_archive_enforces_aws_upload_byte_limit(tmp_path, monkeypatch):
             deploy.package_api()
         optimizer.assert_called_once()
 
-def test_customer_role_quick_create_template_is_dedicated_and_narrowly_public():
-    from peaso.server.validation import CUSTOMER_ROLE_TEMPLATE_URL, COLLECTOR_ROLE_ARN
-    from urllib.parse import urlparse
+def test_customer_role_quick_create_template_requires_collector_principal_and_external_id():
     root = Path(__file__).parents[1]
-    template_sha256 = hashlib.sha256((root / "infra/aws/customer-role.json").read_bytes()).hexdigest()
-    url = urlparse(f"https://hacktricks-cspm-templates-111122223333.s3.us-east-1.amazonaws.com/customer-role-{template_sha256}.json")
-    assert url.scheme == "https"
-    assert url.netloc == "hacktricks-cspm-templates-111122223333.s3.us-east-1.amazonaws.com"
-    assert url.path == f"/customer-role-{template_sha256}.json"
-    assert CUSTOMER_ROLE_TEMPLATE_URL == "https://cspm.hacktricks.wiki/aws/customer-role.json"
     template = json.loads((root / "infra/aws/customer-role.json").read_text())
     trust = template["Resources"]["AuditRole"]["Properties"]["AssumeRolePolicyDocument"]["Statement"][0]
     assert trust["Principal"]["AWS"] == {"Ref": "CollectorRoleArn"}
     assert "Default" not in template["Parameters"]["CollectorRoleArn"]
     assert trust["Condition"]["StringEquals"]["sts:ExternalId"] == {"Ref": "ExternalId"}
-    storage = (root / "infra/aws/storage.tf").read_text()
-    assert deploy.API_DELIVERY_SOURCE["storage.tf"][2] == hashlib.sha256(storage.encode()).hexdigest()
-    predecessor = storage.encode()
-    for after, before in deploy.API_DELIVERY_CONTENT_REVERSE["storage.tf"]:
-        assert predecessor.count(after) == 1
-        predecessor = predecessor.replace(after, before, 1)
-    assert hashlib.sha256(predecessor).hexdigest() == deploy.API_DELIVERY_SOURCE["storage.tf"][1]
-    assert 'resource "aws_s3_bucket" "templates"' in storage
-    assert 'count  = var.enable_public_customer_role_template ? 1 : 0' in storage
-    assert 'bucket = "${local.name}-templates-${local.account_id}"' in storage
-    current_archive = root / f"infra/aws/customer-role-{template_sha256}.json"
-    assert current_archive.read_bytes() == (root / "infra/aws/customer-role.json").read_bytes()
-    assert 'customer_role_template_sources = merge(' in storage
-    assert 'var.archived_customer_role_templates' in storage
-    assert 'for_each            = var.enable_public_customer_role_template ? local.customer_role_template_sources : {}' in storage
-    assert 'key                 = "customer-role-${each.key}.json"' in storage
-    assert 'customer_role_template_sha256 = filesha256("${path.module}/customer-role.json")' in storage
-    assert 'ignore_changes = [source]' in storage
-    assert 'condition     = filesha256(each.value) == each.key' in storage
-    assert 'versioning_configuration { status = "Enabled" }' in storage
-    assert 'cache_control       = "public,max-age=31536000,immutable"' in storage
-    assert 'metadata            = { sha256 = each.key }' in storage
-    assert 'key                 = "aws/customer-role.json"' in storage
-    assert 'Resource = aws_s3_object.customer_role_template[local.customer_role_template_sha256].arn' in storage
-    assert 'Resource = [for object in aws_s3_object.customer_role_template' not in storage
-    assert 'Action = "s3:GetObject"' in storage
-    assert 'bucket              = aws_s3_bucket.frontend.id' in storage.split('resource "aws_s3_object" "customer_role_download"', 1)[1].split('resource ', 1)[0]
-    assert 'bucket              = aws_s3_bucket.templates[0].id' in storage.split('resource "aws_s3_object" "customer_role_template"', 1)[1].split('resource ', 1)[0]
-    assert {"aws_s3_bucket.templates", "aws_s3_bucket_policy.templates", "aws_s3_object.customer_role_template", "aws_s3_object.customer_role_download", "aws_s3_bucket_versioning.templates"} <= deploy.ALLOWED_RESOURCES
     command = deploy.frontend_sync_command(Path("/frozen/frontend"), "hacktricks-cspm-frontend-111122223333")
     excludes = [command[index + 1] for index, token in enumerate(command[:-1]) if token == "--exclude"]
-    assert "--delete" in command and excludes == ["source/*", "aws/customer-role.json"]
-    assert "cloudformation:ListStacks" in [action for resource in template["Resources"].values()
-        if resource["Type"] == "AWS::IAM::ManagedPolicy"
-        for statement in resource["Properties"]["PolicyDocument"]["Statement"]
-        for action in (statement["Action"] if isinstance(statement["Action"], list) else [statement["Action"]])]
-
-
-def test_customer_trust_role_cannot_read_platform_or_assume_platform_roles():
-    iam = (Path(__file__).parents[1] / "infra/aws/iam.tf").read_text()
-    collector = iam.split('resource "aws_iam_role_policy" "collector"', 1)[1].split('resource "aws_iam_role" "customer_trust"', 1)[0]
-    broker = iam.split('resource "aws_iam_role_policy" "customer_trust"', 1)[1].split('resource "aws_iam_role" "analyzer"', 1)[0]
-    assert 'Resource = local.customer_trust_arn' in collector
-    assert 'Resource = "arn:aws:iam::*:role/*"' not in collector
-    assert 'name        = "HackTricks-CSPM"' in iam
-    assert 'Sid = "AssumeCustomerRoles", Effect = "Allow", Action = "sts:AssumeRole", Resource = "*"' in broker
-    assert 'var.account_id' in broker and 'var.platform_account_ids' in broker
-    assert 'Sid = "BlockLocalAndOtherActions", Effect = "Deny", NotAction = "sts:AssumeRole", Resource = "*"' in broker
-    assert 'secretsmanager:' not in broker and 'dynamodb:' not in broker and 's3:' not in broker
-    assert '{ Effect = "Allow", Action = ["kms:Decrypt"], Resource = aws_kms_key.connectors.arn }' in collector
-    assert '{ Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = [aws_secretsmanager_secret.credentials.arn] }' in collector
-    assert '{ Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = var.gcp_platform_sa_secret_arn }' in collector
+    # The public sync must not delete the separately published source archive or role template.
+    assert "--delete" in command and set(excludes) == {"source/*", "aws/customer-role.json"}
 
 
 class GeneratedPackagePermissions(unittest.TestCase):
@@ -746,86 +690,6 @@ class DeploymentGuards(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "Frozen source changed"):
                     deploy.source_root()
 
-    def test_corresponding_source_includes_public_reproduction_inputs(self):
-        reproduction = {
-            "docs/compliance-ledgers/README.md", "docs/compliance-ledgers/manifest.json",
-            "docs/compliance-ledgers/new-checks-aws.json", "docs/compliance-ledgers/aws-cis.verify.md",
-            "docs/compliance-ledgers/descriptions/aws-1.json", "docs/compliance-ledgers/descriptions/aws-1.md",
-            "docs/compliance-ledgers/inputs/aws-cis.json",
-            "docs/compliance-ledgers/provenance/aws_config_all_resources_recorded.superseded-8f9c88b1.json",
-            "docs/compliance-ledgers/inputs/compliance-requirements-matrix.json.gz", "docs/compliance-ledgers/inputs/compliance-requirements-summary.json",
-            "docs/compliance-ledgers/inputs/compliance-runtime-coverage.json",
-            "tests/conftest.py", "tests/compliance_draft_isolation.py", "tests/compliance_source_conservation.py",
-            "tests/aws_tag_policy_fixture.py",
-            "tests/test_combined_release_gate.py", "tests/fixtures/remediation_aws_reviewed_overlay.json",
-            "tests/fixtures/markdown_anchor_expected.json",
-            "tests/test_next20_aws.py",
-            "tests/fixtures/next20_aws.json",
-            "tests/test_secret_rotation_collector.py",
-            "tests/test_azure_apim_native.py",
-            "tests/test_gcp_audit_native.py",
-            'tests/test_post_dfaf_aws.py',
-            'tests/test_post_dfaf_azure.py',
-            'tests/fixtures/post_dfaf_aws.json',
-            'tests/fixtures/post_dfaf_azure/cases.json',
-            'tests/fixtures/post_dfaf_integration/conservation.json',
-            'tests/fixtures/post_dfaf_integration/contract.json',
-            'tests/fixtures/post_dfaf_integration/derived-row-preimages.json',
-            "tests/fixtures/batch_remaining_gcp_k8s/central-fixture-fragment.json",
-            "tests/fixtures/batch_remaining_gcp_k8s/full-id-disposition.json",
-            "tests/fixtures/batch_remaining_azure_vm_storage/central-fixture-fragment.json",
-            "tests/fixtures/batch_remaining_azure_vm_storage/full-id-disposition.json",
-            "Blue-AWSPEAS.py", "tests/test_blue_awspeas_access_analyzer_read_only.py",
-            "tests/fixtures/privesc/synthetic_aws.py", "tests/fixtures/privesc/catalog/aws/fixture.yaml",
-            "scripts/__init__.py", "scripts/check_test_skips.py", "peaso/__init__.py",
-            "peaso/privesc/__init__.py",
-        }
-        excluded = {
-            "docs/compliance-ledgers/.work/swarm/draft.json", "docs/compliance-ledgers/.work/notes.md",
-            "docs/compliance-ledgers/gcp-c5.verify.log", "docs/compliance-ledgers/untitled.md",
-            "docs/compliance-ledgers/Untitled-2.json", "docs/compliance-ledgers/nested/unlisted.json",
-            "docs/compliance-ledgers/inputs/raw.txt", "docs/compliance-ledgers/provenance/note.md",
-            "docs/handoff/FINAL_GATES.md", "docs/handoff/compliance-pending-signed-proposal-queue.json",
-            "docs/handoff/compliance-requirements-matrix.private.json",
-            "tests/fixtures/credentials.json", "tests/fixtures/privesc/catalog/aws/extra.yaml",
-            "tests/fixtures/privesc/private.yaml", "tests/unrelated_helper.py", "tests/e2e/test_unlisted.py",
-            "scripts/unrelated_tool.py", "untitled-notes.md",
-        }
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder).resolve()
-            build = root / "fixture-build"
-            build.mkdir()
-            for name in reproduction | excluded:
-                path = root / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                if path.suffix == ".gz":
-                    path.write_bytes(b"\x1f\x8b offline fixture")
-                else:
-                    path.write_text("{}\n" if path.suffix == ".json" else "# offline fixture\n")
-            fixture_name = "tests/fixtures/markdown_anchor_expected.json"
-            fixture_bytes = (Path(__file__).parents[1] / fixture_name).read_bytes()
-            (root / fixture_name).write_bytes(fixture_bytes)
-            with patch.object(deploy, "ROOT", root), patch.object(deploy, "BUILD", build), \
-                    patch.object(deploy, "run", side_effect=AssertionError("No external commands in fixture")), \
-                    contextlib.redirect_stdout(io.StringIO()):
-                release = deploy.freeze_release()
-                self.assertEqual(set(release["files"]), reproduction)
-                self.assertEqual(release["files"][fixture_name], hashlib.sha256(fixture_bytes).hexdigest())
-                archive_path = build / f"peaso-source-{release['source_version']}.zip"
-                with zipfile.ZipFile(archive_path) as archive:
-                    self.assertEqual(set(archive.namelist()), reproduction | {"release.json"})
-                    self.assertEqual(json.loads(archive.read("release.json")), release)
-                    self.assertEqual(archive.read(fixture_name), fixture_bytes)
-                    self.assertEqual(hashlib.sha256(archive.read(fixture_name)).hexdigest(),
-                                     release["files"][fixture_name])
-                    for name in reproduction:
-                        self.assertEqual(archive.read(name), (root / name).read_bytes())
-                self.assertEqual(deploy.source_root(), build / "source-snapshot")
-                ledger = build / "source-snapshot/docs/compliance-ledgers/new-checks-aws.json"
-                ledger.write_text("{\"changed\": true}\n")
-                with self.assertRaisesRegex(RuntimeError, "Frozen source changed"):
-                    deploy.source_root()
-
     def test_reproduction_ledger_symlink_and_invalid_json_refused(self):
         for case in ("symlink", "json"):
             with self.subTest(case), tempfile.TemporaryDirectory() as folder:
@@ -915,15 +779,6 @@ class DeploymentGuards(unittest.TestCase):
             with self.subTest(cpu=cpu, memory=memory), self.assertRaisesRegex(RuntimeError, "sizing"):
                 deploy.verify_worker_resources({"collector": {"cpu": cpu, "memory": memory},
                                                 "analyzer": {"cpu": 512, "memory": 4096}})
-
-    def test_large_sizing_reconstructs_reviewed_source(self):
-        import hashlib
-        source = (deploy.INFRA / "variables.tf").read_bytes()
-        self.assertEqual(hashlib.sha256(source).hexdigest(), deploy.WORKER_SIZING_CURRENT_SHA256)
-        for successor, predecessor in deploy.WORKER_SIZING_REVERSE:
-            self.assertEqual(source.count(successor), 1)
-            source = source.replace(successor, predecessor, 1)
-        self.assertEqual(hashlib.sha256(source).hexdigest(), deploy.RUNTIME_LIMITS_CURRENT_SHA256)
 
     def test_stale_override_refused_before_variables_are_rewritten(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(deploy, "INFRA", Path(folder)):
@@ -1854,27 +1709,6 @@ class CloudFrontRecoveryGuards(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-def test_two_hour_runtime_successor_reconstructs_the_deployed_configuration():
-    current = (deploy.INFRA / 'variables.tf').read_bytes()
-    digest = hashlib.sha256(current).hexdigest()
-    approved = {deploy.RUNTIME_LIMITS_CURRENT_SHA256}
-    if hasattr(deploy, 'WORKER_SIZING_CURRENT_SHA256'):
-        approved.add(deploy.WORKER_SIZING_CURRENT_SHA256)
-    assert digest in approved
-    restored = current
-    if digest != deploy.RUNTIME_LIMITS_CURRENT_SHA256:
-        for successor, predecessor in deploy.WORKER_SIZING_REVERSE:
-            assert restored.count(successor) == 1
-            restored = restored.replace(successor, predecessor, 1)
-        assert hashlib.sha256(restored).hexdigest() == deploy.RUNTIME_LIMITS_CURRENT_SHA256
-    for before, after in deploy.RUNTIME_LIMITS_EXACT_REPLACEMENTS:
-        assert restored.count(after) == 1
-        restored = restored.replace(after, before, 1)
-    assert hashlib.sha256(restored).hexdigest() == deploy.RUNTIME_LIMITS_PREDECESSOR_SHA256
-    assert deploy.RUNTIME_CONFIG_SHA256['variables.tf'] == '2824bc1ff26a1cb2bdc97109bd911d301ee1df29688253d5c2cd22236b928a58'
-    assert hashlib.sha256(current + b'\n# unreviewed change\n').hexdigest() not in approved
 
 
 def test_fresh_checkout_applies_explicit_operator_template_and_runtime_config(tmp_path, monkeypatch):

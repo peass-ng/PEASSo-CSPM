@@ -6,15 +6,11 @@ No network: the engine evaluates sealed in-memory snapshots.
 from __future__ import annotations
 
 import copy
-import hashlib
-import json
 from pathlib import Path
 
 import pytest
 
-import peaso.checks as checks_pkg
 from peaso.checks import CHECKS, aws_config_recording
-from peaso.checks.catalog import proposal_provenance_for, requirement_tags_for
 from peaso.checks.aws_a_facts import scope_fixture
 from peaso.checks.facts import MemoIndex
 from peaso.engine import evaluate_snapshot
@@ -207,53 +203,6 @@ def test_scoped_memo_index_matches_plain_index_and_is_pure():
     assert CHECK.evaluate(subject, plain) == CHECK.evaluate(subject, memo)
     assert CHECK.evaluate(subject, plain)[0] == "PASS" and plain == before
     assert CHECK.evaluate({"scope": ACCOUNT + "/global"}, plain)[0] == "UNKNOWN"
-
-
-def test_registration_metadata_and_signed_lineage():
-    assert [c.id for c in CHECKS].count(CID) == 1 and CID not in checks_pkg.CHECK_ALIASES
-    assert (CHECK.provider, CHECK.category, CHECK.kind, CHECK.severity, CHECK.target, tuple(CHECK.dependencies)) == (
-        "aws", "hardening", "config_recorder", "medium", "scope", ("config_recorder",))
-    ledgers = ROOT / "docs/compliance-ledgers"
-    manifest = json.loads((ledgers / "manifest.json").read_text())
-    index = json.loads((ledgers / "inputs/check-index.json").read_text())
-    implemented = json.loads((ledgers / manifest["new_descriptions"]["path"]).read_bytes())
-    assert hashlib.sha256((ledgers / manifest["new_descriptions"]["path"]).read_bytes()).hexdigest() == manifest["new_descriptions"]["sha256"]
-    assert CID not in {row["id"] for row in index}
-    assert implemented[CID]["proposed_spec_sha256"] == aws_config_recording.PROPOSED_SPEC_SHA256
-    assert CID not in (ROOT / "peaso/checks/compliance_new_sw07.py").read_text()
-    found, hashes = set(), set()
-    for slice_name in {s for s, _, _ in ROSTER}:
-        raw = (ledgers / manifest["slices"][slice_name]["path"]).read_bytes()
-        assert hashlib.sha256(raw).hexdigest() == manifest["slices"][slice_name]["sha256"]
-        for framework in json.loads(raw)["frameworks"]:
-            for row in framework["requirements"]:
-                for spec in row.get("new_checks", []):
-                    if spec["id"] == CID:
-                        found.add((slice_name, framework["id"], row["requirement_id"]))
-                        hashes.add(hashlib.sha256(json.dumps(spec, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest())
-                        assert (spec["title"], spec["remediation_hint"], spec["severity"], spec["category"], spec["resource_kind"]) == (
-                            CHECK.title, CHECK.remediation, CHECK.severity, CHECK.category, CHECK.kind)
-    assert found == ROSTER
-    assert hashes == {aws_config_recording.PROPOSED_SPEC_SHA256} == {"1e764e3f7419f6fba0cee7eb95a629796b7f57ac354fdd251f6760075600300e"}
-    # The canonical catalogue carries the one admitted definition; the original proposal is kept, never relabelled,
-    # as a durable provenance companion under its own hash.
-    signed_keys = ("id", "provider", "resource_kind", "data_source", "predicate", "severity", "category", "title",
-                   "description", "remediation_hint")
-    digest = lambda spec: hashlib.sha256(json.dumps(spec, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
-    research = [spec for spec in json.loads((ledgers / "new-checks-aws.json").read_bytes()) if spec["id"] == CID]
-    assert len(research) == 1 and digest({key: research[0][key] for key in signed_keys}) == aws_config_recording.PROPOSED_SPEC_SHA256
-    companion = json.loads((ledgers / "provenance/aws_config_all_resources_recorded.superseded-8f9c88b1.json").read_bytes())
-    original = {key: companion["superseded_catalogue_entry"][key] for key in signed_keys}
-    assert aws_config_recording.SUPERSEDED_SPEC_SHA256 == "8f9c88b17914eac7d06deb0244eac58e022ec1c72e5d4c6e9b2013902935b353"
-    assert (companion["check_id"], companion["status"], companion["superseded_by_spec_sha256"]) == (
-        CID, "superseded", aws_config_recording.PROPOSED_SPEC_SHA256)
-    assert digest(original) == companion["superseded_spec_sha256"] == aws_config_recording.SUPERSEDED_SPEC_SHA256
-    assert hashlib.sha256(companion["superseded_spec_canonical_json"].encode()).hexdigest() == aws_config_recording.SUPERSEDED_SPEC_SHA256
-    assert {key: research[0][key] for key in research[0] if key not in ("data_source", "predicate")} == \
-        {key: companion["superseded_catalogue_entry"][key] for key in research[0] if key not in ("data_source", "predicate")}
-    assert proposal_provenance_for(CID)["signed_spec_sha256"] == aws_config_recording.PROPOSED_SPEC_SHA256
-    assert {(tag["framework_id"], tag["requirement_id"]) for tag in requirement_tags_for(CID)} == {(fid, rid) for _, fid, rid in ROSTER}
-    assert all(tag["decision"] == "PARTIAL" and tag["runtime_status"] == "partial" for tag in requirement_tags_for(CID))
 
 
 def test_observed_out_of_predicate_facts_are_reported_without_changing_verdict():

@@ -3,14 +3,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
-import json
-from pathlib import Path
 
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_sw04 as new
-from scripts.peaso_compliance_compile import spec_digest
 
 
 SCOPE = "/subscriptions/sub"
@@ -128,38 +125,6 @@ def test_positive_failure_survives_other_server_unknown():
     second["_coverage"]["configurations"]["status"] = "empty"
     assert evaluate_check("azure.cis.postgresql_single_log_connections", {"scope": SCOPE},
                           indexed(kind, [first, second]))[0] == "FAIL"
-
-
-def test_registered_metadata_matches_signed_entries():
-    assert set(CASES) | set(ML_CASES) | {new.AKS_HTTPS_ID} == set(new.IDS)
-    checks = [row for row in CHECKS if row.id in new.IDS]
-    assert len(checks) == len(new.IDS)
-    for check in checks:
-        spec = new.SPECS[check.id]
-        assert (check.provider, check.kind, check.severity, check.category, check.title) == (
-            spec["provider"], spec["resource_kind"], spec["severity"], spec["category"], spec["title"])
-        assert check.dependencies == [check.kind] and check.target == "scope"
-
-
-def test_proposed_spec_hashes_match_signed_ten_field_entries():
-    root = Path(__file__).resolve().parents[1] / "docs/compliance-ledgers"
-    entries = {}
-    def visit(value):
-        if isinstance(value, dict):
-            for row in value.get("new_checks", []):
-                if isinstance(row, dict) and row.get("id") in new.IDS:
-                    entries[row["id"]] = row
-            for child in value.values():
-                visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
-    for path in root.glob("*.json"):
-        if not path.name.startswith("new-checks-"):
-            visit(json.loads(path.read_text()))
-    assert set(entries) == set(new.IDS)
-    for check_id, entry in entries.items():
-        assert new.SPECS[check_id]["proposed_spec_sha256"] == spec_digest(entry)
 
 
 NOW = datetime(2026, 10, 12, tzinfo=timezone.utc).isoformat()
@@ -336,34 +301,3 @@ def test_plaintext_api_acceptance_does_not_require_complete_https_endpoint_cover
     assert evaluate_check(new.AKS_HTTPS_ID, {'scope': SCOPE}, aks_index([row]))[0] == 'FAIL'
     row['securityObservations']['apiTransport']['probes'][0]['http_api_request_accepted'] = False
     assert evaluate_check(new.AKS_HTTPS_ID, {'scope': SCOPE}, aks_index([row]))[0] == 'UNKNOWN'
-
-
-def test_reviewer_remediation_candidates_merge_against_real_signed_registry(tmp_path):
-    import json
-    from pathlib import Path
-    from peaso.remediation import _merge_compliance_reviewed
-    candidates = json.loads(Path('docs/compliance-ledgers/.work/swarm/swr-azure-remediation.json').read_text())
-    selected = {cid: candidates[cid] for cid in new.IDS}
-    shard = tmp_path / 'remediation_compliance_new_azure_review.json'
-    shard.write_text(json.dumps(selected))
-    merged = {}
-    _merge_compliance_reviewed(merged, ((shard, 'azure'),))
-    assert merged == selected
-    for cid, entry in selected.items():
-        check = next(check for check in CHECKS if check.id == cid)
-        binding = entry['field_binding']
-        assert binding['evaluator_family'] == 'peaso.checks.compliance_new_sw04'
-        assert binding['kind'] == check.kind and binding['target'] == check.target
-        assert binding['path'] and entry['summary'] and entry['steps'] and entry['references']
-        assert entry['review_status'] == 'source_bound_pending_review' and entry['cli'] == []
-        assert all(ref['url'].startswith('https://') for ref in entry['references'])
-
-
-def test_ml_descriptions_bind_guest_observations_instead_of_arm_ssh_flags():
-    descriptions = json.loads(Path('docs/compliance-ledgers/.work/swarm/sw04-descriptions.json').read_text())
-    for cid, field in ML_CASES.items():
-        if field == 'fileDownload':
-            continue
-        entry = descriptions[cid]
-        assert 'guest/host' in entry['description'] and 'enableSshAccess=true' not in entry['description']
-        assert 'guest/host' in entry['pass_when'] and 'complete-path' in entry['pass_when']

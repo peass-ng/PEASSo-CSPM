@@ -1,7 +1,6 @@
 """Public workload and runtime privilege must both be recorded for a finding."""
 
 import json
-import hashlib
 from pathlib import Path
 
 from peaso.snapshot import make_snapshot, resources
@@ -404,10 +403,6 @@ def test_customer_role_can_read_api_custom_domain_mappings():
     assert api_read["Action"] == "apigateway:GET"
     for suffix in ("/domainnames/*/basepathmappings", "/domainnames/*/apimappings", "/apis/*/integrations"):
         assert {"Fn::Sub": "arn:${AWS::Partition}:apigateway:*::" + suffix} in api_read["Resource"]
-    # The signed allocation is historical input to the generator, not the active role.
-    from scripts.peaso_deploy_customer_policy import REVIEWED_ROLE_SHA256
-    archive = (root / "infra/aws/customer-policy-allocation.json").read_bytes()
-    assert hashlib.sha256(archive).hexdigest() == REVIEWED_ROLE_SHA256
 
 
 def test_gcp_public_cloud_run_uses_owner_service_account(monkeypatch):

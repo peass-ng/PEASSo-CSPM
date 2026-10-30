@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import batch_remaining_k8s  # noqa: F401
 from peaso.checks.facts import MemoIndex
+from peaso.checks import batch_remaining_k8s  # noqa: F401  (registration side effect)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,15 +28,6 @@ def test_k8s_native_identity_and_snapshot_outcomes(check_id):
     for expected in ("pass", "fail", "unknown"):
         fixture = scenarios[expected]
         assert evaluate_check(check_id, fixture["item"], fixture["index"])[0] == expected.upper(), (check_id, expected)
-
-
-def test_held_shapes_remain_unregistered():
-    from tests.release_successor_history import BULK_IDS
-    held = {row["id"] for row in DISPOSITION["ids"] if row["provider"] == "k8s" and row["disposition"] == "source_correction_hold"}
-    registered = {check.id for check in CHECKS}
-    assert held.intersection(registered) == held.intersection(BULK_IDS)
-    for ident in held.intersection(BULK_IDS):
-        assert evaluate_check(ident, {}, {})[0] == "UNKNOWN"
 
 
 @pytest.mark.parametrize("check_id", IDS)

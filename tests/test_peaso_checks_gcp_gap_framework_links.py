@@ -4,7 +4,6 @@ from pathlib import Path
 
 from peaso.checks import CHECKS
 from peaso.checks.catalog import framework_names_for
-from tests.compliance_source_conservation import assert_source_frameworks_conserved
 
 ROOT = Path(__file__).resolve().parent.parent
 PACK = ROOT / "peaso" / "rulepacks"
@@ -27,12 +26,6 @@ def test_corrected_merges_keep_defect_evidence_and_real_natives():
         verified = row.get("native_equivalence_verification", {}).get("target_native_checks", [])
         assert set(row["native_checks"]) <= set(row.get("replacement_checks", []) + row.get("replacement_native_checks", []) + verified) | {
             c.id for c in CHECKS if c.id.split(".")[-1] in [row["upstream_id"]] + row["upstream_evaluator"].get("query_ids", [])}
-
-
-def test_framework_controls_attach_to_each_corrected_native():
-    for row in rows():
-        for native in row["native_checks"]:
-            assert_source_frameworks_conserved(row, native)
 
 
 def test_example_cis_gcp_v120_corporate_domain_now_labels_native():

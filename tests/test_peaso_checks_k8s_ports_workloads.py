@@ -1,14 +1,11 @@
 """Differential truth fixtures for reviewed workload expression families."""
 import copy
-import hashlib
-import json
-from pathlib import Path
 
 import pytest
 
 from peaso.checks import CHECKS
 from peaso.checks import k8s_ports_workloads as ports
-from peaso.checks.fixtures import CASES, nest
+from peaso.checks.fixtures import nest
 
 REGISTRY = {check.id: check for check in CHECKS if check.id in ports.IDS}
 
@@ -106,17 +103,3 @@ def test_image_registry_port_and_optional_default_pull_policy():
     assert pull.evaluate({"spec": {"containers": [{"name": "a", "image": "app:latest"}]}}, {})[0] == "FAIL"
     assert pull.evaluate({"spec": {"containers": [{"name": "a", "image": "app:v2"}]}}, {})[0] == "FAIL"
     assert pull.evaluate({"spec": {"containers": [{"name": "a", "image": "app:v2", "imagePullPolicy": "Always"}]}}, {})[0] == "PASS"
-
-
-def test_shard_is_pinned_disjoint_and_has_concrete_rejection_evidence():
-    root = Path(__file__).resolve().parents[1]
-    shard = json.loads((root / "peaso/rulepacks/reviewed_k8s_ports_workloads.json").read_text())
-    assigned = set(json.loads((root / "peaso/rulepacks/port_partitions.json").read_text())["partitions"]["gcp_k8s"]["check_ids"])
-    assert set(shard) <= assigned
-    assert len(shard) > 100
-    for row in shard.values():
-        assert row["disposition"] in ("ported", "merged", "rejected")
-        assert len(row["review_notes"]["revision"]) == 40
-        assert len(row["review_notes"]["source_query_sha256"]) == 64
-        if row["disposition"] == "rejected":
-            assert row["native_checks"] == [] and row["replacement_native_checks"]

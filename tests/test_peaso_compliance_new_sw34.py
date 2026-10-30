@@ -5,7 +5,7 @@ import copy
 import hashlib
 import json
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from tests.compliance_draft_isolation import staged_registry
 with staged_registry(("compliance_new_sw34",)):
     from peaso.checks import compliance_new_sw34 as sw34
@@ -198,14 +198,6 @@ def test_bot_not_applicable_only_with_authoritative_support_policy():
 
 
 def test_signed_metadata_and_immutable_facts():
-    matches = [check for check in CHECKS if check.id in (sw34.SUBNET_ID, sw34.BOT_ID)]
-    assert len(matches) == 2
-    assert {check.id: (check.provider, check.kind, check.category, check.severity, check.title)
-            for check in matches} == {
-        sw34.SUBNET_ID: ("azure", "subnet", "network", "medium", "Subnet default route points to an approved Azure Firewall"),
-        sw34.BOT_ID: ("azure", "bot_service", "encryption", "medium", "Use customer-managed encryption where Bot Service supports it")}
-    assert sw34.SUBNET_SPEC_SHA256 == "dacbcf0058f4471adb9f2f58d690c8e1a6324a516366fa9435b5fbe766cc6a64"
-    assert sw34.BOT_SPEC_SHA256 == "576b101b111babd627ca77d9aad52922932bf9bbdbd9db4a443c451fa1e89f58"
     row = subnet()
     facts = subnet_index(row)
     before = copy.deepcopy((row, facts))

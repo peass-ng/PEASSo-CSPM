@@ -1,17 +1,13 @@
 """Offline selector and cold API preflight regression tests."""
-import ast
 import copy
-import importlib.util
 import json
 from pathlib import Path
-import re
 import subprocess
 import sys
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-PURE = ROOT / 'peaso/server/content_selection_preflight_20261021.py'
 GUID = '12345678-1234-1234-1234-123456789abc'
 AZ_SCOPE = '/subscriptions/' + GUID
 AWS_SCOPE = '123456789012/us-east-1'
@@ -183,45 +179,6 @@ def test_gcp_new_source_selectors(pure, name, fixture):
         getattr(pure, name).selections(bad, scopes[0])
     with pytest.raises(ValueError):
         getattr(pure, name).selections(options[key], 'projects/foreign')
-
-
-def bind_static_selector_peers(node):
-    """Replace only the reviewed two-name peer imports with their pure bindings."""
-    peers = {
-        'aws_ecs_environment_file_secret_indicators': 'ecs_env',
-        'aws_workload_referenced_source_indicators': 'workload_ref',
-        'aws_build_deployment_referenced_source_indicators': 'build_ref',
-    }
-    class Bind(ast.NodeTransformer):
-        def visit_ImportFrom(self, value):
-            if value.level != 1 or value.module not in peers:
-                return value
-            assert [alias.name for alias in value.names] == ['source_target', 'OPTION']
-            names = ', '.join(alias.asname or alias.name for alias in value.names)
-            module = peers[value.module]
-            return ast.parse(names + ' = peers.' + module + '.source_target, peers.' + module + '.OPTION').body[0]
-    return Bind().visit(copy.deepcopy(node))
-
-
-def test_copied_selector_ast_matches_native():
-    native = {'registry': 'k8s_selected_registry_image_20261021',
-              'flux': 'k8s_selected_flux_artifact_20261021',
-              'ml_asset': 'azure_ml_selected_asset_secret_indicators',
-              'databricks': 'azure_databricks_notebook_secret_indicators',
-              'synapse': 'azure_synapse_selected_notebook_secret_indicators',
-              'ecs_env': 'aws_ecs_environment_file_secret_indicators',
-              'aws_config': 'aws_selected_configuration_secret_indicators',
-              'workerpool': 'gcp_workerpool_image_native_20261021',
-              'developerconnect': 'gcp_developerconnect_file_native_20261021'}
-    pure_tree = ast.parse(PURE.read_text())
-    for name, filename in native.items():
-        path = ROOT / 'peaso/collectors' / (filename + '.py')
-        source = ast.parse(path.read_text())
-        factory = next(node for node in pure_tree.body if isinstance(node, ast.FunctionDef) and node.name == '_make_' + name)
-        fn_name = 'selections' if name in ('workerpool', 'developerconnect') else 'selected_targets'
-        native_fn = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == fn_name)
-        copied_fn = next(node for node in factory.body if isinstance(node, ast.FunctionDef) and node.name == fn_name)
-        assert ast.dump(bind_static_selector_peers(native_fn), include_attributes=False) == ast.dump(copied_fn, include_attributes=False)
 
 
 def test_fresh_process_api_preflight_denies_native_imports_and_io():

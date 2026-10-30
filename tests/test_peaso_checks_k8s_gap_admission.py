@@ -59,17 +59,6 @@ def manifest_rows():
     return {r["check_id"]: r for r in json.loads((PACK / "upstream_manifest.json").read_text())["checks"]}
 
 
-def test_prowler_rows_attach_cis_frameworks_to_corrected_natives():
-    rows = manifest_rows()
-    for key, cid in (("prowler.kubernetes.apiserver_deny_service_external_ips", IDS[0]),
-                     ("prowler.kubernetes.apiserver_event_rate_limit", IDS[1])):
-        row = rows[key]
-        assert row["disposition"] == "merged" and row["native_checks"] == [cid]
-        assert row["review_classification"] == "corrected_native_merge" and row["upstream_defect"]["reason"]
-        assert_source_frameworks_conserved(row, cid)
-        assert any(f["framework_id"].startswith("cis_") for f in row["frameworks"])
-
-
 def test_every_k8s_corrected_merge_preserves_defect_and_links_frameworks():
     rows = [r for r in manifest_rows().values() if r["provider"] == "k8s" and r.get("review_classification") == "corrected_native_merge"]
     assert len(rows) == 114

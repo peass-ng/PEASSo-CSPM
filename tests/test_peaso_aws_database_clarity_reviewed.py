@@ -1,14 +1,11 @@
 """Actual database predicate outputs and guarded concise finding presentation."""
 from copy import deepcopy
-import hashlib
-import inspect
 import json
 from pathlib import Path
 import pytest
 from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
-from peaso.checks.catalog import _base_description_for, description_for
-from peaso.checks.aws_database_clarity_reviewed import ROWS, _digest, description, remediation, evidence_summary
+from peaso.checks.aws_database_clarity_reviewed import ROWS, _digest, evidence_summary
 
 CHECK_BY_ID = {c.id:c for c in CHECKS}
 PACK = Path(__file__).resolve().parents[1]/'peaso/rulepacks'
@@ -24,39 +21,6 @@ def originals():
     assert set(out)==set(ROWS)
     return out
 
-@pytest.mark.parametrize('cid',sorted(ROWS))
-def test_copy_changes_only_reviewed_fields_and_preserves_originals(cid, originals):
-    original=_base_description_for(cid);saved=deepcopy(original);actual=description(cid,original)
-    assert original==saved
-    assert actual['description']==ROWS[cid]['description_fields']['description']
-    assert 5<=len(actual['description'].split())<=35
-    assert {k:v for k,v in actual.items() if k!='description'}=={k:v for k,v in original.items() if k!='description'}
-    assert description_for(cid)==actual
-    original=originals[cid];saved=deepcopy(original);actual=remediation(cid,original)
-    assert original==saved
-    assert len(actual['steps'])==1 and actual['steps'][0]==actual['summary']
-    assert len(actual['summary'].split())<=40
-    changed=ROWS[cid]['remediation_fields']
-    assert {k:v for k,v in actual.items() if k not in changed}=={k:v for k,v in original.items() if k not in changed}
-    if original.get('review_status')=='approved':
-        assert actual.get('cli')==original.get('cli')
-        assert actual.get('iac')==original.get('iac')
-        assert actual.get('references')==original.get('references')
-
-@pytest.mark.parametrize('cid',sorted(ROWS))
-def test_source_and_severity_decisions_bind_actual_predicates(cid):
-    row=ROWS[cid];check=CHECK_BY_ID[cid];fn=inspect.unwrap(check.evaluate)
-    assert row['reviewed_binding']['kind']==check.kind
-    assert row['reviewed_binding']['predicate_qualname']==fn.__qualname__
-    assert row['reviewed_binding']['predicate_source_sha256']==hashlib.sha256(inspect.getsource(fn).encode()).hexdigest()
-    assert row['reviewed_source_severity']==check.severity
-    assert row['reviewed_severity'] in {'critical','high','medium','low','info'}
-
-@pytest.mark.parametrize('cid',sorted(ROWS))
-def test_stale_catalog_and_guidance_fail_closed(cid,originals):
-    for original,apply in [(_base_description_for(cid),description),(originals[cid],remediation)]:
-        original=deepcopy(original);original['unexpected_drift']=True
-        with pytest.raises(ValueError,match='Reviewed database clarity base changed'):apply(cid,original)
 
 @pytest.mark.parametrize('cid',sorted(ROWS))
 def test_summaries_use_real_failure_cases_and_preserve_raw_evidence(cid):

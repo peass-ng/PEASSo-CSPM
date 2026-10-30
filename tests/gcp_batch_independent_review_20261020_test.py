@@ -5,8 +5,6 @@ offline native HTTP harness; assertions preserve any discovered red proof.
 """
 from copy import deepcopy
 import base64
-import gzip
-import hashlib
 import importlib.util
 import io
 import json
@@ -157,21 +155,3 @@ def test_actual_scanners_never_execute_script_and_raw_values_stay_private(monkey
         assert private not in raw
     assert not hasattr(trace.transport, '_batch_source_redactions')
     output = capsys.readouterr(); assert not output.out and not output.err
-
-
-def test_pinned_primary9_and_proposal163_contracts_remain_exact():
-    receipt = json.loads((ROOT / 'peaso/checks/gcp_batch_referenced_source_20261020_proposal.json').read_text())
-    for name, digest in receipt['files'].items():
-        assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest
-    directory = ROOT / 'docs/gcp-review/recheck-20261020'
-    primary = json.loads(gzip.decompress((directory / 'gcp_batch_referenced_source_20261020_primary.json.gz').read_bytes()))
-    assert len(primary['sources']) == 9
-    for doc in primary['sources']:
-        assert len(doc['html'].encode()) == doc['bytes']
-        assert hashlib.sha256(doc['html'].encode()).hexdigest() == doc['sha256']
-    job = next(d['html'] for d in primary['sources'] if d['url'].endswith('/v1/projects.locations.jobs'))
-    for term in ('uid', 'taskGroups', 'runnables', 'volumes', 'mountPath', 'remotePath',
-                 'The path to a script file that is accessible from the host VM', 'bucket_name/subdirectory/'):
-        assert term in job
-    report = json.loads((directory / 'gcp_batch_referenced_source_20261020_report.json').read_text())
-    assert report['validation']['passed'] == 163

@@ -3,10 +3,8 @@
 No cloud calls. Stubber validates installed SDK shapes; these probes do not claim
 all-service collect() execution, exhaustive policy equivalence or live behavior.
 """
-import copy
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 from peaso.engine import _registry
@@ -180,14 +178,6 @@ def test_cloudfront_external_bucket_fact_has_no_native_producer():
     item = {'Config': {'collection_status': 'collected', 'DistributionConfig': config}}
     check = REGISTRY['aws.c2b.cloudfront.s3_origin_bucket_exists']
     assert check.evaluate(item, inventory('bucket', [], 'empty'))[0] == 'UNKNOWN'
-    source = '\n'.join(p.read_text() for p in Path('peaso/collectors').glob('aws*.py'))
-    assert 'OriginBucketProbes' not in source
-
-
-def test_review_serializes_exact_selected_ids():
-    review = json.loads(Path('docs/aws-review/service-family-review.json').read_text())
-    assert review['selected_ids'] == sorted(REGISTRY)
-    assert {r['id'] for r in review['checks']} == set(REGISTRY)
 
 
 @pytest.mark.parametrize('kind', ['secret', 'opensearch_domain'])

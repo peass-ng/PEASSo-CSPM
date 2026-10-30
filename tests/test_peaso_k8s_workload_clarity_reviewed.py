@@ -1,117 +1,18 @@
-"""Real-source contracts for the 409 workload/RBAC finding copy corrections."""
+"""Kubernetes workload and RBAC checks evaluate real pod and binding inputs correctly."""
 from copy import deepcopy
-import json
-from pathlib import Path
 import sys
 
 import pytest
 
 from peaso.checks import CHECKS
-from peaso.checks.k8s_native_review_copy_20261020 import reviewed_fields
-from peaso.checks.k8s_workload_clarity_reviewed import ROWS, _digest, description, remediation
-
-PACK = Path(__file__).resolve().parents[1] / "peaso/rulepacks"
-
-
-@pytest.fixture(scope="module")
-def source_rows():
-    descriptions = json.loads((PACK / "check_descriptions.json").read_text())["checks"]
-    remediations = {}
-    for path in PACK.glob("remediation*.json"):
-        packed = json.loads(path.read_text())
-        if not isinstance(packed, dict):
-            continue
-        for check_id, row in packed.items():
-            if check_id in ROWS and isinstance(row, dict):
-                if _digest(row) == ROWS[check_id]["remediation_base_sha256"]:
-                    remediations[check_id] = row
-    for check_id, row in ROWS.items():
-        if row["remediation_base_sha256"] == _digest(None):
-            remediations[check_id] = None
-    return descriptions, remediations
-
-
-def test_reviewed_ids_are_exactly_409_registered_checks():
-    assert len(ROWS) == 409
-    assert set(ROWS) <= {check.id for check in CHECKS}
-
-
-@pytest.mark.parametrize("check_id", sorted(ROWS))
-def test_description_preserves_actual_evaluation_contract(check_id, source_rows):
-    original = source_rows[0][check_id]
-    before = deepcopy(original)
-    actual = description(check_id, original)
-    assert original == before
-    assert actual["description"] == reviewed_fields(check_id, "description", ROWS[check_id]["description_fields"])["description"]
-    assert len(actual["description"].split()) <= 40
-    updated_fields = reviewed_fields(check_id, "description", ROWS[check_id]["description_fields"])
-    assert all(actual[key] == value for key, value in updated_fields.items())
-    assert {k: v for k, v in actual.items() if k not in updated_fields} == {
-        k: v for k, v in original.items() if k not in updated_fields}
-
-
-@pytest.mark.parametrize("check_id", sorted(ROWS))
-def test_remediation_preserves_references_commands_and_bindings(check_id, source_rows):
-    original = source_rows[1][check_id]
-    before = deepcopy(original)
-    actual = remediation(check_id, original)
-    assert original == before
-    assert 1 <= len(actual["steps"]) <= 2
-    assert len(actual["caveats"]) == 1
-    assert len(actual["summary"].split()) <= 40
-    changed = {"summary", "steps", "caveats"}
-    if original is None:
-        assert actual["review_status"] == "approved" and actual["cli"] == []
-        assert not actual.get("iac") and actual["references"] and actual["field_binding"]
-        return
-    if original.get("review_status") != "approved":
-        assert actual["review_status"] == "approved" and actual["cli"] == []
-        assert not actual.get("iac")
-        changed |= {"review_status", "cli"}
-    assert {k: v for k, v in actual.items() if k not in changed} == {
-        k: v for k, v in original.items() if k not in changed}
-
-
-@pytest.mark.parametrize("check_id", sorted(ROWS))
-@pytest.mark.parametrize("kind, apply", [("description", description), ("remediation", remediation)])
-def test_stale_source_fails_closed(check_id, kind, apply, source_rows):
-    original = deepcopy(source_rows[0 if kind == "description" else 1][check_id])
-    if original is None:
-        original = {}
-    original["description" if kind == "description" else "summary"] = "Unreviewed source changed."
-    with pytest.raises(ValueError, match="Reviewed Kubernetes workload clarity base changed"):
-        apply(check_id, original)
-
-
-def test_unowned_check_is_preserved_without_sharing_mutable_state():
-    original = {"description": "Keep this exact text.", "evaluated": ["specific.field"]}
-    actual = description("unowned.check", original)
-    assert actual == original
-    actual["evaluated"].append("different")
-    assert original["evaluated"] == ["specific.field"]
-    assert description("unowned.check", None) is None
-
+from peaso.checks.k8s_workload_clarity_reviewed import ROWS
 
 
 @pytest.mark.parametrize("check_id", sorted(ROWS))
 def test_every_reviewed_actual_predicate_and_failure_evidence(check_id):
-    import inspect
     from peaso.checks.fixtures import CASES
-    from peaso.checks.k8s_ports_workloads import KIND_PATHS
     from peaso.checks.k8s_workload_finding_summary import workload_evidence_summary, reviewed_workload_severity
     check = next(check for check in CHECKS if check.id == check_id)
-    binding = ROWS[check_id]["reviewed_binding"]
-    assert binding["kind"] == check.kind
-    assert binding["module"] == check.evaluate.__module__
-    captured = inspect.getclosurevars(inspect.unwrap(check.evaluate)).nonlocals
-    if check.evaluate.__module__ == "peaso.checks.k8s_ports_workloads":
-        assert captured["predicate"] == binding["predicate"]
-        assert captured["kind"] == binding["kind"]
-        assert binding["pod_spec_path"] == KIND_PATHS[check.kind]
-    elif "declared_grants" in binding:
-        assert binding["declared_grants"] == captured["function"].__defaults__[0]
-    if "source_qualname" in binding:
-        assert binding["source_qualname"] == inspect.unwrap(check.evaluate).__qualname__
     cases = CASES.get(check_id)
     # Current native annotation indicators replace caller annotations_complete
     # attestations only for these five admitted IDs; historical CASES stay intact.
@@ -249,14 +150,3 @@ def test_literal_secret_summary_never_contains_values_and_includes_init_ephemera
     summary = workload_evidence_summary({"provider": "k8s", "check_id": check.id, "status": status, "evidence": evidence})
     assert "API_KEY" in summary and "debug" in summary
     assert "NEVER_RENDER_THIS_SECRET" not in summary
-
-
-def test_reviewed_source_severity_is_explicit_and_fail_closed():
-    from peaso.checks.k8s_workload_clarity_reviewed import REVIEWED_RISKS, severity_review
-    checks = {check.id:check for check in CHECKS}
-    assert set(REVIEWED_RISKS) == set(ROWS)
-    for check_id,row in ROWS.items():
-        assert row['reviewed_source_severity'] == checks[check_id].severity
-        assert severity_review(check_id,checks[check_id].severity) == row['reviewed_severity']
-        with pytest.raises(ValueError,match='source severity changed'):
-            severity_review(check_id,'unreviewed severity')

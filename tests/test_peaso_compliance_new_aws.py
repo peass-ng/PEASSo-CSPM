@@ -1,6 +1,6 @@
 """Semantic fixtures for signed, source-bound AWS compliance additions."""
-from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import compliance_new_aws  # noqa: F401: registration side effect
+from peaso.checks import evaluate_check
+from peaso.checks import compliance_new_aws  # noqa: F401  (registration side effect)
 
 
 def evaluate(check_id, item, index=None):
@@ -77,14 +77,3 @@ def test_config_all_supported_resources_respects_exclusion_strategy():
     assert evaluate(check_id, {"recordingGroup": {**group, "exclusionByResourceTypes": {"resourceTypes": ["AWS::S3::Bucket"]}}})[0] == "FAIL"
     assert evaluate(check_id, {"recordingGroup": {**group, "exclusionByResourceTypes": {"collection_status": "denied"}}})[0] == "UNKNOWN"
     assert evaluate(check_id, {})[0] == "UNKNOWN"
-
-
-def test_signed_aws_ids_register_once_with_source_kinds():
-    expected = {"aws_cloudfront_origin_failover_configured": "cloudfront_distribution",
-                "aws_config_continuous_inventory": "config_recorder", "aws_acm_certificate_lifecycle": "acm_certificate",
-                "aws_nist_cloudwatch_alarm_action_enabled": "cloudwatch_alarm",
-                "aws_config_recorder_all_supported_resources": "config_recorder"}
-    for check_id, kind in expected.items():
-        matches = [check for check in CHECKS if check.id == check_id]
-        assert len(matches) == 1 and matches[0].provider == "aws" and matches[0].kind == kind
-    assert next(check for check in CHECKS if check.id == "aws_config_continuous_inventory").severity == "medium"

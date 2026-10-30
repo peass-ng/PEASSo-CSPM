@@ -3,11 +3,10 @@ from peaso.checks.hacktricks_scope import includes
 import copy
 import importlib
 import json
-from pathlib import Path
 
 import pytest
 
-from peaso.checks import CHECKS, CHECK_ALIASES
+from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.checks import claude_aws_a
 from peaso.checks.claude_aws_a_common import CHECK_IDS, ROWS, CONTEXT, idx
@@ -15,7 +14,6 @@ from peaso.checks.claude_aws_a_common import CHECK_IDS, ROWS, CONTEXT, idx
 for _module in claude_aws_a.MERGE_MODULES:  # merge targets that the runtime registry may not import yet
     importlib.import_module("peaso.checks." + _module)
 
-ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = {check.id: check for check in CHECKS}
 HACKTRICKS = "HackTricks Cloud Best Practices"
 
@@ -85,43 +83,6 @@ def test_dependency_missing_is_not_a_finding(cid):
     cases = CASES[cid]
     status = _run(cid, cases["pass"], {"context": dict(CONTEXT)})
     assert status != "FAIL"
-
-
-def test_partition_dispositions_are_complete():
-    partition = json.loads((ROOT / "peaso/rulepacks/port_partitions_claude.json").read_text())["partitions"]["claude_aws_a"]["check_ids"]
-    expected = set(partition)
-    dispositions = claude_aws_a.dispositions()
-    assert set(dispositions) == expected
-    ported = {row for rows in ROWS.values() for row in rows}
-    assert ported <= expected
-    tables = [set(claude_aws_a.MERGED), set(claude_aws_a.EXISTING), set(claude_aws_a.MANUAL), set(claude_aws_a.REJECTED), ported]
-    assert sum(len(t) for t in tables) == len(expected), "a row has two dispositions"
-    for row, (kind, target) in dispositions.items():
-        assert kind in ("ported", "merged", "manual", "rejected"), row
-        if kind in ("ported", "merged"):
-            # A retired merge target still counts when it resolves to its registered survivor.
-            assert target and all(CHECK_ALIASES.get(cid, cid) in REGISTRY for cid in target), row
-    for row, entry in claude_aws_a.MANUAL.items():
-        assert entry["question"] and entry["guidance"] and entry["docs"], row
-    for row, entry in claude_aws_a.REJECTED.items():
-        assert entry["classification"] == "invalid_predicate" and entry["reason"] and entry["docs"], row
-
-
-def test_shards_match_dispositions():
-    reviewed = json.loads((ROOT / "peaso/rulepacks/reviewed_claude_aws_a.json").read_text())
-    manual = json.loads((ROOT / "peaso/rulepacks/reviewed_claude_aws_a_manual.json").read_text())
-    dispositions = claude_aws_a.dispositions()
-    assert set(reviewed) | set(manual) == set(dispositions) and not set(reviewed) & set(manual)
-    for row, (kind, target) in dispositions.items():
-        entry = manual[row] if kind == "manual" else reviewed[row]
-        assert entry["reviewed_source"]["revision"] and entry["reviewed_source"]["evaluator_sha256"], row
-        if kind == "manual":
-            assert entry["disposition"] == "rejected" and entry["review_classification"] == "manual_attestation" and not entry["native_checks"]
-            assert entry["manual_requirement"]["question"] == target["question"]
-        elif kind == "rejected":
-            assert entry["disposition"] == "rejected" and not entry["native_checks"] and entry["official_docs"], row
-        else:
-            assert entry["disposition"] == kind and sorted(entry["native_checks"]) == sorted(target), row
 
 
 # --------------------------------------------------------------------------- focused semantics

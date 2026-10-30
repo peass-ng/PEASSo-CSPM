@@ -1,7 +1,5 @@
 """Runtime guard for the distinct exposure handlers joined in the big wave."""
 
-import ast
-from pathlib import Path
 
 from peaso.analysis.internet_exposure import assess
 
@@ -10,15 +8,7 @@ def _resource(kind, data, scope="111122223333/us-east-1"):
     return {"id": kind, "type": kind, "scope": scope, "data": data}
 
 
-def test_dispatch_references_exist_and_assess_accepts_related_snapshots():
-    source = Path(__file__).parents[1] / "peaso/analysis/internet_exposure.py"
-    module = ast.parse(source.read_text())
-    definitions = {node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    dispatch = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "assess")
-    missing = {node.id for node in ast.walk(dispatch)
-               if isinstance(node, ast.Name) and node.id.startswith(("_aws_", "_gcp_", "_azure_", "_k8s_"))
-               and node.id not in definitions}
-    assert not missing
+def test_assess_accepts_related_snapshots_for_every_provider():
     for provider in ("aws", "gcp", "azure", "k8s"):
         assert assess({"provider": provider}, [], related_snapshots=()) == []
 

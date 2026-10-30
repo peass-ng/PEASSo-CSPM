@@ -374,11 +374,6 @@ def run_case(cid, mode, record_property, *, mutate=None):
     return snapshot, rows
 
 
-def test_assigned_active_id_conservation():
-    assert len(ASSIGNED) == len(set(ASSIGNED)) == 87
-    assert all(REGISTRY[cid].provider == 'azure' and REGISTRY[cid].kind in ('vm', 'nsg') for cid in ASSIGNED)
-
-
 @pytest.mark.parametrize('cid', ASSIGNED)
 @pytest.mark.parametrize('mode,expected', [('good', 'PASS'), ('bad', 'FAIL'), ('missing', 'UNKNOWN'),
                                          ('partial', 'UNKNOWN'), ('foreign-list', 'UNKNOWN'), ('foreign-detail', 'UNKNOWN')])

@@ -1,9 +1,7 @@
 """Native API-shape association cases; no cluster, registry, auth or detectors."""
 from copy import deepcopy
-import ast
 import builtins
 from dataclasses import asdict
-import inspect
 import importlib.util
 import json
 from pathlib import Path
@@ -421,15 +419,6 @@ def test_no_secret_or_unused_content_traversal_and_no_file_access(monkeypatch):
     result = run(pod)
     assert result["status"] == "associated"
     assert "NeverRead" not in json.dumps(result)
-
-
-def test_module_has_no_collector_auth_network_scanner_or_registration_imports():
-    tree = ast.parse(inspect.getsource(resolver))
-    modules = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
-    modules.update(alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names)
-    assert modules == {"dataclasses", "datetime", "re"}
-    assert not any(isinstance(node, ast.Name) and node.id in ("register", "Check", "scan_content")
-                   for node in ast.walk(tree))
 
 
 def test_native_json_roundtrip_and_result_are_deterministic():

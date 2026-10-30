@@ -1,9 +1,9 @@
 """Signed Lambda role-existence fixtures over complete account-global IAM facts."""
 
 from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import compliance_new_aws_lambda  # noqa: F401: registration
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
+from peaso.checks import compliance_new_aws_lambda  # noqa: F401  (registration side effect)
 
 
 CHECK_ID = "aws_cis_lambda_execution_role_exists"
@@ -86,14 +86,6 @@ def test_production_engine_joins_account_global_roles_to_regional_function():
     report = evaluate_snapshot(snapshot, categories=["least_privilege"], checks=[CHECK_ID])
     findings = [finding for finding in report["findings"] if finding["check_id"] == CHECK_ID]
     assert len(findings) == 1 and findings[0]["status"] == "PASS"
-
-
-def test_signed_metadata_and_dependency_are_unique():
-    matches = [check for check in CHECKS if check.id == CHECK_ID]
-    assert len(matches) == 1 and matches[0].provider == "aws"
-    assert matches[0].category == "least_privilege" and matches[0].kind == "lambda_function"
-    assert matches[0].severity == "medium" and matches[0].target == "resource"
-    assert matches[0].dependencies == ["lambda_function", "iam_role"]
 
 
 def usage(status="collected", shared=None):

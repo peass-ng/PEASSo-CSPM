@@ -316,14 +316,6 @@ def test_oci_manifest_builds_docker_save_layout_for_trivy_input(tmp_path):
     assert diffs == json.loads(config)['rootfs']['diff_ids']
 
 
-def test_selected_oci_collectors_request_docker_archives():
-    root = Path(__file__).resolve().parents[1] / 'peaso/collectors'
-    for name in ('aws_ecr_public_image_native_20261021.py', 'k8s_selected_registry_image_20261021.py',
-                 'azure_acr_image_vulnerabilities_20261021.py'):
-        source = (root / name).read_text()
-        assert "archive_format='oci'" not in source and "else 'docker'" not in source, name
-
-
 def staged_dirs():
     return [item[1] for item in archive._STAGED._items.values()]
 

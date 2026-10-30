@@ -4,7 +4,6 @@ No original seal is recreated, no existing file/hook is patched, and no live
 cloud/auth is used. Only HTTPS transport and network denial are test doubles;
 the positive/clean/partial cases use both actual installed offline detectors.
 """
-import ast
 from copy import deepcopy
 import json
 import os
@@ -461,13 +460,3 @@ def test_fork_does_not_inherit_usable_native_projection_key(native_cases):
     assert source.authentic(envelope)
 
 
-def test_pure_consumer_and_adapter_do_not_install_hooks_or_sign_inputs():
-    tree = ast.parse(PURE_PATH.read_text())
-    imports = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-    imports |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
-    assert imports <= {'copy', 'datetime', 'hashlib', 'json', 're'}
-    producer = ast.parse(Path(exporter.__file__).read_text())
-    calls = [n.func.attr for n in ast.walk(producer) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)]
-    assert 'authentic' in calls and '_seal' not in calls
-    assert not any(name in calls for name in ('collect', 'install', 'register', 'credential_for'))
-    assert not hasattr(consumer, 'install') and not hasattr(exporter, 'install')

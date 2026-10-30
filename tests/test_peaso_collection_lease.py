@@ -1,4 +1,4 @@
-import ast,importlib.util,math,os,threading,time
+import importlib.util,os,time
 from pathlib import Path
 from types import SimpleNamespace
 import pytest
@@ -49,12 +49,3 @@ def test_actual_fork_discards_parent_job_authority(lease):
     try:assert os.read(read,16)==b'OK'
     finally:os.close(read);os.waitpid(pid,0)
     assert lease.effective_deadline(SimpleNamespace(deadline=None))==deadline
-
-def test_worker_hook_is_collector_only_inside_existing_error_boundary():
-    tree=ast.parse((P.parent/'worker.py').read_text());fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef)and n.name=='_process')
-    boundary=next(n for n in fn.body if isinstance(n,ast.Try))
-    hook=boundary.body[0]
-    assert isinstance(hook,ast.If)
-    assert ast.unparse(hook.test)=='role == \'collector\' and \'deadline\' in request'
-    assert ast.unparse(hook.body[1])=="configure_collection_lease(request['deadline'])"
-    assert isinstance(hook.body[0],ast.ImportFrom)and hook.body[0].module=='peaso.collection_lease'

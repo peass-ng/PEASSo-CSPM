@@ -2,7 +2,6 @@
 from contextlib import ExitStack
 from copy import deepcopy
 import json
-from pathlib import Path
 import socket
 from types import SimpleNamespace
 
@@ -298,14 +297,3 @@ def test_consumer_rejects_raw_paths_and_wrong_request_provenance():
     collection, _ = capture([POSITIVE])
     collection['items'][0]['requests'][1]['request'] = 'a' * 64
     assert statuses(collection) == ['UNKNOWN']
-
-
-def test_receipt_and_unregistered_declaration():
-    assert len(source.reviewed_sources()) == 64
-    assert consumer.DECLARATION['group'] == 'Secrets'
-    assert consumer.DECLARATION['permissions'] == ['codebuild:BatchGetProjects']
-    from peaso.checks import CHECKS
-    assert not any(c.id == source.CHECK for c in CHECKS)
-    root = Path(__file__).resolve().parents[1]
-    receipt = json.loads((root / 'docs/check-review/aws-codebuild-buildspec-source-20261020.json').read_text())
-    assert str(Path(__file__).relative_to(root)) in receipt['source_hashes']

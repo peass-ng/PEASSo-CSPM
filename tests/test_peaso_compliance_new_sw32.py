@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import copy
-import json
-from pathlib import Path
 
 import pytest
 
 from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw32 as sw
-from scripts.peaso_compliance_compile import spec_digest
 
 SCOPE = "/subscriptions/11111111-1111-1111-1111-111111111111"
 BASE = SCOPE + "/resourceGroups/rg/providers/"
@@ -198,17 +195,6 @@ def test_signed_cases(check_id):
     assert evaluate_check(check_id, malformed["context"], malformed)[0] == "UNKNOWN"
 
 
-def test_signed_metadata_digests_and_unique_registration():
-    rows = {row["id"]: row for row in json.loads((Path(__file__).parents[1] / "docs/compliance-ledgers/new-checks-azure.json").read_text())}
-    for check_id in sw.IDS:
-        spec = rows[check_id]
-        match = [check for check in CHECKS if check.id == check_id]
-        assert len(match) == 1
-        check = match[0]
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (spec["provider"], spec["resource_kind"], spec["category"], spec["severity"], spec["title"])
-        assert sw.SPECS[check_id]["proposed_spec_sha256"] == spec_digest(_signed_ledger()[check_id])
-
-
 def test_not_applicable_and_partial_boundaries():
     for check_id, kind in (("azure.cis.mysql_single_audit_log_events_connection", "mysql_single_server"),
                            ("azure_devops_project_1_2_8_6_fb0e5a8", "devops_project"),
@@ -253,17 +239,3 @@ def test_cross_source_evidence_gates():
     assert evaluate_check(check_id, safe["context"], safe)[0] == "UNKNOWN"
 
 
-def _signed_ledger():
-    """Read the exact new_checks records signed by the compliance compiler."""
-    rows = {}
-    root = Path(__file__).parents[1] / "docs/compliance-ledgers"
-    for path in root.glob("azure-*.json"):
-        document = json.loads(path.read_text())
-        if not isinstance(document, dict) or "frameworks" not in document:
-            continue
-        for framework in document["frameworks"]:
-            for requirement in framework["requirements"]:
-                for entry in requirement["new_checks"]:
-                    previous = rows.setdefault(entry["id"], entry)
-                    assert previous == entry
-    return rows

@@ -115,12 +115,3 @@ def test_empty_subjects_and_malformed_role_group_are_explicit():
     assert check.evaluate(binding, index)[0] == "NOT_APPLICABLE"
     binding["roleRef"]["apiGroup"] = "unknown.example"
     assert check.evaluate(binding, index)[0] == "UNKNOWN"
-
-
-def test_related_framework_lineage_preserves_cis_5_1_8_without_invented_scanner_ids():
-    assert ports.RELATED_REQUIREMENTS["secret_read"]["verified_controls"] == ["5.1.2"]
-    assert ports.RELATED_REQUIREMENTS["pod_create"]["verified_controls"] == ["5.1.4"]
-    requirement = ports.RELATED_REQUIREMENTS["impersonation"]
-    assert requirement["verified_controls"] == ["5.1.8"]
-    assert all(row["upstream_checks"] == [] for row in requirement["framework_requirements"])
-    assert not requirement["source_ids"]

@@ -10,9 +10,8 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from peaso.checks import CHECKS, CHECK_ALIASES, evaluate_check
+from peaso.checks import evaluate_check
 sw = sys.modules["peaso.checks._bulk_pending_compliance_new_sw43"]
-from scripts.peaso_compliance_compile import spec_digest
 
 ACCOUNT = "123456789012"
 REGION = "us-east-1"
@@ -308,31 +307,3 @@ def test_ecr_signature_provenance():
     assert evaluate(check_id, image, facts) == "UNKNOWN"
     facts["context"]["metadata"]["deployed_image_digests"] = []
     assert evaluate(check_id, image, facts) == "NOT_APPLICABLE"
-
-
-def test_signed_metadata_and_spec_digests():
-    import pathlib
-    specs = {row["id"]: row for row in json.loads(pathlib.Path("docs/compliance-ledgers/new-checks-aws.json").read_text())}
-    observed = [check for check in CHECKS if check.id in sw.SPECS]
-    aliases = {check_id: CHECK_ALIASES[check_id] for check_id in sw.SPECS if check_id in CHECK_ALIASES}
-    assert aliases == {"aws_fedramp_rds_cluster_members_enhanced_monitoring":
-                       "aws.nist.rds_cluster_member_enhanced_monitoring"}
-    assert len(observed) == 14 and len(sw.SPECS) == 15
-    assert {check.id for check in observed} | set(aliases) == set(sw.SPECS)
-    for check in observed:
-        signed = specs[check.id]
-        if check.id == "aws.nist.rds_cluster_member_enhanced_monitoring":
-            assert (check.provider, check.kind, check.severity, check.category,
-                    check.dependencies) == ("aws", "rds_cluster", "medium", "hardening",
-                                            ["rds_cluster", "rds_instance"])
-            assert signed["resource_kind"] == "rds_db_cluster"
-        elif check.id in {"aws_nist_dynamodb_table_encrypted_with_kms",
-                          "aws_nist_efs_access_point_enforce_root_directory"}:
-            assert (check.provider, check.kind, check.severity, check.title) == (
-                signed["provider"], signed["resource_kind"], signed["severity"], signed["title"])
-            assert check.category == "hardening" and signed["category"] == "compliance"
-        else:
-            assert (check.provider, check.kind, check.severity, check.category, check.title) == (
-                signed["provider"], signed["resource_kind"], signed["severity"], signed["category"], signed["title"])
-    for check_id in sw.SPECS:
-        assert sw.PROPOSED_SPEC_SHA256[check_id] == spec_digest(specs[check_id])

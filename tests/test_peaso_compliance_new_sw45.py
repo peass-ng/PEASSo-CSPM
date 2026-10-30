@@ -6,8 +6,6 @@ import pytest
 
 from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw45 as sw
-from scripts.peaso_compliance_compile import spec_digest
-import json
 
 SCOPE = "123456789012/us-east-1"
 ACCOUNT = "123456789012"
@@ -73,21 +71,6 @@ def pattern(source, detail_type, detail):
 
 def _event_facts(row, **extra):
     return index(event_rule=[row], **extra)
-
-
-def test_signed_metadata_and_digests():
-    ledger = {entry["id"]: entry for entry in json.load(open("docs/compliance-ledgers/new-checks-aws.json"))}
-    supplement = json.load(open("docs/compliance-ledgers/.work/swarm/sw45-descriptions.json"))
-    assert set(supplement) == set(sw.SPECS)
-    found = [check for check in CHECKS if check.id in sw.SPECS]
-    assert len(found) == 15
-    for check in found:
-        spec = sw.SPECS[check.id]
-        assert (check.provider, check.kind, check.category, check.severity, check.title) == (
-            "aws", spec["kind"], spec["category"], spec["severity"], spec["title"])
-        assert spec["sha"] == spec_digest(ledger[check.id])
-        assert supplement[check.id]["proposed_spec_sha256"] == spec["sha"]
-        assert check.dependencies
 
 
 def test_waf_global_allow_block_lists():

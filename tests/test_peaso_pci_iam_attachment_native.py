@@ -192,18 +192,6 @@ def test_mixed_principal_and_deny_ambiguity(monkeypatch):
     assert run(monkeypatch, roles=[role(attached=True, trust=allow_deny)], count=1)["status"] == "UNKNOWN"
 
 
-def test_public_description_hashguard():
-    from peaso.checks.catalog import _compliance, description_for
-    from peaso.checks.aws_pci_iam_attachment_description_overlay import description, CHECK_ID, SIGNED_SPEC_SHA256
-    row = description_for(CHECK_ID)
-    assert row["description_correction"]["signed_spec_sha256"] == SIGNED_SPEC_SHA256
-    from tests.reviewed_guidance_presentation import assert_description_preserves_contract
-    assert_description_preserves_contract(CHECK_ID)
-    assert "attachments" in row["description"] and "declared usable trust" in row["description"]
-    original = _compliance()[1]["checks"][CHECK_ID]
-    with pytest.raises(ValueError):
-        description({**original, "description": "drift"}, SIGNED_SPEC_SHA256)
-
 # Service DNS names documented by AWS or observed as literal forms in a complete
 # read-only GetAccountAuthorizationDetails response; parser shape only.
 @pytest.mark.parametrize('principal', [

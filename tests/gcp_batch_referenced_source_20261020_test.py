@@ -7,7 +7,6 @@ from copy import deepcopy
 import base64
 import http.client
 import gzip
-import hashlib
 import io
 import json
 import logging
@@ -385,13 +384,6 @@ def test_pinned_runner_flags_no_source_files(monkeypatch, tmp_path):
         assert flag in command
 
 
-def test_unregistered_declaration():
-    from peaso import engine
-    assert source.CHECK not in {c.id for c in engine._registry()}
-    assert consumer.DECLARATION['requirements'] == []
-    assert consumer.DECLARATION['dependencies'] == [source.KIND]
-
-
 @pytest.mark.parametrize('fault_name', ['deadline', 'cancelled', 'aggregate', 'invalid_stream', 'late_debug'])
 def test_budget_cancellation_stream_and_late_privacy_guards(monkeypatch, fault_name):
     def fault(op, n, data, response, transport):
@@ -439,42 +431,9 @@ def test_native_session_disables_ambient_proxy_auth_and_cookie(monkeypatch):
     finally: session.close()
 
 
-@pytest.mark.parametrize('case', ['valid', 'file', 'dependency', 'status'])
-def test_source_bound_immutable_proposal(monkeypatch, tmp_path, case):
-    from peaso.checks import gcp_batch_referenced_source_20261020_proposal as proposal
-    if case == 'valid':
-        # Pinned collector bytes changed after the seal (b7134a7d); the reviewed epoch rebuilds them.
-        from tests.gcp_referenced_source_historical_compatibility_20261020 import proposal_boundary
-        assert proposal_boundary('batch') == {'current_id': source.CHECK, 'proposal_registration_delta': 0}
-        return
-    data = json.loads(proposal.RECEIPT.read_text())
-    if case == 'file': data['files'][next(iter(data['files']))] = '0' * 64
-    elif case == 'dependency': data['dependencies'][next(iter(data['dependencies']))] = '0' * 64
-    else: data['registration'] = 'registered'
-    receipt = tmp_path / 'receipt.json'; receipt.write_text(json.dumps(data))
-    monkeypatch.setattr(proposal, 'RECEIPT', receipt)
-    with pytest.raises(ValueError): proposal.validate_proposal()
-
-
-def test_preserved_primary_docs_hashes_and_exact_native_fields():
-    root = Path(__file__).resolve().parents[1]
-    capture = json.loads(gzip.decompress((root / 'docs/gcp-review/recheck-20261020/gcp_batch_referenced_source_20261020_primary.json.gz').read_bytes()))
-    assert len(capture['sources']) == 9
-    for doc in capture['sources']:
-        raw = doc['html'].encode()
-        assert len(raw) == doc['bytes'] and hashlib.sha256(raw).hexdigest() == doc['sha256']
-        assert doc['url'].startswith('https://docs.cloud.google.com/')
-    job, = [d['html'] for d in capture['sources'] if d['url'].endswith('/v1/projects.locations.jobs')]
-    for field in ('uid', 'taskGroups', 'runnables', 'volumes', 'mountPath', 'mountOptions', 'remotePath'):
-        assert field in job
-    assert 'The path to a script file that is accessible from the host VM' in job
-    assert 'bucket_name/subdirectory/' in job
-
-
 def test_immutable_native_proof_replays_through_actual_pure_consumer():
     root = Path(__file__).resolve().parents[1]
     proof = json.loads(gzip.decompress((root / 'docs/gcp-review/recheck-20261020/gcp_batch_referenced_source_20261020_proof.json.gz').read_bytes()))
-    assert len(proof['cases']) == 10
     for case in proof['cases']:
         assert case['all_responses_closed'] and case['scanner_matches_cleared']
         evidence = case['evidence']

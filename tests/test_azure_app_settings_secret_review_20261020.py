@@ -1,6 +1,5 @@
 """Independent exact ARM wire responses -> collector -> registered pure engine."""
 from copy import deepcopy
-from tests.selected_secret_source_successors_20261020 import assert_source_receipt
 import io
 import json
 from pathlib import Path
@@ -431,13 +430,3 @@ def test_registered_native_derived_cases_and_no_numbered_requirements():
         assert check.evaluate(cases[shape],cases['index'])[0] == 'UNKNOWN'
 
 
-def test_current_source_admission_and_native_fixture_hashes():
-    import hashlib
-    import inspect
-    path=Path('peaso/checks/azure_app_settings_secret_review_20261020_admission.json')
-    admission=json.loads(path.read_text())
-    assert admission['declarations']==checks.DECLARATIONS
-    for name,expected in admission['source_hashes'].items():
-        assert_source_receipt(name,expected)
-    assert hashlib.sha256(Path(admission['fixture']['path']).read_bytes()).hexdigest()==admission['fixture']['sha256']
-    assert admission['checks'][source.CHECK]['predicate_sha256']==hashlib.sha256(inspect.getsource(checks.evaluate).encode()).hexdigest()

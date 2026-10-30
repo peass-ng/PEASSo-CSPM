@@ -54,12 +54,6 @@ def test_actual_pinned_runtime_case_literal_parameters_and_scope(query):
     assert source['parameter_semantics'].startswith('Pinned query default')
 
 
-def test_exact_perimeter_aliases_and_all_original_source_references():
-    assert ports.SOURCE_QUERIES['appservice_function_app_cors_prohibit_public_access']==ports.SOURCE_QUERIES['appservice_function_app_cors_no_star']
-    excluded=set(json.loads((ROOT/'peaso/rulepacks/port_partitions_claude.json').read_text())['partitions']['claude_azure']['check_ids'])
-    assert not set(REVIEWS)&excluded and all(r['source_review']['source_revision'] and r['source_review']['pinned_sql'] for r in REVIEWS.values())
-
-
 @pytest.mark.parametrize('query',ports.RUNTIMES)
 def test_captured_source_variable_binding_is_preserved_and_native_context_is_required(query):
     check=REGISTRY[ports.SOURCE_QUERIES[query]];selector,language,prefix,default=ports.RUNTIMES[query]

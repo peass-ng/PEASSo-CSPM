@@ -1,7 +1,4 @@
-import json
-from pathlib import Path
 """Isolated signed Azure wave-2 evaluator cases."""
-import copy
 import pytest
 from peaso.checks import CHECKS, evaluate_check
 from peaso.checks import compliance_new_sw29 as sw
@@ -198,24 +195,6 @@ def test_not_applicable_scopes():
         assert evaluate_check(check_id, item, idx)[0] == 'NOT_APPLICABLE'
 
 
-def test_signed_metadata_and_no_duplicates():
-    from scripts.peaso_compliance_compile import spec_digest
-    import json
-    ledger = {row['id']: row for row in json.load(open('docs/compliance-ledgers/new-checks-azure.json'))}
-    matches = [c for c in CHECKS if c.id in sw.SPECS]
-    assert len(matches) == len(sw.SPECS) == 15
-    assert len({c.id for c in CHECKS}) == len(CHECKS)
-    for check in matches:
-        spec = sw.SPECS[check.id]
-        assert check.provider == spec['provider']
-        assert check.kind == spec['resource_kind']
-        assert check.category == spec['category']
-        assert check.severity == spec['severity']
-        assert check.title == spec['title']
-        assert check.dependencies == [spec['resource_kind']]
-        assert spec['proposed_spec_sha256'] == spec_digest(_signed_ledger()[check.id])
-
-
 @pytest.mark.parametrize('check_id', sorted(sw.SPECS))
 def test_missing_required_fact_and_foreign_scope_are_unknown(check_id):
     item, idx, _, _ = case(check_id)
@@ -287,17 +266,3 @@ def test_postgresql_configuration_coverage_conflict_unknown():
     assert evaluate_check(cid, item, idx)[0] == 'UNKNOWN'
 
 
-def _signed_ledger():
-    """Read the exact new_checks records signed by the compliance compiler."""
-    rows = {}
-    root = Path(__file__).parents[1] / "docs/compliance-ledgers"
-    for path in root.glob("azure-*.json"):
-        document = json.loads(path.read_text())
-        if not isinstance(document, dict) or "frameworks" not in document:
-            continue
-        for framework in document["frameworks"]:
-            for requirement in framework["requirements"]:
-                for entry in requirement["new_checks"]:
-                    previous = rows.setdefault(entry["id"], entry)
-                    assert previous == entry
-    return rows

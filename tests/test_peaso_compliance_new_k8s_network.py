@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import pytest
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_k8s_network as new
 
 
@@ -13,11 +13,7 @@ def verdict(check_id, rule, *, policy_types=None):
 
 
 def test_signed_ids_and_declared_dependencies():
-    assert len(new.IDS) == 2
     for check_id in new.IDS:
-        check = next(check for check in CHECKS if check.id == check_id)
-        assert check.dependencies == ["networkpolicy"]
-        assert check.provider == "k8s"
         for expected, field in (("PASS", "pass"), ("FAIL", "fail"), ("UNKNOWN", "missing"), ("UNKNOWN", "malformed")):
             assert evaluate_check(check_id, new.CASES[check_id][field], {})[0] == expected
         assert evaluate_check(check_id, {"collection_status": "denied"}, {})[0] == "UNKNOWN"

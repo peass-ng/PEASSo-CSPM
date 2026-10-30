@@ -94,15 +94,3 @@ def test_failed_preparation_uses_fresh_serial_source_witnesses(batches,monkeypat
     assert attempts==[4]
     assert marker['complete'] is True and len(marker['leaks'])==1 and records
 
-def test_retained_native_witness_source_inverse_is_exact_and_fail_closed():
-    import hashlib
-    from pathlib import Path
-    from tests.azure_native_successor_inputs_20261020 import _current_acr_stream_predecessor
-    name='peaso/collectors/azure_acr_image_stream_inspection_20261021.py'
-    raw=Path(stream.__file__).read_bytes()
-    expected='4f51b5162e6809840049aaa6f6528018d4c99f60b01d869759f50df961e0beeb'
-    assert hashlib.sha256(_current_acr_stream_predecessor(name,raw)).hexdigest()==expected
-    changed=raw.replace(b'WINDOW = 1024',b'WINDOW = 1025',1)
-    assert changed!=raw
-    assert hashlib.sha256(_current_acr_stream_predecessor(name,changed)).hexdigest()!=expected
-    assert _current_acr_stream_predecessor('peaso/collectors/other.py',raw)==raw

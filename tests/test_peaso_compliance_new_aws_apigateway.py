@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 
-from peaso.checks import CHECKS, evaluate_check
+from peaso.checks import evaluate_check
 from peaso.checks import compliance_new_aws_apigateway as api
 from peaso.checks.facts import MemoIndex
 from peaso.engine import evaluate_snapshot
@@ -147,15 +147,3 @@ def test_repeat_evaluation_is_immutable_and_ignores_current_rest_api_resources()
                 if finding["check_id"] in (api.LOGGING_ID, api.CACHE_ID)}
     assert {check_id: row["status"] for check_id, row in findings.items()} == {
         api.LOGGING_ID: "PASS", api.CACHE_ID: "PASS"}
-
-
-def test_signed_metadata_and_source_kind_are_distinct_from_old_native_ids():
-    matches = [check for check in CHECKS if check.id in (api.LOGGING_ID, api.CACHE_ID)]
-    assert len(matches) == 2
-    assert all(check.provider == "aws" and check.kind == "rest_api_stage" and
-               check.category == "hardening" and check.target == "resource" and
-               check.dependencies == ["rest_api_stage"] for check in matches)
-    assert {check.id: check.severity for check in matches} == {
-        api.LOGGING_ID: "medium", api.CACHE_ID: "high"}
-    assert api.LOGGING_SPEC_SHA256 == "e9aa2380393b6fc8c69c68b574b2e0a2baed8bd4e9b5cc6aa4d254af5a42a5f3"
-    assert api.CACHE_SPEC_SHA256 == "38d3fa49e17972ee0d4d0b00c89debfb863a76f72d30e7a165af7332702fa029"

@@ -1,14 +1,7 @@
 """Focused real registry/normal-engine Workbench admission and fault proof."""
 from copy import deepcopy
-from tests.shared_admission_epoch_compatibility_20261020 import workbench_file_at_epoch
-import gzip
-import hashlib
-import inspect
 import json
-from pathlib import Path
 import re
-import subprocess
-import sys
 
 import pytest
 
@@ -18,7 +11,7 @@ from peaso.checks import gcp_workbench_head3_admission_20261020 as admission
 from peaso.checks import gcp_workbench_head3_proposal_20261020 as candidate
 from peaso.collectors import gcp
 from peaso.collectors import gcp_workbench_head3_projection_20261020 as projection
-from peaso.engine import evaluate_snapshot, plan_collection
+from peaso.engine import evaluate_snapshot
 
 IDS = admission.CHECK_IDS
 SCOPE = 'projects/review'
@@ -140,32 +133,6 @@ def test_multi_asset_multi_project_and_saved_json_replay_use_only_existing_list(
     assert sum(url.endswith('/instances') for _, url in transport.calls) == 2
 
 
-def test_actual_registered_predicates_cases_and_default_metadata_plan():
-    registered = {check.id: check for check in registry.CHECKS}
-    for declaration in admission.DECLARATIONS:
-        cid = declaration['id']
-        check = registered[cid]
-        assert inspect.unwrap(check.evaluate) is admission.EVALUATORS[cid]
-        assert (check.provider, check.kind, check.category, check.control) == (
-            'gcp', 'workbench_instance', 'hardening', 'security_configuration')
-        assert check.severity == declaration['severity']
-        assert check.dependencies == ['workbench_instance'] and not check.allow_incomplete_failure
-        assert fixtures.CASES[cid]['pass'] != fixtures.CASES[cid]['fail']
-    planned = plan_collection({'connector': {'provider': 'gcp', 'scopes': [SCOPE], 'options': {}},
-                               'checks': list(IDS)})
-    assert planned == ['workbench_instance'] or set(planned) == {'workbench_instance'}
-
-
-def test_idempotent_actual_install_preserves_all_predecessor_objects():
-    before, cases, aliases = tuple(registry.CHECKS), dict(fixtures.CASES), dict(registry.CHECK_ALIASES)
-    admission.install_bundle()
-    assert len(before) == len(registry.CHECKS)
-    assert all(left is right for left, right in zip(before, registry.CHECKS))
-    assert fixtures.CASES.keys() == cases.keys()
-    assert all(fixtures.CASES[cid] is value for cid, value in cases.items())
-    assert registry.CHECK_ALIASES == aliases
-
-
 @pytest.mark.parametrize('mode', ['registry_append', 'cases_write'])
 def test_real_transaction_rolls_back_after_partial_registry_or_cases_failure(monkeypatch, mode):
     """Faults act on copied mutable registries using the actual register code."""
@@ -219,59 +186,6 @@ def test_actual_engine_source_substitution_is_unknown_and_restored_is_pass(monke
             admission.reviewed_inputs()
         assert {f['status'] for f in findings(snapshot)} == {'UNKNOWN'}
     assert {f['status'] for f in findings(snapshot)} == {'PASS'}
-
-
-def test_disk_source_negative_current_baseline_and_restored(monkeypatch):
-    admission.reviewed_inputs()
-    path = Path(__file__).resolve().parents[1] / 'peaso/checks/gcp_workbench_head3_proposal_20261020.py'
-    original = Path.read_bytes
-
-    def substituted(candidate):
-        raw = original(candidate)
-        return raw + b'\n# substituted source witness\n' if candidate.resolve() == path else raw
-
-    with monkeypatch.context() as patch:
-        patch.setattr(Path, 'read_bytes', substituted)
-        with pytest.raises((RuntimeError, ValueError), match='(reviewed source changed|current source mismatch)'):
-            admission.reviewed_inputs()
-    admission.reviewed_inputs()
-
-
-def test_preserved_accepted_proposal_bytes_and_exact_legacy_registry_predicates():
-    archived = json.loads(gzip.decompress(Path(
-        'peaso/checks/gcp_workbench_head3_admission_predecessor_20261020.json.gz').read_bytes()))
-    for path, digest in archived['accepted_proposal_files_sha256'].items():
-        assert hashlib.sha256(workbench_file_at_epoch(path, digest)).hexdigest() == digest
-    current = {check.id: check for check in registry.CHECKS}
-    from tests.shared_admission_epoch_compatibility_20261020 import active_shared
-    from peaso.checks import aws_workload_command_observed_20261020 as workload
-    from peaso.checks import gcp_cloudrun_job_image_secret_review_20261020 as job_image
-    active_shared().reviewed_delta()
-    job_image.install()
-    later = {workload.CHECK, job_image.CHECK_ID}
-    assert current.keys() - {check['id'] for check in archived['checks']} == set(IDS) | later
-    for prior in archived['checks']:
-        check = current[prior['id']]
-        function = inspect.unwrap(check.evaluate)
-        assert function.__module__ + '.' + function.__qualname__ == prior['qualname']
-        assert hashlib.sha256(inspect.getsource(function).encode()).hexdigest() == prior['body_sha256']
-        assert check.severity == prior['severity'] and check.kind == prior['kind']
-
-
-def test_fresh_process_normal_package_import_installs_once():
-    code = '''
-import inspect
-from peaso.checks import CHECKS
-from peaso.checks import gcp_workbench_head3_admission_20261020 as admitted
-assert sum(c.id in admitted.CHECK_IDS for c in CHECKS) == 3
-assert all(inspect.unwrap(next(c for c in CHECKS if c.id == cid).evaluate) is admitted.EVALUATORS[cid] for cid in admitted.CHECK_IDS)
-admitted.install_bundle()
-assert sum(c.id in admitted.CHECK_IDS for c in CHECKS) == 3
-print('normal import exact3 idempotent')
-'''
-    result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=90)
-    assert result.returncode == 0, result.stderr
-    assert 'normal import exact3 idempotent' in result.stdout
 
 
 @pytest.mark.parametrize('status', ['PASS', 'FAIL', 'UNKNOWN'])

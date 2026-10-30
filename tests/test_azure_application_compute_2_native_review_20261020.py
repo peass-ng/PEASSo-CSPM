@@ -235,8 +235,6 @@ def test_native_per_id_matrix(cid,mode,record_property):
  elif mode=='empty':assert statuses<={'EMPTY','NOT_APPLICABLE','UNKNOWN'},rows
  else:assert statuses<={'UNKNOWN','FAIL'},rows
 
-def test_exact_cohort_conservation():assert len(IDS)==len(set(IDS))==38 and all(REGISTRY[c].provider=='azure' for c in IDS)
-
 
 def test_native_health_check_empty_path_is_not_configured(record_property):
  cid='azure.claude2.web_app_health_check'

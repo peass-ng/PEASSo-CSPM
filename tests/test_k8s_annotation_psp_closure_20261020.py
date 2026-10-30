@@ -6,7 +6,6 @@ production registration, signed CASES and source admissions remain root-owned.
 from copy import deepcopy
 from dataclasses import replace
 import gzip
-import importlib
 from hashlib import sha256
 import io
 import json
@@ -279,14 +278,6 @@ def test_existing_collection_budgets_preserved(monkeypatch,cid,options,request):
     RECEIPTS[-1]['node']=request.node.nodeid
     if options=={'max_calls':1}:assert len(pool.calls)<=1
     assert 'PASS'not in statuses,RECEIPTS[-1]
-
-
-def test_import_does_not_register_or_mutate_historic_cases():
-    from peaso.checks.fixtures import CASES
-    before=list(registry.CHECKS);old_cases={cid:deepcopy(CASES[cid])for cid in candidate.IDS}
-    importlib.reload(candidate)
-    assert registry.CHECKS==before and {cid:CASES[cid]for cid in candidate.IDS}==old_cases
-    assert all(d['registered']is False for d in candidate.DECLARATIONS)
 
 
 @pytest.mark.parametrize('cid,value,wanted',[

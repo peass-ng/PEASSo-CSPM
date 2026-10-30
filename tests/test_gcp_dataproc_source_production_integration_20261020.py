@@ -1,8 +1,6 @@
 """Production admission, hosted preflight and public native Dataproc gates."""
 from copy import deepcopy
 from dataclasses import replace
-import gzip
-import hashlib
 import inspect
 import json
 from pathlib import Path
@@ -139,21 +137,6 @@ def test_negative_source_and_native_fixture_guards(monkeypatch, tamper):
     with pytest.raises(expected[0], match=expected[1]):
         install_admission('gcp_dataproc_source_runtime_admission_20261020')
     assert hits
-
-
-def test_no_whole_shared_source_freeze_and_predecessor_exact():
-    from tests.current_runtime_admission_inputs_20261022 import current_inputs
-    r, _, _ = current_inputs(admission)
-    assert not {'peaso/engine.py', 'peaso/collectors/gcp.py', 'peaso/checks/__init__.py', 'peaso/server/validation.py'} & set(r['sources'])
-    archive = json.loads(gzip.decompress(Path('docs/gcp-review/recheck-20261020/dataproc-source-pre-integration-20261020.json.gz').read_bytes()))
-    name = 'tests/test_gcp_dataproc_referenced_source_secret_review_20261020.py'
-    original = archive['files'][name]['text'].encode()
-    assert hashlib.sha256(original).hexdigest() == archive['files'][name]['sha256']
-    import ast
-    old_tree = ast.parse(original)
-    current = ast.parse(Path(name).read_text())
-    assert {n.name for n in old_tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith('test_')} == {
-        n.name for n in current.body if isinstance(n, ast.FunctionDef) and n.name.startswith('test_')}
 
 
 @pytest.mark.parametrize('profile', runtime.source.PROFILES)

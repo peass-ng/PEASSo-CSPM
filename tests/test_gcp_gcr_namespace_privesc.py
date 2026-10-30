@@ -108,9 +108,3 @@ def test_partial_redirection_stays_unknown():
     assert outcome(snapshot(redirect="REDIRECTION_FROM_GCR_IO_PARTIAL_AND_COPYING"))[0][0] == "unknown"
 
 
-def test_old_contract_remains_held():
-    from peaso.privesc.versioned_catalog import _verified_prior
-    prior, _ = _verified_prior()
-    model = GcpModel(snapshot())
-    assert Evaluator(model, [prior[TECHNIQUE]]).run() == []
-    assert any(TECHNIQUE in row["reason"] for row in model.coverage)

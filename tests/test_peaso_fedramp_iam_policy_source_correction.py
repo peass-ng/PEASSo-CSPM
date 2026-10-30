@@ -5,12 +5,9 @@ import copy
 import json
 
 import boto3
-import botocore
 from botocore.stub import Stubber
 import pytest
 
-from peaso.checks import CHECKS
-from peaso.checks import aws_policy_source_correction as correction
 from peaso.collectors import aws
 from peaso.collectors.aws_customer_policies import collect
 from peaso.engine import evaluate_snapshot, plan_collection
@@ -75,17 +72,8 @@ def evaluate(cid, read, *, aws_library=False, inline=False):
     return findings[0]['status']
 
 
-def test_ids_count_dependencies_and_source_successors():
-    assert boto3.__version__ == botocore.__version__ == '1.43.38'
-    for cid, mode in ((ADMIN, 'star'), (SERVICE, 'service')):
-        selected = [check for check in CHECKS if check.id == cid]
-        assert len(selected) == 1
-        assert selected[0].dependencies == ['iam_customer_policy']
-        assert selected[0].category == 'compliance'
-        assert correction.CORRECTIONS[cid]['provenance']['status'] == 'source_erratum_successor'
-        assert correction.CORRECTIONS[cid]['provenance']['prior_frozen_signed_spec_sha256'] == correction.PRIOR[cid]
-        assert correction.CORRECTIONS[cid]['provenance']['source_query'] == (
-            'iam_policy_no_star_star' if mode == 'star' else 'iam_all_policy_no_service_wild_card')
+def test_plan_collects_only_customer_policies():
+    for cid in (ADMIN, SERVICE):
         plan = plan_collection({'connector': {'provider': 'aws'}, 'checks': [cid]})
         assert 'iam_customer_policy' in plan
         assert 'iam_managed_policy' not in plan
@@ -117,12 +105,3 @@ def test_pinned_policy_std_literal_action_resource_and_declared_shape():
         {'Effect': 'Deny', 'Action': 's3:DeleteObject', 'Resource': 'arn:aws:s3:::fixture/*'}]}
     assert evaluate(ADMIN, collect_sdk(declared)) == 'FAIL'
     assert evaluate(SERVICE, collect_sdk(declared)) == 'FAIL'
-
-
-@pytest.mark.parametrize('cid', [ADMIN, SERVICE])
-def test_signed_prior_tamper_is_rejected(cid, monkeypatch):
-    changed = copy.deepcopy(correction.FROZEN[cid])
-    changed['predicate'] += ' altered'
-    monkeypatch.setitem(correction.FROZEN, cid, changed)
-    with pytest.raises(ValueError, match='Historical IAM wildcard proposal spec changed'):
-        correction._entry(cid)

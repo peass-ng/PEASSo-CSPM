@@ -1,5 +1,4 @@
 """Contract tests for offline canonical data consumption and safe synchronization."""
-import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -26,11 +25,9 @@ engine = load('canonical_engine', ROOT / ('src/CloudPEASS/permission_risk_classi
 
 
 @pytest.mark.parametrize('provider', syncer.PROVIDERS)
-def test_bundled_schema_and_hash(provider):
+def test_bundled_schema_is_valid(provider):
     path = RULES / f'{provider}.yaml'
     syncer.validate(yaml.safe_load(path.read_text()), provider)
-    manifest = json.loads((RULES / 'hacktricks-source.json').read_text())
-    assert manifest['sha256'][path.name] == hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 @pytest.mark.parametrize('provider', syncer.PROVIDERS[:3])

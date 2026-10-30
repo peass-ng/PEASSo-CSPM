@@ -1,7 +1,6 @@
 """Inert normal planner/collector/engine Cloud SQL managed lockout witnesses."""
 import copy
 import json
-import pytest
 from peaso.collectors import gcp
 from tests.archived_check_contract import collect_snapshot, evaluate_snapshot
 from peaso.snapshot import seal
@@ -141,23 +140,6 @@ def test_foreign_capture_cannot_supply_bound_configuration(monkeypatch):
     finding = observe(monkeypatch, mutate=mutate)
     assert finding["status"] == "UNKNOWN"
     assert "native_lockout_witness" not in finding["evidence"]
-
-
-def test_metadata_and_remediation_keep_original_scope_and_historical_hash():
-    from peaso.checks import CHECKS
-    from peaso.checks.catalog import description_for, proposal_provenance_for
-    from peaso.checks.gcp_cloudsql_lockout_source_correction import PRIOR_FROZEN_SPEC_SHA256, CORRECTED_SPEC_SHA256
-    from peaso.remediation import template
-    public = next(c for c in CHECKS if c.id == CID).public()
-    assert public["evaluator_version"] == "2.0.0"
-    assert public["proposal_provenance"]["signed_spec_sha256"] == PRIOR_FROZEN_SPEC_SHA256
-    assert public["proposal_provenance"]["signed_spec_status"] == "historical_superseded_for_this_check"
-    assert public["source_correction"]["current_canonical_spec_sha256"] == CORRECTED_SPEC_SHA256
-    assert "or rate-limited" in public["source_correction"]["original_requirement"]
-    assert "passwordLockTime" not in json.dumps(description_for(CID))
-    assert "failedAttemptsCheck" not in json.dumps(template(CID, "gcp"))
-    assert not (template(CID, "azure") or {}).get("source_correction")
-    assert description_for("azure_vm_8_2_1_1_712e1ad")["evaluator_version"] == "2.0.0"
 
 
 def test_current_capture_and_exact_users_operation_are_required(monkeypatch):

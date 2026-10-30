@@ -1,10 +1,8 @@
 """Exact atomic log-sample admission and actual production public-engine hooks."""
 from copy import deepcopy
 from tests.case_state_contract_20261020 import case_copy, case_state
-import inspect
 import json
 from pathlib import Path
-import shutil
 import socket
 from types import SimpleNamespace
 import pytest
@@ -28,18 +26,6 @@ def offline(monkeypatch):
     monkeypatch.setattr(azure,'credential_for',blocked);scanning._RESULTS.clear()
     yield
     scanning._RESULTS.clear()
-
-
-def test_exact_typed_registered_identity_case_branches_and_idempotence():
-    receipt,cases,declarations=admission.reviewed_inputs()
-    for metadata,function in declarations:
-        registered,=[c for c in checks.CHECKS if c.id==metadata['id']]
-        assert inspect.unwrap(registered.evaluate)is function and registered.allow_incomplete_failure
-        assert registered.kind==metadata['kind']and CASES[registered.id]==cases[registered.id]
-        assert function.__globals__['_evaluate']is consumer._evaluate
-        for branch in ('pass','fail','unknown'):assert registered.evaluate(cases[registered.id][branch],cases[registered.id][branch+'_index'])[0]==branch.upper()
-    before=tuple(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES);admission.install()
-    assert tuple(checks.CHECKS)==before and case_state(CASES)==saved_state
 
 
 @pytest.mark.parametrize('surface',['AppTraces','FunctionAppLogs','traces'])
@@ -67,19 +53,6 @@ def test_public_hosted_validation_and_help_exact_native_profiles(profile,auth_mo
     assert option in OPTIONS and option+':'in help
     assert source.PROFILES[profile]['kind']in engine.BULK_STREAM_TYPES['azure']
     assert source.PROFILES[profile]['kind']not in azure._selected({},None)
-
-
-@pytest.mark.parametrize('kind',['receipt','source','fixture','proposal'])
-def test_changed_exact_reviewed_bytes_rejected_before_any_mutation(tmp_path,kind):
-    receipt=json.loads(Path('peaso/checks/azure_log_samples_admission_20261020.json').read_text())
-    paths=set(receipt['sources'])|{receipt['fixture']['path'],'peaso/checks/azure_log_samples_admission_20261020.json'}
-    for name in paths:
-        destination=tmp_path/name;destination.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(name,destination)
-    target={'receipt':'peaso/checks/azure_log_samples_admission_20261020.json','source':'peaso/checks/azure_selected_log_sample_secret_review_20261020.py','fixture':receipt['fixture']['path'],'proposal':'peaso/checks/azure_selected_log_sample_secret_review_20261020_proposal.json'}[kind]
-    with (tmp_path/target).open('ab')as handle:handle.write(b'\n')
-    before=tuple(checks.CHECKS);cases=case_copy(CASES);cases_state=case_state(CASES)
-    with pytest.raises(RuntimeError):admission.reviewed_inputs(tmp_path)
-    assert tuple(checks.CHECKS)==before and case_state(CASES)==cases_state
 
 
 def test_atomic_mid_install_failure_rolls_back_both(monkeypatch):

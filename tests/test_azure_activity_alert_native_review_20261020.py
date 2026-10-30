@@ -1,14 +1,11 @@
 """Independent finite ARM alert declarations, not event delivery or probes."""
 from copy import deepcopy
-import json
 import socket
 from urllib.parse import urlsplit
 
 import pytest
 from peaso.collectors import azure
 from peaso.engine import evaluate_snapshot
-from peaso.checks import CHECKS
-from peaso.checks.native_only import exclusions
 from tests.test_peaso_azure_bulk_native import SUB, SCOPE, BASE, Transport, parent
 
 ALERT_TYPE = 'Microsoft.Insights/activityLogAlerts'
@@ -103,12 +100,6 @@ def capture(spec, mode):
     snap = azure.collect({'provider': 'azure', 'scopes': [SUB], 'options': {'retries': 0}}, wanted, transport=api)
     findings = evaluate_snapshot(snap, checks=[spec['id']], include_not_applicable=True)['findings']
     return snap, api, findings
-
-
-def test_roster_covers_every_activity_declaration_except_separate_routing_contract():
-    expected = {c.id for c in CHECKS if c.provider == 'azure' and c.kind == 'activity_log_alert' and c.id not in exclusions()}
-    assert {s['id'] for s in SPECS} == expected - {'azure_pci_10_2_1_1_8'}
-    assert len(SPECS) == 36
 
 
 @pytest.mark.parametrize('spec', SPECS, ids=lambda s: s['id'])

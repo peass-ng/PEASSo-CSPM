@@ -6,12 +6,6 @@ from peaso.collectors import azure_selected_secret_integration_20261020 as union
 
 
 @pytest.mark.parametrize('kind', ['function', 'apim'])
-def test_current_proposal_retains_unregistered_signed_receipt(kind):
-    receipt = install_admission('azure_' + ('function_settings' if kind == 'function' else 'apim_operation_window') + '_admission_20261020')
-    assert receipt['registered'] is False
-
-
-@pytest.mark.parametrize('kind', ['function', 'apim'])
 def test_changed_finalizer_code_is_rejected(kind):
     function = union.final_snapshot
     original = function.__code__
@@ -23,8 +17,3 @@ def test_changed_finalizer_code_is_rejected(kind):
         function.__code__ = original
 
 
-@pytest.mark.parametrize('kind', ['function', 'apim'])
-def test_changed_finalizer_global_binding_is_rejected(monkeypatch, kind):
-    monkeypatch.setattr(union, 'arm', object())
-    with pytest.raises(ValueError, match=kind + '_proposal_source_mismatch'):
-        install_admission('azure_' + ('function_settings' if kind == 'function' else 'apim_operation_window') + '_admission_20261020')

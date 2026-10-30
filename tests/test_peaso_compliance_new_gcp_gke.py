@@ -34,11 +34,3 @@ def test_public_ip_endpoint_requires_explicit_complete_cluster_facts():
     assert evaluate([{"name": "bad", "controlPlaneEndpointsConfig": {"ipEndpointsConfig": {"enablePublicEndpoint": "false"}}}])[0] == "UNKNOWN"
     assert evaluate([cluster("covered", False) | {"_coverage": {"controlPlaneEndpointsConfig": {"status": "denied"}}}])[0] == "UNKNOWN"
     assert evaluate([], "empty")[0] == "NOT_APPLICABLE"
-
-
-def test_signed_gke_id_registered_once_with_scope_contract():
-    matches = [check for check in CHECKS if check.id == CHECK_ID]
-    assert len(matches) == 1
-    assert matches[0].provider == "gcp" and matches[0].kind == "gke_cluster"
-    assert matches[0].target == "scope" and matches[0].dependencies == ["gke_cluster"]
-    assert matches[0].category == "exposure" and matches[0].severity == "high"

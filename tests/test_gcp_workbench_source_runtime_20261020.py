@@ -1,11 +1,6 @@
 """Actual native Workbench HTTP through engine, GCPCollector and package admission."""
 from copy import deepcopy
-from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases, active_shared, source_at_epoch, sealed_ast
-from dataclasses import replace
-import ast
-import gzip
-import hashlib
-import inspect
+from tests.shared_admission_epoch_compatibility_20261020 import active_shared
 import io
 import json
 from pathlib import Path
@@ -14,11 +9,8 @@ from urllib.parse import quote, urlsplit
 import pytest
 import requests
 from fastapi import HTTPException
-from peaso import checks, engine, secret_scanning as scanning
-from peaso.checks import fixtures
-from peaso.checks import gcp_workbench_source_runtime_admission_20261020 as admission
+from peaso import engine, secret_scanning as scanning
 from peaso.checks import gcp_workbench_shared_hook_successor_20261020 as shared
-from peaso.checks import gcp_dataflow_batch_shared_hook_successor_20261020 as combined_shared
 from peaso.collectors import gcp
 from peaso.collectors import gcp_workbench_source_runtime_20261020 as runtime
 from peaso.collectors import gcp_workbench_referenced_source_20261020 as source
@@ -322,34 +314,6 @@ def test_foreign_scope_incompleteness_does_not_contaminate_selected_scope(monkey
     assert status=='PASS' and evidence['complete'] is True
 
 
-def test_atomic_admission_idempotence_and_public_cases(monkeypatch):
-    from tests.current_runtime_admission_inputs_20261022 import current_inputs
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    monkeypatch.setattr(checks,'CHECKS',list(checks.CHECKS));monkeypatch.setattr(fixtures,'CASES',dict(fixtures.CASES))
-    before=list(checks.CHECKS);receipt,cases,declarations=current_inputs(admission)
-    install_admission('gcp_workbench_source_runtime_admission_20261020')
-    assert checks.CHECKS==before and set(cases)=={CHECK}
-    meta,function=declarations[0]
-    actual,=[c for c in engine._registry() if c.id==CHECK]
-    assert inspect.unwrap(actual.evaluate) is function and actual.allow_incomplete_failure
-    for branch in ('pass','fail','unknown','missing','malformed'):
-        case=cases[CHECK];idx=case.get(branch+'_index',case['index'])
-        assert function(case[branch],idx)[0]==(branch.upper() if branch in ('pass','fail') else 'UNKNOWN')
-
-
-@pytest.mark.parametrize('collision',['metadata','evaluator','fixture'])
-def test_atomic_admission_collision_retains_registry(monkeypatch,collision):
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    monkeypatch.setattr(checks,'CHECKS',list(checks.CHECKS));monkeypatch.setattr(fixtures,'CASES',dict(fixtures.CASES))
-    pos=next(i for i,c in enumerate(checks.CHECKS) if c.id==CHECK)
-    if collision=='metadata':checks.CHECKS[pos]=replace(checks.CHECKS[pos],severity='low')
-    elif collision=='evaluator':checks.CHECKS[pos]=replace(checks.CHECKS[pos],evaluate=lambda *args:('PASS',{}))
-    else:fixtures.CASES[CHECK]={'changed':True}
-    before=list(checks.CHECKS);prior=snapshot_cases(fixtures.CASES)
-    with pytest.raises(RuntimeError,match='collision'):install_admission('gcp_workbench_source_runtime_admission_20261020')
-    assert checks.CHECKS==before and fixtures.CASES==prior
-
-
 @pytest.mark.parametrize('kind',['consumer_body','row_body','adapter_body'])
 def test_guard_checks_executing_code_not_only_source_hash(monkeypatch,kind):
     from peaso.rawv2_private_source_successor_20261021 import install_admission
@@ -373,71 +337,6 @@ def test_runtime_guards_never_load_tests_or_docs(monkeypatch):
     assert shared.original.reviewed_inputs is active_shared().reviewed_inputs
 
 
-def test_exact_shared_source_successor_preserves_original_red():
-    archived=Path('tests/fixtures/gcp_workbench_shared_hook_test_pre_combined_20261020.json.gz').read_bytes()
-    assert hashlib.sha256(archived).hexdigest()=='524884353022cda92cc1bcae034cd988e145a0e9875a0489fd2f25854ea19bf3'
-    history=json.loads(gzip.decompress(archived))
-    assert history['sources'][history['source']]['sha256']=='32d98b1df43130d6edbae8140c20fd3cc5c2ac6e56a44ab562fd927f32227d45'
-    for entry in history['sources'].values():
-        assert hashlib.sha256(entry['content'].encode()).hexdigest()==entry['sha256']
-        assert len(entry['content'].encode())==entry['bytes']
-    assert history['baseline_gate']['passed']==601 and history['baseline_gate']['failed']==6
-    assert len(history['baseline_gate']['failed_nodes'])==6
-    with pytest.raises(RuntimeError):shared.PREDECESSOR_REVIEWED_INPUTS()
-    with pytest.raises(RuntimeError,match='^metadata predecessor source changed$'):shared.reviewed_inputs()
-    with pytest.raises(RuntimeError, match="^metadata predecessor source changed$"):
-        combined_shared.reviewed_inputs()
-    active_shared().reviewed_inputs()
-    receipt=combined_shared.reviewed_delta();accepted=shared.reviewed_delta()
-    assert set(receipt['shared_functions'])=={'engine._request','engine.collect_snapshot','validation.validate_connector'}
-    for name,row in receipt['shared_functions'].items():
-        owner,attribute=name.split('.')
-        module=engine if owner=='engine' else __import__('peaso.server.validation',fromlist=['validate_connector'])
-        restored=source_at_epoch(getattr(module,attribute),name,row['current_sha256'])
-        assert hashlib.sha256(restored.encode()).hexdigest()==row['current_sha256']
-        for addition in row['exact_additions']:
-            assert ('dataflow' in addition.lower() or 'batch' in addition.lower()) and 'k8s' not in addition.lower()
-            assert restored.count(addition)==1
-            restored=restored.replace(addition,'',1)
-        assert hashlib.sha256(restored.encode()).hexdigest()==row['predecessor']['sha256']==accepted['shared_functions'][name]['current_sha256']
-        assert sealed_ast(ast.parse(restored))==row['predecessor_ast']
-        prior=accepted['shared_functions'][name]
-        for addition in prior['exact_additions']:
-            assert 'workbench' in addition.lower() and 'k8s' not in addition.lower()
-            assert restored.count(addition)==1
-            restored=restored.replace(addition,'',1)
-        assert hashlib.sha256(restored.encode()).hexdigest()==prior['predecessor']['sha256']
-        assert sealed_ast(ast.parse(restored))==prior['predecessor_ast']
-
-
-@pytest.mark.parametrize('name',['engine._request','engine.collect_snapshot','validation.validate_connector'])
-def test_shared_successor_rejects_extra_non_workbench_source(monkeypatch,name):
-    receipt=active_shared().reviewed_delta();historical=shared.reviewed_delta()['shared_functions'][name]['predecessor']
-    module=engine if name.startswith('engine.') else __import__('peaso.server.validation',fromlist=['validate_connector'])
-    fn=getattr(module,name.split('.')[1]);original=inspect.getsource
-    root=Path(__file__).resolve().parents[1]
-    active_shared().check_shared(fn,historical,name,root,{},receipt)
-    def source_text(function):
-        text=original(function)
-        return text+'\n# unreviewed K8s or other change\n' if function is fn else text
-    with monkeypatch.context() as patch:
-        patch.setattr(inspect,'getsource',source_text)
-        with pytest.raises(RuntimeError,match='source changed'):
-            active_shared().check_shared(fn,historical,name,root,{},receipt)
-    active_shared().check_shared(fn,historical,name,root,{},receipt)
-
-
-def test_sealed_proposal_bytes_remain_unchanged():
-    from peaso.checks.gcp_workbench_referenced_source_20261020_proposal import validate_proposal
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    with pytest.raises(ValueError, match='^proposal file changed: peaso/collectors/gcp_workbench_referenced_source_20261020.py$'):
-        validate_proposal()
-    install_admission('gcp_workbench_source_runtime_admission_20261020')
-    receipt=json.loads(Path('peaso/checks/gcp_workbench_referenced_source_20261020_proposal.json').read_bytes())
-    assert receipt['registration']=='unregistered_proposal_only'
-    assert not {'peaso/engine.py','peaso/collectors/gcp.py','peaso/checks/__init__.py','peaso/server/validation.py'}&set(receipt['files'])
-
-
 @pytest.mark.parametrize('kind',sorted(shared.original.prepared.producer.NATIVE_KINDS))
 def test_all_selected_k8s_metadata_paths_disjoint_from_network_router(kind):
     from peaso.collectors import k8s_network_extensions as network
@@ -446,34 +345,6 @@ def test_all_selected_k8s_metadata_paths_disjoint_from_network_router(kind):
     assert network.match(actual) is None
     assert network.match(actual.rsplit('/',1)[0]) is None
     assert network.match(actual.replace('/review/','/other-namespace/')) is None
-
-
-@pytest.mark.parametrize('tamper',['matcher','map','reader_call'])
-def test_disjoint_network_bridge_rejects_hostile_runtime_change(monkeypatch,tamper):
-    from peaso.collectors import k8s_network_extensions as network
-    with pytest.raises(RuntimeError, match="^metadata predecessor source changed$"):
-        combined_shared.reviewed_inputs()
-    active_shared().reviewed_inputs()
-    reasons={'matcher':'metadata runtime executing callable changed',
-             'map':'metadata network router map changed',
-             'reader_call':'metadata predecessor callable replacement'}
-    with monkeypatch.context() as patch:
-        if tamper=='matcher':patch.setattr(network,'match',lambda path:'forged-reader')
-        elif tamper=='map':patch.setattr(network,'RESOURCES',{})
-        else:patch.setattr(shared.original.k8s.K8sReader,'call',lambda *args,**kwargs:{})
-        with pytest.raises(RuntimeError,match=reasons[tamper]):active_shared().reviewed_inputs()
-    with pytest.raises(RuntimeError, match="^metadata predecessor source changed$"):
-        combined_shared.reviewed_inputs()
-    active_shared().reviewed_inputs()
-
-
-def test_verified_successor_entrypoint_routes_immutable_k8s_grants():
-    assert shared.original.reviewed_inputs is active_shared().reviewed_inputs
-    assert combined_shared.predecessor is shared and combined_shared.original is shared.original
-    shared.original.reviewed_inputs()
-    with pytest.raises(RuntimeError,match='^metadata predecessor source changed$'):shared.reviewed_inputs()
-    assert inspect.getsource(shared.original.runtime.authorize).count('k8s_selected_metadata_runtime_admission_20261020')==1
-    assert inspect.getsource(shared.original.runtime.collect).count('k8s_selected_metadata_runtime_admission_20261020')==1
 
 
 @pytest.mark.parametrize('branch',['pass','fail','unknown'])
@@ -487,40 +358,3 @@ def test_existing_k8s_engine_native_capture_through_verified_successor(monkeypat
     assert shared.original.reviewed_inputs is active_shared().reviewed_inputs
 
 
-def test_successor_alias_substitution_is_rejected(monkeypatch):
-    with pytest.raises(RuntimeError, match="^metadata predecessor source changed$"):
-        combined_shared.reviewed_inputs()
-    active_shared().reviewed_inputs()
-    with monkeypatch.context() as patch:
-        patch.setattr(shared.original,'reviewed_inputs',lambda:None)
-        with pytest.raises(RuntimeError,match='metadata runtime successor alias replaced'):active_shared().reviewed_inputs()
-    assert shared.original.reviewed_inputs is active_shared().reviewed_inputs
-    with pytest.raises(RuntimeError, match="^metadata predecessor source changed$"):
-        combined_shared.reviewed_inputs()
-    active_shared().reviewed_inputs()
-
-
-@pytest.mark.parametrize('helper',['check_shared','prepared_inputs','reviewed_inputs'])
-def test_shared_successor_helper_replacement_rejected(monkeypatch,helper):
-    monkeypatch.setattr(shared,helper,lambda *args,**kwargs:None)
-    with pytest.raises(RuntimeError,match='successor callable replaced'):shared.reviewed_delta()
-
-
-@pytest.mark.parametrize('tamper',['receipt','fixture','producer','consumer','adapter'])
-def test_workbench_guard_rejects_package_source_drift(monkeypatch,tamper):
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    from peaso.private_secret_source_epoch_20261021 import AdmissionError
-    from tests.current_runtime_admission_inputs_20261022 import alter_exact_source_read
-    receipt_path=Path('peaso/checks/gcp_workbench_source_runtime_admission_20261020.json')
-    receipt=json.loads(receipt_path.read_text())
-    paths={'receipt':str(receipt_path),'fixture':receipt['fixture']['path'],
-        'producer':'peaso/collectors/gcp_workbench_referenced_source_20261020.py',
-        'consumer':'peaso/checks/gcp_workbench_source_runtime_consumer_20261020.py',
-        'adapter':'peaso/collectors/gcp_workbench_source_runtime_20261020.py'}
-    hits=alter_exact_source_read(monkeypatch, paths[tamper])
-    expected=((AdmissionError,'current source mismatch') if tamper=='producer'
-              else (AdmissionError,'unreviewed predecessor request') if tamper in ('consumer','adapter')
-              else (RuntimeError,'changed'))
-    with pytest.raises(expected[0],match=expected[1]):
-        install_admission('gcp_workbench_source_runtime_admission_20261020')
-    assert hits

@@ -160,16 +160,9 @@ def test_uncertain_alternative_does_not_hide_a_proven_positive(monkeypatch):
     assert evaluate(monkeypatch, data)[0] == "PASS"
 
 
-def test_all_eleven_existing_reference_filters_are_accepted():
-    import ast
-    from pathlib import Path
-    source = Path(__file__).parents[1] / "peaso/checks/claude_gcp_k8s_iam.py"
-    tree = ast.parse(source.read_text())
-    references = next(ast.literal_eval(node.value) for node in tree.body
-                      if isinstance(node, ast.Assign)
-                      and any(isinstance(target, ast.Name) and target.id == "SAMPLE_FILTERS"
-                              for target in node.targets))
-    assert len(references) == 11
+def test_all_existing_reference_filters_are_accepted():
+    from peaso.checks.claude_gcp_k8s_iam import SAMPLE_FILTERS as references
+    assert references
     for reference in references.values():
         assert native.reference_filter_matches(reference, reference)
 

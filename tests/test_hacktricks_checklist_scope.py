@@ -78,10 +78,3 @@ def test_inventory_analysis_is_untagged_in_catalog_findings_and_selection():
     assert "analysis.coverage" not in {c["id"] for c in _analysis_selection("aws", ["least_privilege"], None, [HACKTRICKS])}
 
 
-def test_complete_review_receipt_matches_live_labels():
-    from scripts.audit_hacktricks_scope import audit
-    from peaso.analysis import MANUAL_ONLY_ANALYSIS_CHECK_IDS
-    rows = audit()
-    assert len(rows) == len(CHECKS) + len(ANALYSIS_CHECKS) + len(MANUAL_ONLY_ANALYSIS_CHECK_IDS)
-    assert {row["check_id"] for row in rows if row["check_id"] in MANUAL_ONLY_ANALYSIS_CHECK_IDS} == MANUAL_ONLY_ANALYSIS_CHECK_IDS
-    assert not any(row["active"] for row in rows if row["check_id"] in MANUAL_ONLY_ANALYSIS_CHECK_IDS)

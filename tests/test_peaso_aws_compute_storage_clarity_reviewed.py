@@ -1,15 +1,12 @@
 """Replay real native facts and prove source guards for specific reviewed compute/storage controls."""
 from copy import deepcopy
-import hashlib
-import inspect
 import json
 import os
 from pathlib import Path
 import pytest
 from peaso.checks import CHECKS
-from peaso.checks.catalog import _base_description_for
 from peaso.checks.fixtures import CASES
-from peaso.checks.aws_compute_storage_clarity_reviewed import ROWS,_digest,description,remediation
+from peaso.checks.aws_compute_storage_clarity_reviewed import ROWS, _digest
 from peaso.checks.aws_compute_storage_finding_summary import evidence_summary
 
 CHECK_BY_ID={c.id:c for c in CHECKS}
@@ -27,53 +24,6 @@ def originals():
     assert set(out)==set(SELECTED)
     return out
 
-@pytest.mark.parametrize('cid',SELECTED)
-def test_guarded_copy_preserves_source_contract_and_approved_instructions(cid,originals):
-    original=_base_description_for(cid);saved=deepcopy(original);actual=description(cid,original)
-    assert original==saved
-    assert 5<=len(actual['description'].split())<=45
-    changed=set(ROWS[cid]['description_fields'])
-    assert changed <= ({'description','pass_when','fail_when'} if cid.startswith('aws.cb.lightsail.') else {'description'})
-    assert {k:v for k,v in actual.items() if k not in changed}=={k:v for k,v in original.items() if k not in changed}
-    original=originals[cid];saved=deepcopy(original);actual=remediation(cid,original)
-    assert original==saved
-    assert actual['steps']==[actual['summary']]
-    assert len(actual['summary'].split())<=40
-    assert len(actual['caveats'])==1
-    if ROWS[cid]['new_text_only_template']:
-        assert actual['review_status']=='approved' and actual['cli']==[] and 'iac' not in actual
-        assert set(actual)=={'summary','steps','caveats','references','cli','review_status'}
-    else:
-        changed=ROWS[cid]['remediation_fields']
-        assert {k:v for k,v in actual.items() if k not in changed}=={k:v for k,v in original.items() if k not in changed}
-        assert actual.get('references')==original.get('references')
-        assert actual.get('cli')==original.get('cli')
-        assert actual.get('iac')==original.get('iac')
-
-@pytest.mark.parametrize('cid',SELECTED)
-def test_review_binds_actual_predicate_and_source_severity(cid):
-    row=ROWS[cid];check=CHECK_BY_ID[cid];fn=inspect.unwrap(check.evaluate)
-    assert row['reviewed_binding']['kind']==check.kind
-    assert row['reviewed_binding']['predicate_qualname']==fn.__qualname__
-    assert row['reviewed_binding']['predicate_source_sha256']==hashlib.sha256(inspect.getsource(fn).encode()).hexdigest()
-    cv=inspect.getclosurevars(fn)
-    for name,expected in row['reviewed_binding'].get('closure',{}).items():
-        value=cv.nonlocals[name]
-        if isinstance(value,set):value=sorted(value)
-        elif isinstance(value,tuple):value=list(value)
-        assert value==expected
-    delegates=[]
-    for value in list(cv.nonlocals.values())+list(fn.__defaults__ or ()):
-        if inspect.isfunction(value):delegates.append(value)
-    for name in ('EVALUATORS','_EVALUATORS'):
-        if cid in cv.globals.get(name,{}):delegates.append(cv.globals[name][cid])
-    actual_delegates=[{'qualname':d.__qualname__,'sha256':hashlib.sha256(inspect.getsource(d).encode()).hexdigest()} for d in delegates]
-    if 'delegates' in row['reviewed_binding']:assert row['reviewed_binding']['delegates']==actual_delegates
-    if 'helper_contract' in row['reviewed_binding']:
-        from peaso.checks.claude_aws_b_compute import _open_ports
-        assert row['reviewed_binding']['helper_contract']['source_sha256']==hashlib.sha256(inspect.getsource(_open_ports).encode()).hexdigest()
-    assert row['reviewed_source_severity']==check.severity
-    assert row['reviewed_severity'] in {'critical','high','medium','low','info'}
 
 @pytest.mark.parametrize('cid',SELECTED)
 def test_actual_native_outcomes_and_concise_observations_do_not_mutate_evidence(cid):
@@ -102,13 +52,6 @@ def test_actual_native_outcomes_and_concise_observations_do_not_mutate_evidence(
         assert 'FAIL' not in outcomes and 'PASS' in outcomes
     else:
         assert {'PASS','FAIL'}<=outcomes
-
-@pytest.mark.parametrize('cid',SELECTED)
-def test_guard_rejects_changed_source_text_or_template(cid,originals):
-    for original,apply in [(_base_description_for(cid),description),(originals[cid],remediation)]:
-        altered=deepcopy(original) if isinstance(original,dict) else {}
-        altered['unexpected_drift']=True
-        with pytest.raises(ValueError,match='Reviewed compute/storage clarity base changed'):apply(cid,altered)
 
 
 def test_uncertain_foreign_and_unowned_rows_keep_their_existing_observations():

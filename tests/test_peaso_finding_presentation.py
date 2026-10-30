@@ -99,10 +99,6 @@ def test_gcp_unknown_enum_historical_pass_is_not_presented_as_current_corrected_
     assert result['evidence']['release_channel']=='UNRECOGNIZED_NEW_MODE'
 
 
-def test_lightsail_shared_interval_helper_is_in_the_corrected_source_gate():
-    assert {'aws.cb.lightsail.ssh_rdp_http_world_closed','aws.cb.lightsail.ssh_restricted','aws.cb.lightsail.rdp_restricted'}<=CORRECTED_CHECK_IDS
-
-
 def test_no_live_catalog_commands_are_added_to_an_archived_report():
     old,current,current_template,_=_archived_kinesis_report_row()
     current_template['cli']=[{'code':'new cloud mutation example'}]

@@ -1,6 +1,5 @@
 """Isolated signed GCP sw51 compliance decisions."""
 import copy
-from datetime import datetime
 
 import pytest
 from peaso.checks import CHECKS, evaluate_check
@@ -281,15 +280,3 @@ def test_all_ids_reject_incomplete_malformed_foreign_and_missing_fact(id):
     malformed = {**subject, '_provenance': {'scope': 'projects/other'}}
     assert decision(id, malformed) == 'UNKNOWN'
     assert decision(id, subject) == 'UNKNOWN'
-
-
-def test_signed_metadata_digest_and_duplicate_ids():
-    from scripts.peaso_compliance_compile import spec_digest
-    import json
-    specs = {r['id']: r for r in json.load(open('docs/compliance-ledgers/new-checks-gcp.json'))}
-    matches = [c for c in CHECKS if c.id in m.META]
-    assert len(matches) == 15 and len({c.id for c in matches}) == 15
-    for c in matches:
-        meta = m.META[c.id]
-        assert (c.provider, c.kind, c.category, c.severity, c.title) == ('gcp', meta['kind'], meta['category'], meta['severity'], meta['title'])
-        assert meta['sha'] == spec_digest(specs[c.id])

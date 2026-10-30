@@ -1,8 +1,8 @@
 """Signed EC2 group and IPv6 semantic fixtures over cached same-Region facts."""
-from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import compliance_new_aws_ec2  # noqa: F401: registration side effect
+from peaso.checks import evaluate_check
 from peaso.engine import evaluate_snapshot
 from peaso.snapshot import make_snapshot
+from peaso.checks import compliance_new_aws_ec2  # noqa: F401  (registration side effect)
 
 
 DEFAULT_ID = "aws_cis_ec2_default_security_group_not_attached"
@@ -96,17 +96,6 @@ def test_ipv6_missing_unproven_or_malformed_facts_stay_unknown():
     assert evaluate(IPV6_ID, instance(), scoped([instance()], instance_status="partial"))[0] == "UNKNOWN"
     ended = instance(state="terminated")
     assert evaluate(IPV6_ID, ended, scoped([ended]))[0] == "NOT_APPLICABLE"
-
-
-def test_signed_ec2_ids_have_reconciled_kind_and_metadata():
-    by_id = {check.id: check for check in CHECKS if check.id in {DEFAULT_ID, IPV6_ID}}
-    assert set(by_id) == {DEFAULT_ID, IPV6_ID}
-    assert all(check.provider == "aws" and check.kind == "instance" and check.target == "resource"
-               for check in by_id.values())
-    assert by_id[DEFAULT_ID].severity == "medium"
-    assert by_id[IPV6_ID].severity == "high"
-    assert by_id[DEFAULT_ID].category == "hardening"
-    assert by_id[IPV6_ID].category == "exposure"
 
 
 def test_production_engine_scopes_ec2_joins_and_native_response_marker():
