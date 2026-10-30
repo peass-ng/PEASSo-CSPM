@@ -1,6 +1,7 @@
 """Portable connector authentication, JSON framing and principal-level CLI output."""
 import io
 import json
+import os
 import stat
 import subprocess
 import sys
@@ -22,11 +23,15 @@ def test_cli_passes_connector_auth_unchanged(provider, method, tmp_path, monkeyp
     path = tmp_path / 'auth.json'
     path.write_text(json.dumps(auth))
     snapshot = make_snapshot(provider, ['fixture'], [{'type': 'fixture', 'scope': 'fixture', 'service': 'test', 'status': 'empty', 'items': []}])
-    def scan(request):
+    def collect(request):
         assert request['connector']['auth'] == auth
         assert request['connector']['scopes'] == ['fixture']
-        return {'provider': provider, 'stats': {'categories': ['hardening']}, 'findings': []}, snapshot
-    monkeypatch.setattr(cli, 'scan', scan)
+        return snapshot
+    def evaluate(value, *args, **kwargs):
+        assert value['provider'] == provider
+        return {'provider': provider, 'stats': {'categories': ['hardening']}, 'findings': []}
+    monkeypatch.setattr(cli, 'collect_snapshot', collect)
+    monkeypatch.setattr(cli, 'evaluate_snapshot', evaluate)
     assert cli.main(['scan', '--provider', provider, '--auth-file', str(path), '--scopes', 'fixture', '--categories', 'hardening', '--quiet']) == 0
     output = capsys.readouterr()
     assert json.loads(output.out)['provider'] == provider
@@ -36,10 +41,11 @@ def test_cli_passes_connector_auth_unchanged(provider, method, tmp_path, monkeyp
 def test_cli_reads_auth_from_stdin_without_putting_credentials_in_argv(monkeypatch, capsys):
     monkeypatch.setattr(sys, 'stdin', io.StringIO('{"method":"token","token":"synthetic-private-token"}'))
     snapshot = make_snapshot('gcp', ['fixture'], [{'type': 'project', 'scope': 'fixture', 'service': 'test', 'status': 'empty', 'items': []}])
-    def scan(request):
+    def collect(request):
         assert request['connector']['auth']['token'] == 'synthetic-private-token'
-        return {'provider': 'gcp', 'stats': {'categories': ['hardening']}, 'findings': []}, snapshot
-    monkeypatch.setattr(cli, 'scan', scan)
+        return snapshot
+    monkeypatch.setattr(cli, 'collect_snapshot', collect)
+    monkeypatch.setattr(cli, 'evaluate_snapshot', lambda *args, **kwargs: {'provider': 'gcp', 'stats': {'categories': ['hardening']}, 'findings': []})
     assert cli.main(['scan', '--provider', 'gcp', '--auth-file', '-', '--quiet']) == 0
     result = capsys.readouterr()
     assert json.loads(result.out)['provider'] == 'gcp'
@@ -50,14 +56,19 @@ def test_cli_reads_auth_from_stdin_without_putting_credentials_in_argv(monkeypat
 def test_real_cli_json_and_offline_least_privilege_match(provider, tmp_path):
     snapshot, output, offline = [tmp_path / name for name in ('snapshot.json', 'report.json', 'offline.json')]
     prefix = [sys.executable, '-m', 'peaso.cli']
+    # The suite-wide PEASO_SOURCE_ATTESTATION=always re-proves every pinned source on
+    # each nested call (minutes of CPU for a cold peaso.checks import). This child
+    # does not test attestation, so it runs the shipped mode, which still proves
+    # every pinned source once on first use.
+    env = {**os.environ, 'PEASO_SOURCE_ATTESTATION': 'once'}
     result = subprocess.run(prefix + ['scan', '--provider', provider, '--demo', '--categories', 'hardening', 'exposure', 'least_privilege',
-                                     '--snapshot-output', str(snapshot), '--output', str(output), '--quiet'], capture_output=True, text=True, timeout=60)
+                                     '--snapshot-output', str(snapshot), '--output', str(output), '--quiet'], capture_output=True, text=True, timeout=60, env=env)
     assert result.returncode == 0, result.stderr
     assert not result.stdout and not result.stderr
     report = json.loads(output.read_text())
     assert set(report['stats']['categories']) == {'hardening', 'exposure', 'least_privilege'}
     assert set(report['least_privilege']) == {'items', 'total', 'coverage'}
-    result = subprocess.run(prefix + ['evaluate', str(snapshot), '--categories', 'hardening', 'exposure', 'least_privilege', '--quiet', '-o', str(offline)], capture_output=True, text=True, timeout=60)
+    result = subprocess.run(prefix + ['evaluate', str(snapshot), '--categories', 'hardening', 'exposure', 'least_privilege', '--quiet', '-o', str(offline)], capture_output=True, text=True, timeout=60, env=env)
     assert result.returncode == 0, result.stderr
     assert json.loads(offline.read_text())['least_privilege'] == report['least_privilege']
     assert stat.S_IMODE(output.stat().st_mode) == 0o600
@@ -67,7 +78,7 @@ def test_real_cli_json_and_offline_least_privilege_match(provider, tmp_path):
 def test_cli_error_hides_provider_exception_details(monkeypatch, capsys):
     def fail(_):
         raise ValueError('provider rejected synthetic-private-token')
-    monkeypatch.setattr(cli, 'scan', fail)
+    monkeypatch.setattr(cli, 'collect_snapshot', fail)
     assert cli.main(['scan', '--provider', 'gcp', '--quiet']) == 2
     result = capsys.readouterr()
     assert not result.out

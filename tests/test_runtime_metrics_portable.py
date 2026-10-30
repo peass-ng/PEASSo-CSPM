@@ -12,7 +12,9 @@ import pytest
 @pytest.fixture
 def subject():
     source = Path(os.environ.get('PEASO_RUNTIME_METRICS_SOURCE', Path.cwd() / 'peaso/runtime_metrics.py'))
-    spec = importlib.util.spec_from_file_location('_tested_runtime_metrics', source)
+    # A fresh instance still belongs to the peaso package, so its relative
+    # import of the sibling collection-job metrics resolves as in production.
+    spec = importlib.util.spec_from_file_location('peaso._tested_runtime_metrics', source)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     yield module
