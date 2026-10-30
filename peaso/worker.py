@@ -760,7 +760,14 @@ def _process(role, request, connection):
                             checkpoint_session.on_content_tail(False)
                     finally:
                         with _runtime_span("worker.checkpoint.close"):
-                            checkpoint_session.close()
+                            try:
+                                # Expired credentials end the scan before the
+                                # analyzer runs, so publish the collected
+                                # evidence as the partial report here.
+                                if checkpoint_session.collection_finished and _expired_snapshot(snapshot):
+                                    checkpoint_session.flush()
+                            finally:
+                                checkpoint_session.close()
                     request.pop("_collection_callback", None)
                     connector.get("options", {}).pop("_content_tail_callback", None)
                     request.pop("_scope_plan_callback", None)

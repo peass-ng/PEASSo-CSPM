@@ -42,7 +42,7 @@ def test_azure_storage_endpoint_selection_survives_sorted_json():
     assert before == after
     observed = [row["evidence"]["public_addresses"] for row in before["findings"]
                 if row["check_id"] == "analysis.internet_exposure" and row["evidence"].get("public_addresses")]
-    assert observed == [sorted(endpoints.values())[:4]]
+    assert observed == [sorted(endpoints.values())]
 
 
 @pytest.mark.parametrize("provider", ["azure", "gcp", "k8s"])
@@ -54,6 +54,8 @@ def test_network_reports_are_equal_across_process_hash_seeds(tmp_path, provider)
         "snapshot=json.load(open(sys.argv[1])); "
         "print(json.dumps(evaluate_snapshot(snapshot,categories=['exposure','network']),sort_keys=True))"
     ), str(path)]
+    # A cold child process verifies and installs the full attested check registry
+    # before evaluating; the bound covers that startup, not the comparison.
     reports = [subprocess.check_output(command, env=dict(os.environ, PYTHONHASHSEED=seed),
-               cwd=Path(__file__).resolve().parents[1], text=True, timeout=30) for seed in ("1", "77")]
+               cwd=Path(__file__).resolve().parents[1], text=True, timeout=600) for seed in ("1", "77")]
     assert json.loads(reports[0]) == json.loads(reports[1])

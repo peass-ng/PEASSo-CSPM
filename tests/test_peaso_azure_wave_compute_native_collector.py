@@ -50,6 +50,10 @@ class Reader:
         self.collections.append({'type': kind, 'scope': scope, 'service': service,
                                  'status': 'unavailable', 'items': [], 'error': str(exc)})
 
+    def progress(self, phase=None, scope='', settled=None):
+        # Real Azure readers only report an envelope the collector already appended.
+        assert settled is None or settled is self.collections[-1]
+
 
 def test_approved_scope_collects_only_exact_operation_with_bounded_arg_query():
     reader = Reader([_result()])
@@ -72,8 +76,8 @@ def test_unapproved_scope_does_not_make_arg_call():
     reader = Reader([_result()])
     collect(reader, None, [SCOPE], {KIND}, _policy(approved=False))
     assert reader.calls == []
-    assert reader.collections[-1]['status'] == 'unavailable'
-    assert 'not approved' in reader.collections[-1]['error']
+    assert reader.collections[-1]['status'] == 'unknown'
+    assert reader.collections[-1]['error'] == {'code': 'actual_installation_policy_not_approved'}
 
 
 def test_foreign_result_rejected_before_snapshot_fact():

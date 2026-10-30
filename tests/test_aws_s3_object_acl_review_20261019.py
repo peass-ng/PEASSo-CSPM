@@ -48,7 +48,9 @@ def reader(monkeypatch):
 
     monkeypatch.setattr(aws, 'READ_ACTIONS', aws.READ_ACTIONS | collector.READ_ACTIONS)
     monkeypatch.setattr(aws.Requests, 'client', client)
-    requests = aws.Requests({'retry_attempts': 1})
+    # botocore Stubber answers FIFO per client while sampled object ACL reads run
+    # concurrently; one worker keeps the queued order (results keep input order either way).
+    requests = aws.Requests({'retry_attempts': 1, 'service_concurrency': 1})
     yield requests, session, add, routes
     for stub in stubs.values():
         stub.assert_no_pending_responses()

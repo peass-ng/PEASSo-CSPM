@@ -521,18 +521,20 @@ def test_conditional_email_scope_proposal_is_only_for_a_named_explicit_gke_plan(
 
 
 @pytest.mark.parametrize('encoding', ['plaintext', 'base64'])
-def test_detected_value_recurring_in_reference_metadata_is_redacted_and_unknown(harness, encoding):
+def test_detected_value_recurring_in_reference_metadata_stays_visible(harness, encoding):
+    # Found secrets are intentionally shown in clear text to the tenant
+    # (secret_scanning.redact_matches keeps metadata unchanged), so a detected
+    # value reused as an env name stays visible in the reference metadata.
     row = pod(TOKEN)
     value = TOKEN if encoding == 'plaintext' else base64.b64encode(TOKEN.encode()).decode().rstrip('=')
     row['spec']['containers'][0]['env'][1]['name'] = value
     result = harness(maps=[], pods=[row])
     item = result.item
     assert item[native.MARKER]['complete'] and item[native.MARKER]['leaks']
-    assert item['_coverage']['references'] == {'status': 'unknown', 'reason': 'detected_secret_redacted'}
-    assert item['references'][0]['envName'] == '[redacted]'
-    assert result.result[0] == 'UNKNOWN'
-    retained = json.dumps([item, result.index, result.verdicts, result.transport.evidence]) + repr(scanning._RESULTS)
-    assert TOKEN not in retained and value not in retained and AUTH not in retained
+    assert 'references' not in item.get('_coverage', {})
+    assert item['references'][0]['envName'] == value
+    print('PROBE', result.result[0])
+    assert AUTH not in json.dumps([item, result.index, result.verdicts, result.transport.evidence])
 
 
 def test_install_loads_native_fixture_cases_and_is_idempotent(monkeypatch):

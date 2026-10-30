@@ -61,8 +61,8 @@ def test_sql_and_managed_instance_native_gets_to_real_engine():
             rid=url.split('https://management.azure.com',1)[1].split('?',1)[0]
             return {'id':rid,'properties':{'state':state['value']}}
         if '/databases?'in url:return {'value':[{'id':mi if managed in url else db,'name':'app','properties':{'status':'Online'}}]}
-        if '/providers/Microsoft.Sql/servers?'in url:return {'value':[{'id':server,'properties':{}}]}
-        if '/providers/Microsoft.Sql/managedInstances?'in url:return {'value':[{'id':managed,'properties':{}}]}
+        if '/providers/Microsoft.Sql/servers?'in url:return {'value':[{'id':server,'type':'Microsoft.Sql/servers','properties':{}}]}
+        if '/providers/Microsoft.Sql/managedInstances?'in url:return {'value':[{'id':managed,'type':'Microsoft.Sql/managedInstances','properties':{}}]}
         if body:return {'data':[]}
         if url.startswith('https://management.azure.com'+scope+'/resourceGroups/rg/providers/Microsoft.Sql/'):
             return {'id':url.split('https://management.azure.com',1)[1].split('?',1)[0],'properties':{}}

@@ -551,6 +551,17 @@ def _strings(value):
 
 
 def _custom(cid,e):
+    if cid=='aws.claude_a.iam.console_password_used_45' and 'password_last_used' not in e:
+        # The credential-report successor records per-credential rows instead
+        # of a flat password_last_used field.
+        stale=e.get('stale_credentials')
+        if isinstance(stale,list) and stale:
+            rows=[row for row in stale if isinstance(row,dict) and row.get('credential')=='password']
+            if len(rows)==1:
+                used=rows[0].get('last_used')
+                if isinstance(used,str) and used.strip() and len(used)<=64 and not any(c in used for c in '\n\r\x00'):
+                    return f'The recorded last console-password use was {used}.'
+        return None
     if cid in ATTRIBUTES:
         key,name=ATTRIBUTES[cid]
         if e.get('attribute')==key and e.get('configured') in ('true','false'):

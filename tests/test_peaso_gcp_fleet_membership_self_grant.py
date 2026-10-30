@@ -84,12 +84,14 @@ def test_native_member_hydration_requests_its_iam_policy():
         def __init__(self):
             self.urls = []
 
-        def pages(self, url, scope, *, key=None, single=False, params=None):
+        def pages(self, url, scope, *, key=None, single=False, params=None, transform=None):
+            # Like GCPCollector.pages, apply the optional per-item projection.
             self.urls.append(url)
+            apply = transform or (lambda item: item)
             if key == "resources":
-                yield [{"name": MEMBER}], "list"
+                yield [apply({"name": MEMBER})], "list"
             elif single:
-                yield [{"name": MEMBER, "state": {"code": "READY"}}], "detail"
+                yield [apply({"name": MEMBER, "state": {"code": "READY"}})], "detail"
             else:
                 raise AssertionError(url)
 

@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import re
 from peaso.collectors import k8s_selected_flux_artifact_20261021 as source
-from peaso.secret_scanning import KINGFISHER_VERSION, TRUFFLEHOG_VERSION
+from peaso.secret_scanning import KINGFISHER_VERSION, TRUFFLEHOG_VERSION, merge_leaks
 
 DECLARATION = {'id': source.CHECK, 'provider': 'k8s', 'category': 'exposure',
     'kind': source.KIND, 'finding_type': 'secrets', 'ui_group': 'Secrets', 'severity': 'high',
@@ -61,6 +61,9 @@ def evaluate(item, index):
                 or any(type(l) is not dict or not re.fullmatch('[0-9a-f]{64}', str(l.get('fingerprint')))
                        or not l.get('locations') or not l.get('detectors') for l in leaks)):
             return unknown
+        # A positive must be a canonical secret observation, so saved secret
+        # findings keep the same detectors, locations and per-secret summary.
+        merge_leaks(leaks)
         expected_engines = {'kingfisher': KINGFISHER_VERSION, 'trufflehog': TRUFFLEHOG_VERSION}
         completed = {(part.get('part'), engine.get('engine')) for part in parts
                      if type(part) is dict and type(part.get('engines')) is list
@@ -72,6 +75,10 @@ def evaluate(item, index):
         if leaks:
             return 'FAIL', {'observed': 'The selected Flux source reported this verified artifact digest.\nIts text content contains a likely secret whose value is hidden.\nThat secret may allow access to services or data if it is still valid.',
                             'secret_leaks': leaks, 'complete': marker.get('complete') is True}
+        # A clean result needs the complete selected inventory; a partial
+        # collection can retain a positive but cannot prove absence.
+        if collection.get('status') != 'collected':
+            return 'UNKNOWN', {'observed': 'The selected Flux artifact had no detected secret, but its Kubernetes inventory was incomplete.\nOther members or sources in that inventory may still contain a secret.\nAccess to workloads or their data remains unclear.'}
         if (marker.get('status') == 'PASS' and marker.get('complete') is True and parts
                 and all(p.get('complete') is True and type(p.get('engines')) is list
                         and len(p['engines']) == 2

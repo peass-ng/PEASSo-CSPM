@@ -1,17 +1,26 @@
 """Isolated native Flux and Service-proxy fixtures; no release-tree import or network."""
+import ast
 from contextlib import nullcontext
 from copy import deepcopy
 import gzip
 from hashlib import sha256
+import importlib.util
 import io
 import json
 from pathlib import Path
+import re
+import stat
+import struct
+import subprocess
+import sys
 import tarfile
 import time
-from types import SimpleNamespace
+from types import FunctionType, SimpleNamespace
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlsplit
 import zipfile
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 from peaso.collectors import k8s_selected_flux_artifact_20261021 as flux_module
@@ -124,13 +133,13 @@ class FluxTests(unittest.TestCase):
 
     def test_denied_foreign_service_digest_truncation_and_drift(self):
         def denied(_): raise source['Incomplete']('artifact_denied')
-        faults = [lambda: inspect_case(self.target, self.native, self.service, self.raw, proxy_get=denied),
-                  lambda: inspect_case(self.target, self.native, dict(self.service,
-                           metadata={**self.service['metadata'], 'uid': 'foreign'}), self.raw),
-                  lambda: inspect_case(self.target, self.native, self.service, self.raw[:-1]),
-                  lambda: inspect_case(self.target, self.native, self.service, self.raw[:-1] + b'X')]
-        for fn in faults:
-            with self.subTest(fault=fn):
+        faults = [('denied', lambda: inspect_case(self.target, self.native, self.service, self.raw, proxy_get=denied)),
+                  ('foreign_service', lambda: inspect_case(self.target, self.native, dict(self.service,
+                           metadata={**self.service['metadata'], 'uid': 'foreign'}), self.raw)),
+                  ('truncated', lambda: inspect_case(self.target, self.native, self.service, self.raw[:-1])),
+                  ('digest_drift', lambda: inspect_case(self.target, self.native, self.service, self.raw[:-1] + b'X'))]
+        for label, fn in faults:
+            with self.subTest(fault=label):
                 result = fn()
                 self.assertEqual(result['status'], 'UNKNOWN')
         calls = [0]
@@ -262,3 +271,21 @@ class FluxTests(unittest.TestCase):
         with self.assertRaises(source['Incomplete']):
             source['_scan'](nested.getvalue(),target,lambda:None,scanner)
 
+    def test_serialized_cases_replay_in_other_process(self):
+        script='''import importlib.util,json,sys
+from pathlib import Path
+root=Path(sys.argv[1]);sys.path.insert(0,str(root))
+# Only the reviewed evaluator and its collector, not the whole check registry.
+spec=importlib.util.spec_from_file_location("replay_review",root/"peaso/checks/k8s_selected_flux_artifact_review_20261021.py")
+review=importlib.util.module_from_spec(spec);spec.loader.exec_module(review)
+assert "peaso.checks" not in sys.modules
+source=review.source
+cases=json.loads((root/"peaso/checks/k8s_selected_flux_artifact_review_20261021_cases.json").read_text())[source.CHECK]
+for branch,expected in (("pass","PASS"),("fail","FAIL"),("unknown","UNKNOWN"),("missing","UNKNOWN")):
+ item,index=cases[branch],cases[branch+"_index"]
+ assert review.evaluate(item,index)[0]==expected
+ if branch!="missing":assert source.identity(index["context"]["metadata"][source.OPTION][0])==item["id"]
+print("4 serialized branches replayed")'''
+        p=subprocess.run([sys.executable,'-I','-c',script,str(ROOT)],capture_output=True,text=True,timeout=60)
+        self.assertEqual(p.returncode,0,p.stderr)
+        self.assertIn('4 serialized branches replayed',p.stdout)

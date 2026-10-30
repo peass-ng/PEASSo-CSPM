@@ -152,7 +152,13 @@ def test_firehose_manual_pagination_strips_destinations(sdk):
     firehose.add_response("describe_delivery_stream", description("a", "ENABLED"), {"DeliveryStreamName": "a"})
     firehose.add_response("describe_delivery_stream", description("b", "DISABLED"), {"DeliveryStreamName": "b"})
     read = facts.FETCHERS["firehose_delivery_stream"](aws.Requests({}), session, REGION, ACCOUNT)
-    assert read.status == "collected" and "secret-token" not in json.dumps(read.items) and "Destinations" not in read.items[0]
+    assert read.status == "collected" and "secret-token" not in json.dumps(read.items)
+    # Destinations keep routing facts only (type, ids, hosts/ARNs); HEC tokens,
+    # keys and users from the native description are never persisted.
+    for item in read.items:
+        assert item["DestinationsComplete"] is True
+        assert item["Destinations"] == [{"DestinationId": "d", "Type": "SplunkDestinationDescription", "BucketARNs": [],
+                                         "EndpointHosts": [], "TargetARNs": [], "LambdaProcessing": False}]
     assert status("aws.cb.firehose.server_side_encryption", read.items[0]) == "PASS"
     assert status("aws.cb.firehose.server_side_encryption", read.items[1]) == "FAIL"
     assert status("aws.c2b.firehose.encrypted_at_rest_or_msk_source", read.items[1]) == "FAIL"

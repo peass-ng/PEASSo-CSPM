@@ -772,7 +772,8 @@ def test_s3_native_security_detail_and_absent_policy(sdk):
     s3.add_client_error("get_bucket_replication", "ReplicationConfigurationNotFoundError", expected_params={"Bucket": "audit-bucket"})
     s3.add_client_error("get_object_lock_configuration", "ObjectLockConfigurationNotFoundError", expected_params={"Bucket": "audit-bucket"})
     s3.add_client_error("get_bucket_tagging", "NoSuchTagSet", expected_params={"Bucket": "audit-bucket"})
-    result = aws._buckets(aws.Requests({}), session, REGION)
+    # Stubber answers FIFO; per-bucket detail reads run concurrently, so keep one worker.
+    result = aws._buckets(aws.Requests({"service_concurrency": 1}), session, REGION)
     assert result.status == "collected"
     assert result.items[0]["Policy"]["collection_status"] == "empty"
     assert result.items[0]["Policy"]["absent"] is True

@@ -610,10 +610,11 @@
     "version": "v1"
   },
   "fleet_membership": {
-    "fields": "resources(endpoint(googleManaged,multiCloudCluster(clusterMissing,resourceLink),kubernetesResource(membershipResources(clusterScoped),resourceOptions(v1beta1Crd),connectResources(clusterScoped)),applianceCluster(resourceLink),gkeCluster(clusterMissing,resourceLink),edgeCluster(resourceLink),onPremCluster(clusterMissing,resourceLink,adminCluster)),name,monitoringConfig(cluster)),nextPageToken,unreachable",
-    "get_fields": "endpoint(googleManaged,multiCloudCluster(clusterMissing,resourceLink),kubernetesResource(membershipResources(clusterScoped),resourceOptions(v1beta1Crd),connectResources(clusterScoped)),applianceCluster(resourceLink),gkeCluster(clusterMissing,resourceLink),edgeCluster(resourceLink),onPremCluster(clusterMissing,resourceLink,adminCluster)),name,monitoringConfig(cluster)",
+    "fields": "resources(endpoint(googleManaged,multiCloudCluster(clusterMissing,resourceLink),kubernetesResource(membershipResources(clusterScoped),resourceOptions(v1beta1Crd),connectResources(clusterScoped)),applianceCluster(resourceLink),gkeCluster(clusterMissing,resourceLink),edgeCluster(resourceLink),onPremCluster(clusterMissing,resourceLink,adminCluster)),name,monitoringConfig(cluster),state(code)),nextPageToken,unreachable",
+    "get_fields": "endpoint(googleManaged,multiCloudCluster(clusterMissing,resourceLink),kubernetesResource(membershipResources(clusterScoped),resourceOptions(v1beta1Crd),connectResources(clusterScoped)),applianceCluster(resourceLink),gkeCluster(clusterMissing,resourceLink),edgeCluster(resourceLink),onPremCluster(clusterMissing,resourceLink,adminCluster)),name,monitoringConfig(cluster),state(code)",
     "get_parameters": {},
     "hydrate": true,
+    "iam_policy": true,
     "key": "resources",
     "location_kind": "region",
     "reference": "https://gkehub.googleapis.com/$discovery/rest?version=v1",

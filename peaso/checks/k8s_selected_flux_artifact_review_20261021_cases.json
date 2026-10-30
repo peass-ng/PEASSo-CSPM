@@ -9,7 +9,8 @@
           {
             "detectors": [
               {
-                "engine": "kingfisher"
+                "engine": "kingfisher",
+                "rule": "kingfisher.github.1"
               }
             ],
             "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -102,7 +103,8 @@
                     {
                       "detectors": [
                         {
-                          "engine": "kingfisher"
+                          "engine": "kingfisher",
+                          "rule": "kingfisher.github.1"
                         }
                       ],
                       "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

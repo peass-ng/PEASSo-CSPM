@@ -1,6 +1,7 @@
 """Lossless encoded chunks retain legacy boundaries, detail routing and writes."""
 from contextlib import nullcontext
 import copy
+import inspect
 import gzip
 from io import BytesIO
 import json
@@ -197,12 +198,14 @@ def test_complete_publisher_retains_native_artifacts_and_private_output_boundari
     report['ai'] = {'status': 'not_requested', 'reason': 'fixture'}
     before = copy.deepcopy((report, snapshot))
     fingerprints = []
+    # Uploads overlap but never exceed the batch's configured worker bound.
+    workers = inspect.signature(storage.S3Artifacts.batch).parameters['workers'].default
     for publisher in (original_publisher(), reports.publish_report):
         client = SimulatedS3(0)
         store = storage.S3Artifacts('private', client=client, kms_key='fixture-kms')
         reference = publisher(store, TENANT, JOB, report, snapshot)
         assert list(client.objects)[-1] == 'artifacts/' + reference
-        assert client.peak <= 4
+        assert client.peak <= workers
         assert any('/detail-' in key for key in client.objects)
         assert all(canary.encode() not in decoded(request) for request in client.objects.values())
         manifest = json.loads(decoded(client.objects['artifacts/' + reference]))

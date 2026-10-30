@@ -1,6 +1,7 @@
 """Provider evidence boundaries for the two Azure identity source corrections."""
 
 import copy
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,7 +13,10 @@ from peaso.collectors.azure import DIRECTORY
 CHECKS_BY_ID = {check.id: check for check in CHECKS}
 ROOT = CHECKS_BY_ID["azure.claude.iam_root_custom_role_no_wildcard"]
 WILDCARD = CHECKS_BY_ID["azure.claude.iam_custom_role_no_wildcard_actions"]
-RECENT = CHECKS_BY_ID["azure.claude.entra_user_recent_sign_in"]
+# The registered sign-in control is now the native-bound successor
+# (tests/test_unused_iam_azure_user_completion.py). These boundaries remain
+# the predecessor field semantics that successor builds on.
+RECENT = SimpleNamespace(evaluate=identity.recent_sign_in)
 SNAPSHOT = {"context": {"created_at": "2026-01-01T00:00:00Z"}}
 
 

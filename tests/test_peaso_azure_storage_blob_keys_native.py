@@ -62,15 +62,18 @@ class Transport:
     def __init__(self, mode):
         self.mode = mode
         self.account, self.containers, self.scopes, self.blobs = fixture(mode)
-        self.calls, self.allow = [], []
+        self.calls, self.allow, self.parent_catalog = [], [], False
     def allow_storage(self, endpoint, account, service):
         assert (endpoint, account, service) == (EP, 'account', 'blob')
         self.allow.append((endpoint, account, service))
     def request(self, url):
         self.calls.append(url)
         assert urlsplit(url).scheme == 'https' and urlsplit(url).netloc == 'management.azure.com'
-        assert parse_qs(urlsplit(url).query) == {'api-version': [native.VERSION]}
         path = urlsplit(url).path
+        # The hosted parent GET uses the storage account catalog version;
+        # container and encryption-scope evidence reads keep the native version.
+        version = azure.ENDPOINTS['storage_account'][1] if path == ACCOUNT and self.parent_catalog else native.VERSION
+        assert parse_qs(urlsplit(url).query) == {'api-version': [version]}
         if self.mode == 'denied_arm': raise azure.AzureReadError('fixture_denied', 403)
         row = next((r for r in [self.account, *self.containers, *self.scopes] if r['id'] == path), None)
         assert row is not None, path
@@ -156,6 +159,7 @@ def test_normal_hosted_intake_plan_collect(monkeypatch, mode, expected):
     from peaso.server.validation import validate_connector
     from types import SimpleNamespace
     backend = Transport(mode)
+    backend.parent_catalog = True
     class HostedTransport:
         tenant = verified_tenant = '22222222-2222-2222-2222-222222222222'
         def __init__(self): self.closed = False

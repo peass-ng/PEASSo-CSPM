@@ -78,7 +78,10 @@ def pipeline(monkeypatch):
 
 
 def verdict(snapshot, cid):
-    rows = [row for row in evaluate_snapshot(snapshot, checks=[cid], include_not_applicable=True)['findings'] if row['check_id'] == cid]
+    # A retired duplicate id stays selectable but reports under its surviving check.
+    from peaso.checks import resolve_check_id
+    rows = [row for row in evaluate_snapshot(snapshot, checks=[cid], include_not_applicable=True)['findings']
+            if row['check_id'] == resolve_check_id(cid)]
     assert rows and len({r['status'] for r in rows}) == 1, rows
     return rows[0]['status']
 
@@ -159,7 +162,11 @@ def test_native_scalar_positive_negative(pipeline, kind, cid, field, good, bad):
             fields[field]['awsvpcConfiguration']['subnets'] = ['subnet-0123456789abcdef0']
         if cid.endswith('fargate_latest_platform'):
             fields.update(launchType='FARGATE', platformFamily='Linux')
-        snapshot, _ = pipeline(kind, BUILDERS[kind](**fields))
+        if kind == 'ecs_service' and field == 'networkConfiguration':
+            # The surviving awsvpc check joins the service to its task definition's network mode.
+            snapshot, _ = pipeline(['ecs_service', 'ecs_task_definition'], {**task(), **BUILDERS[kind](**fields)})
+        else:
+            snapshot, _ = pipeline(kind, BUILDERS[kind](**fields))
         assert verdict(snapshot, cid) == expected
 
 

@@ -164,7 +164,9 @@ def native_plan(case, variant):
                 segment = endpoint.split('/')[-1]
                 row.setdefault('selfLink', C + '/' + location + '/' + segment + '/' + row['name'])
             data = {'items': {location: {key: items}}} if aggregate else {'items': items}
-            add(C + '/' + endpoint, data, chosen)
+            # 9b483c7d: the snapshot aggregatedList exists only in Compute beta.
+            root = C.replace('/compute/v1/', '/compute/beta/') if kind == 'snapshot' else C
+            add(root + '/' + endpoint, data, chosen)
         if kind == 'snapshot':
             add(row['selfLink'] + '/getIamPolicy', policy or {'bindings': []})
         if kind == 'image':

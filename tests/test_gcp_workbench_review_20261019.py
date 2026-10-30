@@ -8,13 +8,19 @@ from peaso.engine import evaluate_snapshot
 SCOPE='projects/review'
 NAME=SCOPE+'/locations/us-central1-a/instances/notebook'
 PREFIX='gcp.review.workbench.'
+LIST_URL='https://notebooks.googleapis.com/v2/'+SCOPE+'/locations/-/instances'
+IAM_URL='https://notebooks.googleapis.com/v2/'+NAME+':getIamPolicy'
 
 class Transport:
     def __init__(self, row, denied=False):
         self.row=row;self.denied=denied;self.calls=[]
     def request(self,method,url,**kwargs):
         self.calls.append((method,url))
-        assert method=='GET' and url=='https://notebooks.googleapis.com/v2/'+SCOPE+'/locations/-/instances'
+        if url==IAM_URL:
+            # 75087001 hydrates each listed instance's IAM policy once.
+            assert method=='GET' and kwargs.get('params')=={'options.requestedPolicyVersion':3}
+            return {'version':3,'bindings':[]},'iam-1'
+        assert method=='GET' and url==LIST_URL
         if self.denied:
             error=ReadError('denied','api_error',http_status=403);error.request_id='read-1';raise error
         return {'instances':[deepcopy(self.row)]},'read-1'
@@ -24,7 +30,9 @@ def run(row, suffix, denied=False):
     connector={'provider':'gcp','scopes':[SCOPE],'options':{'inventories':['workbench_instance'],'include_inherited':False,'concurrency':1,'metrics_scopes':False}}
     snapshot=GCPCollector(connector,requirements=['workbench_instance'],transport=transport).collect()
     findings=evaluate_snapshot(snapshot,checks=[PREFIX+suffix])['findings']
-    assert len(transport.calls)==1
+    # One list read, plus one IAM read per listed instance in this project.
+    iam=[('GET',IAM_URL)] if not denied and row.get('name')==NAME else []
+    assert transport.calls==[('GET',LIST_URL)]+iam
     assert findings
     return findings,snapshot
 

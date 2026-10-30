@@ -147,9 +147,15 @@ def test_actual_file_share_recovery_point_expiry_to_frozen_sw13(mode,status):
 
 @pytest.mark.parametrize('which',['storage','points'])
 def test_missing_or_expired_owner_review_never_becomes_policy_approval(which):
- assert capture(which,options={})[0]['status']=='UNKNOWN'
+ # The registered storage successor evaluates the native default retention
+ # policy itself (no owner review input); recovery points still need review.
+ expected='PASS'if which=='storage'else'UNKNOWN'
+ kind='storage_immutability_evidence'
  opts=review();p=opts['compliance_parameters']['azure_storage_recovery'];p['observed_at']=(datetime.now(timezone.utc)-timedelta(days=2)).isoformat();p['expires_at']=(datetime.now(timezone.utc)-timedelta(days=1)).isoformat()
- assert capture(which,options=opts)[0]['status']=='UNKNOWN'
+ for options in ({},opts):
+  f,s,_=capture(which,options=options)
+  assert f['status']==expected,f
+  if which=='storage':assert all(row['_provenance']['policy_approved']is False for c in s['collections']if c['type']==kind for row in c['items'])
 
 
 @pytest.mark.parametrize('which',['storage','points'])

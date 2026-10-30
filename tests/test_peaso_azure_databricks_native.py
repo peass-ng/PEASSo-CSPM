@@ -68,13 +68,13 @@ def capture(mode='good',via='direct'):
   routes[table]=listed
   routes[SCOPE+'/resources']={'value':[raw,listed]}
   routes['/providers/Microsoft.ResourceGraph/resources']={'data':[raw,listed],'count':2,'totalRecords':2,'resultTruncated':'false'}
- connector={'provider':'azure','scopes':[SUB],'auth':auth,'options':{'retries':0,'compliance_policy':p,**options}};api=API(routes);old=azure.AzureTransport;api.close=lambda:None
+ connector={'provider':'azure','scopes':[SUB],'auth':auth,'options':{'retries':0,'compliance_policy':p,**options}};api=API(routes);old=azure.AzureTransport;old_exposure=azure.AzureTransportExposure;api.close=lambda:None
  try:
   if via=='direct':snap=azure.collect(connector,[native.KIND]+(['route_table']if mode=='sw33_siblings'else[]),transport=api)
   else:
-   azure.AzureTransport=lambda auth:api
+   azure.AzureTransport=azure.AzureTransportExposure=lambda auth:api
    snap=collect_live(connector,[native.KIND]+(['route_table']if mode=='sw33_siblings'else[]))if via=='dispatcher'else collect_snapshot({'connector':connector,'checks':[CHECK]+(['azure_route_table_network_http_internet_access_restricted_5cd2484']if mode=='sw33_siblings'else[])})
- finally:azure.AzureTransport=old
+ finally:azure.AzureTransport,azure.AzureTransportExposure=old,old_exposure
  assert TOKEN not in json.dumps(snap)
  return snap,api
 GOOD=[('good','PASS'),('empty','PASS'),('assignment_absent','FAIL'),('other_subscription','PASS'),('opaque_metastore','PASS')]

@@ -66,8 +66,10 @@ def test_sdk_default_or_unselected_userdata_never_invokes_engines(monkeypatch,en
 
 def sdk_chain(enabled,named,text,instances=(INSTANCE,)):
     session=boto3.Session(aws_access_key_id='fixture',aws_secret_access_key='fixture',region_name='us-east-1')
-    client=session.client('ec2');requests=Requests({'content_secret_scans':enabled,'retry_attempts':1});requests.content_secret_scan_kinds={'instance'} if named else set()
+    client=session.client('ec2');requests=Requests({'content_secret_scans':enabled,'retry_attempts':1,'service_concurrency':1});requests.content_secret_scan_kinds={'instance'} if named else set()
     requests._clients[(id(session),'ec2','us-east-1')]=client
+    # Stubber answers FIFO per client; per-instance reads run concurrently since 4aeec06e,
+    # so one worker keeps the queued order (ordered_map assigns identical rows serially).
     with Stubber(client) as stub:
         for identity in instances:
             stub.add_response('describe_instance_attribute',{'InstanceId':identity,'UserData':{'Value':base64.b64encode(text.encode()).decode()}},{'InstanceId':identity,'Attribute':'userData'})

@@ -114,9 +114,17 @@ def test_actual_worker_preserves_checkpoint_and_snapshot_with_correct_terminal_s
     assert Worker('collector', settings, store=store, artifacts=artifacts).run_once('owner', job['id'])
     row = store.job('owner', job['id'])
     assert row['status'] == expected, row
-    assert row['snapshot'] and row['partial_report']
+    assert row['snapshot']
     saved = artifacts.get('owner', row['snapshot'])
     assert saved['collections'][0]['items'] == snapshot['collections'][0]['items']
+    if code != 'ExpiredToken':
+        # A finished collection is evaluated by the analyzer stage; the
+        # collector does not publish a redundant terminal partial report.
+        assert not row['partial_report']
+        return
+    # Expired credentials stop before the analyzer, so the collected evidence
+    # must already be visible as a partial report.
+    assert row['partial_report']
     manifest = artifacts.get('owner', row['partial_report'])
     report = artifacts.get('owner', manifest['report_json'])
     assert any(f['check_id'] == 'aws.s3.default_encryption' and f['status'] == 'PASS' for f in report['findings'])
