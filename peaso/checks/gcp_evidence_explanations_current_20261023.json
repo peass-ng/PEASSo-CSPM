@@ -1,6 +1,6 @@
 {
   "gcp.iam.api_key_recent_recorded_successful_requests": {
-    "purpose": "Recorded successful API key requests inform an age-based cleanup review; the selected metric window cannot establish universal use.",
+    "purpose": "A leaked API key could let anyone call the Google APIs it allows.",
     "missing_observation": "The current API key request metrics do not establish recent successful activity."
   },
   "gcp.iam.custom_role_has_declared_grants": {
@@ -12,7 +12,7 @@
     "missing_observation": "The current Directory login records do not establish recent account activity."
   },
   "gcp.iam.hmac_key_recent_recorded_successful_requests": {
-    "purpose": "Recorded successful HMAC requests inform an age-based cleanup review; the selected metric window cannot establish universal use.",
+    "purpose": "A leaked HMAC key could let anyone reach the Cloud Storage data it allows.",
     "missing_observation": "The current HMAC request metrics do not establish recent successful activity."
   },
   "gcp.iam.role_grant_has_observed_permission_use": {
