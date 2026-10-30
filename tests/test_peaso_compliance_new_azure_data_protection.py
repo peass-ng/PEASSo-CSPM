@@ -24,7 +24,8 @@ def test_cosmos_check_imports_with_supported_hardening_category():
 
 
 def account(name, backup):
-    return {"id": BASE + name, "name": name, "properties": {"backupPolicy": backup}}
+    return {"id": BASE + name, "name": name, "type": "Microsoft.DocumentDB/databaseAccounts",
+            "properties": {"backupPolicy": backup}}
 
 
 def periodic(hours):
