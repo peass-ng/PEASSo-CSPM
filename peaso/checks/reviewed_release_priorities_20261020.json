@@ -117,7 +117,7 @@
     "recommended": "high",
     "source_kind": "ecr_selected_image_vulnerabilities",
     "source_module": "peaso.checks.aws_image_vulnerabilities_20261021",
-    "source_title": "Selected ECR or Lambda container image has no HIGH or CRITICAL vulnerabilities"
+    "source_title": "Selected ECR or workload container image has no HIGH or CRITICAL vulnerabilities"
   },
   "aws.review.ecr_repository.package_content_secret_indicators": {
     "current": "high",
@@ -485,7 +485,7 @@
     "recommended": "high",
     "source_kind": "azure_databricks_selected_notebook",
     "source_module": "peaso.checks.azure_databricks_notebook_secret_review_20261020",
-    "source_title": "Selected Databricks notebook source has no detected secrets"
+    "source_title": "Selected Databricks workspace content has no detected secrets"
   },
   "azure.review.devops.selected_content_secret_indicators": {
     "current": "high",
@@ -557,7 +557,7 @@
     "recommended": "high",
     "source_kind": "azure_ml_selected_command_job",
     "source_module": "peaso.checks.azure_ml_selected_job_secret_review_20261020",
-    "source_title": "Selected Machine Learning Command-job literals have no detected secrets"
+    "source_title": "Selected Machine Learning job literals have no detected secrets"
   },
   "azure.review.machine_learning.selected_environment_conda_secret_indicators": {
     "current": "high",
@@ -565,7 +565,7 @@
     "recommended": "high",
     "source_kind": "azure_ml_selected_environment_conda",
     "source_module": "peaso.checks.azure_ml_selected_asset_secret_review_20261020",
-    "source_title": "Selected ML environment Conda literals have no detected secrets"
+    "source_title": "Selected ML environment text has no detected secrets"
   },
   "azure.review.managed_hsm.audit_storage_destination": {
     "current": "medium",
@@ -636,7 +636,7 @@
     "reason": "artifact_image review detects selected literal secret indicators in bounded collected material. The high source rating describes a potential exposure, not a demonstrated read or credential use.",
     "recommended": "high",
     "source_kind": "artifact_image",
-    "source_module": "peaso.checks.gcp_image_secret_review_20261019",
+    "source_module": "peaso.checks.gcp_image_stream_review_20261021",
     "source_title": "Selected Artifact Registry image has no detected secrets"
   },
   "gcp.review.artifact_image.selected_image_vulnerabilities": {
@@ -1446,5 +1446,157 @@
     "source_kind": "endpoints",
     "source_module": "peaso.unused_network_k8s_20261021",
     "source_title": "Controller-managed Endpoints Service owner resolves in its namespace"
+  },
+  "aws.review.build_deployment.referenced_source_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "build_deployment_referenced_source_content",
+    "source_module": "peaso.checks.aws_build_deployment_referenced_source_review",
+    "source_title": "Selected build or deployment referenced source has no detected secrets"
+  },
+  "aws.review.ecr_public.selected_image_high_vulnerabilities": {
+    "current": "high",
+    "reason": "A bound selected image reports a HIGH or CRITICAL package vulnerability; retain high priority without asserting exploitability or execution.",
+    "recommended": "high",
+    "source_kind": "ecr_public_selected_image_content",
+    "source_module": "peaso.checks.aws_ecr_public_image_review_20261021",
+    "source_title": "Selected ECR Public image has no HIGH or CRITICAL package vulnerabilities"
+  },
+  "aws.review.ecr_public.selected_image_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "ecr_public_selected_image_content",
+    "source_module": "peaso.checks.aws_ecr_public_image_review_20261021",
+    "source_title": "Selected ECR Public image bytes have no detected secrets"
+  },
+  "aws.review.ecs.selected_environment_file_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "ecs_selected_environment_file_content",
+    "source_module": "peaso.checks.aws_ecs_environment_file_secret_review_20261021",
+    "source_title": "Selected ECS environment file has no detected secrets"
+  },
+  "aws.review.workload.referenced_source_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "workload_referenced_source_content",
+    "source_module": "peaso.checks.aws_workload_referenced_source_review",
+    "source_title": "Selected workload referenced source has no detected secrets"
+  },
+  "aws.review.workload.selected_image_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "aws_selected_workload_image_secrets",
+    "source_module": "peaso.checks.aws_workload_image_secret_review_20261021",
+    "source_title": "Selected workload image has no observed secret indicators"
+  },
+  "azure.review.aks.selected_pod_image_high_vulnerabilities": {
+    "current": "high",
+    "reason": "A bound selected image reports a HIGH or CRITICAL package vulnerability; retain high priority without asserting exploitability or execution.",
+    "recommended": "high",
+    "source_kind": "azure_selected_aks_pod_image_vulnerabilities",
+    "source_module": "peaso.checks.azure_selected_aks_image_review_20261021",
+    "source_title": "Selected AKS Pod image has no HIGH or CRITICAL package vulnerabilities"
+  },
+  "azure.review.aks.selected_pod_image_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "azure_selected_aks_pod_image",
+    "source_module": "peaso.checks.azure_selected_aks_image_review_20261021",
+    "source_title": "Selected AKS Pod image has no detected secrets"
+  },
+  "azure.review.function.configured_deployment_container_archives_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "azure_flex_configured_deployment_archives",
+    "source_module": "peaso.checks.azure_flex_deployment_archives_review_20261021",
+    "source_title": "Configured Flex deployment-container archives have no detected secrets"
+  },
+  "azure.review.synapse.selected_notebook_source_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "azure_synapse_selected_notebook_source",
+    "source_module": "peaso.checks.azure_synapse_selected_notebook_secret_review_20261021",
+    "source_title": "Selected Synapse notebook source has no detected secrets"
+  },
+  "gcp.review.app_engine_flex.selected_version_image_high_vulnerabilities": {
+    "current": "high",
+    "reason": "A bound selected image reports a HIGH or CRITICAL package vulnerability; retain high priority without asserting exploitability or execution.",
+    "recommended": "high",
+    "source_kind": "appengine_flex_selected_version_image_vulnerabilities",
+    "source_module": "peaso.checks.gcp_appengine_flex_image_review_20261021",
+    "source_title": "Selected App Engine Flex version image has no HIGH or CRITICAL package vulnerabilities"
+  },
+  "gcp.review.app_engine_flex.selected_version_image_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "appengine_flex_selected_version_image_secrets",
+    "source_module": "peaso.checks.gcp_appengine_flex_image_review_20261021",
+    "source_title": "Selected App Engine Flex version image has no detected secrets"
+  },
+  "gcp.review.cloudrun_worker_pool.selected_revision_image_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "cloudrun_worker_pool_selected_revision_image",
+    "source_module": "peaso.checks.gcp_workerpool_image_secret_review_20261021",
+    "source_title": "Selected Cloud Run worker pool revision image has no detected secrets"
+  },
+  "gcp.review.developerconnect.selected_repository_file_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "developerconnect_selected_file",
+    "source_module": "peaso.checks.gcp_developerconnect_file_secret_review_20261021",
+    "source_title": "Selected Developer Connect repository file has no detected secrets"
+  },
+  "gcp.review.gke.selected_pod_image_high_vulnerabilities": {
+    "current": "high",
+    "reason": "A bound selected image reports a HIGH or CRITICAL package vulnerability; retain high priority without asserting exploitability or execution.",
+    "recommended": "high",
+    "source_kind": "gke_selected_pod_image_vulnerabilities",
+    "source_module": "peaso.checks.gcp_gke_selected_pod_image_review_20261021",
+    "source_title": "Selected GKE Pod image has no HIGH or CRITICAL package vulnerabilities"
+  },
+  "gcp.review.gke.selected_pod_image_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "gke_selected_pod_image_secrets",
+    "source_module": "peaso.checks.gcp_gke_selected_pod_image_review_20261021",
+    "source_title": "Selected GKE Pod image has no detected secrets"
+  },
+  "k8s.review.selected_flux_artifact_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "k8s_selected_flux_artifact",
+    "source_module": "peaso.checks.k8s_selected_flux_artifact_review_20261021",
+    "source_title": "Selected Flux artifact has no detected secrets"
+  },
+  "k8s.review.selected_registry_image_high_vulnerabilities": {
+    "current": "high",
+    "reason": "A bound selected image reports a HIGH or CRITICAL package vulnerability; retain high priority without asserting exploitability or execution.",
+    "recommended": "high",
+    "source_kind": "k8s_selected_registry_image_vulnerabilities",
+    "source_module": "peaso.checks.k8s_selected_registry_image_review_20261021",
+    "source_title": "Selected Pod image has no HIGH or CRITICAL package vulnerabilities"
+  },
+  "k8s.review.selected_registry_image_secret_indicators": {
+    "current": "high",
+    "reason": "Detected credential-like literal in exact selected content; retain high priority without asserting credential validity or use.",
+    "recommended": "high",
+    "source_kind": "k8s_selected_registry_image_secrets",
+    "source_module": "peaso.checks.k8s_selected_registry_image_review_20261021",
+    "source_title": "Selected Pod image content has no detected secrets"
   }
 }

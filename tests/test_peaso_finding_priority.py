@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 
-from peaso.checks import CHECKS
+from peaso.checks import CHECKS, CHECK_ALIASES
 from peaso.engine import _finding, compact_report, hydrate_frameworks
 from peaso.finding_priority import effective_priority, review_metadata, reviews
 
@@ -10,6 +10,11 @@ from peaso.finding_priority import effective_priority, review_metadata, reviews
 def test_reviewed_priorities_bind_original_ratings_and_preserve_signed_registry():
     registered = {c.id: c for c in CHECKS}
     for cid, row in reviews().items():
+        if cid in CHECK_ALIASES:
+            # A retired duplicate keeps its archived review for stored scans;
+            # its registered survivor must carry its own reviewed priority.
+            assert cid not in registered and CHECK_ALIASES[cid] in registered and CHECK_ALIASES[cid] in reviews(), cid
+            continue
         source = registered[cid].severity
         assert source == row["current"]
         assert effective_priority(cid, source) == row["recommended"]
@@ -73,7 +78,7 @@ def test_new_priority_reviews_bind_the_actual_registered_sources():
     path = Path(__file__).resolve().parents[1] / "peaso/checks/reviewed_release_priorities_20261020.json"
     rows = json.loads(path.read_text())
     registered = {check.id: check for check in CHECKS}
-    assert len(rows) == 181
+    assert len(rows) == 200
     for cid, row in rows.items():
         check = registered[cid]
         assert (row["source_module"], row["source_kind"], row["source_title"]) == (
