@@ -92,6 +92,10 @@ class Reader(NativeDispatch):
         self.denied_phase=faults.get('denied_phase');self.owner_override=faults.get('owner_override')
         self.cancel_after_ecs=faults.get('cancel_after_ecs',False)
         self.clients={service:FakeClient(service,self) for service in ('ecs','s3','sts')}
+        # Requests.__init__ owns the scan-local native read cache; this
+        # hand-built dispatcher must carry the same per-scan cache state.
+        from peaso.collectors.aws_request_pool import RawReadCache
+        self.raw_reads=RawReadCache()
     def check_deadline(self):
         if self.cancel_event and self.cancel_event.is_set():raise iso.ReadFailure('not_collected','collection_cancelled')
     def client(self,session,service,region,*,_metadata_profile=None):
