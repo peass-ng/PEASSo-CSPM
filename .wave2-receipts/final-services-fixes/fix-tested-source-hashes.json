@@ -3,7 +3,7 @@
   "/Users/carlospolop/peaso-work/claude-wt/fix-gcp/tests/test_gcp_final_services_review_20261020.py": "136619c291d015df59440d7be1997e02ea7c4c92b80eb20e45aaa1eef1e8d179",
   "peaso/checks/batch_remaining_gcp.py": "5f2b783c85e0fe80a8cda82619a562ead5118f9450797f5c629532c8437e1502",
   "peaso/checks/compliance_new_sw52.py": "28e4e029e4f1b0c2ca7c4dabef08f6e136767a74e1240157457f88a1f855ea9d",
-  "peaso/collectors/gcp_compliance_wave.py": "bef3670d4f62088ae781139452945983aa51af98890120dce8ae179f72c90051",
+  "peaso/collectors/gcp_compliance_wave.py": "06302b0ec3376facd79cc4e05e2003eaa7dc19cd2980078a648b5e71e852bc2c",
   "peaso/checks/native_only.json": "4fa9cdcce9562751c0e9e49096d8f1c38f45d4ad283b22868d4479ffa6490aff",
   "peaso/checks/bulk_pending.py": "80652015f344b2ca3a884f7befa87a264d9229c94aa3c98fa70bfb1a97ba7e19"
 }

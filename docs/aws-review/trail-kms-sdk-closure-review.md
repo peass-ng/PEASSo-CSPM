@@ -25,7 +25,7 @@ The S3 delivery cases prove bounded metadata correlation only; they read no obje
 
 ## Exact evidence
 
-- Test SHA256: `37f7d841ada9d7e72c542e9be93553a5cde3db73da40bda371cdb0139def7140`
+- Test SHA256: `3eb3246d6baf3792a0782708ce1143630a79b408467a3f224d59876b67ae2833`
 - Pipeline fingerprint: `b7dbf12a6b8391c62ac7f2187eeef20df25b1156fd4f113b1420cc397b6048e9`
 - Acceptance JUnit SHA256: `afcc5af25cf7d5021c742d22e106bae5504fb9f952672c970027c4f7c4c0001c`
 - Acceptance receipt: `/tmp/peasso-aws-review-20261019/trail-kms-sdk-closure/acceptance.xml`

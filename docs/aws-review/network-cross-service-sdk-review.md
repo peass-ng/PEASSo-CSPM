@@ -85,4 +85,4 @@ The adjacent JSON records per-scenario requests and arguments, real emitted coll
 
 Temporary JUnit, stdout, raw receipts and the report generator are under `/tmp/peasso-aws-review-20261019/network-cross-service-sdk`. No proposal patch was needed. External/unowned S3-origin coverage remains explicit UNKNOWN.
 
-Collector/snapshot pipeline fingerprint: `b7dbf12a6b8391c62ac7f2187eeef20df25b1156fd4f113b1420cc397b6048e9`. Test source SHA-256: `c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd`.
+Collector/snapshot pipeline fingerprint: `b7dbf12a6b8391c62ac7f2187eeef20df25b1156fd4f113b1420cc397b6048e9`. Test source SHA-256: `78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2`.

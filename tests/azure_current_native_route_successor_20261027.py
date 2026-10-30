@@ -19,7 +19,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SEALED = {
     'test_azure_application_compute_2_native_review_20261020.py': (
-        'c8d3e7743ea35a58ae696d25060ca27c2a372d50a7dc4b31a3b8c612ad745e38',
+        '5929c09d6c94d627b7df2db8e50a2cee3ef9580f1c30da4c4e3c981f01d4d0a2',
         'docs/check-review/azure-application-compute-2-native-review-20261020.json',
         '45b25d2087ce77a7e3ee04bfae6ed730427517a26c40ea4a0176c3703c3d4baa',
     ),

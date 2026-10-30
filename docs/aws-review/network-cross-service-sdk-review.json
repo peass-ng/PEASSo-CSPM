@@ -301,7 +301,7 @@
           "scenario": "all_available",
           "semantic_completeness_proven": false,
           "status": "PASS",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -483,7 +483,7 @@
           "scenario": "missing_mantle",
           "semantic_completeness_proven": false,
           "status": "FAIL",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -665,7 +665,7 @@
           "scenario": "pending",
           "semantic_completeness_proven": false,
           "status": "FAIL",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -847,7 +847,7 @@
           "scenario": "foreign_vpc",
           "semantic_completeness_proven": false,
           "status": "FAIL",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -1023,7 +1023,7 @@
           "scenario": "no_interfaces",
           "semantic_completeness_proven": false,
           "status": "NOT_APPLICABLE",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -1203,7 +1203,7 @@
           "scenario": "inactive",
           "semantic_completeness_proven": false,
           "status": "NOT_APPLICABLE",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -1376,7 +1376,7 @@
           "scenario": "endpoints_denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -1552,7 +1552,7 @@
           "scenario": "interfaces_denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -1728,7 +1728,7 @@
           "scenario": "activity_denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -1927,7 +1927,7 @@
           "scenario": "endpoint_partial",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         }
       ],
       "semantic_completeness_proven": false,
@@ -2741,7 +2741,7 @@
           "scenario": "owned",
           "semantic_completeness_proven": false,
           "status": "PASS",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -2922,7 +2922,7 @@
           "scenario": "external",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -3435,7 +3435,7 @@
           "scenario": "unrelated_bucket",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -3616,7 +3616,7 @@
           "scenario": "inventory_denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -4146,7 +4146,7 @@
           "scenario": "inventory_partial",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -4331,7 +4331,7 @@
           "scenario": "custom_origin",
           "semantic_completeness_proven": false,
           "status": "NOT_APPLICABLE",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -4498,7 +4498,7 @@
           "scenario": "config_denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         }
       ],
       "semantic_completeness_proven": false,
@@ -4926,7 +4926,7 @@
           "scenario": "matching",
           "semantic_completeness_proven": false,
           "status": "PASS",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -5130,7 +5130,7 @@
           "scenario": "empty",
           "semantic_completeness_proven": false,
           "status": "FAIL",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -5364,7 +5364,7 @@
           "scenario": "foreign_resource",
           "semantic_completeness_proven": false,
           "status": "FAIL",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -5598,7 +5598,7 @@
           "scenario": "inactive",
           "semantic_completeness_proven": false,
           "status": "NOT_APPLICABLE",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -5802,7 +5802,7 @@
           "scenario": "protections_denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -6032,7 +6032,7 @@
           "scenario": "subscription_denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -6283,7 +6283,7 @@
           "scenario": "protections_partial",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -6458,7 +6458,7 @@
           "scenario": "foreign_distribution_owner",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         }
       ],
       "semantic_completeness_proven": false,
@@ -6754,7 +6754,7 @@
           "scenario": "matching",
           "semantic_completeness_proven": false,
           "status": "PASS",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -6865,7 +6865,7 @@
           "scenario": "empty",
           "semantic_completeness_proven": false,
           "status": "FAIL",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -7027,7 +7027,7 @@
           "scenario": "foreign_vpc",
           "semantic_completeness_proven": false,
           "status": "FAIL",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -7183,7 +7183,7 @@
           "scenario": "unused",
           "semantic_completeness_proven": false,
           "status": "NOT_APPLICABLE",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -7294,7 +7294,7 @@
           "scenario": "denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -7456,7 +7456,7 @@
           "scenario": "detail_denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -7618,7 +7618,7 @@
           "scenario": "foreign_detail",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -7774,7 +7774,7 @@
           "scenario": "interfaces_denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -7953,7 +7953,7 @@
           "scenario": "partial",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         }
       ],
       "semantic_completeness_proven": false,
@@ -8256,7 +8256,7 @@
           "scenario": "clean",
           "semantic_completeness_proven": false,
           "status": "PASS",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -8358,7 +8358,7 @@
           "scenario": "canary",
           "semantic_completeness_proven": false,
           "status": "FAIL",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -8460,7 +8460,7 @@
           "scenario": "omitted_variables",
           "semantic_completeness_proven": false,
           "status": "PASS",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -8554,7 +8554,7 @@
           "scenario": "oversize",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -8632,7 +8632,7 @@
           "scenario": "denied",
           "semantic_completeness_proven": false,
           "status": "DENIED",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -8751,7 +8751,7 @@
           "scenario": "parent_partial",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -8845,7 +8845,7 @@
           "scenario": "invalid_stage",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         }
       ],
       "semantic_completeness_proven": false,
@@ -9480,7 +9480,7 @@
           "scenario": "matching",
           "semantic_completeness_proven": false,
           "status": "PASS",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -9880,7 +9880,7 @@
           "scenario": "absent",
           "semantic_completeness_proven": false,
           "status": "FAIL",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -10281,7 +10281,7 @@
           "scenario": "declaration_mismatch",
           "semantic_completeness_proven": false,
           "status": "FAIL",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -10475,7 +10475,7 @@
           "scenario": "inventory_missing",
           "semantic_completeness_proven": false,
           "status": "FAIL",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -10865,7 +10865,7 @@
           "scenario": "association_denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -11040,7 +11040,7 @@
           "scenario": "inventory_denied",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -11430,7 +11430,7 @@
           "scenario": "foreign_acl_owner",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -11848,7 +11848,7 @@
           "scenario": "association_partial",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         },
         {
           "Requests_call_invocations": [
@@ -12221,7 +12221,7 @@
           "scenario": "duplicate_stage",
           "semantic_completeness_proven": false,
           "status": "UNKNOWN",
-          "test_source_sha256": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+          "test_source_sha256": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
         }
       ],
       "semantic_completeness_proven": false,
@@ -12374,7 +12374,7 @@
     "peaso/collectors/aws_wave_semantics_native.py": "10f62c608f3dbad73a6b393df69ea90d5e01d3ed2aeb5b2e81831a665e517b42",
     "peaso/engine.py": "1b4cbd4cd49f121701247b2b9b5a7f400089b0017ab2765ecbb2f7b7b68e0184",
     "peaso/snapshot.py": "6dcf7d4953c1b1b17e8669cb5f44960a4340ea8d6e9f93fb356d4df52d570919",
-    "tests/test_aws_network_cross_service_sdk_review.py": "c54bf5ef4181b92c88f6a7e7376699a034aa94ab9bae030297ba66c943d870cd"
+    "tests/test_aws_network_cross_service_sdk_review.py": "78b58905630091ab4693ce8b9b840933e55402b2a4ffa83f558bdb463927fbc2"
   },
   "test_command": ".venv/bin/python -m pytest tests/test_aws_network_cross_service_sdk_review.py -q -o junit_family=legacy --junitxml=/tmp/peasso-aws-review-20261019/network-cross-service-sdk/junit.xml",
   "tests": 50

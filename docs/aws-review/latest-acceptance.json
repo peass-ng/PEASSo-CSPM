@@ -254,7 +254,7 @@
     "README.md": "07a6cf45eba4fc4ca92af9acd2b395e7821d54e23eb9aebbc9c9329e15239bca",
     "native-contract-review.md": "935e2db026334fc76114e6679c2621cd2a7ebadf4a95146c627e9e6690704a9d",
     "checklist.csv": "eb5beed7c458c016c3ad226d37d671747840e9dd22062aac1b24343519292ecf",
-    "checklist.inputs.json": "2ef1f6cd1618e7d55b986be77ef9e5dbde48f454f390687a7bdcd5736e5818fc",
+    "checklist.inputs.json": "616bb4a5841d0a295c363b3f9134b69be49f5182cd0c2ef8b566657386951eef",
     "native-contracts.json": "1bccb338b93838db066c892376a33c810043860fe647cd60881912bf8410e684",
     "framework-mappings.json": "81057c4b203349bbe683d3dc7306f92a78ad6531080d83f554c62fc4af22c0a8",
     "requirement-associations.json": "3fd0eddbb0cfd1bb5f118e15e312e8e2c580efa4293c7ff280fab17f1dafeeff",
@@ -263,8 +263,8 @@
     "steampipe-parity.json": "74f8e7f8aa04e37637412f3155344f33e0d0d5fdf35f113fd926d5ed535f348b",
     "remaining-source-exclusions.json": "11fed87275364fd7052c7cebb83813ca5e2ff171ae4aa323b21ef5e46e730656",
     "source-conservation-decisions.json": "4bd2073551e87966552e1a994ac3abf27f19c385d0a20aa1248006e689eb6901",
-    "workload-resource-followup-review.json": "4c8df3dcb8be0bb6e492258bca2453fe83a57336ff636db26a9c891c019a5ecb",
-    "optional-lambda-public-pipeline-review.json": "c665faa397f535814c8f6a9acd14d64ac2a061bb9f45613ace0f181c0651e389",
+    "workload-resource-followup-review.json": "4190c88d571f174fb8deb674a8055bb957d477d63b7936b390d03aa39a966cc2",
+    "optional-lambda-public-pipeline-review.json": "d38cfaafc6d174cf299d34ff9de155733c40a150b201e1cbc887b52e074e71ff",
     "iam-hcl-contract-recheck.json": "8bcd8ff90edccd4d02b22543a9d6600fe47bbdf271a9f3bbb8b0f93cd3441fb6",
     "iam-report-role-acceptance.json": "2246b9b4e25cd866d2c373f227a4a2c51441078ee853ff97ac3103c2697e22be"
   }

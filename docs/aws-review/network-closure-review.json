@@ -75404,5 +75404,5 @@
   "review_status": "all IDs accounted; bounded semantic review remains incomplete",
   "runtime_patch": "/tmp/peasso-aws-review-20261019/final-closure/network.patch",
   "scope": "network",
-  "test_source_sha256": "6fabd2f8a5606e1e7ac7511f98f7bd46ea638a554ed1919dc221cdf141b9697f"
+  "test_source_sha256": "2eda09abf55e50307dd933b5e1177f4304f25e9e29dcd14ed39512c82ab24e16"
 }

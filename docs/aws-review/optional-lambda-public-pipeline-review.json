@@ -6,7 +6,7 @@
   "tests_passed": 8,
   "tests_failed": 0,
   "test_source": "tests/test_aws_optional_lambda_public_pipeline_review.py",
-  "test_source_sha256": "05b782e1207344af4b08c3aa94f75ccb5406c3f7889c68916fb796a44f392939",
+  "test_source_sha256": "68f1c2a05f8b0dc7140208ef6bbd141da84cb788fac212ce9605689c98426f6f",
   "receipt": "/tmp/peasso-aws-review-20261019/optional-lambda-public/accepted.xml",
   "receipt_sha256": "c5db3fa88fe55c35a4254efdb47918bd6de4a1fbdb84d7f5dad648c9c43839f8",
   "botocore_version": "1.43.38",
@@ -42,7 +42,7 @@
     {
       "test": "test_optional_lambda_public_pipeline[positive-FAIL]",
       "test_source": "tests/test_aws_optional_lambda_public_pipeline_review.py",
-      "test_source_sha256": "05b782e1207344af4b08c3aa94f75ccb5406c3f7889c68916fb796a44f392939",
+      "test_source_sha256": "68f1c2a05f8b0dc7140208ef6bbd141da84cb788fac212ce9605689c98426f6f",
       "pipeline_source_fingerprint": "7c68619d0b0f8b5cdd1164cee2e0f0b2f3eebc5f6981c977ce993b40eeaa8a5f",
       "id": "aws.review.lambda_function.package_content_secret_indicators",
       "outcome": "FAIL",
@@ -60,7 +60,7 @@
     {
       "test": "test_optional_lambda_public_pipeline[negative-PASS]",
       "test_source": "tests/test_aws_optional_lambda_public_pipeline_review.py",
-      "test_source_sha256": "05b782e1207344af4b08c3aa94f75ccb5406c3f7889c68916fb796a44f392939",
+      "test_source_sha256": "68f1c2a05f8b0dc7140208ef6bbd141da84cb788fac212ce9605689c98426f6f",
       "pipeline_source_fingerprint": "7c68619d0b0f8b5cdd1164cee2e0f0b2f3eebc5f6981c977ce993b40eeaa8a5f",
       "id": "aws.review.lambda_function.package_content_secret_indicators",
       "outcome": "PASS",
@@ -78,7 +78,7 @@
     {
       "test": "test_optional_lambda_public_pipeline[denied-UNKNOWN]",
       "test_source": "tests/test_aws_optional_lambda_public_pipeline_review.py",
-      "test_source_sha256": "05b782e1207344af4b08c3aa94f75ccb5406c3f7889c68916fb796a44f392939",
+      "test_source_sha256": "68f1c2a05f8b0dc7140208ef6bbd141da84cb788fac212ce9605689c98426f6f",
       "pipeline_source_fingerprint": "7c68619d0b0f8b5cdd1164cee2e0f0b2f3eebc5f6981c977ce993b40eeaa8a5f",
       "id": "aws.review.lambda_function.package_content_secret_indicators",
       "outcome": "UNKNOWN",
@@ -96,7 +96,7 @@
     {
       "test": "test_optional_lambda_public_pipeline[hash_mismatch-UNKNOWN]",
       "test_source": "tests/test_aws_optional_lambda_public_pipeline_review.py",
-      "test_source_sha256": "05b782e1207344af4b08c3aa94f75ccb5406c3f7889c68916fb796a44f392939",
+      "test_source_sha256": "68f1c2a05f8b0dc7140208ef6bbd141da84cb788fac212ce9605689c98426f6f",
       "pipeline_source_fingerprint": "7c68619d0b0f8b5cdd1164cee2e0f0b2f3eebc5f6981c977ce993b40eeaa8a5f",
       "id": "aws.review.lambda_function.package_content_secret_indicators",
       "outcome": "UNKNOWN",
@@ -114,7 +114,7 @@
     {
       "test": "test_optional_lambda_public_pipeline[missing_version-UNKNOWN]",
       "test_source": "tests/test_aws_optional_lambda_public_pipeline_review.py",
-      "test_source_sha256": "05b782e1207344af4b08c3aa94f75ccb5406c3f7889c68916fb796a44f392939",
+      "test_source_sha256": "68f1c2a05f8b0dc7140208ef6bbd141da84cb788fac212ce9605689c98426f6f",
       "pipeline_source_fingerprint": "7c68619d0b0f8b5cdd1164cee2e0f0b2f3eebc5f6981c977ce993b40eeaa8a5f",
       "id": "aws.review.lambda_function.package_content_secret_indicators",
       "outcome": "UNKNOWN",
@@ -132,7 +132,7 @@
     {
       "test": "test_optional_lambda_public_pipeline[truncated_zip-UNKNOWN]",
       "test_source": "tests/test_aws_optional_lambda_public_pipeline_review.py",
-      "test_source_sha256": "05b782e1207344af4b08c3aa94f75ccb5406c3f7889c68916fb796a44f392939",
+      "test_source_sha256": "68f1c2a05f8b0dc7140208ef6bbd141da84cb788fac212ce9605689c98426f6f",
       "pipeline_source_fingerprint": "7c68619d0b0f8b5cdd1164cee2e0f0b2f3eebc5f6981c977ce993b40eeaa8a5f",
       "id": "aws.review.lambda_function.package_content_secret_indicators",
       "outcome": "UNKNOWN",
@@ -150,7 +150,7 @@
     {
       "test": "test_optional_lambda_public_pipeline[default_off-UNKNOWN]",
       "test_source": "tests/test_aws_optional_lambda_public_pipeline_review.py",
-      "test_source_sha256": "05b782e1207344af4b08c3aa94f75ccb5406c3f7889c68916fb796a44f392939",
+      "test_source_sha256": "68f1c2a05f8b0dc7140208ef6bbd141da84cb788fac212ce9605689c98426f6f",
       "pipeline_source_fingerprint": "7c68619d0b0f8b5cdd1164cee2e0f0b2f3eebc5f6981c977ce993b40eeaa8a5f",
       "id": "aws.review.lambda_function.package_content_secret_indicators",
       "outcome": "UNKNOWN",
@@ -168,7 +168,7 @@
     {
       "test": "test_optional_lambda_public_pipeline[unselected-UNKNOWN]",
       "test_source": "tests/test_aws_optional_lambda_public_pipeline_review.py",
-      "test_source_sha256": "05b782e1207344af4b08c3aa94f75ccb5406c3f7889c68916fb796a44f392939",
+      "test_source_sha256": "68f1c2a05f8b0dc7140208ef6bbd141da84cb788fac212ce9605689c98426f6f",
       "pipeline_source_fingerprint": "7c68619d0b0f8b5cdd1164cee2e0f0b2f3eebc5f6981c977ce993b40eeaa8a5f",
       "id": "aws.review.lambda_function.package_content_secret_indicators",
       "outcome": "UNKNOWN",

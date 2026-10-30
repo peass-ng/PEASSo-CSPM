@@ -17,7 +17,7 @@ ASSESSMENT_PREDECESSOR_SUCCESSORS = {
 # helper outside the four assessment predicates; its exact bytes are pinned here.
 ASSESSMENT_EVALUATOR_SUCCESSORS = {
     'peaso/checks/claude_azure_data.py': {
-        'before_sha256': 'e8fd6583fe2d61fd07a2001a3d91c1a7983998e0e76b33add898f8a097af377b',
+        'before_sha256': 'c4f7c866da5a0695500e6f1c0177febfea993247b1fcd77588ac16b02d1b2f22',
         'after_sha256': 'c4f7c866da5a0695500e6f1c0177febfea993247b1fcd77588ac16b02d1b2f22',
     },
 }
@@ -33,7 +33,7 @@ CURRENT_BODY_SUCCESSORS = {
     },
     'azure.encryption.stream_analytics_job_storage_cmk_declared': {
         'source': 'peaso/checks/azure_native_contract_closure_20261020.py',
-        'before_sha256': '99a4fbd98378b89b2d719061b5992a57a4447cf51f719d9e42e211cffd7bf775',
+        'before_sha256': 'f8238cabda9d54e8adb28c96809fdbb380854e290a8bb8a4bc0eeb930ed39021',
         'after_sha256': 'f8238cabda9d54e8adb28c96809fdbb380854e290a8bb8a4bc0eeb930ed39021',
     },
 }

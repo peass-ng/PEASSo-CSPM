@@ -1666,7 +1666,7 @@
     "peaso/checks/claude2_azure_identity.py": "e55b65f932737ff3a169a797ec461da6e830024f48017220e17e1fa2bdc76323",
     "peaso/checks/claude2_azure_network.py": "49e5d6a1907d4fd9405b82eb413256f73fbb23134652d19615319b460643f1cb",
     "peaso/checks/claude_azure_common.py": "eb312becf02c6548e803f5662abd5bc08400653295f24de7e9047ba27e8b4ea1",
-    "peaso/checks/claude_azure_compute.py": "9b21de8a6af39dd5a08dc46fa9e6f2d891375b575fba50f1e96697fe07f042e1",
+    "peaso/checks/claude_azure_compute.py": "b31b22b4d2b7e16b43cf8a6c984303429f502d0702f9c51d8dcf8a55ecba6b88",
     "peaso/checks/claude_azure_data.py": "c4f7c866da5a0695500e6f1c0177febfea993247b1fcd77588ac16b02d1b2f22",
     "peaso/checks/claude_azure_identity.py": "1888c282670451c0aebce38b9597019ffccac20bfbeaad181b3ffe33ac2c3ab8",
     "peaso/checks/claude_azure_network.py": "e7a0cddf4c9adc96efe9ae665575c0f1187fb065bf9393ca4e5bff514faf760c",

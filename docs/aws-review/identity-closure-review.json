@@ -35363,7 +35363,7 @@
     "peaso/collectors/aws_waf_inventory_native.py": "10bcdf16a32dc1edd69ef751dd2a1427dbeb5a1c10cf91fd605b97c6dd2ada20",
     "peaso/collectors/aws_wave_semantics_native.py": "10f62c608f3dbad73a6b393df69ea90d5e01d3ed2aeb5b2e81831a665e517b42",
     "peaso/engine.py": "9fcbd4cd6b6984137bc7bf4a990a44410c539fc6f55a3292e6a42ac32a24d010",
-    "tests/test_aws_identity_closure_review.py": "69aa3184811a4c604355fbe4c99e41121285bd793843165cfe90d23c12d279b9"
+    "tests/test_aws_identity_closure_review.py": "d5b0217e15f40febe4abcf72910c6c73253efb93a4d2ea62e08612a1302f1a83"
   },
   "source_pins": {
     "prowler": "7f9eb2cb11ea931f54acccb6e49152358ccf949d",

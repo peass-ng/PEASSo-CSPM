@@ -25,7 +25,7 @@ PINS = {
     'peaso/checks/azure_aks_legacy_projection_review_20261020_fixtures.json': '7e4233f962bc14aa19ddeb4cf9f9c0d3d26a78ca0f600dde3600fa372e06e3a6',
     'docs/check-review/aws-workload-commands-current-native-witnesses-20261020.json.gz': 'b7e7e7d00d2aec8dfd2ffe386fa29a2918436de0aac572866a140fc5bc791a10',
     'docs/check-review/gcp-cloudrun-job-image-current-native-witnesses-20261020.json.gz': 'fcefb8902ed785450b974a54bbefd938ed436042b5da2719412f0c3f9b085670',
-    'tests/test_aws_workload_command_runtime_20261020.py': 'db1cef420bb43fc4cdc24317c7bc347bfd98571e04f317da20ce21a6b57a4ad5',
+    'tests/test_aws_workload_command_runtime_20261020.py': '9cb95f0199777f90ac5c4fb0e8ee8b1b080a6998f4fe5ca2fd365ffbda260d57',
     'peaso/checks/k8s_kubelet_configmap_review_20261020.py': '9ea66a3c6a0c48dbfb743508d490d4c7b5de8bb4a32bee0031f39daf48d192a9',
     'peaso/checks/k8s_kubelet_configmap_admission_log_successor_20261020.json': '5999cddf4f03aeaf0a43d4acc722f86147490e1372c388efe8f31890d9075b79',
 }

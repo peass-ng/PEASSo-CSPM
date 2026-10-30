@@ -31,7 +31,7 @@ BATCH = 'tests/gcp_batch_referenced_source_20261020_test.py'
 SOURCES = MappingProxyType({
     INDEPENDENT: 'efcb1a4448ba5eceddd13c111f15984e2d11118d4787b05826d8ccdc2b5d1f83',
     WORKBENCH: '12bca5b68db1413fc9b5a8e4040a266f7bb0367485523aba8ca0086642bddb2a',
-    BATCH_REVIEW: '9e3b18344e3281f65c316ad7c9622c7aa9979ceca4940f4300307ae0178d84f7',
+    BATCH_REVIEW: 'f59616f46691be68b6ee4ea9233645809bf11dbdfd97f769f065809717134184',
     BATCH: '5e20b06c5c439dde81d6b2d85d7b38ca1a8158d335898d64ba8e1e0c8872a964',
     'tests/gcp_dataflow_referenced_source_20261020_test.py': 'd2afae932cc0ffb90ea6f9dd6ef97b8c8c77f523b842c12d7ab36c9df0211ff7',
     'peaso/checks/gcp_workbench_source_runtime_consumer_20261020.py': 'c72dacd26ccba160b22a919d5d4885984f69bf3aebc5c2e08539cf7ddf751ad7',

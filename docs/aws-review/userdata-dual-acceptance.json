@@ -9,7 +9,7 @@
     "peaso/checks/compliance_new_sw45.py": "a375174108ca90264dc292602751439c6d81d9923db33690a7d0543ca5863c27",
     "peaso/checks/bulk_pending.json": "52adbca406f9d06ec06fb842ed62290dddf2a6e76a155980379712772511060d",
     "peaso/checks/aws_compute_storage_clarity_reviewed.py": "9897587b1297e5d3cf13f34de47f5c4f359c909f9de8f3047bd7c1b990a8b895",
-    "tests/test_aws_userdata_dual_secret_scan_review.py": "b47d2226e603e06ba807de94082c367bd7f77c14103457310ee2b4b138d5ce41"
+    "tests/test_aws_userdata_dual_secret_scan_review.py": "c6228a4093aa400d7f71477e1b56f5deb8221ea66c71bfd734e18f1a8a5e2399"
   },
   "receipts": {
     "userdata-dual.xml": {

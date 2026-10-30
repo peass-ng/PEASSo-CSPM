@@ -19,7 +19,7 @@ Only AWS transport/session selection and the regional S3 HTTP opener are replace
 | default_off | UNKNOWN; named content check without opt-in produces no GetFunction or HTTP fetch |
 | unselected | UNKNOWN when subsequently evaluating the content check; opt-in with a different named Lambda check produces no GetFunction or HTTP fetch |
 
-Receipt: `/tmp/peasso-aws-review-20261019/optional-lambda-public/accepted.xml`; SHA256 `c5db3fa88fe55c35a4254efdb47918bd6de4a1fbdb84d7f5dad648c9c43839f8`. Test source SHA256 `05b782e1207344af4b08c3aa94f75ccb5406c3f7889c68916fb796a44f392939`; JUnit contains 16 source-bound field emissions and eight consumer outcomes. Field emission does not certify exhaustive semantic consumption.
+Receipt: `/tmp/peasso-aws-review-20261019/optional-lambda-public/accepted.xml`; SHA256 `c5db3fa88fe55c35a4254efdb47918bd6de4a1fbdb84d7f5dad648c9c43839f8`. Test source SHA256 `68f1c2a05f8b0dc7140208ef6bbd141da84cb788fac212ce9605689c98426f6f`; JUnit contains 16 source-bound field emissions and eight consumer outcomes. Field emission does not certify exhaustive semantic consumption.
 
 The synthetic matched value and temporary download URL are absent from public snapshots, successful request-cache values and final reports. The original workload follow-up and package tests were reconciled; the historical dual-final.xml receipt is retained without rerunning its scanner suite.
 

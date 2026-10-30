@@ -51,10 +51,10 @@
       "sha256": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926"
     },
     "tests/test_aws_core_semantic_review_20261019.py": {
-      "sha256": "f6f6b45261fac90d5541dfd2d0e1a0dfbaa4f123707bd3e3947f3b05dea25c22"
+      "sha256": "c50011f7a443f51ac5abedd86e0953585313c4442a551d6350a67d4be11748e9"
     },
     "tests/test_peaso_checks_aws_gap_core.py": {
-      "sha256": "471bda6595b4b19a9f5a18514278f76a167247a18c9a596be158829d369b04e1"
+      "sha256": "22d79f209aa4380d75353402e933df30067f72bd71cbf69d7933d92bd06baae8"
     }
   },
   "groups": {

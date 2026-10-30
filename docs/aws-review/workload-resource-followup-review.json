@@ -87,7 +87,7 @@
       "existing_proof": [
         {
           "path": "tests/test_peaso_checks_claude2_aws_b.py",
-          "sha256": "a6c212970de6f6e087989542f721e9b973e8216ba1cc0847558e378328b30ab9",
+          "sha256": "2449d7a529cb9cce5a623d8576f1e0ab0adb9844a5351f1310dd841ea718d8f2",
           "disposition": "inspected existing independent dedicated tests; historical proof scope retained"
         }
       ],
@@ -152,7 +152,7 @@
       "existing_proof": [
         {
           "path": "tests/test_peaso_checks_claude2_aws_b.py",
-          "sha256": "a6c212970de6f6e087989542f721e9b973e8216ba1cc0847558e378328b30ab9",
+          "sha256": "2449d7a529cb9cce5a623d8576f1e0ab0adb9844a5351f1310dd841ea718d8f2",
           "disposition": "inspected existing independent dedicated tests; historical proof scope retained"
         }
       ],
@@ -628,7 +628,7 @@
       "existing_proof": [
         {
           "path": "tests/test_aws_lambda_role_policy_review_20261019.py",
-          "sha256": "9e5bdb2106325747931001b6734986984c5decd06db11134b96bf58247130f5c",
+          "sha256": "2a0c33e39ec0f385538a171ac6660471a0a5b780fccaf8acfe89ca0cbc57a0d5",
           "disposition": "inspected existing independent dedicated tests; historical proof scope retained"
         }
       ],
@@ -749,7 +749,7 @@
         },
         {
           "path": "tests/test_peaso_aws_config_recording.py",
-          "sha256": "0753b6bc218fa9f0f67f0bc3bcd61665052f10dfec068c21bd9a822b23995f6d",
+          "sha256": "a0ded27e2ceb6135c9b9ddc78fe72ea9ca90992c7ba7443c42d76b2565fd65af",
           "disposition": "inspected existing independent dedicated tests; historical proof scope retained"
         }
       ],
@@ -814,7 +814,7 @@
       "existing_proof": [
         {
           "path": "tests/test_peaso_compliance_new_aws_lambda.py",
-          "sha256": "565685ed0629e22005d5f0e92f7b243b67913e74207954ffe4ffd9d04474ab67",
+          "sha256": "b1e47326f1e72b83ea7a3b28aef3ee2e9117ddc0bdcbdbe06bd8cdd61ad3de76",
           "disposition": "inspected existing independent dedicated tests; historical proof scope retained"
         }
       ],
@@ -891,7 +891,7 @@
       "existing_proof": [
         {
           "path": "tests/test_aws_lambda_role_policy_review_20261019.py",
-          "sha256": "9e5bdb2106325747931001b6734986984c5decd06db11134b96bf58247130f5c",
+          "sha256": "2a0c33e39ec0f385538a171ac6660471a0a5b780fccaf8acfe89ca0cbc57a0d5",
           "disposition": "inspected existing independent dedicated tests; historical proof scope retained"
         }
       ],
@@ -981,7 +981,7 @@
       "existing_proof": [
         {
           "path": "tests/test_peaso_compliance_new_aws_lambda.py",
-          "sha256": "565685ed0629e22005d5f0e92f7b243b67913e74207954ffe4ffd9d04474ab67",
+          "sha256": "b1e47326f1e72b83ea7a3b28aef3ee2e9117ddc0bdcbdbe06bd8cdd61ad3de76",
           "disposition": "inspected existing independent dedicated tests; historical proof scope retained"
         },
         {

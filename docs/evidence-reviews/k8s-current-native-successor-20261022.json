@@ -394,11 +394,11 @@
       },
       "case_sha256": "e5c91314843130133a8fe80279700b36cf37451a4658f4237bc2b62e9b0afa3b",
       "cases_source": "peaso/checks/k8s_selected_flux_artifact_review_20261021_cases.json",
-      "cases_source_sha256": "ea28acb56597bdcef7267b34e916c32f8a396192b7025a6a5d54a8f78ff4ec67",
+      "cases_source_sha256": "f6514f4de6cf85245b5ff9ae3ce88bdca6de8b49b5c95776f88d6fc01065d020",
       "description_sha256": "c8a8a3c337961308a066a583afcf1ac10459d6e479f2e258b676d8af4c2e2bb5",
-      "evaluator_body_sha256": "f2b86aa18fd3d89d637990eccedb06dbe9b27232c2c37334c4091c6b6a275f46",
+      "evaluator_body_sha256": "52a8529c157d66db803ec9be979e4db54d0a8caf3a5897b2e93312ba587fdfec",
       "evaluator_source": "peaso/checks/k8s_selected_flux_artifact_review_20261021.py",
-      "evaluator_source_sha256": "aea34b5b5981313519aa14b968cf82402b38bf06e18b20ac2a32df5e5037097f",
+      "evaluator_source_sha256": "01a2bead431b7116b8572ac98681e9982b83935388d1ccbc28b8ea5863f9e5f2",
       "native_kind": [
         "k8s",
         "k8s_selected_flux_artifact"
