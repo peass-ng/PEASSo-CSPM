@@ -18567,6 +18567,9 @@ def _azure_web_pubsub_delivery(snapshot, inventory, resource):
             gap["decisive"] = False
     elif not a.unresolved:
         a.step("hub_delivery", "same_source", reason="no HTTP handler or foreign Event Hub listener")
+    return a
+
+
 def _azure_realtime_private_endpoint(a, resource):
     kind = resource["type"]
     if kind not in ("signalr_service", "web_pubsub"):

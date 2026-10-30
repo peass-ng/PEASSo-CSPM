@@ -52,8 +52,15 @@ def _scan(allowed=True, status="Approved", child_present=True, acl_present=True,
     transport = Transport()
     snapshot = azure.collect({"scopes": [SCOPE], "auth": {}, "options": {"concurrency": 1, "retries": 0}},
                              requirements=["web_pubsub"], transport=transport)
-    findings = assess(snapshot, resources(snapshot))
+    # Hub event delivery is a separate ``external_event_delivery`` assessment.
+    findings = [a for a in assess(snapshot, resources(snapshot)) if a.kind != "external_event_delivery"]
     return snapshot, findings, transport
+
+
+def _delivery(snapshot):
+    rows = [a for a in assess(snapshot, resources(snapshot)) if a.kind == "external_event_delivery"]
+    assert len(rows) == 1
+    return rows[0]
 
 
 def test_private_only_foreign_connection_with_request_rights():
@@ -63,6 +70,7 @@ def test_private_only_foreign_connection_with_request_rights():
     assert findings[0].ports == {"tcp": ((443, 443), (8443, 8443))}
     row, = [item for c in snapshot["collections"] if c["type"] == "web_pubsub" for item in c["items"]]
     assert row["_coverage"]["privateEndpointConnections"]["status"] == "collected"
+    assert _delivery(snapshot).verdict() == "PASS"
     assert len(transport.calls) == len(set(transport.calls))
 
 
@@ -88,7 +96,8 @@ def test_hub_anonymous_and_outbound_targets_do_not_save_url_secrets():
                                              "systemEvents": ["connected"]}],
                           "eventListeners": [{"endpoint": {"type": "EventHub",
                                                               "fullyQualifiedNamespace": "partner.servicebus.windows.net",
-                                                              "eventHubName": "events"}}]}}
+                                                              "eventHubName": "events"},
+                                             "filter": {"type": "EventName", "systemEvents": ["connected"]}}]}}
     link = {"id": SERVICE + "/sharedPrivateLinkResources/partner", "name": "partner",
             "type": "Microsoft.SignalRService/webPubSub/sharedPrivateLinkResources",
             "properties": {"status": "Approved", "provisioningState": "Succeeded",
@@ -97,7 +106,9 @@ def test_hub_anonymous_and_outbound_targets_do_not_save_url_secrets():
     snapshot, findings, transport = _scan(allowed=False, status="Rejected", hubs=[hub], shared_links=[link])
     assert len(findings) == 1 and findings[0].verdict() == "UNKNOWN"
     assert any(step["layer"] == "external_integrations" for step in findings[0].path)
-    assert secret not in repr(snapshot)
+    delivery = _delivery(snapshot)
+    assert delivery.verdict() == "FAIL" and delivery.external_ids == ["partner.example"]
+    assert secret not in repr(snapshot) and secret not in repr(delivery.path)
     assert len(transport.calls) == len(set(transport.calls))
 
 
