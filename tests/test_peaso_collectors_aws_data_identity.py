@@ -29,6 +29,10 @@ def sdk(monkeypatch):
             stubs[service].activate()
         return stubs[service]
     monkeypatch.setattr(aws.Requests, "client", lambda requests, context, service, region: clients[service])
+    # Stubber answers strictly in queue order; concurrent per-item reads would
+    # race for the queue under load, so the stubbed reads run in input order.
+    from peaso.collectors import aws_request_pool
+    monkeypatch.setattr(aws_request_pool, "parallel_enabled", lambda requests: False)
     yield session, add
     for stub in stubs.values():
         stub.assert_no_pending_responses()

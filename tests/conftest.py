@@ -154,3 +154,32 @@ def _isolated_image_memos():
     clear()
     yield
     clear()
+
+
+def _reset_worker_process_globals():
+    import sys
+
+    # An inline worker._process("collector", ...) binds the batch metrics
+    # sender and the collection lease for its (normally short-lived) child
+    # process; a spawned child discards both on exit.
+    batch = sys.modules.get('peaso.secret_scanning_batch')
+    if batch is not None:
+        batch.configure_metrics(None)
+    lease = sys.modules.get('peaso.collection_lease')
+    if lease is not None:
+        with lease._lock:
+            lease._epoch = lease._monotonic_deadline = lease._pid = None
+    # Clean-byte memo: a payload another test reported clean would otherwise
+    # skip the scanner (and batch preparation) in a later test.
+    clean = sys.modules.get('peaso.secret_scan_clean')
+    if clean is not None:
+        with clean._LOCK:
+            clean._CLEAN.clear()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_worker_process_globals():
+    """Each test starts like a fresh worker child: no inherited sender, lease or memo."""
+    _reset_worker_process_globals()
+    yield
+    _reset_worker_process_globals()

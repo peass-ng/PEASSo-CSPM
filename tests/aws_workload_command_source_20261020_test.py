@@ -34,8 +34,6 @@ def registry_modules():
     return {name for name in sys.modules if name.startswith(REGISTRY_PREFIXES)}
 
 
-PRELOADED_REGISTRY_MODULES = registry_modules()
-
 
 def load(name, relative):
     spec = importlib.util.spec_from_file_location(name, ROOT / relative)
@@ -204,6 +202,9 @@ class CommandProof(unittest.TestCase):
             for positive in (False, True):
                 t = target(service, 'Definition' + str(positive))
                 specs.append((t, response(t, ['echo', TOKEN] if positive else None)))
+        # Other test files sharing this process may import registry modules
+        # at any time; only this collection must not load any new ones.
+        preloaded = registry_modules()
         result, trace = self.capture(specs)
         self.assertEqual(self.statuses(result), ['PASS', 'FAIL', 'PASS', 'FAIL'])
         self.assertEqual(trace.auth, [SCOPE])
@@ -221,7 +222,7 @@ class CommandProof(unittest.TestCase):
         public = json.dumps(result) + json.dumps([consumer.evaluate(r, result) for r in result['items']])
         for value in (TOKEN, 'offline-key', 'local-review', 'AuditDefinition', 'valueFrom', 'environmentFiles'):
             self.assertNotIn(value, public)
-        self.assertEqual(registry_modules(), PRELOADED_REGISTRY_MODULES)
+        self.assertEqual(registry_modules() - preloaded, set())
 
     def test_02_explicit_empty_arrays_are_native_zero_not_missing(self):
         specs = [(target(s), response(target(s), [], [])) for s in ('ecs', 'batch')]
