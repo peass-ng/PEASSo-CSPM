@@ -89,7 +89,10 @@ def test_aws_ecs_efs_and_cloudfront_chains_retain_native_scopes_and_ai_facts():
     assert data["ecs_service"]["networkConfiguration"]["awsvpcConfiguration"]["securityGroups"] == ["sg-one"]
     assert data["ecs_task"]["attachments"][0]["details"][1]["value"] == "eni-one"
     assert data["cloudfront_vpc_origin"]["VpcOrigin"]["VpcOriginEndpointConfig"]["HTTPSPort"] == 443
-    assert "secret-sentinel" not in json.dumps(ai)
+    # Network-only first reads omit workload secrets; the complete native
+    # record is handed over separately as the full source lookup.
+    assert "secret-sentinel" not in json.dumps({"report": ai["report"], "inventory": ai["inventory"]})
+    assert "secret-sentinel" in json.dumps(ai["source_inventory"])
     assert all(e["layer"] == "structural" for e in graph["edges"])
 
 
@@ -112,7 +115,10 @@ def test_azure_private_link_target_resolves_case_insensitively_across_subscripti
     assert not any(n["type"] == "private_link_service_reference" for n in graph["nodes"])
     storage = next(r["data"] for r in ai["inventory"] if r["type"] == "storage_account")
     assert storage["properties"]["networkAcls"]["defaultAction"] == "Deny"
-    assert "secret-sentinel" not in json.dumps(ai)
+    # Network-only first reads omit workload secrets; the complete native
+    # record is handed over separately as the full source lookup.
+    assert "secret-sentinel" not in json.dumps({"report": ai["report"], "inventory": ai["inventory"]})
+    assert "secret-sentinel" in json.dumps(ai["source_inventory"])
 
 
 def test_gcp_psc_neg_sql_and_serverless_use_remote_project_and_connector_links():
@@ -143,7 +149,10 @@ def test_gcp_psc_neg_sql_and_serverless_use_remote_project_and_connector_links()
     ]:
         assert linked(graph, node(graph, sk, sn), node(graph, dk, dn))
     assert not any(n["type"] in {"target_proxy", "instance_group"} and n["native_id"] in {attachment, neg} for n in graph["nodes"])
-    assert "secret-sentinel" not in json.dumps(ai)
+    # Network-only first reads omit workload secrets; the complete native
+    # record is handed over separately as the full source lookup.
+    assert "secret-sentinel" not in json.dumps({"report": ai["report"], "inventory": ai["inventory"]})
+    assert "secret-sentinel" in json.dumps(ai["source_inventory"])
     assert next(r for r in ai["inventory"] if r["type"] == "cloudrun_service")["data"]["template"]["vpcAccess"]["egress"] == "ALL_TRAFFIC"
 
 
@@ -208,7 +217,10 @@ def test_k8s_pod_claim_volume_cloud_handle_chain_and_binding_uid():
     assert linked(graph, node(graph, "pod", "pod"), node(graph, "persistentvolumeclaim", "claim"))
     assert linked(graph, node(graph, "persistentvolumeclaim", "claim"), node(graph, "persistentvolume", "volume"))
     assert linked(graph, node(graph, "persistentvolume", "volume"), node(graph, "external_service_reference", "fs-one::fsap-one"))
-    assert "secret-sentinel" not in json.dumps(ai)
+    # Network-only first reads omit workload secrets; the complete native
+    # record is handed over separately as the full source lookup.
+    assert "secret-sentinel" not in json.dumps({"report": ai["report"], "inventory": ai["inventory"]})
+    assert "secret-sentinel" in json.dumps(ai["source_inventory"])
     assert next(r for r in ai["inventory"] if r["type"] == "pod")["data"]["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"] == "data"
 
 
@@ -235,7 +247,8 @@ def test_azure_native_private_link_service_collection():
     from peaso.collectors import azure
     from tests.test_peaso_azure_bulk_native import Transport, SUB, SCOPE, BASE, routes, envelope
     rid = BASE + "Microsoft.Network/privateLinkServices/service"
-    api = Transport(routes("private_link_service", rid, {"visibility": {"subscriptions": ["*"]}}))
+    api = Transport(routes("private_link_service", rid, {"visibility": {"subscriptions": ["*"]},
+        "autoApproval": {"subscriptions": []}, "privateEndpointConnections": []}))
     snap = azure.collect({"scopes": [SUB], "options": {"retries": 0}}, ["private_link_service"], transport=api)
     assert envelope(snap, "private_link_service")["status"] == "collected"
     assert envelope(snap, "private_link_service")["items"][0]["id"] == rid

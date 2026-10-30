@@ -49,9 +49,15 @@ def test_redis_enterprise_parent_and_database_are_read_once():
     assert child["status"] == "collected" and child["items"][0]["properties"]["port"] == 10000
     assert sum(urlsplit(url).path == CLUSTER + "/databases" for url in transport.calls) == 1
     assert sum(urlsplit(url).path == CLUSTER + "/privateEndpointConnections" for url in transport.calls) == 1
-    assert all(parse_qs(urlsplit(url).query).get("api-version") == ["2025-07-01"]
-               for url in transport.calls if "redisEnterprise" in urlsplit(url).path
-               and "diagnosticSettings" not in urlsplit(url).path)
+    # Parent LIST/GET use the first version with cluster firewallRules; the
+    # database and private-connection children stay on 2025-07-01.
+    versions = {urlsplit(url).path: parse_qs(urlsplit(url).query).get("api-version")
+                for url in transport.calls if "redisEnterprise" in urlsplit(url).path
+                and "diagnosticSettings" not in urlsplit(url).path}
+    assert versions == {SCOPE + "/providers/Microsoft.Cache/redisEnterprise": ["2026-10-01-preview"],
+                        CLUSTER: ["2026-10-01-preview"],
+                        CLUSTER + "/databases": ["2025-07-01"],
+                        CLUSTER + "/privateEndpointConnections": ["2025-07-01"]}
 
 
 def _private(remote, status="Approved", provisioning="Succeeded"):
