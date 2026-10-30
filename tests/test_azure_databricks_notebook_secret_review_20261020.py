@@ -404,9 +404,20 @@ def test_portable_actual_native_capture_replay(capture):
 
 
 def test_proposal_pins_unwrapped_predicate_helper_and_reachable_source_bytes():
+    # Later reviewed edits are admitted through the exact inverse-delta epoch:
+    # every current source must reconstruct the proposal's reviewed bytes.
+    import ast
+    from peaso import rawv2_private_source_successor_20261021 as epoch
     proposal=json.loads(Path('peaso/checks/azure_databricks_notebook_secret_review_20261020_proposal.json').read_text())
     assert proposal['registration']=='unregistered_proposal_only'
-    for path,digest in proposal['sources'].items():assert hashlib.sha256(Path(path).read_bytes()).hexdigest()==digest,path
+    historical={}
+    for path,digest in proposal['sources'].items():
+        historical[path]=epoch.source_bytes(path,Path(path).read_bytes(),digest,Path.cwd())
+        assert hashlib.sha256(historical[path]).hexdigest()==digest,path
     fixture=proposal['fixture'];assert hashlib.sha256(Path(fixture['path']).read_bytes()).hexdigest()==fixture['sha256']
-    assert hashlib.sha256(inspect.getsource(consumer.evaluate).encode()).hexdigest()==proposal['check']['predicate_sha256']
-    assert hashlib.sha256(inspect.getsource(consumer._evaluate).encode()).hexdigest()==proposal['check']['reachable_helper_sha256']
+    raw=historical['peaso/checks/azure_databricks_notebook_secret_review_20261020.py']
+    definitions={node.name:node for node in ast.parse(raw).body if isinstance(node,ast.FunctionDef)}
+    for name,key in [('evaluate','predicate_sha256'),('_evaluate','reachable_helper_sha256')]:
+        node=definitions[name]
+        body=b''.join(raw.splitlines(keepends=True)[node.lineno-1:node.end_lineno])
+        assert hashlib.sha256(body).hexdigest()==proposal['check'][key]
