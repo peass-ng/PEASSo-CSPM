@@ -35199,7 +35199,7 @@
     "peaso/checks/compliance_new_k8s_workload_ingress.py": "f6ef40cece9f1cb50f182850e3cdb25a943adf41acbbcfc71f37fe0f5523c6d0",
     "peaso/checks/compliance_new_sw01.py": "fdd111a05ecabb3c5f6a256932dd152c4a8480172c75d02a2a8afd693dbe97f3",
     "peaso/checks/compliance_new_sw02.py": "5d854b218fc3284f9b2c6267e3d8386da2e1bde38003a9f95faa7e5d9a9c5ce5",
-    "peaso/checks/compliance_new_sw03.py": "6012a9522d70d7500b893b6187cd228d93885302ff0da140021d0406035c5a2a",
+    "peaso/checks/compliance_new_sw03.py": "2e944b5f712d60662ebff2c4168602b48cdad9efbe7f569dba43d1ef9d1798ac",
     "peaso/checks/compliance_new_sw04.py": "f9ef067f4ad80ff3d1b868def7ee7d5eabc3b2c39452956f515c3c0af7295d65",
     "peaso/checks/compliance_new_sw05.py": "ab4b7f28e3c94d33285a6c112d68647a2dcea99e809bec44c2467d3d6b9b306b",
     "peaso/checks/compliance_new_sw06.py": "2ea7fd134d4136e272ff667655197eaa0014edf9e05bedf0d352cd42142832c2",
