@@ -106,7 +106,7 @@ def finding(snapshot):
 ])
 def test_selected_normal_route(monkeypatch, mode, expected):
     api = API(mode)
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: api)
     req = request()
     if mode == 'missing_metric':
         req['connector']['options']['compliance_policy']['sw13']['checks'][CID.replace('.', '|')]['expectedFunctionSettings'][APP].pop('memoryMetric')
@@ -136,7 +136,7 @@ def test_selected_normal_route(monkeypatch, mode, expected):
 ])
 def test_foreign_or_stale_capture_cannot_prove_mismatch(monkeypatch, mutation):
     api = API('mismatch')
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: api)
     snapshot = collect_snapshot(request())
     collections = deepcopy(snapshot['collections'])
     metadata = deepcopy(snapshot['metadata'])
@@ -211,7 +211,7 @@ def test_native_site_reads_use_shared_bounded_workers():
 
 def test_exhausted_shared_call_budget_leaves_native_memory_unresolved(monkeypatch):
     api = API('mismatch')
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: api)
     req = request()
     req['connector']['options']['max_calls'] = 3
     snapshot = collect_snapshot(req)

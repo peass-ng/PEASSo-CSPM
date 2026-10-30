@@ -59,7 +59,7 @@ def _scan(monkeypatch, *, profiles=None, wrong_subscription=False, denied=False,
         def close(self):
             pass
 
-    monkeypatch.setattr(azure, 'AzureTransport', Transport)
+    monkeypatch.setattr(azure, 'AzureTransport', Transport);monkeypatch.setattr(azure,'AzureTransportExposure',Transport)
     auth = {'method': 'az-cli'}
     if auth_tenant is not None:
         auth['tenant_id'] = auth_tenant

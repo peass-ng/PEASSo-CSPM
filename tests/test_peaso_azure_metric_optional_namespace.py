@@ -54,7 +54,7 @@ def test_public_required_metric_namespace_remains_optional_and_scope_bound(monke
                 return {'value': []}
             raise AssertionError('Unexpected endpoint: ' + path)
 
-    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport())
+    monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport());monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth: Transport())
     value = approval(REQUIRED_ID)
     if required:
         value['checks'][REQUIRED_ID]['requiredMetrics'][0]['metricNamespace'] = 'Microsoft.Storage/storageAccounts'

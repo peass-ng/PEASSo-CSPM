@@ -107,7 +107,7 @@ def capture(monkeypatch,ca,mode='good',checks=None,hosted=False):
  if mode=='unverified_tenant':arm.verified_tenant=None
  apis=[];contexts=[]
  def new_api(context):contexts.append(copy.deepcopy(context));api=Api();api.suffix='-second'if context['server'].startswith('https://cluster2-')and mode!='ambiguous_cluster_uid'else'';apis.append(api);return api
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:arm);monkeypatch.setattr(k8s,'_new_api',new_api)
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:arm);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:arm);monkeypatch.setattr(k8s,'_new_api',new_api)
  checks=checks or [native.IMAGES,native.PORTS]
  snapshot=collect_snapshot({'connector':{'provider':'azure','scopes':[SUB],'auth':auth,'options':options},'checks':checks});report=evaluate_snapshot(snapshot,checks=checks)
  assert TOKEN not in json.dumps(snapshot)and'private-workload-literal'not in json.dumps(snapshot)
@@ -130,7 +130,7 @@ def test_hosted_normative_and_credential_roundtrip(monkeypatch,ca,method):
 @pytest.mark.parametrize('server',['https://other.example.net:443','https://user@other.example.net','https://other.example.net/','https://other.example.net?x=1','https://other.example.net#f','http://other.example.net','https://OTHER.example.net','https://other.example.net.','https://xn--other.example.net','https://127.0.0.1','https://éxample.net','https://other.example.net?','https://other.example.net#','https://other.example.net\n'])
 def test_invalid_origin_rejected_before_transport(monkeypatch,ca,server):
  _,_,options,auth,_=fixture(ca);auth['aks_workloads'][0]['server']=server
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before normalization'))
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before normalization'));monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:pytest.fail('transport before normalization'))
  with pytest.raises(ValueError):azure.collect({'auth':auth,'options':options,'scopes':[SUB]},['pod'])
  for provider in ('azure','aws'):
   with pytest.raises(Exception):validate_connector(provider,auth,options,SimpleNamespace(auth_mode='local'))
@@ -153,7 +153,7 @@ def test_real_client_disables_environment_proxy_and_redirects(monkeypatch,ca):
 @pytest.mark.parametrize('field,value',[('ca_cert_data','not-a-certificate'),('ca_cert_data','-----BEGIN PRIVATE KEY-----'),('token','has whitespace'),('token',''),('cluster_id','arn:aws:eks:us-east-1:123456789012:cluster/example')])
 def test_invalid_context_before_auth_transport(monkeypatch,ca,field,value):
  _,_,options,auth,_=fixture(ca);auth['aks_workloads'][0][field]=value
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before input rejection'))
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before input rejection'));monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:pytest.fail('transport before input rejection'))
  with pytest.raises(ValueError):azure.collect({'auth':auth,'options':options,'scopes':[SUB]},['pod'])
 
 @pytest.mark.parametrize('owner_field',['pods','inventory_complete','cluster_uid','source_operation','approved'])
@@ -163,7 +163,7 @@ def test_owner_policy_cannot_claim_native_observations(ca,owner_field):
 
 def test_foreign_selected_subscription_before_transport(monkeypatch,ca):
  _,_,options,auth,_=fixture(ca)
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before binding rejection'))
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before binding rejection'));monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:pytest.fail('transport before binding rejection'))
  with pytest.raises(ValueError):azure.collect({'auth':auth,'options':options,'scopes':['99999999-9999-9999-9999-999999999999']},['pod'])
 
 def test_limit_range_is_actual_list_not_runtime_evidence(monkeypatch,ca):
@@ -194,7 +194,7 @@ def test_planner_parent_expansion_preserves_selection_and_explicit_inventories(c
 def test_missing_one_policy_never_disables_other(monkeypatch,ca,missing):
  routes,_,options,auth,Api=fixture(ca);options['compliance_parameters'][native.OPTION]['subscriptions'][0].pop(missing)
  arm=Transport(routes);arm.close=lambda:None
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:arm);monkeypatch.setattr(k8s,'_new_api',lambda auth:Api())
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:arm);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:arm);monkeypatch.setattr(k8s,'_new_api',lambda auth:Api())
  snapshot=collect_snapshot({'connector':{'provider':'azure','scopes':[SUB],'auth':auth,'options':options},'checks':[native.IMAGES,native.PORTS]})
  status={f['check_id']:f['status']for f in evaluate_snapshot(snapshot,checks=[native.IMAGES,native.PORTS])['findings']}
  assert status[native.IMAGES]==('UNKNOWN'if missing=='images'else'PASS')
