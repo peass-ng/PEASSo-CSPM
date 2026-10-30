@@ -169,6 +169,8 @@ from peaso.checks import collector_noop_authorization_shared_successor_20261020 
 from tests.shared_admission_epoch_compatibility_20261020 import active_shared
 from peaso.private_secret_source_epoch_20261021 import AdmissionError
 bridge = active_shared()
+from peaso import source_attestation_mode
+source_attestation_mode.ALWAYS=True  # warm calls below must re-prove, as in tests and the image build
 root=pathlib.Path.cwd();path=root/sys.argv[1];raw=path.read_bytes()
 try:
  bridge.reviewed_delta(root);bridge.verify_authorization_successors(root)
@@ -178,7 +180,10 @@ try:
  else:raise AssertionError('Source mutation admitted')
 finally:path.write_bytes(raw)
 '''
-    env = dict(os.environ, PYTHONPATH=str(copied_package), PYTHONDONTWRITEBYTECODE='1', AWS_EC2_METADATA_DISABLED='true', AWS_CONFIG_FILE='/nonexistent/offline', AWS_SHARED_CREDENTIALS_FILE='/nonexistent/offline')
+    # The cold import runs the shipped first-use proofs ("once"); the warm calls above re-prove
+    # every time. Inheriting conftest's repeat-every-proof mode for the import costs minutes.
+    env = {key: value for key, value in os.environ.items() if key != 'PEASO_SOURCE_ATTESTATION'}
+    env.update(PEASO_SOURCE_ATTESTATION='once', PYTHONPATH=str(copied_package), PYTHONDONTWRITEBYTECODE='1', AWS_EC2_METADATA_DISABLED='true', AWS_CONFIG_FILE='/nonexistent/offline', AWS_SHARED_CREDENTIALS_FILE='/nonexistent/offline')
     result = subprocess.run([sys.executable, '-B', '-c', code, relative], cwd=copied_package, env=env, capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stderr[-9000:]
     assert result.stdout.strip() == 'rejected'
