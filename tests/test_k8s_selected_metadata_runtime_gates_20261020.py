@@ -3,21 +3,29 @@ from copy import deepcopy
 from dataclasses import replace
 import gzip
 import json
+import os
 from pathlib import Path
 import shutil
 import socket
+import sys
 from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from peaso import checks,engine
 from peaso.checks import fixtures
 from peaso.checks import k8s_selected_metadata_runtime_admission_20261020 as admission
-from peaso.checks import k8s_annotation_native_admission_20261020 as annotation
-from peaso.checks import k8s_kubelet_configmap_admission_20261020 as configmaps
+from peaso.checks import k8s_annotation_native_source_successor_20261021 as annotation_successor
+from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as configmap_successor
 from peaso.collectors import k8s
 from peaso.server.validation import validate_connector
+from tests.aws_k8s_current_native_inputs_20261020 import case_state, replace_registry_checks
 from tests.test_k8s_selected_metadata_production_20261020 import (
     offline,capture,source,runtime,consumer,NS,CLUSTER,HOST,TOKEN,native_document,Response)
+
+# Production installs the historical annotation/ConfigMap admissions through
+# their archived-source successors; replay them in that private namespace.
+annotation=sys.modules[annotation_successor._PRIVATE_NAME]
+configmaps=sys.modules[configmap_successor.PRIVATE_NAME]
 
 
 def request(**options):
@@ -31,15 +39,15 @@ def current():return next(c for c in checks.CHECKS if c.id==source.CHECK)
 
 
 def isolate(monkeypatch):
-    monkeypatch.setattr(checks,'CHECKS',[c for c in checks.CHECKS if c.id!=source.CHECK])
+    replace_registry_checks(monkeypatch, [c for c in checks.CHECKS if c.id!=source.CHECK])
     monkeypatch.setattr(fixtures,'CASES',{key:value for key,value in fixtures.CASES.items()if key!=source.CHECK})
     monkeypatch.setattr(admission,'_INSTALLED',())
 
 
 def test_exact_one_registered_check_case_and_prior_thirteen_preserved():
-    old=current();before=deepcopy(fixtures.CASES)
+    old=current();before=case_state(fixtures.CASES)
     admission.install();admission.install();annotation.install();configmaps.install()
-    assert current()is old and fixtures.CASES==before
+    assert current()is old and case_state(fixtures.CASES)==before
     assert sum(c.id==source.CHECK for c in checks.CHECKS)==1
     assert current().evaluate.__wrapped__ is consumer.evaluate and current().allow_incomplete_failure
     assert current().dependencies==[source.KIND]and len([c for c in checks.CHECKS if c.id in annotation.IDS+configmaps.IDS])==13
@@ -107,7 +115,7 @@ def test_atomic_failure_rolls_back_without_partial_case_or_check(monkeypatch,sta
     if stage=='registration':
         class Broken(list):
             def append(self,value):raise RuntimeError('injected registration')
-        monkeypatch.setattr(checks,'CHECKS',Broken(checks.CHECKS))
+        replace_registry_checks(monkeypatch, Broken(checks.CHECKS))
     else:
         class Broken(dict):
             def __setitem__(self,key,value):
@@ -120,32 +128,85 @@ def test_atomic_failure_rolls_back_without_partial_case_or_check(monkeypatch,sta
 
 @pytest.mark.parametrize('fault',['duplicate','case','alias','title','wrapper','kind'])
 def test_collision_or_installed_metadata_drift_is_never_replaced(monkeypatch,fault):
-    old=current();monkeypatch.setattr(checks,'CHECKS',list(checks.CHECKS));monkeypatch.setattr(fixtures,'CASES',deepcopy(fixtures.CASES))
+    old=current();replace_registry_checks(monkeypatch, list(checks.CHECKS));monkeypatch.setattr(fixtures,'CASES',deepcopy(fixtures.CASES))
     if fault=='duplicate':checks.CHECKS.append(old)
     elif fault=='case':fixtures.CASES[source.CHECK]['pass'].clear()
     elif fault=='alias':monkeypatch.setattr(checks,'CHECK_ALIASES',{**checks.CHECK_ALIASES,'foreign':source.CHECK})
     elif fault=='title':checks.CHECKS[checks.CHECKS.index(old)]=replace(old,title='changed')
     elif fault=='wrapper':monkeypatch.setattr(old.evaluate,'__wrapped__',lambda *a:('PASS',{}))
     else:monkeypatch.setattr(k8s,'TYPES',k8s.TYPES+(source.KIND,))
-    before=tuple(checks.CHECKS);cases=deepcopy(fixtures.CASES)
+    before=tuple(checks.CHECKS);cases=case_state(fixtures.CASES)
     with pytest.raises(RuntimeError):admission.install()
-    assert tuple(checks.CHECKS)==before and fixtures.CASES==cases
+    assert tuple(checks.CHECKS)==before and case_state(fixtures.CASES)==cases
+
+
+def shipped_fixtures():
+    """tests/fixtures files the runtime image ships beside the package."""
+    import re
+    root=Path(__file__).resolve().parents[1]
+    names=sorted(set(re.findall(r'tests/fixtures/[A-Za-z0-9_.-]+\.json\.gz',(root/'Dockerfile.peaso').read_text())))
+    assert names and all((root/name).is_file()for name in names)
+    return names
 
 
 def packaged_root(tmp_path):
+    """Lay out the shipped image only: every peaso/ file plus the few fixtures
+    Dockerfile.peaso copies; no other tests/ file and no docs/.
+
+    Current reviewed inputs are proven through shared private-source successors
+    that read further packaged receipts, so the whole package is laid out with
+    hard links (copies across devices); a faulted file is detached first."""
     root=Path(__file__).resolve().parents[1];receipt=json.loads((root/'peaso/checks'/admission.RECEIPT).read_bytes())
     old=json.loads((root/'peaso/checks'/admission.prepared.RECEIPT).read_bytes())
     paths=set(receipt['sources'])|set(old['sources'])|{r['path']for r in receipt['fixtures']}|{r['path']for r in receipt['functions'].values()}|{r['path']for r in old['functions'].values()}|{'peaso/checks/'+admission.RECEIPT,'peaso/checks/'+admission.prepared.RECEIPT}
-    for relative in paths:
-        assert relative.startswith('peaso/')
-        p=tmp_path/relative;p.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(root/relative,p)
+    assert all(relative.startswith('peaso/')for relative in paths)
+    for path in sorted((root/'peaso').rglob('*'))+[root/name for name in shipped_fixtures()]:
+        if path.is_dir()or '__pycache__' in path.parts:continue
+        target=tmp_path/path.relative_to(root);target.parent.mkdir(parents=True,exist_ok=True)
+        try:os.link(path,target)
+        except OSError:shutil.copyfile(path,target)
+    assert all((tmp_path/relative).is_file()for relative in paths)
     return receipt
+
+
+def detach(path):
+    data=path.read_bytes();path.unlink();path.write_bytes(data)
+
+
+_PACKAGED_PROBE='''
+import sys
+from pathlib import Path
+import peaso
+root=Path.cwd().resolve()
+assert Path(peaso.__file__).resolve().is_relative_to(root),peaso.__file__
+from peaso.checks import k8s_selected_metadata_runtime_admission_20261020 as admission
+try:
+    print('ID',admission.reviewed_inputs(root)[2]['id'])
+except RuntimeError as exc:
+    print('REJECTED',type(exc).__name__,exc);sys.exit(3)
+'''
+
+
+def packaged_reviewed_inputs(root):
+    """Run the admission from the laid-out package itself, as an installed wheel does.
+
+    Private-source successors bind their own module file to the reviewed root,
+    so the packaged tree must be the one imported, not this checkout."""
+    import subprocess
+    checkout=Path(__file__).resolve().parents[1]
+    paths=[entry for entry in os.environ.get('PYTHONPATH','').split(os.pathsep)
+           if entry and entry!='.' and Path(entry).resolve()!=checkout]
+    env=dict(os.environ,PYTHONPATH=os.pathsep.join([str(root)]+paths))
+    return subprocess.run([sys.executable,'-B','-c',_PACKAGED_PROBE],cwd=root,env=env,
+                          capture_output=True,text=True,timeout=900)
 
 
 def test_runtime_admission_has_no_tests_or_docs_filesystem_dependency(tmp_path):
     receipt=packaged_root(tmp_path)
-    assert not(tmp_path/'tests').exists()and not(tmp_path/'docs').exists()
-    assert admission.reviewed_inputs(tmp_path)[2]['id']==source.CHECK
+    shipped={str(p.relative_to(tmp_path))for p in (tmp_path/'tests').rglob('*')if p.is_file()}
+    assert shipped==set(shipped_fixtures())and not(tmp_path/'docs').exists()
+    result=packaged_reviewed_inputs(tmp_path)
+    assert result.returncode==0 and result.stdout.split()==['ID',source.CHECK],result.stdout+result.stderr[-2000:]
     assets=json.loads(gzip.decompress((tmp_path/'peaso/checks'/admission.ASSETS).read_bytes()))
     assert all(not name.endswith('.py')and not name.endswith('.md')for name in assets)
     assert all(row['path'].startswith('peaso/checks/')for row in receipt['fixtures'])
@@ -156,11 +217,17 @@ def test_runtime_packaged_source_or_native_data_drift_is_rejected(tmp_path,fault
     packaged_root(tmp_path)
     names={'source':'peaso/collectors/k8s_selected_metadata_runtime_20261020.py','native':'peaso/checks/k8s_selected_metadata_runtime_native_20261020.json.gz',
         'assets':'peaso/checks/'+admission.ASSETS,'cases':'peaso/checks/'+admission.CASES,'shared':'peaso/collectors/k8s.py'}
-    p=tmp_path/names[fault]
+    p=tmp_path/names[fault];detach(p)
     if fault=='shared':p.write_text(p.read_text().replace('    options, auth = dict(connector.get("options", {})), connector.get("auth", {})','    options, auth = dict(connector.get("options", {})), connector.get("auth", {})\n    # unreviewed exact delta',1))
     else:
         with p.open('ab')as stream:stream.write(b'\n')
-    with pytest.raises(RuntimeError):admission.reviewed_inputs(tmp_path)
+    result=packaged_reviewed_inputs(tmp_path)
+    assert result.returncode!=0 and 'ID' not in result.stdout.split()
+    # Source drift is refused at package import by the private-source epoch
+    # (AdmissionError) or later by the admission itself (RuntimeError).
+    output=result.stdout+result.stderr
+    final=output.strip().splitlines()[-1]
+    assert final.startswith(('REJECTED RuntimeError','RuntimeError:','peaso.private_secret_source_epoch_20261021.AdmissionError:')),output[-2000:]
 
 
 @pytest.mark.parametrize('fault',['token','class','check','kind','option','code'])
@@ -220,7 +287,11 @@ def test_actual_three_reader_native_pipeline_unions_values_before_snapshot(monke
     req=request(**{literals.OPTION:[t],logs.OPTION:[log_target]});req['checks']+=[literals.CHECK,logs.CHECK]
     snapshot=engine.collect_snapshot(req);findings=engine.evaluate_snapshot(snapshot,checks=req['checks'])['findings']
     assert {f['status']for f in findings}=={'FAIL'},[(f['check_id'],f['status'],f.get('evidence'))for f in findings]
-    assert {f['check_id']for f in findings}==set(req['checks'])
+    # One finding per secret: a value seen by several readers is grouped under
+    # the first check, with every reader's location kept in its evidence.
+    assert {f['check_id']for f in findings}<=set(req['checks'])
+    located={loc['path'].split(':',1)[0]for f in findings for leak in f['evidence']['secret_leaks']for loc in leak['locations']}
+    assert located=={'k8s_selected_metadata','k8s_selected_literals','k8s_selected_log_samples'}
     assert len(calls)==7 and calls.count(path+'/log')==1 and calls.count(path)==6
     serialized=json.dumps([snapshot,findings,list(secret_scanning._RESULTS.values())])
     assert all(value not in serialized for value in values)
