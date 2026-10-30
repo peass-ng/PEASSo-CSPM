@@ -67,7 +67,10 @@ def test_refresh_is_idempotent_and_preserves_role_and_every_existing_resource(tm
  documents=[r['Properties']['PolicyDocument'] for name,r in sorted(updated['Resources'].items()) if r['Type']=='AWS::IAM::ManagedPolicy']
  assert documents==policy.split_policy(policy.build_policy())
  assert all(policy.policy_size(document)<=6144 for document in documents)
- assert len(first)<=51200  # Existing customer-role source export budget.
+ # The role is delivered by S3 TemplateURL (quick-create, or `cloudformation deploy`
+ # staging a local file), whose CloudFormation limit is 1 MB. The 51,200-byte
+ # inline TemplateBody limit must therefore never be the delivery path.
+ assert len(first)<=1048576
  policy.refresh(tmp_path);assert path.read_bytes()==first
 
 
@@ -92,3 +95,13 @@ def test_active_template_matches_generator_and_immutable_archive():
  template=json.loads(raw)
  documents=[r['Properties']['PolicyDocument']for name,r in sorted(template['Resources'].items())if r['Type']=='AWS::IAM::ManagedPolicy']
  assert documents==policy.split_policy(policy.build_policy())
+
+def test_customer_role_delivery_never_uses_inline_template_body():
+ root=Path(__file__).resolve().parents[1]
+ size=len((root/'infra/aws/customer-role.json').read_bytes())
+ source=(root/'frontend/src/Connectors.tsx').read_text()
+ if size>51200:
+  # CloudFormation rejects an inline --template-body above 51,200 bytes.
+  assert '--template-body' not in source
+ assert source.count('--template-file hacktricks-cspm-customer-role.json --s3-bucket ')==1
+ assert "--template-url '${details.quick_create_template_url}'" in source

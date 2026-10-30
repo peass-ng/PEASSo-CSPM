@@ -593,7 +593,8 @@ test("hosted role form and onboarding show trust, copy, and CloudFormation", asy
   await page.getByLabel("Authentication").selectOption("assume_role");
   await expect(page.getByLabel("Authentication").locator('option[value="assume_role"]')).toHaveText("HackTricks CSPM IAM role");
   await page.locator(".auth-setup-guide > summary").click();
-  await expect(page.locator(".auth-setup-guide")).toContainText("aws cloudformation create-stack");
+  await expect(page.locator(".auth-setup-guide")).toContainText("aws cloudformation deploy");
+  await expect(page.locator(".auth-setup-guide")).not.toContainText("--template-body");
   await expect(page.locator(".auth-setup-guide")).toContainText("customer-role.json");
   await expect(page.locator(".auth-setup-guide")).toContainText("peaso-fixture-external-id");
   await expect(page.locator(".auth-setup-guide").getByText("arn:aws:iam::aws:policy/ReadOnlyAccess")).toHaveCount(0);
