@@ -33,19 +33,20 @@ def test_mixed_active_and_failed_analyzer_preserves_any_alarm_row():
     assert check.evaluate(rules.SUBJECT, scope_fixture("access_analyzer", [{"status": "future"}]))[0] == "UNKNOWN"
 
 
-def test_collect_analyzer_empty_denied_pagination_without_creation(monkeypatch):
+def test_collector_never_calls_access_analyzer_live_api(monkeypatch):
     boto3 = pytest.importorskip("boto3")
     from botocore.stub import Stubber
     from peaso.collectors import aws
     session = boto3.Session(aws_access_key_id="inert", aws_secret_access_key="inert", region_name="us-east-1")
     client = session.client("accessanalyzer", region_name="us-east-1")
     stub = Stubber(client)
-    monkeypatch.setattr(aws.Requests, "client", lambda *args: client)
-    stub.add_response("list_analyzers", {"analyzers": [], "nextToken": "second"}, {})
-    stub.add_response("list_analyzers", {"analyzers": []}, {"nextToken": "second"})
     with stub:
         requests = aws.Requests({})
-        read = requests.pages(session, "accessanalyzer", "us-east-1", "list_analyzers", "analyzers")
-        assert read.status == "empty" and requests.calls == 2
+        with pytest.raises(aws.ReadFailure) as raised:
+            requests.pages(session, "accessanalyzer", "us-east-1", "list_analyzers", "analyzers")
+        assert (raised.value.status, raised.value.code) == ("not_collected", "access_analyzer_live_api_banned")
+        with pytest.raises(aws.ReadFailure):
+            requests.client(session, "accessanalyzer", "us-east-1")
+        assert requests.calls == 0
         assert ("accessanalyzer", "create_analyzer") not in aws.READ_ACTIONS
         stub.assert_no_pending_responses()

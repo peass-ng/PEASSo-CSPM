@@ -53,23 +53,33 @@ def test_setup_rotation_is_unknown_and_absent_key_passes():
 
 
 def _credential():
-    return {"user": "alice", "password_enabled": "true", "password_last_used": "no_information",
+    return {"user": "alice", "arn": "arn:aws:iam::123456789012:user/alice", "user_creation_time": "2024-12-01T00:00:00+00:00",
+            "ReportGeneratedTime": "2026-01-01T00:00:00+00:00", "password_enabled": "true", "password_last_used": "no_information",
             "password_last_changed": "2025-01-01T00:00:00+00:00", "access_key_1_active": "true",
             "access_key_1_last_used_date": "N/A", "access_key_1_last_rotated": "2025-01-01T00:00:00+00:00",
             "access_key_2_active": "false", "access_key_2_last_used_date": "N/A"}
 
 
-@pytest.mark.parametrize("check_id,age_field", [
-    ("aws.claude_a.iam.prowler_console_password_used_45", "password_last_changed"),
-    ("aws.claude_a.iam.access_keys_used_45", "access_key_1_last_rotated"),
+@pytest.mark.parametrize("check_id,age_field,used_field", [
+    ("aws.claude_a.iam.prowler_console_password_used_45", "password_last_changed", "password_last_used"),
+    ("aws.claude_a.iam.access_keys_used_45", "access_key_1_last_rotated", "access_key_1_last_used_date"),
 ])
-def test_never_used_credential_grace_period(check_id, age_field):
+def test_never_used_credential_grace_period(check_id, age_field, used_field):
     item = _credential()
     index = {"context": {"created_at": "2026-01-01T00:00:00+00:00"}}
+    # Never used since a credential date older than the threshold is stale.
     assert status(check_id, item, index) == "FAIL"
+    # A never-used credential newer than the threshold does not cover a full window.
     item[age_field] = "2025-12-31T00:00:00+00:00"
+    assert status(check_id, item, index) == "UNKNOWN"
+    item[used_field] = "2025-12-31T12:00:00+00:00"
     assert status(check_id, item, index) == "PASS"
+    item[used_field] = "no_information" if used_field == "password_last_used" else "N/A"
     item[age_field] = "N/A"
+    assert status(check_id, item, index) == "UNKNOWN"
+    # The report clock must belong to this snapshot.
+    item = _credential()
+    item.pop("ReportGeneratedTime")
     assert status(check_id, item, index) == "UNKNOWN"
 
 
