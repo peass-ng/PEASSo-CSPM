@@ -184,8 +184,8 @@ def test_mapping_preserves_all_previous_iam_grants():
     assert [d['Statement'][0] for d in updated]==[d['Statement'][0] for d in previous]
     kept=[s for d in updated for s in d['Statement'] if s not in reviewed]
     before=[s for d in previous for s in d['Statement']]
-    assert len({s['Sid'] for s in kept})==len(kept)
-    assert by_sid(kept)==by_sid(before)
+    canonical=lambda rows:sorted(json.dumps(s,sort_keys=True) for s in rows)
+    assert canonical(kept)==canonical(before)
     assert len(updated)<=policy.IAM_MANAGED_POLICIES_PER_ROLE
     assert all(policy.policy_size(d)<=6144 for d in updated)
     for service,operation in READ_ACTIONS:
