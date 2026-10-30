@@ -23,7 +23,30 @@ def store(request, tmp_path):
                             AttributeDefinitions=[{"AttributeName": "PK", "AttributeType": "S"},
                                                   {"AttributeName": "SK", "AttributeType": "S"}],
                             BillingMode="PAY_PER_REQUEST")
-        yield DynamoStore("queue", client)
+        yield DynamoStore("queue", _SerializedClient(client))
+
+
+class _SerializedClient:
+    """Apply each request atomically, as the DynamoDB service does.
+
+    moto's transact_write_items snapshots and restores whole tables without a
+    lock, so a concurrently cancelled transaction can roll back another
+    thread's committed write. Serializing requests keeps every racing call
+    (and the store's own retry logic) while removing that emulator-only race.
+    """
+
+    def __init__(self, client):
+        import threading
+        self._client, self._lock = client, threading.RLock()
+
+    def __getattr__(self, name):
+        value = getattr(self._client, name)
+        if not callable(value) or name.startswith("_"):
+            return value
+        def call(*args, **kwargs):
+            with self._lock:
+                return value(*args, **kwargs)
+        return call
 
 
 def jobs(store, now, count=11):

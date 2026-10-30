@@ -100,27 +100,27 @@ def test_new_reference_pair_starts_newly_completed_section_immediately(monkeypat
 
 def test_snapshot_reference_change_reloads_pair_and_preserves_stage_claim(monkeypatch):
     artifacts = Artifacts()
-    artifacts.values['partial-report']['summary']['publication']['sections']['hardening']['status'] = 'complete'
+    artifacts.values['partial-report']['summary']['publication']['sections']['network']['status'] = 'complete'
     def advance(store, artifacts, tick):
         if tick == 3:
             store.row['partial_snapshot'] = 'next-snapshot'
     artifacts, store, _ = run(monkeypatch, artifacts=artifacts, advance=advance)
     assert artifacts.reads == ['partial-report', 'partial-report']
-    assert len(Stage.launched) == 1 and store.results['hardening']['data_revision'] == 1
+    assert len(Stage.launched) == 1 and store.results['network']['data_revision'] == 1
 
 
-def test_stage_capacity_is_revisited_without_new_artifact_read(monkeypatch):
+def test_complete_native_sections_launch_only_network_without_new_artifact_read(monkeypatch):
+    # Hardening and Exposure verdicts are native-final; Network is the only progressive model stage.
+    assert watcher.STAGES == ('network',)
     artifacts = Artifacts()
-    for stage in watcher.STAGES:
+    for stage in ('network', 'hardening', 'exposure', 'images'):
         artifacts.values['partial-report']['summary']['publication']['sections'][stage] = {
-            'status': 'complete', 'data_revision': 1}
-    artifacts.values['partial-report']['summary']['publication']['sections']['exposure'].update(
-        settled_kinds=True, settled_revision=1)
+            'status': 'complete', 'data_revision': 1, 'settled_kinds': True, 'settled_revision': 1}
     artifacts, store, _ = run(monkeypatch, artifacts=artifacts)
     assert artifacts.reads == ['partial-report']
-    assert {row[0] for row in Stage.launched} == set(watcher.STAGES)
-    assert set(store.results) == set(watcher.STAGES)
-    assert store.result_reads == 2
+    assert Stage.launched == [('network', 1, 'partial-report', 'partial-snapshot')]
+    assert set(store.results) == {'network'}
+    assert store.result_reads == 1
 
 
 def test_last_checkpoint_ready_at_collected_handoff_starts_before_final(monkeypatch):
@@ -172,9 +172,7 @@ def test_final_handoff_keeps_stale_stage_for_finding_delta(monkeypatch):
     artifacts, store = Artifacts(), FakeStore()
     for stage in ('network', 'exposure'):
         artifacts.values['partial-report']['summary']['publication']['sections'][stage] = {
-            'status': 'complete', 'data_revision': 1}
-    artifacts.values['partial-report']['summary']['publication']['sections']['exposure'].update(
-        settled_kinds=True, settled_revision=1)
+            'status': 'complete', 'data_revision': 1, 'settled_kinds': True, 'settled_revision': 1}
     tasks = {}
 
     class WaitingStage:
@@ -196,11 +194,10 @@ def test_final_handoff_keeps_stale_stage_for_finding_delta(monkeypatch):
         assert stage_poll is not None
         job = store.job('tenant', 'scan')
         assert not stage_poll(job)
-        assert not tasks['exposure'].stopped and not tasks['network'].stopped
-        tasks['network'].done = tasks['exposure'].done = True
+        assert set(tasks) == {'network'} and not tasks['network'].stopped
+        tasks['network'].done = True
         assert stage_poll(job)
-        assert 'network' in store.stage_results('tenant', 'scan')
-        assert 'exposure' in store.stage_results('tenant', 'scan')
+        assert set(store.stage_results('tenant', 'scan')) == {'network'}
         store.row['status'] = 'completed'
 
     worker = SimpleNamespace(role='analyzer', store=store, artifacts=artifacts,

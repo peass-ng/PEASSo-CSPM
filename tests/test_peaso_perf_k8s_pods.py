@@ -101,6 +101,11 @@ def candidates(nodes):
     return {n.id: n for n in nodes}
 
 
+def hosted(pod):
+    # A node hosts the SA's pod while it runs, or is conditionally bound while pending; finished pods do not count.
+    return not pod["deleting"] and (pod["running"] or pod["phase"] in ("Pending", None))
+
+
 def test_pod_selectors_match_scan():
     model, sas, nodes = model_and_nodes()
     both = candidates(sas + nodes)
@@ -111,7 +116,7 @@ def test_pod_selectors_match_scan():
                                       | {n.id for n in nodes if ref_on_node(model, n)},
         "k8s_sa_used_by_controller_managed_pod": {s.id for s in sas if any(p["owned"] for p in ref_pods_for_sa(model, s))}
                                                  | {n.id for n in nodes if ref_on_node(model, n)},
-        "k8s_node_hosting_pods_with_sa": {s.id for s in sas if any(p["node"] for p in ref_pods_for_sa(model, s))}
+        "k8s_node_hosting_pods_with_sa": {s.id for s in sas if any(p["node"] and hosted(p) for p in ref_pods_for_sa(model, s))}
                                          | {n.id for n in nodes if ref_on_node(model, n)},
     }
     for key, wanted in expect.items():
@@ -119,7 +124,8 @@ def test_pod_selectors_match_scan():
     # A k8s_node source restricts the SA's pods to that node.
     for source in nodes:
         got = set(model.selector("k8s_node_hosting_pods_with_sa", True, candidates(sas), source))
-        assert got == {s.id for s in sas if any(p["node"] == source.attrs["name"] for p in ref_pods_for_sa(model, s))}
+        assert got == {s.id for s in sas if any(p["node"] == source.attrs["name"] and hosted(p)
+                                                for p in ref_pods_for_sa(model, s))}
 
 
 def test_node_hosting_pod_of_source_matches_scan():
