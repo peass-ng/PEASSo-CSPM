@@ -97,7 +97,12 @@ def test_reviewed_compiler_outputs_are_identical_across_hash_seeds(tmp_path):
     assert len(active) == len(native["checks"])
     assert len(archived) == len(native["archived_checks"])
     assert not active.intersection(archived)
-    assert len(active | archived) == 3986 + len(EXTENSION_IDS)
+    # Retired duplicate ids keep reviewed metadata only as historical aliases of
+    # live native checks; together they still partition the historical registry.
+    from peaso.checks import CHECK_ALIASES, resolve_check_id
+    retired = {cid for cid in descriptions if cid not in active | archived and not cid.startswith("analysis.")}
+    assert all(cid in CHECK_ALIASES and resolve_check_id(cid) in active | archived for cid in retired)
+    assert len(active | archived | retired) == 3986 + len(EXTENSION_IDS)
     assert archived == set(native["excluded_controls"])
     assert native["automation_scope"]["manual_attestations"] is False
     assert len(requirements["frameworks"]) == 160

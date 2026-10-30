@@ -636,16 +636,24 @@ def test_duplicate_description_requires_reviewed_reason_and_canonical_id(tmp_pat
 
 def test_pinned_description_index_includes_native_and_seven_analysis_checks():
     from pathlib import Path
-    from peaso.analysis import ANALYSIS_CHECKS
+    from peaso.analysis import ANALYSIS_CHECKS, MANUAL_ONLY_ANALYSIS_CHECK_IDS
+    from peaso.checks import CHECK_ALIASES, resolve_check_id
     from scripts.peaso_compliance_compile import ANALYSIS_IDS
     root = Path(__file__).resolve().parents[1]
     indexed = {row["id"]: row for row in json.loads((root / "docs/compliance-ledgers/inputs/check-index.json").read_text())}
     catalog = json.loads((root / "peaso/rulepacks/native_catalog.json").read_text())
     native = {row["id"] for row in catalog["checks"] + catalog.get("archived_checks", [])}
     assert len(indexed) == 3112 and len(native) >= 3105
-    assert set(indexed) - native == ANALYSIS_IDS
-    assert {indexed[cid]["provider"] for cid in ANALYSIS_IDS} == {"all"}
-    assert {row["id"] for row in ANALYSIS_CHECKS} == ANALYSIS_IDS
+    # Signed index rows that are neither native nor analysis are retired ids
+    # kept only as historical aliases of live native checks.
+    retired = set(indexed) - native - ANALYSIS_IDS
+    assert all(cid in CHECK_ALIASES and resolve_check_id(cid) in native for cid in retired)
+    indexed_analysis = ANALYSIS_IDS & set(indexed)
+    assert len(indexed_analysis) == 7
+    assert {indexed[cid]["provider"] for cid in indexed_analysis} == {"all"}
+    # Analysis checks registered after the signed index was frozen.
+    assert ANALYSIS_IDS - set(indexed) == {"analysis.exposed_privileged_workload"}
+    assert {row["id"] for row in ANALYSIS_CHECKS} | MANUAL_ONLY_ANALYSIS_CHECK_IDS == ANALYSIS_IDS
 
 
 def test_production_compiled_pack_matches_signed_manifest_and_registry():
@@ -664,16 +672,30 @@ def test_production_compiled_pack_matches_signed_manifest_and_registry():
     assert requirements["source_manifest_sha256"] == descriptions["source_manifest_sha256"] == signed_hash
     assert lookup == lookup_index(requirements, hashlib.sha256((pack / "compliance_requirements.json").read_bytes()).hexdigest())
     check_ids = {check.id for check in CHECKS} | {row["id"] for row in ANALYSIS_CHECKS}
-    assert set(descriptions["checks"]) == check_ids
+    # Same contract as peaso_compliance_materialize: reviewed descriptions also
+    # cover manual-only analysis ids and historical aliases of live checks; the
+    # only live id outside the signed descriptions is the newer analysis check.
+    from peaso.analysis import MANUAL_ONLY_ANALYSIS_CHECK_IDS
+    from peaso.checks import CHECK_ALIASES, resolve_check_id
+    from peaso.checks.catalog import description_for
+    active = check_ids | MANUAL_ONLY_ANALYSIS_CHECK_IDS
+    reviewed = set(descriptions["checks"])
+    assert reviewed - active
+    assert all(cid in CHECK_ALIASES and resolve_check_id(cid) in active for cid in reviewed - active)
+    assert active - reviewed == {"analysis.exposed_privileged_workload"}
+    assert description_for("analysis.exposed_privileged_workload") is not None
     forward = {(framework["id"], row["requirement_id"], cid)
                for framework in requirements["frameworks"] for row in framework["requirements"]
                for cid in row["native_checks"]}
     reverse = {(tag["framework_id"], tag["requirement_id"], cid)
                for cid, tags in requirements["by_check"].items() for tag in tags}
     assert forward == reverse
-    assert set(requirements["by_check"]) <= check_ids
+    assert set(requirements["by_check"]) <= check_ids | (reviewed - active)
     for cid, tags in requirements["by_check"].items():
-        assert requirement_tags_for(cid) == tags
+        # Runtime tags of a surviving check also carry its historical aliases' tags.
+        inherited = [tag for old, survivor in CHECK_ALIASES.items() if survivor == cid
+                     for tag in requirements["by_check"].get(old, [])]
+        assert requirement_tags_for(cid) == tags + inherited
     versions = {row["id"]: row for row in framework_catalog() if row["provider"] in {"aws", "gcp", "azure", "k8s"}}
     assert set(versions) == {row["id"] for row in requirements["frameworks"]}
     for framework in requirements["frameworks"]:

@@ -13,7 +13,7 @@
     "peaso/rulepacks/manual_catalog.json": "8c70c29ac360013a87852a054d2b7337bf5520dc817b44fb35e0b01f39a9432c",
     "docs/compliance-ledgers/native-extensions/aws-20261019.json": "0958d33792a6359570283736873f4d59f10bda4bc7a71b4dfdc8a23409af4e0a",
     "scripts/peaso_compliance_compile.py": "e4f62f97dd41ce96156b7750ad50d10a40aaa7899aeef0f0cafacc8ae6d662aa",
-    "tests/test_peaso_compliance_requirements.py": "f7b97ca46db8258a8044f896276183d9fae6cd4c9f23e056b24634fc06044a7e"
+    "tests/test_peaso_compliance_requirements.py": "ace107b282e12841e2fadc9413f760b5ca1035e9a68c3fd3112f5ca2282caf44"
   },
   "summary": {
     "reviewed_source_rows": 125,
