@@ -239,7 +239,7 @@
       "code_path_audit_ref": {
         "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.claude_a.iam.role_used_within_60_days",
         "path": "peaso/unused_iam_aws_activity.py",
-        "source_sha256": "6895e8c728e9f7ac38a90ef128c02e3e440d8e72ba54986a28cb1fdde0c7ac28",
+        "source_sha256": "e4d519e688e9deb4ac81956c7ec19adf71a4280cc6e80d71bb772633aa217824",
         "symbol": "evaluate"
       },
       "evaluator_source_sha256": "af034bd2c8bbde87453c3d958267b4cbd5835034324fa78ff968d01acf2f0a4b",
@@ -255,7 +255,7 @@
       ],
       "predicate": "Lines 37-80 validate current role identity and capture time, parse CreateDate and RoleLastUsed.LastUsedDate, then FAIL iff recorded last use is before capture minus 60 days; missing last use is UNKNOWN. This establishes recorded age only, not actual inactivity.",
       "predicate_source": "peaso/unused_iam_aws_activity.py:37",
-      "source_file_sha256": "6895e8c728e9f7ac38a90ef128c02e3e440d8e72ba54986a28cb1fdde0c7ac28"
+      "source_file_sha256": "e4d519e688e9deb4ac81956c7ec19adf71a4280cc6e80d71bb772633aa217824"
     },
     "aws.claude_a.iam.user_long_lived_keys_only_iam_sts": {
       "code_path_audit_ref": {

@@ -6,7 +6,7 @@
   "code_worker_low_rep_source_receipt_sha256": "333ccb7146e02db59f14b2f8056c54bcbad266c5b55e696ced3ab5f19eb52eb3",
   "combined_temporary_qualified_admitted": 0,
   "gate_modified": false,
-  "high20_candidate_sha256": "9a2d6b0dcb5b93f3ec87ce01d756178fff77ebe5c9db3fd55025afa8d904aca4",
+  "high20_candidate_sha256": "1e88920d30f115f653902827fb2f75a5a5aaffbb3db4c80037864aa13300fb90",
   "high_approved_checks": 20,
   "individual_temporary_qualified_admitted": 78,
   "individual_temporary_qualified_rejected": [

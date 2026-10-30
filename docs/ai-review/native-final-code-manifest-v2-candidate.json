@@ -2155,7 +2155,7 @@
         "code_path_audit_ref": {
           "audit_ref": "docs/ai-review/native-final-proofs-v3.json#aws.claude_a.iam.role_used_within_60_days",
           "path": "peaso/unused_iam_aws_activity.py",
-          "source_sha256": "6895e8c728e9f7ac38a90ef128c02e3e440d8e72ba54986a28cb1fdde0c7ac28",
+          "source_sha256": "e4d519e688e9deb4ac81956c7ec19adf71a4280cc6e80d71bb772633aa217824",
           "symbol": "evaluate"
         },
         "operation": {

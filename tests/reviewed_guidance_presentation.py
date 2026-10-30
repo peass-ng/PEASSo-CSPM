@@ -118,7 +118,7 @@ def assert_description_preserves_contract(check_id):
         import hashlib, json
         from pathlib import Path
         raw = (Path(__file__).resolve().parents[1] / 'peaso/checks/unused_iam_aws_activity_review.json').read_bytes()
-        assert hashlib.sha256(raw).hexdigest() == '34043a417ec73b98256dbb6c3400c9cda0ebbb53e69314fd7697eafed137d1fd'
+        assert hashlib.sha256(raw).hexdigest() == 'b806233d3ea48604ab71e09f1348543dcd7652b30b2280da02b54565d7e0f74f'
         review = json.loads(raw)
         assert review['check_id'] == check_id
         # The prior row differs from the base only by the reviewed clarity description.

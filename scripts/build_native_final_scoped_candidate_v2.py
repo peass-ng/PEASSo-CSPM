@@ -13,7 +13,7 @@ SCOPED_SHA256 = "d244169401807d3ebb2f98cc87c50b934d637b9841a4edac2f273ea0e012088
 SOURCE_LOW_SHA256 = "333ccb7146e02db59f14b2f8056c54bcbad266c5b55e696ced3ab5f19eb52eb3"
 RUNTIME_SOURCE_SHA256 = "969058175c791c7b7e16c60483ab0e51a09cd7d1567171e961d4f02c015fc8c1"
 HIGH_CANDIDATE = ROOT / "docs/ai-review/native-final-code-manifest-v2-candidate-high20.json"
-HIGH_SHA256 = "9a2d6b0dcb5b93f3ec87ce01d756178fff77ebe5c9db3fd55025afa8d904aca4"
+HIGH_SHA256 = "1e88920d30f115f653902827fb2f75a5a5aaffbb3db4c80037864aa13300fb90"
 
 
 def f(api, kind, path, typ, observed=None):
