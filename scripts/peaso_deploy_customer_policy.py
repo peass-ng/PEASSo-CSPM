@@ -345,7 +345,7 @@ ACTION_ALIASES[('ecr','list_image_referrers')] = 'ecr:BatchGetImage'
 # content profile. Their IAM mappings are reviewed, but they never broaden the
 # generated default metadata role.
 OPTIONAL_CONFIGURATION_READ_REFERENCES = {
-    ('cloudformation', 'get_template'): ('cloudformation:GetTemplate', 'https://docs.aws.amazon.com/AWSCloudFormation/latest/APIReference/API_GetTemplate.html'),
+    ('cloudformation', 'get_template'): ('cloudformation:GetTemplate', 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_awscloudformation.html'),
     ('amplify', 'get_app'): ('amplify:GetApp', 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_amplify.html'),
     ('apigateway', 'get_stage'): ('apigateway:GET', 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_apigateway.html'),
     ('glue', 'get_job'): ('glue:GetJob', 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_glue.html'),

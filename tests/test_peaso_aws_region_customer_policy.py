@@ -16,7 +16,7 @@ BASE=HISTORY['baseline']
 ROLE=HISTORY['regional']
 BASE_BYTES=(json.dumps(BASE,indent=2)+'\n').encode()
 HISTORICAL_ROLE_BYTES=(json.dumps(ROLE,indent=2)+'\n').encode()
-ACTIVE_ROLE_SHA='58815f8a78d15b9360ad6532625e6c21d7ac79f5808a941dd5ca46fee269318f'
+ACTIVE_ROLE_SHA='e6395747d1a4196cf1261328d84c7e7d51355e7b2ace7fc132e82d378e5243bc'
 ACTIVE_ROLE_BYTES=(ROOT/'infra/aws/customer-role.json').read_bytes()
 ACTIVE_ROLE=json.loads(ACTIVE_ROLE_BYTES)
 OPS={('outposts','list_outposts'):'outposts:ListOutposts',('s3control','list_regional_buckets'):'s3-outposts:ListRegionalBuckets',('s3tables','list_table_buckets'):'s3tables:ListTableBuckets',('s3vectors','list_vector_buckets'):'s3vectors:ListVectorBuckets',('dynamodb','list_backups'):'dynamodb:ListBackups',('rds','describe_db_instance_automated_backups'):'rds:DescribeDBInstanceAutomatedBackups',('rds','describe_db_cluster_automated_backups'):'rds:DescribeDBClusterAutomatedBackups',('redshift-serverless','list_snapshots'):'redshift-serverless:ListSnapshots',('redshift-serverless','list_recovery_points'):'redshift-serverless:ListRecoveryPoints'}
