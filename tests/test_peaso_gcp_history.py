@@ -7,6 +7,10 @@ from tests.test_peaso_collectors_gcp import snapshot, collection
 NETWORK = 'https://www.googleapis.com/compute/v1/projects/p-one/global/networks/private'
 
 
+def record_reads(transport):
+    return [r for r in transport.requests if '/rrsets' in r['url']]
+
+
 def zone(name='private', **extra):
     return {'name': name, 'visibility': 'private',
             'privateVisibilityConfig': {'networks': [{'networkUrl': NETWORK}]}, **extra}
@@ -18,6 +22,8 @@ def test_dns_records_preserve_same_hostname_across_zones_and_vpcs():
         if request['url'].endswith('/managedZones'):
             return {'managedZones': [zone('one'), zone('two', privateVisibilityConfig={
                 'networks': [{'networkUrl': NETWORK}, {'networkUrl': second}]})]}
+        if request['url'].endswith(':getIamPolicy'):
+            return {'bindings': []}
         assert request['method'] == 'GET' and request['params']['maxResults'] == 100
         return {'rrsets': [{'name': 'private.googleapis.com.', 'type': 'A', 'ttl': 300, 'rrdatas': ['10.0.0.1']}]}
     result, transport = snapshot(['dns_record'], resolve)
@@ -25,7 +31,7 @@ def test_dns_records_preserve_same_hostname_across_zones_and_vpcs():
     assert len(rows) == len({r['native_id'] for r in rows}) == 3
     assert {r['network'] for r in rows} == {NETWORK, second}
     assert {r['name'] for r in rows} == {'private.googleapis.com.'}
-    assert len(transport.requests) == 3
+    assert len(record_reads(transport)) == 2
     assert all(r['_provenance']['representation'] == 'full' for r in rows)
 
 
@@ -44,7 +50,7 @@ def test_dns_denied_zone_retains_collected_records_as_partial():
 
 def test_dns_incomplete_parent_does_not_read_child():
     result, transport = snapshot(['dns_record'], lambda request: {'managedZones': [zone()], 'nextPageToken': 'more'}, max_pages=1)
-    assert len(transport.requests) == 1
+    assert record_reads(transport) == []
     assert collection(result, 'dns_record')['status'] == 'unknown'
 
 
@@ -53,13 +59,13 @@ def test_dns_incomplete_parent_does_not_read_child():
 def test_dns_does_not_accept_unverified_network_identity(network):
     result, transport = snapshot(['dns_record'], lambda request: {'managedZones': [zone(privateVisibilityConfig={
         'networks': [{'networkUrl': network}]})]})
-    assert len(transport.requests) == 1
+    assert record_reads(transport) == []
     assert collection(result, 'dns_record')['status'] == 'malformed'
 
 
 def test_public_dns_zone_is_not_claimed_as_private_visibility():
     result, transport = snapshot(['dns_record'], lambda request: {'managedZones': [zone(visibility='public')]})
-    assert len(transport.requests) == 1 and collection(result, 'dns_record')['status'] == 'empty'
+    assert record_reads(transport) == [] and collection(result, 'dns_record')['status'] == 'empty'
 
 
 def test_cloud_builds_pagination_regions_identity_and_secret_projection():

@@ -45,7 +45,6 @@ HISTORIC_SECONDS = {
     "test_peaso_gcp_remaining_clarity_reviewed.py": 354,
     "test_aws_codebuild_buildspec_runtime_20261020.py": 304,
     "test_gcp_function_secret_paired_integration_20261020.py": 303,
-    "test_peaso_admission_wheel_packaging.py": 295,
     "test_peaso_graph_scale.py": 206,
     "test_peaso_engine.py": 196,
     "test_gcp_function_source_secret_review_20261019.py": 137,
@@ -102,7 +101,6 @@ SPLIT_COUNTS = {
     "test_peaso_gcp_remaining_clarity_reviewed.py": 2,
     "test_aws_codebuild_buildspec_runtime_20261020.py": 2,
     "test_gcp_function_secret_paired_integration_20261020.py": 2,
-    "test_peaso_admission_wheel_packaging.py": 2,
 }
 
 

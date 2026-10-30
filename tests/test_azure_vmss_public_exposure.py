@@ -69,7 +69,9 @@ def test_vmss_nics_feed_load_balancer_backend_join():
     assert len(matches) == 1 and matches[0][0]["id"] == NIC
 
 
-def test_legacy_vmss_inbound_nat_pool_reaches_instance():
+def test_legacy_vmss_inbound_nat_pool_stays_unknown_without_instance_port_mapping():
+    # Per-instance frontend ports of NAT pools and backend-pool NAT ranges are not
+    # recorded, so a public frontend there is neither a proven path nor closed.
     _, _, parent = _result()
     base = SCOPE + "/resourceGroups/rg/providers/Microsoft.Network"
     lb, pip = base + "/loadBalancers/lb", base + "/publicIPAddresses/frontend"
@@ -92,8 +94,8 @@ def test_legacy_vmss_inbound_nat_pool_reaches_instance():
          "items": [{"id": SUBNET, "properties": {}}]},
     ])
     lb_result = next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "load_balancer")
-    assert lb_result.verdict() == "FAIL"
-    assert lb_result.ports == {"tcp": ((50000, 50010),)}
+    assert lb_result.verdict() == "UNKNOWN" and lb_result.ports == {}
+    assert any("legacy inbound NAT pool ssh" in row["reason"] for row in lb_result.unresolved)
     backend_pool = lb + "/backendAddressPools/pool"
     snap["collections"][0]["items"][0]["vmssNetworkInterfaces"][0]["properties"]["ipConfigurations"][0]["properties"][
         "loadBalancerBackendAddressPools"] = [{"id": backend_pool}]
@@ -105,4 +107,5 @@ def test_legacy_vmss_inbound_nat_pool_reaches_instance():
                        "frontendPortRangeStart": 51000, "frontendPortRangeEnd": 51010,
                        "backendPort": 22}}]
     v2 = next(row for row in assess(snap, resources(snap)) if row.resource["type"] == "load_balancer")
-    assert v2.verdict() == "FAIL" and v2.ports == {"tcp": ((51000, 51010),)}
+    assert v2.verdict() == "UNKNOWN" and v2.ports == {}
+    assert any("inbound NAT backend-pool rule ssh2" in row["reason"] for row in v2.unresolved)

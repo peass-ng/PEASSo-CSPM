@@ -196,22 +196,15 @@ def json_string_spans(text: str):
 #   'historical' every digest in the literal is a historical witness.
 PY_PIN_BLOCKS = {
     ('tests/provider_observation_residual_successors_20261020.py', 'PINNED'): 'current',
-    ('tests/test_peaso_azure_evidence_explanations.py', 'PINNED_SUCCESSOR_INPUTS'): 'historical',
-    ('tests/test_gcp_current_source_reconciliation_20261020.py', 'RECORD_SUCCESSORS'): 'current',
-    ('tests/test_gcp_current_source_reconciliation_20261020.py', 'PREDICATE_SUCCESSORS'): 'pointer',
-    ('tests/test_peaso_gcp_remaining_clarity_reviewed.py', 'CURRENT_EXTENSION_SOURCES'): 'current',
-    ('tests/test_peaso_gcp_remaining_clarity_reviewed.py', 'EXTENSION_PREDICATE_SUCCESSORS'): 'pointer',
 }
 # ``NAME = '<sha256>'`` constants that pin the current bytes of one file.
 CURRENT_PIN_CONSTANTS = {
-    ('tests/test_gcp_current_source_reconciliation_20261020.py', 'REPORT_SHA256'):
-        'docs/gcp-review/recheck-20261020/current-source-reconciliation-20261020.json',
-    ('tests/test_gcp_current_source_reconciliation_20261020.py', 'CURRENT_RECEIPT_SHA256'):
-        'docs/check-review/gcp-current-ledger-source-conservation-20261020.json',
     ('tests/gcp_clarity_combined_successor_20261020.py', 'CURRENT_EXPLANATIONS_SHA256'):
         'peaso/checks/gcp_evidence_explanations.py',
     ('tests/gcp_clarity_combined_successor_20261020.py', 'CURRENT_EXPLANATIONS_SUCCESSOR_SHA256'):
         'peaso/checks/gcp_evidence_explanations_current_20261023.json',
+    ('peaso/ai/native_final_azure.py', 'SOURCE_PROOF_SHA256'):
+        'docs/ai-review/native-final-azure-source-audit-v2.json',
 }
 
 

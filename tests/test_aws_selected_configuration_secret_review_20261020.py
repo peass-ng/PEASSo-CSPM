@@ -125,6 +125,8 @@ def offline(monkeypatch):
     monkeypatch.setattr(aws,'_session',blocked)
     original=list(checks.CHECKS)
     if not any(c.id==source.CHECK for c in checks.CHECKS):consumer.install(checks.register)
+    from peaso import secret_scan_clean
+    monkeypatch.setattr(secret_scan_clean,'_CLEAN',secret_scan_clean.OrderedDict())
     scanning._RESULTS.clear()
     yield
     checks.CHECKS[:]=original;scanning._RESULTS.clear()

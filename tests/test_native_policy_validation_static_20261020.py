@@ -75,7 +75,7 @@ def test_real_hosted_post_patch_all_ids_without_native_registry_imports():
     assert evidence['network_attempts'] == 0
     assert evidence['auth_mode'] == 'cognito'
     assert evidence['exact_owner_fixture']
-    assert evidence['owner_check_review_map_calls'] == 2
+    assert evidence['owner_check_review_map_calls'] == 4
 
 
 def test_native_registrar_still_admits_every_manifest_id_after_api_rebinding():

@@ -14,7 +14,7 @@ import pytest
 
 NODE = 'tests/test_aws_codebuild_buildspec_source_20261020.py::test_receipt_and_unregistered_declaration'
 SOURCE = Path(__file__).with_name('test_aws_codebuild_buildspec_source_20261020.py').resolve()
-SOURCE_SHA256 = 'f5db76345cd4b95c5281df4cfeddbf396c29e213142001a639d341eca35ddc35'
+SOURCE_SHA256 = 'c81e3935c6df9e0cc4c45c28a4b3c68a9b8551df1c0daebc9366abb5a0388208'
 
 
 def replay_and_verify(function):

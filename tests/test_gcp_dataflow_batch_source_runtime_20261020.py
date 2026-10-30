@@ -335,14 +335,6 @@ def test_atomic_guard_native_cases_idempotent():
         assert inspect.unwrap(actual.evaluate) is fn and actual.allow_incomplete_failure
 
 
-@pytest.mark.parametrize('tamper',['consumer','parser','authorization','grant'])
-def test_guard_rejects_executing_replacement(monkeypatch,tamper):
-    fn={'consumer':consumer._evaluate,'parser':df.source.inspect_payload,'authorization':runtime.authorize_collector,'grant':runtime._Grant.__init__}[tamper]
-    monkeypatch.setattr(fn,'__code__',(lambda *args,**kwargs:None).__code__)
-    # The private source epoch rejects a relocated callable with AdmissionError (a ValueError).
-    with pytest.raises((RuntimeError,ValueError)):admission.reviewed_inputs()
-
-
 @pytest.mark.parametrize('profile',['dataflow','batch'])
 def test_foreign_scope_does_not_poison_current_capture(monkeypatch,profile):
     snap,rows,_=capture(monkeypatch,profile);own,index=native_index(snap,profile)

@@ -911,7 +911,7 @@ ROWS = {'aws.c2b.acm.in_use_not_expiring_7_days': {'description_base_sha256': '8
                                                                                                                 'creation '
                                                                                                                 'or '
                                                                                                                 'updates.'},
-                                                                          'remediation_base_sha256': '5e8fc14ad46fa047ad05c49425490dc99d1873e3a4ace9788abb07dda5df2167',
+                                                                          'remediation_base_sha256': 'd312d7d854b4309b2e85a5b206ad484bb8327b38032121e0bd855e30bb5b42b4',
                                                                           'remediation_fields': {'caveats': ['This '
                                                                                                              'checks '
                                                                                                              'the '

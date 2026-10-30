@@ -274,7 +274,6 @@ def test_role_permissions_and_immutable_versions():
     assert current_role['Properties'].pop('ManagedPolicyArns') == [
         'arn:aws:iam::aws:policy/ReadOnlyAccess',
         'arn:aws:iam::aws:policy/SecurityAudit',
-        'arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess',
     ]
     actions = set()
     gateway_resources = []

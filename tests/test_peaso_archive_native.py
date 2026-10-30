@@ -160,7 +160,8 @@ def test_sdk_collector_account_inventory_to_engine(monkeypatch):
     stubs['s3'].add_response('get_bucket_location', {}, {'Bucket': BUCKET})
     for operation in ('get_public_access_block', 'get_bucket_policy_status', 'get_bucket_policy',
         'get_bucket_encryption'):
-        stubs['s3'].add_client_error(operation, service_error_code='AccessDenied', expected_params={'Bucket': BUCKET})
+        params = {'Bucket': BUCKET, **({'ExpectedBucketOwner': ACCOUNT} if operation == 'get_bucket_policy' else {})}
+        stubs['s3'].add_client_error(operation, service_error_code='AccessDenied', expected_params=params)
     stubs['s3'].add_response('get_bucket_versioning', {'Status': 'Enabled'}, {'Bucket': BUCKET})
     for operation in ('get_bucket_acl', 'get_bucket_ownership_controls', 'get_bucket_logging',
         'get_bucket_lifecycle_configuration', 'get_bucket_notification_configuration',

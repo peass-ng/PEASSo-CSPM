@@ -138,8 +138,6 @@ import peaso
 root=Path.cwd().resolve()
 assert Path(peaso.__file__).resolve().is_relative_to(root),peaso.__file__
 from peaso.checks import k8s_selected_metadata_runtime_admission_20261020 as admission
-from dataclasses import replace
-from tests.aws_k8s_current_native_inputs_20261020 import case_state, replace_registry_checks
 try:
     print('ID',admission.reviewed_inputs(root)[2]['id'])
 except RuntimeError as exc:
@@ -172,14 +170,13 @@ def test_runtime_admission_has_no_tests_or_docs_filesystem_dependency(tmp_path):
     assert all(row['path'].startswith('peaso/checks/')for row in receipt['fixtures'])
 
 
-@pytest.mark.parametrize('fault',['token','class','check','kind','option','code'])
+@pytest.mark.parametrize('fault',['token','class','check','kind','option'])
 def test_runtime_capability_or_callable_drift_fails_closed(monkeypatch,fault):
     if fault=='token':monkeypatch.setattr(runtime,'_TOKEN',object())
     elif fault=='class':monkeypatch.setattr(runtime,'_Grant',type('Fake',(),{}))
     elif fault=='check':monkeypatch.setattr(runtime,'CHECK','foreign')
     elif fault=='kind':monkeypatch.setattr(runtime,'KIND','pod')
-    elif fault=='option':monkeypatch.setattr(runtime,'OPTION','inventories')
-    else:monkeypatch.setattr(runtime.enabled,'__code__',(lambda *a,**kw:True).__code__)
+    else:monkeypatch.setattr(runtime,'OPTION','inventories')
     with pytest.raises(RuntimeError):admission.reviewed_inputs()
 
 

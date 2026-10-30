@@ -2000,7 +2000,7 @@ ROWS = {'azure.aks.api_server_restricted': {'description_base_sha256': '6ef29973
                                                                                                                  'covering '
                                                                                                                  'security-solution '
                                                                                                                  'deletion.'},
-                                                                           'remediation_base_sha256': '8ebdcc0c05258e88758e21fde7ec0aac4aafaf0471173934324b7a41e2694fb4',
+                                                                           'remediation_base_sha256': '10dccd607c96aa77ff0c4210940621239e38f1056e905f65072cf04fbd2d1d2b',
                                                                            'remediation_fields': {'caveats': ['The '
                                                                                                               'check '
                                                                                                               'verifies '

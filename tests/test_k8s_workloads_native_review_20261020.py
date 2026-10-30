@@ -229,7 +229,10 @@ def test_native_structural_counterexamples(cid,edge,request):
     if edge=='duplicate_names':spec['containers'].append(deepcopy(spec['containers'][0]))
     statuses,_=run(cid,edge,spec=spec,alter=alter)
     CASES[-1]['testnode']=request.node.nodeid
-    assert statuses==['UNKNOWN'],(cid,edge,statuses)
+    # A bare Pod's own hostNetwork/hostPID/serviceAccount/seccomp fields decide
+    # pod-level controls; malformed container lists only block container controls.
+    pod_level=CLOSED[cid]['kind']=='pod' and pred in POD_FIELDS and edge!='conflicting_gvk'
+    assert statuses==(['PASS'] if pod_level else ['UNKNOWN']),(cid,edge,statuses)
 
 
 @pytest.mark.parametrize('kind',['pod','deployment','daemonset','statefulset','replicaset','replicationcontroller','job','cronjob','podtemplate'])

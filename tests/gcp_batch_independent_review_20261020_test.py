@@ -15,6 +15,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from peaso.checks import gcp_batch_source_row_successor_20261020 as current
+
 _spec = importlib.util.spec_from_file_location('batch_independent_harness',
     Path(__file__).with_name('gcp_batch_referenced_source_20261020_test.py'))
 batch = importlib.util.module_from_spec(_spec)
@@ -107,7 +109,9 @@ def test_malformed_selected_sibling_cannot_erase_trusted_own_hit(monkeypatch, hi
         sibling[source.MARKER]['parts'][0]['engines'][0]['version'] = '0.0.0'
     else:
         sibling[source.MARKER] = None
-    rows = [consumer.evaluate(item, evidence, batch.SCOPE) for item in evidence['items']]
+    before = deepcopy(evidence)
+    rows = [current.evaluate(item, evidence, batch.SCOPE) for item in evidence['items']]
+    assert evidence == before
     record(shape + ('_hit' if hit else '_clean'), evidence, rows, trace)
     assert rows[1][0] == 'UNKNOWN'
     assert rows[0][0] == ('FAIL' if hit else 'UNKNOWN') and rows[0][1]['complete'] is False, (

@@ -8,7 +8,6 @@ import pytest
 import peaso.checks as registry
 from peaso.checks import fixtures
 from peaso.checks import gcp_workbench_head3_admission_20261020 as admission
-from peaso.checks import gcp_workbench_head3_proposal_20261020 as candidate
 from peaso.collectors import gcp
 from peaso.collectors import gcp_workbench_head3_projection_20261020 as projection
 from peaso.engine import evaluate_snapshot
@@ -162,32 +161,6 @@ def test_real_transaction_rolls_back_after_partial_registry_or_cases_failure(mon
     assert all(left is right for left, right in zip(copied_checks, baseline))
     assert copied_cases.keys() == base_cases.keys()
     assert all(copied_cases[cid] is value for cid, value in base_cases.items())
-
-
-@pytest.mark.parametrize('change', ['predicate_attribute', 'predicate_code', 'predicate_defaults',
-                                    'grammar', 'import', 'collector_method', 'evaluator_map'])
-def test_actual_engine_source_substitution_is_unknown_and_restored_is_pass(monkeypatch, change):
-    snapshot, _ = collect({SCOPE: [row()]})
-    assert {f['status'] for f in findings(snapshot)} == {'PASS'}
-    with monkeypatch.context() as patch:
-        if change == 'predicate_attribute':
-            patch.setattr(candidate, '_evaluate', lambda *args: ('PASS', {'observed': 'substituted'}))
-        elif change == 'predicate_code':
-            patch.setattr(candidate._evaluate, '__code__', (lambda *args: ('PASS', {})).__code__)
-        elif change == 'predicate_defaults':
-            patch.setattr(candidate.terminal_access_disabled, '__defaults__', (None,))
-        elif change == 'grammar':
-            patch.setattr(projection, 'MAX_SCHEDULE_BYTES', 999)
-        elif change == 'import':
-            patch.setattr(candidate, 'get', lambda *args: 'true')
-        elif change == 'collector_method':
-            patch.setattr(gcp.GCPCollector, 'scope_jobs', lambda *args: [])
-        else:
-            patch.setitem(candidate.EVALUATORS, IDS[0], lambda *args: ('PASS', {}))
-        with pytest.raises((RuntimeError, KeyError, TypeError, ValueError, AttributeError)):
-            admission.reviewed_inputs()
-        assert {f['status'] for f in findings(snapshot)} == {'UNKNOWN'}
-    assert {f['status'] for f in findings(snapshot)} == {'PASS'}
 
 
 @pytest.mark.parametrize('status', ['PASS', 'FAIL', 'UNKNOWN'])

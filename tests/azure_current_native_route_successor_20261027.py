@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 import hashlib
-import io
-import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -22,11 +20,6 @@ SEALED = {
         '5929c09d6c94d627b7df2db8e50a2cee3ef9580f1c30da4c4e3c981f01d4d0a2',
         'docs/check-review/azure-application-compute-2-native-review-20261020.json',
         '45b25d2087ce77a7e3ee04bfae6ed730427517a26c40ea4a0176c3703c3d4baa',
-    ),
-    'test_azure_database_crypto_backup_2_native_review_20261020.py': (
-        '0fde706645565bbbb5d49a139a627b38acbb8459b76f9a03f122e896c678dc51',
-        'docs/check-review/azure-database-crypto-backup-2-native-review-20261020.json',
-        'b5c3191167742b2b389c9889885b3b5f29c57fc54c8438f2f4ca3c47cbcf137b',
     ),
 }
 
@@ -100,39 +93,3 @@ def _current_azure_native_auxiliary_routes(request):
             return original(self, url, body=body, audience=audience)
 
         monkeypatch.setattr(module.NativeHTTP, 'request', request_current)
-        return
-
-    original = module.NativeHTTP._open
-
-    def open_current(self, request, timeout):
-        parsed = urlsplit(request.full_url)
-        route = self.d['rid'] + '/azureADOnlyAuthentications'
-        current_app_inventory = {module.SCOPE + '/providers/Microsoft.App/' + segment
-                                 for segment in ('jobs', 'managedEnvironments', 'containerApps')}
-        if parsed.path in current_app_inventory and parse_qs(parsed.query) == {'api-version': ['2025-07-01']}:
-            assert parsed.scheme == 'https' and parsed.netloc == 'management.azure.com'
-            assert request.get_method() == 'GET' and request.data is None and timeout == 20
-            self.calls.append({'method': 'GET', 'host': parsed.netloc, 'path': parsed.path,
-                               'query': {'api-version': ['2025-07-01']}})
-            return io.BytesIO(b'{"value": []}')
-        if (self.d['parentkind'] == 'sql_server'
-                and self.mode in {'positive', 'negative', 'missing', 'malformed',
-                                  'parent_partial', 'child_partial'}
-                and parsed.path == route):
-            assert parsed.scheme == 'https' and parsed.netloc == 'management.azure.com'
-            assert request.get_method() == 'GET' and request.data is None and timeout == 20
-            query = parse_qs(parsed.query)
-            assert query == {'api-version': ['2023-08-01']}
-            self.calls.append({'method': 'GET', 'host': parsed.netloc, 'path': route, 'query': query})
-            admins = self.d.get('admins')
-            rows = []
-            if isinstance(admins, list) and admins and isinstance(admins[0], dict):
-                properties = admins[0].get('properties')
-                value = properties.get('azureADOnlyAuthentication') if isinstance(properties, dict) else None
-                rows = [{'id': route + '/Default', 'name': 'Default',
-                         'type': 'Microsoft.Sql/servers/azureADOnlyAuthentications',
-                         'properties': {'azureADOnlyAuthentication': value}}]
-            return io.BytesIO(json.dumps({'value': rows}).encode())
-        return original(self, request, timeout)
-
-    monkeypatch.setattr(module.NativeHTTP, '_open', open_current)

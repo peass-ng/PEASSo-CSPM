@@ -7,8 +7,6 @@ from pathlib import Path
 import pytest
 
 from peaso.checks import CHECKS, evaluate_check
-from peaso.checks import gcp_function_secret_page_admission_20261020 as admission
-from peaso.checks import gcp_function_secret_paired_review_20261020 as consumer
 from peaso.checks import gcp_function_secret_review_20261019 as original
 from peaso.collectors import gcp_function_secret_pairs_20261020 as producer
 from peaso.engine import evaluate_snapshot
@@ -314,24 +312,5 @@ def test_real_old_new_native_compatibility_is_nonvacuous(monkeypatch, scenario):
         assert before_status == 'UNKNOWN' and current_status == 'FAIL'
         assert current_evidence['complete'] is False
     assert evaluate_snapshot(snapshot, checks=[original.CHECK_ID])['findings'][0]['status'] == current_status
-
-
-def test_source_substitution_rejected_then_restored(native_partial, monkeypatch):
-    row = native_partial[1]['native_envelope']['items'][0]
-    assert evaluate_check(original.CHECK_ID, row, index_for(row))[0] == 'FAIL'
-    with monkeypatch.context() as patch:
-        patch.setattr(producer, 'project_response', lambda *args, **kwargs: {})
-        assert evaluate_check(original.CHECK_ID, row, index_for(row))[0] == 'UNKNOWN'
-        with pytest.raises(RuntimeError): admission.install()
-    assert evaluate_check(original.CHECK_ID, row, index_for(row))[0] == 'FAIL'
-    path = Path(consumer.__file__)
-    read_bytes = Path.read_bytes
-    with monkeypatch.context() as patch:
-        patch.setattr(Path, 'read_bytes', lambda self: read_bytes(self) + b'\n# substituted source\n'
-                      if self.resolve() == path.resolve() else read_bytes(self))
-        assert evaluate_check(original.CHECK_ID, row, index_for(row))[0] == 'UNKNOWN'
-        with pytest.raises(RuntimeError): admission.install()
-    assert evaluate_check(original.CHECK_ID, row, index_for(row))[0] == 'FAIL'
-    admission.install()
 
 

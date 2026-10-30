@@ -813,6 +813,14 @@ def _sanitize(value):
                 "iam.amazonaws.com/role", "openshift.io/scc", "openshift.io/required-scc", "kubernetes.io/service-account.name",
                 "kubernetes.io/service-account.uid") or (isinstance(k, str) and k.startswith(_MANAGED_ANNOTATION_PREFIXES) and isinstance(v, str) and len(v) <= 253)
                 or (k in nginx_fields and isinstance(v, str) and len(v) <= 253))}
+            for multus in k8s_sanitize_keys.MULTUS_ANNOTATIONS:
+                if multus in result[key]:
+                    projected = k8s_sanitize_keys.multus_annotation(result[key][multus])
+                    if projected is None:
+                        del result[key][multus]
+                        result.setdefault("_coverage", {})["annotations"] = {"status": "malformed"}
+                    else:
+                        result[key][multus] = projected
         elif key == "env" and isinstance(child, list):
             result[key] = [_env_entry(entry) for entry in child if isinstance(entry, dict)]
         elif key in ("command", "args"):

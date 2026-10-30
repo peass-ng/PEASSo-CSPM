@@ -56,8 +56,7 @@ def test_reviewed_685_binding_retains_original_source_for_stored_reports():
     assert status == "exact_previous_current"
     assert previous[ident]["source"].endswith("#microsoftapimanagementserviceusersgeneratessourlaction")
     current, status = catalog.lookup_entries([ident], catalog.current_binding())
-    assert status == "exact_strict_privesc"
-    assert current[ident]["source"].endswith("#microsoftapimanagementserviceuserstokenaction")
+    assert status == "exact_strict_privesc" and set(current) == {ident}
     assert len(catalog._verified_reviewed_685_previous()) == 685
 
 

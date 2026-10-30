@@ -100,6 +100,7 @@ def native_case(cid,mode):
     express=child('sqlVulnerabilityAssessments','default',{'state':'Enabled'})
     protector=child('encryptionProtector','current',{'serverKeyType':'AzureKeyVault','uri':ORIGIN+'/keys/database/version1'})
     admins=[child('administrators','ActiveDirectory',{'administratorType':'ActiveDirectory','azureADOnlyAuthentication':True,'sid':TENANT,'tenantId':TENANT,'login':'database-admin'})]
+    adonly=[child('azureADOnlyAuthentications','Default',{'azureADOnlyAuthentication':True})]
     vnet=[child('virtualNetworkRules','client',{'virtualNetworkSubnetId':SUBNET,'state':'Ready','ignoreMissingVnetServiceEndpoint':False})]
     alert=[child('securityAlertPolicies','Default',{'state':'Enabled','disabledAlerts':[],'emailAccountAdmins':True})]
     scans=[child('vulnerabilityAssessments/default/scans','scan1',{'state':'Passed','scanId':'scan1','startTime':'2026-10-18T00:00:00Z','endTime':'2026-10-18T00:01:00Z','errors':[],'numberOfFailedSecurityChecks':0},parent=DATABASE,parenttype='Microsoft.Sql/servers/databases')]
@@ -117,7 +118,7 @@ def native_case(cid,mode):
     categories=[{'id':rid+'/providers/Microsoft.Insights/diagnosticSettingsCategories/'+n,'name':n,'type':'Microsoft.Insights/diagnosticSettingsCategories','properties':{'categoryType':'Logs','categoryGroups':['audit','allLogs']}}for n in ('MongoRequests','DataPlaneRequests')]
     policy=child('backupPolicies','daily',{'backupManagementType':'AzureIaasVM','policyType':'V1','timeZone':'UTC','instantRpRetentionRangeInDays':2,'schedulePolicy':{'schedulePolicyType':'SimpleSchedulePolicy','scheduleRunFrequency':'Daily','scheduleRunTimes':['2026-10-18T03:00:00Z']},'retentionPolicy':{'retentionPolicyType':'LongTermRetentionPolicy','dailySchedule':{'retentionTimes':['2026-10-18T03:00:00Z'],'retentionDuration':{'count':30,'durationType':'Days'}}}})
     protected=[{'id':rid+'/backupFabrics/Azure/protectionContainers/IaasVMContainer;iaasvmcontainerv2;review;vm/protectedItems/VM;iaasvmcontainerv2;review;vm','name':'VM;iaasvmcontainerv2;review;vm','type':'Microsoft.RecoveryServices/vaults/backupFabrics/protectionContainers/protectedItems','properties':{'protectedItemType':'Microsoft.Compute/virtualMachines','protectionState':'Protected','policyId':policy['id'],'sourceResourceId':RG+'/providers/Microsoft.Compute/virtualMachines/vm'}}]
-    data={'kind':kind,'parentkind':pk,'endpoint':ep,'version':version,'rid':rid,'item':item,'db':db,'va':va,'express':express,'protector':protector,'admins':admins,'vnet':vnet,'alert':alert,'scans':scans,'tde':tde,'strpolicy':strpolicy,'ltrpolicy':ltrpolicy,'ltrpath':ltrpath,'ltr':ltr,'configurations':cfg,'secret':secret,'certificate':cert,'diagnostics':diag,'categories':categories,'backupPolicies':[policy],'backupProtectedItems':protected}
+    data={'kind':kind,'parentkind':pk,'endpoint':ep,'version':version,'rid':rid,'item':item,'db':db,'va':va,'express':express,'protector':protector,'admins':admins,'adonly':adonly,'vnet':vnet,'alert':alert,'scans':scans,'tde':tde,'strpolicy':strpolicy,'ltrpolicy':ltrpolicy,'ltrpath':ltrpath,'ltr':ltr,'configurations':cfg,'secret':secret,'certificate':cert,'diagnostics':diag,'categories':categories,'backupPolicies':[policy],'backupProtectedItems':protected}
     negative=mode=='negative';missing=mode=='missing';malformed=mode=='malformed';target=item;path=None;good=None;bad=None
     if cid in SCALARS:path,good,bad=SCALARS[cid]
     elif cid in PRIVATE_LINK:path,good,bad='properties.privateEndpointConnections',[pe],[]
@@ -128,7 +129,7 @@ def native_case(cid,mode):
         target=scans[0];path,good,bad='properties.numberOfFailedSecurityChecks',0,5
         if negative:scans[0]['properties']['state']='Failed'
     elif cid=='azure.claude.sql_server_entra_admin':target=data;path,good,bad='admins',admins,[]
-    elif cid=='azure.htbp.sql.entra_only_authentication':target=admins[0];path,good,bad='properties.azureADOnlyAuthentication',True,False
+    elif cid=='azure.htbp.sql.entra_only_authentication':target=adonly[0];path,good,bad='properties.azureADOnlyAuthentication',True,False
     elif cid=='azure.claude.sql_server_vnet_rules':target=data;path,good,bad='vnet',vnet,[]
     elif cid in VA_IDS:
         target=va
@@ -151,6 +152,13 @@ def native_case(cid,mode):
     assign(target,path,{'malformed':True}if malformed else bad if negative else good,omit=missing)
     if cid in SECRET_IDS and negative:secret['attributes'].pop('exp',None)
     data['deciding']=path;return data
+
+
+def child_version(d,tail):
+    # Child list routes use the collector's own per-child API version.
+    for _,path,version in azure.EMBEDDED_LISTS.get(d['parentkind'],()):
+        if path==tail:return version
+    return d['version']
 
 
 class NativeHTTP:
@@ -207,11 +215,11 @@ class NativeHTTP:
                 if self.mode=='child_partial':value['nextLink']=azure.ARM+path+'?api-version=2023-08-01&databaseState=Live&page=2'
             elif path.startswith(rid+'/')or path.startswith(DATABASE+'/'):
                 dbchild=path.startswith(DATABASE+'/');tail=path[len(DATABASE)+1:]if dbchild else path[len(rid)+1:]
-                expected='2021-05-01-preview'if tail.startswith('providers/Microsoft.Insights/')else'2023-08-01-preview'if tail=='sqlVulnerabilityAssessments/default'else d['version']
+                expected='2021-05-01-preview'if tail.startswith('providers/Microsoft.Insights/')else'2023-08-01-preview'if tail=='sqlVulnerabilityAssessments/default'else child_version(d,tail)
                 assert q['api-version']==[expected]
                 if self.mode=='child_denied'or 'page'in q:deny()
                 singleton={'vulnerabilityAssessments/default':'va','sqlVulnerabilityAssessments/default':'express','encryptionProtector/current':'protector','transparentDataEncryption/current':'tde'}
-                lists={'databases':[d['db']],'administrators':d.get('admins'),'virtualNetworkRules':d.get('vnet'),'securityAlertPolicies':d['alert'],'firewallRules':[],
+                lists={'databases':[d['db']],'administrators':d.get('admins'),'azureADOnlyAuthentications':d['adonly'],'privateEndpointConnections':d['item']['properties'].get('privateEndpointConnections',[]),'virtualNetworkRules':d.get('vnet'),'securityAlertPolicies':d['alert'],'firewallRules':[],
                     'configurations':d['configurations'],'vulnerabilityAssessments/default/scans':d['scans'],
                     'backupShortTermRetentionPolicies':[d['strpolicy']],'backupLongTermRetentionPolicies':[d['ltrpolicy']],
                     'restorePoints':[],'providers/Microsoft.Insights/diagnosticSettings':d['diagnostics'],

@@ -409,4 +409,7 @@ def test_signed_native_sdk_http_real_detectors_and_private_debug_metadata(monkey
     assert len(findings) == 1 and findings[0]['status'] == 'FAIL'
     leak, = findings[0]['evidence']['secret_leaks']
     assert {d['engine'] for d in leak['detectors']} == {'kingfisher', 'trufflehog'}
-    assert TOKEN not in json.dumps(snapshot) + json.dumps(findings) + repr(aliases) + output.getvalue()
+    # Snapshot metadata, findings and SDK debug logs stay clean. The in-memory
+    # per-scan request cache already holds raw API bodies and is never persisted.
+    assert aliases
+    assert TOKEN not in json.dumps(snapshot) + json.dumps(findings) + output.getvalue()

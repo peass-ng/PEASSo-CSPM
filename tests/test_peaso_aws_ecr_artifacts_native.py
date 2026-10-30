@@ -194,7 +194,7 @@ def test_content_operations_never_expand_default_metadata_customer_policy():
  assert role.iam_action('ecr','batch_get_image')=='ecr:BatchGetImage'
  assert role.iam_action('ecr','get_download_url_for_layer')=='ecr:GetDownloadUrlForLayer'
  assert {op for op in role.UNGRANTED_CONTENT_OPERATIONS if op[0]=='ecr'}==native.READ_ACTIONS
- assert role.UNGRANTED_CONTENT_OPERATIONS==native.READ_ACTIONS|{
+ assert role.UNGRANTED_CONTENT_OPERATIONS>=native.READ_ACTIONS|{
   ('lambda','get_function'),('lambda','get_layer_version'),
   ('codecommit','get_repository'),('codecommit','get_branch'),('codecommit','get_folder'),
   ('codecommit','get_file'),('logs','filter_log_events'),

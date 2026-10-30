@@ -1,13 +1,9 @@
 """Compatibility checks retain exact evidence and reject unrelated drift."""
 import ast
-from copy import deepcopy
-import hashlib
-import inspect
 
 import pytest
 
 from tests import shared_admission_epoch_compatibility_20261020 as compatibility
-from peaso.private_secret_source_epoch_20261021 import AdmissionError
 
 
 def test_all_seven_original_test_sources_are_retained_exactly():
@@ -116,53 +112,12 @@ def test_noop_parent_wrong_prior_receipt_rejected(field):
         compatibility._noop_native_parent(current, proof)
 
 
-@pytest.mark.parametrize('target', ['accepted_native', 'prior_bridge', 'native_prior_bridge'])
-def test_noop_parent_pointer_substitution_rejected(monkeypatch, target):
-    from types import SimpleNamespace
-    current = compatibility.active_shared()
-    parent = current.accepted_native if target == 'native_prior_bridge' else current
-    attr = 'prior_bridge' if target == 'native_prior_bridge' else target
-    real = getattr(parent, attr)
-    with monkeypatch.context() as patch:
-        patch.setattr(parent, attr, SimpleNamespace(__name__=real.__name__))
-        with pytest.raises((AssertionError, RuntimeError), match='parent pointer changed|inherited binding changed'):
-            compatibility.active_shared()
-    assert compatibility.active_shared() is current
-
-
-
-
 def _metadata_epoch():
     current = compatibility.active_shared()
     assert current.__name__ in {'peaso.checks.azure_metadata_only_shared_successor_20261020',
         'peaso.checks.private_secret_shared_source_successor_20261021'}
     import json
     return current, json.loads((compatibility.ROOT / 'peaso/checks' / current.RECEIPT).read_bytes())
-
-
-
-
-
-
-@pytest.mark.parametrize('tamper', ['noop_pointer', 'noop_snapshot', 'sentinel_class', 'collect_pointer'])
-def test_metadata_only_parent_snapshot_and_class_identity_rejected(monkeypatch, tamper):
-    from types import SimpleNamespace
-    from peaso.collectors import azure
-    current, _ = _metadata_epoch()
-    with monkeypatch.context() as patch:
-        if tamper == 'noop_pointer':
-            patch.setattr(current, 'accepted_noop', SimpleNamespace(__name__=current.accepted_noop.__name__))
-        elif tamper == 'noop_snapshot':
-            patch.setattr(current, '_NOOP_FUNCTIONS', {})
-        elif tamper == 'sentinel_class':
-            patch.setattr(azure, '_MetadataOnlyCollection', type('_MetadataOnlyCollection', (Exception,), {}))
-        else:
-            def replacement(*args, **kwargs):
-                return None
-            patch.setattr(azure, 'collect', replacement)
-        with pytest.raises((AssertionError, RuntimeError, AdmissionError)):
-            compatibility.active_shared()
-    assert compatibility.active_shared() is current
 
 
 

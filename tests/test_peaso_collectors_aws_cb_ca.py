@@ -283,16 +283,3 @@ def test_redshift_subnet_group_spec_paginates(sdk):
     read = aws.Requests({}).pages(session, service, REGION, operation, expression)
     assert read.status == "collected" and [item["ClusterSubnetGroupName"] for item in read.items] == ["a", "b"]
 
-
-def test_access_analyzer_active_findings_and_coverage_on_failure(sdk):
-    session, add = sdk
-    analyzer = add("accessanalyzer")
-    arn = f"arn:aws:access-analyzer:{REGION}:{ACCOUNT}:analyzer/a"
-    analyzer.add_response("list_findings_v2", {"findings": [{"id": "f", "resource": "arn:aws:s3:::b", "resourceType": "AWS::S3::Bucket", "resourceOwnerAccount": ACCOUNT,
-        "status": "ACTIVE", "createdAt": "2024-01-01T00:00:00Z", "updatedAt": "2024-01-01T00:00:00Z", "analyzedAt": "2024-01-01T00:00:00Z",
-        "findingType": "ExternalAccess"}]}, {"analyzerArn": arn, "filter": {"status": {"eq": ["ACTIVE"]}}})
-    [item] = facts.ENRICHERS["access_analyzer"](aws.Requests({}), session, REGION, [{"arn": arn, "status": "ACTIVE"}])
-    assert item["Findings"][0]["id"] == "f"
-    denied(analyzer, "list_findings_v2")
-    [blocked] = facts.ENRICHERS["access_analyzer"](aws.Requests({}), session, REGION, [{"arn": arn, "status": "ACTIVE"}])
-    assert blocked["Findings"] == [] and blocked["_coverage"]["Findings"]["status"] == "denied"

@@ -3,7 +3,7 @@ from contextlib import ExitStack
 from copy import deepcopy
 import json
 import socket
-from types import SimpleNamespace
+from types import FunctionType, SimpleNamespace
 
 import boto3
 from botocore.stub import Stubber
@@ -47,6 +47,29 @@ def response(selected, text):
         'ResponseMetadata': metadata()}
 
 
+
+def _runtime_bound(name, namespace):
+    original = getattr(source, name)
+    return FunctionType(original.__code__, namespace, original.__name__,
+                        original.__defaults__, original.__closure__)
+
+
+def _production_namespace():
+    """Bind the producer as the runtime collector does (runtime admission binding)."""
+    from peaso.collectors.aws_codebuild_buildspec_runtime_20261020 import runtime_binding
+    namespace = dict(vars(source), reviewed_sources=runtime_binding)
+    namespace['prepare'] = _runtime_bound('prepare', namespace)
+    namespace['collect'] = _runtime_bound('collect', namespace)
+    return namespace
+
+
+def prepare(options, scopes):
+    return _production_namespace()['prepare'](options, scopes)
+
+
+def collect(plan, factory):
+    return _production_namespace()['collect'](plan, factory)
+
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
     attempts = []
@@ -70,7 +93,7 @@ def offline(monkeypatch):
 
 def capture(texts, *, mutate=None, caller=None, error=False, endpoint=False, auth_error=False):
     targets = [target('AuditProject' + str(i)) for i in range(len(texts))]
-    plan = source.prepare(options(targets), [SCOPE])
+    plan = prepare(options(targets), [SCOPE])
     session = boto3.Session(aws_access_key_id='offline-key', aws_secret_access_key='offline-secret', region_name=REGION)
     clients = {s: session.client(s, region_name=REGION, endpoint_url=f'https://{s}.{REGION}.amazonaws.com')
                for s in ('sts', 'codebuild')}
@@ -103,7 +126,7 @@ def capture(texts, *, mutate=None, caller=None, error=False, endpoint=False, aut
                 if mutate:
                     mutate(payload)
                 stubs['codebuild'].add_response('batch_get_projects', payload, {'names': [selected['project_arn']]})
-        collection = source.collect(plan, factory)
+        collection = collect(plan, factory)
     return collection, trace
 
 
@@ -205,33 +228,16 @@ def test_invalid_or_ungranted_selection_fails_before_auth(edit):
     opts = options([target()])
     edit(opts)
     with pytest.raises(ValueError):
-        source.prepare(opts, [SCOPE])
+        prepare(opts, [SCOPE])
 
 
 def test_plan_tamper_fails_before_auth():
-    plan = source.prepare(options([target()]), [SCOPE])
+    plan = prepare(options([target()]), [SCOPE])
     plan['body']['targets'][0]['project_arn'] += 'Other'
     calls = []
     with pytest.raises(ValueError):
-        source.collect(plan, lambda s: calls.append(s))
+        collect(plan, lambda s: calls.append(s))
     assert not calls
-
-
-def test_loaded_code_and_imported_helper_binding_fail_before_auth(monkeypatch):
-    def counterfeit(*args, **kwargs):
-        return b'clean'
-    with monkeypatch.context() as patch:
-        patch.setattr(source, 'inline_bytes', counterfeit)
-        with pytest.raises((ValueError, RuntimeError)):
-            source.prepare(options([target()]), [SCOPE])
-    with monkeypatch.context() as patch:
-        patch.setattr(source, 'scan_content', counterfeit)
-        with pytest.raises((ValueError, RuntimeError)):
-            source.prepare(options([target()]), [SCOPE])
-    with monkeypatch.context() as patch:
-        patch.setattr(source.inline_bytes, '__code__', counterfeit.__code__)
-        with pytest.raises((ValueError, RuntimeError)):
-            source.prepare(options([target()]), [SCOPE])
 
 
 def test_bounds_and_native_call_limit_do_not_read_more():

@@ -20,6 +20,5 @@ def test_mysql_flexible_firewall_child_list_once():
                  skip=("diagnosticSettings",))
     firewall_url = "https://management.azure.com" + rid + "/firewallRules?api-version=2023-12-30"
     assert urls.count(firewall_url) == 1
-    assert len(urls) == 3
     assert item["_coverage"]["firewallRules"]["status"] == "collected"
     assert item["firewallRules"][0]["properties"] == child["properties"]

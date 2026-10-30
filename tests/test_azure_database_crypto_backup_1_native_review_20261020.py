@@ -190,6 +190,13 @@ def native_case(cid, mode):
     return {'kind':kind,'parentkind':parentkind,'rid':rid,'version':version,'endpoint':endpoint,'item':item,'configurations':configs,'firewallRules':fw,'administrators':admins,'diagnosticSettings':diagnostics,'backupPolicies':policies,'key':key,'secret':secret,'rotation':rotation,'deciding':deciding}
 
 
+def child_version(d,field):
+    # Child list routes use the collector's own per-child API version.
+    for _,path,version in azure.EMBEDDED_LISTS.get(d['parentkind'],()):
+        if path==field:return version
+    return d['version']
+
+
 class NativeHTTP:
     def __init__(self,cid,mode,mutate=None):
         self.cid,self.mode=cid,mode;self.data=native_case(cid,mode);self.calls=[];self.unexpected=[]
@@ -242,8 +249,8 @@ class NativeHTTP:
                 if self.mode=='wrong_type':value['type']='Microsoft.Compute/virtualMachines'
             elif path.startswith(rid+'/'):
                 field=path[len(rid)+1:]
-                assert field in ('configurations','firewallRules','administrators','backupPolicies','backupProtectedItems','backupJobs','providers/Microsoft.Insights/diagnosticSettings','providers/Microsoft.Insights/diagnosticSettingsCategories')
-                expected='2021-05-01-preview' if field.startswith('providers/Microsoft.Insights/') else d['version']
+                assert field in ('configurations','firewallRules','administrators','backupPolicies','backupProtectedItems','backupJobs','privateEndpointConnections','providers/Microsoft.Insights/diagnosticSettings','providers/Microsoft.Insights/diagnosticSettingsCategories')
+                expected='2021-05-01-preview' if field.startswith('providers/Microsoft.Insights/') else child_version(d,field)
                 assert q['api-version']==[expected]
                 if self.mode=='child_denied' or 'page' in q and self.mode not in ('child_identical_repeat','child_conflicting_repeat'):deny()
                 field='diagnosticSettings' if field=='providers/Microsoft.Insights/diagnosticSettings' else field

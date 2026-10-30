@@ -86,6 +86,26 @@ with tempfile.TemporaryDirectory(prefix='peaso-static-connector-proof-') as temp
             'isBase64Encoded': False, 'body': json.dumps(data)}
         return handler(event, object())
 
+    # Saving requires a passing Check access receipt; the cloud access probe
+    # itself is outside this proof, so it reports a pass without network.
+    from peaso.server import access_check
+    access_check.check_access = lambda *args, **kwargs: {'status': 'pass', 'issues': [], 'principals': []}
+
+    def create(body):
+        checked = invoke('/api/connectors/check-access', 'POST', body)
+        if checked['statusCode'] != 200:
+            return checked
+        return invoke('/api/connectors', 'POST', {**body, 'check_token': json.loads(checked['body'])['check_token']})
+
+    def edit(connector_id, body, options):
+        candidate = {'name': body['name'], 'provider': body['provider'], 'scopes': body.get('scopes', []),
+                     'options': options, 'auth': {}, 'connector_id': connector_id}
+        checked = invoke('/api/connectors/check-access', 'POST', candidate)
+        if checked['statusCode'] != 200:
+            return checked
+        return invoke('/api/connectors/' + connector_id, 'PATCH',
+                      {'options': options, 'check_token': json.loads(checked['body'])['check_token']})
+
     auth = {'method': 'token', 'arm_token': 'fixture-arm', 'logs_token': 'fixture-logs'}
     counts = {'accepted_post': 0, 'accepted_patch': 0, 'rejected_post': 0, 'rejected_patch': 0}
     # Exactly the owner's prepared real timeout scenario, frozen from inert
@@ -100,25 +120,25 @@ with tempfile.TemporaryDirectory(prefix='peaso-static-connector-proof-') as temp
                                     lambda code, offset: owner_map_calls.append(True))
     sys.monitoring.set_local_events(monitor_id, review_validation._check_review_map.__code__,
                                     sys.monitoring.events.PY_START)
-    response = invoke('/api/connectors', 'POST', exact_body)
+    response = create(exact_body)
     assert response['statusCode'] == 201, (response, blocked_imports)
     cold_seconds = time.perf_counter() - started
     exact_id = json.loads(response['body'])['id']
-    assert invoke('/api/connectors/' + exact_id, 'PATCH', {'options': exact_body['options']})['statusCode'] == 200
+    assert edit(exact_id, exact_body, exact_body['options'])['statusCode'] == 200
     sys.monitoring.set_local_events(monitor_id, review_validation._check_review_map.__code__, 0)
     sys.monitoring.free_tool_id(monitor_id)
-    assert len(owner_map_calls) == 2
+    assert len(owner_map_calls) == 4  # Check access and save, for both POST and PATCH
     for module in modules:
         connector_id = None
         for cid in sorted(roster[module]):
             review = {'status': 'collected', 'scope': scope} if module.endswith('sw16') else {}
             options = {'compliance_policy': policy(module, {cid: review})}
-            response = invoke('/api/connectors', 'POST', {'name': 'Offline', 'provider': 'azure',
-                              'auth': auth, 'options': options})
+            body = {'name': 'Offline', 'provider': 'azure', 'auth': auth, 'options': options}
+            response = create(body)
             assert response['statusCode'] == 201, (module, cid, response, blocked_imports)
             connector_id = json.loads(response['body'])['id']
             counts['accepted_post'] += 1
-            response = invoke('/api/connectors/' + connector_id, 'PATCH', {'options': options})
+            response = edit(connector_id, body, options)
             assert response['statusCode'] == 200, (module, cid, response)
             counts['accepted_patch'] += 1
         wrong_ids = sorted(set().union(*roster.values()) - roster[module]) + ['unreviewed.invalid', 'azure.storage.https_only']
@@ -131,12 +151,14 @@ with tempfile.TemporaryDirectory(prefix='peaso-static-connector-proof-') as temp
                               {'status': 'collected', 'scope': '/subscriptions/' + 'x' * 129})]
         for checks in invalid_maps:
             options = {'compliance_policy': policy(module, checks)}
-            response = invoke('/api/connectors', 'POST', {'name': 'Offline', 'provider': 'azure',
-                              'auth': auth, 'options': options})
+            body = {'name': 'Offline', 'provider': 'azure', 'auth': auth, 'options': options}
+            response = create(body)
             assert response['statusCode'] == 422, (module, checks, response)
+            assert 'Run Check access' not in response['body'], (module, checks, response)
             counts['rejected_post'] += 1
-            response = invoke('/api/connectors/' + connector_id, 'PATCH', {'options': options})
+            response = edit(connector_id, body, options)
             assert response['statusCode'] == 422, (module, checks, response)
+            assert 'Run Check access' not in response['body'], (module, checks, response)
             counts['rejected_patch'] += 1
     loaded = [name for name in sys.modules if name == 'peaso.engine' or name.startswith('peaso.checks')]
     analysis_loaded = sorted(name for name in sys.modules if name == 'peaso.analysis' or name.startswith('peaso.analysis.'))

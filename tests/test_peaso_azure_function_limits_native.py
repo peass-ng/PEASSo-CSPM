@@ -80,7 +80,8 @@ def test_actual_arm_shapes_to_engine(monkeypatch,mode,expected):
   with pytest.raises(ValueError):capture(monkeypatch,mode)
   return
  status,snapshot,t=capture(monkeypatch,mode);assert status==expected
- if mode=='missing_approval':assert not any('/functions?'in u or '/operations?'in u for u,b in t.calls)
+ # Function metadata is base inventory; APIM operation and policy reads still need owner approval.
+ if mode=='missing_approval':assert not any('/operations?'in u or '/policies/'in u or '/revisions?'in u for u,b in t.calls)
  if mode=='no_limit':
   assert any('/functions?api-version=2025-03-01'in u for u,b in t.calls)
   assert any('/policies/policy?format=rawxml'in u for u,b in t.calls)

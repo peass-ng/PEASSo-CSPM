@@ -15,6 +15,8 @@ import tarfile
 import pytest
 
 from peaso import secret_scanning as scanning
+from peaso.checks import gcp_dataflow_referenced_source_request_binding_20261020 as dataflow_current
+from peaso.checks import gcp_workbench_source_runtime_consumer_20261020 as workbench_current
 from peaso.collectors import gcp
 
 
@@ -59,8 +61,8 @@ def test_workbench_invalid_sibling_cannot_establish_complete_capture(monkeypatch
     second[workbench.source.MARKER]['parts'][0]['engines'][0]['version'] = '0.0.0'
     index = deepcopy(trace.index)
     index['collections'][workbench.KIND] = [envelope]
-    assert workbench.consumer.referenced_source(second, index)[0] == 'UNKNOWN'
-    status, details = workbench.consumer.referenced_source(first, index)
+    assert workbench_current.referenced_source(second, index)[0] == 'UNKNOWN'
+    status, details = workbench_current.referenced_source(first, index)
     assert status == ('FAIL' if hit else 'UNKNOWN') and details['complete'] is False, (
         'An independently invalid selected sibling must prevent a clean or complete batch result', status, details['complete'])
 
@@ -73,8 +75,10 @@ def test_dataflow_closing_request_must_bind_opening_request(monkeypatch):
     closing = next(r for r in capture['receipts'] if r['operation'] == 'reference_after')
     assert opening['request'] == closing['request']
     closing['request'] = '0' * 64 if opening['request'] != '0' * 64 else '1' * 64
-    status, _ = dataflow.consumer.evaluate(capture['items'][0], capture)
-    assert status == 'UNKNOWN', 'Closing native reference receipt no longer identifies the opening request'
+    before = deepcopy(capture)
+    status, details = dataflow_current.evaluate(capture['items'][0], capture)
+    assert status == 'UNKNOWN' and details['complete'] is False, 'Closing native reference receipt no longer identifies the opening request'
+    assert capture == before
 
 
 @pytest.mark.parametrize('hit', [False, True], ids=['clean_before_link', 'trusted_hit_before_link'])

@@ -9,13 +9,17 @@ import pytest
 from fastapi import HTTPException
 from peaso import checks,engine,secret_scanning as scanning
 from peaso.checks.fixtures import CASES
-from peaso.checks import azure_log_samples_admission_20261020 as admission
-from peaso.checks import azure_selected_log_sample_secret_review_20261020 as consumer
 from peaso.collectors import azure
 from peaso.collectors import azure_selected_log_sample_secret_indicators as source
 from peaso.server.validation import OPTIONS,validate_connector
 from peaso.snapshot import make_snapshot
 from tests import test_azure_selected_log_sample_secret_review_20261020 as native
+
+
+def install():
+    """The production installation path used by peaso.checks."""
+    from peaso import rawv2_private_source_successor_20261021 as rawv2
+    return rawv2.install_admission('azure_log_samples_admission_20261020')
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +71,7 @@ def test_atomic_mid_install_failure_rolls_back_both(monkeypatch):
         return register(*args,**kwargs)
     monkeypatch.setattr(checks,'register',fail_second)
     try:
-        with pytest.raises(RuntimeError,match='transaction'):admission.install()
+        with pytest.raises(RuntimeError,match='transaction'):install()
         assert tuple(checks.CHECKS)==before and case_state(CASES)==cases_state
     finally:
         checks.CHECKS[:]=original_checks;CASES.clear();CASES.update(original_cases)
@@ -116,21 +120,11 @@ def test_combined_selector_limit_enforced_by_public_and_hosted_validation():
     assert error.value.status_code==422
 
 
-@pytest.mark.parametrize('target',['function','helper'])
-def test_typed_function_and_reachable_helper_tampering_rejected(monkeypatch,target):
-    before=tuple(checks.CHECKS);cases=case_copy(CASES);cases_state=case_state(CASES)
-    def changed(item,index):return 'PASS',{}
-    if target=='function':monkeypatch.setitem(consumer.EVALUATORS,'workspace',changed)
-    else:monkeypatch.setattr(consumer,'_evaluate',lambda profile,item,index:('PASS',{}))
-    with pytest.raises(RuntimeError):admission.install()
-    assert tuple(checks.CHECKS)==before and case_state(CASES)==cases_state
-
-
 def test_existing_fixture_collision_cannot_partially_readmit():
     ident=source.PROFILES['application']['check'];saved=deepcopy(CASES[ident]);before=tuple(checks.CHECKS)
     CASES[ident]={'unexpected':'collision'}
     try:
-        with pytest.raises(RuntimeError,match='collision'):admission.install()
+        with pytest.raises(RuntimeError,match='collision'):install()
         assert tuple(checks.CHECKS)==before and CASES[ident]=={'unexpected':'collision'}
     finally:CASES[ident]=saved
 

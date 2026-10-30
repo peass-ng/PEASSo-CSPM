@@ -62,6 +62,7 @@ def test_image_config_real_detectors_join_selected_finding(monkeypatch, resource
 
     class Reader:
         end = time.monotonic() + 90
+        transport = None  # production readers expose their transport for progress
         def check(self): pass
         def get(self, url, category, digest, *args):
             return manifest if category == 'manifests' else config

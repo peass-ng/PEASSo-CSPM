@@ -47,8 +47,8 @@ def scenario(tmp_path, monkeypatch):
     monkeypatch.setattr(worker.os, 'dup2', lambda *_: None)
     monkeypatch.setattr(worker.signal, 'signal', lambda *_: None)
 
-    def publish(*args):
-        reference = real_publish(*args)
+    def publish(*args, **kwargs):
+        reference = real_publish(*args, **kwargs)
         published.append((reference, copy.deepcopy(args[3])))
         events.append('publish_' + args[3]['publication']['state'])
         return reference

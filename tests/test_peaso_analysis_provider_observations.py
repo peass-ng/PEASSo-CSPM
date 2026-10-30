@@ -46,7 +46,10 @@ def test_every_supported_analysis_variant_uses_actual_producer_evidence(provider
     expected={'analysis.grant_review','analysis.principal_exposure','analysis.network_review','analysis.inactive_identity','analysis.coverage','analysis.internet_exposure'}
     if provider!='k8s':expected.add('analysis.federated_trust')
     if provider=='gcp':expected.add('analysis.gcp_public_iam')
-    assert {f['check_id'] for f in findings}==expected
+    ids={f['check_id'] for f in findings}
+    assert expected<=ids
+    # A public project Editor binding also reaches the service-specific GCP IAM analyses.
+    assert all(provider=='gcp' and i.startswith('analysis.gcp_') for i in ids-expected), ids-expected
     for finding in findings:
         original=deepcopy(finding)
         text=evidence_summary(finding) or finding['evidence'].get('observed')

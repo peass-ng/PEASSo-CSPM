@@ -56,6 +56,6 @@
   "provider_requests_or_permissions_changed": false,
   "pushes": 0,
   "runtime_change": "Initialize incomplete/uninspected automatic content metadata immediately after reader creation. Existing successful discovery overwrites these defaults.",
-  "source_sha256": "527c44ad42c7d9ab5280d33b669fe0b8cbb11001900403a6ffc8241b9b4e1fed",
+  "source_sha256": "c1407951229823f03465856cc1f76f90283b233ed90c7e1679deaf336f69fa4d",
   "strict_source": "9passed30.51s normal conftest/always mode"
 }

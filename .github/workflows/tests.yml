@@ -141,47 +141,6 @@ jobs:
           assert revisions and all(re.fullmatch(r'[0-9a-f]{40}', rev) for rev in revisions)
           subprocess.run(['git', '-C', '.hacktricks-cloud', 'fetch', '--no-tags', '--depth=1', 'origin', *revisions], check=True)
           PYTHON
-      - name: Locate the interpreter portability tests
-        id: portability
-        run: |
-          python - <<'PYTHON' >> "$GITHUB_OUTPUT"
-          from pathlib import Path
-          from scripts.pytest_shard import partition, test_files
-          shards = partition(test_files(), 32)
-          selected = Path('tests/test_k8s_annotation_native_admission_portable_20261020.py') in shards[${{ matrix.shard }}]
-          print(f"selected={str(selected).lower()}")
-          PYTHON
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        if: ${{ steps.portability.outputs.selected == 'true' }}
-        with:
-          python-version: '3.10'
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        if: ${{ steps.portability.outputs.selected == 'true' }}
-        with:
-          python-version: '3.11'
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        if: ${{ steps.portability.outputs.selected == 'true' }}
-        with:
-          python-version: '3.13'
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        if: ${{ steps.portability.outputs.selected == 'true' }}
-        with:
-          python-version: '3.14'
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        if: ${{ steps.portability.outputs.selected == 'true' }}
-        with:
-          python-version: '3.15'
-          allow-prereleases: true
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        if: ${{ steps.portability.outputs.selected == 'true' }}
-        with:
-          python-version: '3.12'
-      - name: Verify every supported interpreter is available
-        if: ${{ steps.portability.outputs.selected == 'true' }}
-        run: |
-          for version in 3.10 3.11 3.12 3.13 3.14 3.15; do
-            "python$version" --version
-          done
       - name: Run the performance gate in isolation
         id: benchmark
         if: ${{ matrix.shard == 0 }}

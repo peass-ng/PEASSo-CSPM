@@ -17944,7 +17944,7 @@ def _azure_managed_endpoint(snapshot, inventory, resource):
             a.step("private_link_share", "allow", outside_private_endpoints=a.external_ids)
             a.ports = endpoint_ports
             a.explicit = "FAIL"
-    if kind == "servicebus_namespace":
+    if kind in ("servicebus_namespace", "eventhub_namespace"):
         local_auth = props.get("disableLocalAuth")
         coverage = (resource["data"].get("_coverage") or {}).get("authorizationRules") or {}
         rules = resource["data"].get("authorizationRules")

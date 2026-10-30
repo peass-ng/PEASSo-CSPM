@@ -84,7 +84,7 @@ def test_advancing_revision_keeps_every_child_owned(monkeypatch, cancel):
             self.stopped = True
 
     def ready(job, artifacts, tenant):
-        return {'hardening': {'status': 'complete',
+        return {'network': {'status': 'complete',
                              'data_revision': int(job['partial_report'].split('-')[-1])}}
 
     def final(*args, stage_poll=None):

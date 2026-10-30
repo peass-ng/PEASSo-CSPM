@@ -65,15 +65,18 @@ def test_internet_exposure_uses_only_reverified_narrow_public_source_witness():
     findings=[f for f in analyze(snap)['findings'] if f['check_id']=='analysis.internet_exposure' and f['status']=='FAIL']
     assert len(findings)==1
     path=findings[0]['evidence']['path']
-    assert path[-1]['layer']=='configured_path_witness'
-    assert path[-1]['source_address']=='8.8.8.8'
+    host=next(step for step in path if step['layer']=='network_acl_host')
+    assert host['public_host_witnesses']==[{'source_ip':'8.8.8.8','ports':['tcp/443']}]
     assert findings[0]['evidence']['exposed_ports']==['tcp/443']
+    # The path is recomputed from native facts, so a tampered cached projection
+    # cannot widen or move the public source.
     projection=next(c for c in snap['collections'] if c['type']=='ec2_effective_ingress')
     projection['items'][0]['configured_path_witness']['source_address']='1.1.1.1'
     tampered=make_snapshot('aws',[SCOPE],snap['collections'])
-    mismatched=[f for f in analyze(tampered)['findings'] if f['check_id']=='analysis.internet_exposure'
-                and f['resource_id']==findings[0]['resource_id']]
-    assert len(mismatched)==1 and mismatched[0]['status']=='UNKNOWN'
+    same=[f for f in analyze(tampered)['findings'] if f['check_id']=='analysis.internet_exposure'
+          and f['resource_id']==findings[0]['resource_id']]
+    assert len(same)==1 and same[0]['status']=='FAIL'
+    assert '1.1.1.1' not in str(same[0]['evidence']) and same[0]['evidence']['exposed_ports']==['tcp/443']
 
 
 @pytest.mark.parametrize('mode',[

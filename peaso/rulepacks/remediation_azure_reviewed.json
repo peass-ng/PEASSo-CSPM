@@ -837,7 +837,7 @@
   },
   "azure.claude.activity_log_alert_subscription_security_solution_delete": {
     "caveats": [
-      "The evaluator accepts an alert declaration matching operationName=Microsoft.Security/securitySolutions/delete and category=Security; it does not prove events are emitted, action groups exist, recipients receive notifications or the alert has been tested.",
+      "The evaluator accepts an alert declaration matching operationName=Microsoft.Security/securitySolutions/delete and category=Administrative; it does not prove events are emitted, action groups exist, recipients receive notifications or the alert has been tested.",
       "Subscription scope must match the finding exactly; resource-group-only scope and non-Global alert locations do not pass. An operationName match may coexist with other conditions, so the owner must verify intended specificity. A resourceType=microsoft.security/securitysolutions alternative also passes only when allOf has exactly two conditions (category and resourceType).",
       "A PUT replaces the alert resource definition. Review the complete body, action group, retention and rollback before applying; creating an alert can incur monitoring charges and notification volume."
     ],
@@ -857,7 +857,7 @@
       "evaluator_family": "peaso.checks.claude_azure_network",
       "kind": "activity_log_alert",
       "observed_fail_evidence": "reason=no matching enabled activity log alert",
-      "path": "activity_log_alert.location=Global; properties.enabled=true; properties.scopes[] contains subscription; properties.condition.allOf category=Security and operationName=Microsoft.Security/securitySolutions/delete or resourceType=microsoft.security/securitysolutions with exactly two conditions",
+      "path": "activity_log_alert.location=Global; properties.enabled=true; properties.scopes[] contains subscription; properties.condition.allOf category=Administrative and operationName=Microsoft.Security/securitySolutions/delete or resourceType=microsoft.security/securitysolutions with exactly two conditions",
       "target": "scope"
     },
     "references": [
@@ -872,16 +872,16 @@
     ],
     "review_status": "approved",
     "steps": [
-      "Inspect all collected activity log alerts for the exact subscription; this check requires location=Global, enabled=true, scopes containing that subscription, and condition.allOf with category=Security plus operationName=Microsoft.Security/securitySolutions/delete. A resourceType=microsoft.security/securitysolutions alternative also passes only when allOf has exactly two conditions (category and resourceType).",
+      "Inspect all collected activity log alerts for the exact subscription; this check requires location=Global, enabled=true, scopes containing that subscription, and condition.allOf with category=Administrative plus operationName=Microsoft.Security/securitySolutions/delete. A resourceType=microsoft.security/securitysolutions alternative also passes only when allOf has exactly two conditions (category and resourceType).",
       "Check the real Activity Log event schema for Delete Security Solution, select an existing owner alert to correct or a reviewed new name, and identify the monitoring action group that will receive it.",
-      "Create or update one complete owner-reviewed Microsoft.Insights/activityLogAlerts resource: location Global, enabled true, exact subscription scope, category=Security, operationName=Microsoft.Security/securitySolutions/delete, and a verified action group; preserve other intended alert properties.",
+      "Create or update one complete owner-reviewed Microsoft.Insights/activityLogAlerts resource: location Global, enabled true, exact subscription scope, category=Administrative, operationName=Microsoft.Security/securitySolutions/delete, and a verified action group; preserve other intended alert properties.",
       "Trigger or observe an authorized Delete Security Solution event, confirm action delivery, recollect activity_log_alert facts and rerun azure.claude.activity_log_alert_subscription_security_solution_delete."
     ],
-    "summary": "Create or correct the subscription-scoped activity log alert for Delete Security Solution in category Security."
+    "summary": "Create or correct the subscription-scoped activity log alert for Delete Security Solution in category Administrative."
   },
   "azure.claude.activity_log_alert_subscription_security_solution_write": {
     "caveats": [
-      "The evaluator accepts an alert declaration matching operationName=Microsoft.Security/securitySolutions/write and category=Security; it does not prove events are emitted, action groups exist, recipients receive notifications or the alert has been tested.",
+      "The evaluator accepts an alert declaration matching operationName=Microsoft.Security/securitySolutions/write and category=Administrative; it does not prove events are emitted, action groups exist, recipients receive notifications or the alert has been tested.",
       "Subscription scope must match the finding exactly; resource-group-only scope and non-Global alert locations do not pass. An operationName match may coexist with other conditions, so the owner must verify intended specificity. A resourceType=microsoft.security/securitysolutions alternative also passes only when allOf has exactly two conditions (category and resourceType).",
       "A PUT replaces the alert resource definition. Review the complete body, action group, retention and rollback before applying; creating an alert can incur monitoring charges and notification volume."
     ],
@@ -901,7 +901,7 @@
       "evaluator_family": "peaso.checks.claude_azure_network",
       "kind": "activity_log_alert",
       "observed_fail_evidence": "reason=no matching enabled activity log alert",
-      "path": "activity_log_alert.location=Global; properties.enabled=true; properties.scopes[] contains subscription; properties.condition.allOf category=Security and operationName=Microsoft.Security/securitySolutions/write or resourceType=microsoft.security/securitysolutions with exactly two conditions",
+      "path": "activity_log_alert.location=Global; properties.enabled=true; properties.scopes[] contains subscription; properties.condition.allOf category=Administrative and operationName=Microsoft.Security/securitySolutions/write or resourceType=microsoft.security/securitysolutions with exactly two conditions",
       "target": "scope"
     },
     "references": [
@@ -916,12 +916,12 @@
     ],
     "review_status": "approved",
     "steps": [
-      "Inspect all collected activity log alerts for the exact subscription; this check requires location=Global, enabled=true, scopes containing that subscription, and condition.allOf with category=Security plus operationName=Microsoft.Security/securitySolutions/write. A resourceType=microsoft.security/securitysolutions alternative also passes only when allOf has exactly two conditions (category and resourceType).",
+      "Inspect all collected activity log alerts for the exact subscription; this check requires location=Global, enabled=true, scopes containing that subscription, and condition.allOf with category=Administrative plus operationName=Microsoft.Security/securitySolutions/write. A resourceType=microsoft.security/securitysolutions alternative also passes only when allOf has exactly two conditions (category and resourceType).",
       "Check the real Activity Log event schema for Create or Update Security Solution, select an existing owner alert to correct or a reviewed new name, and identify the monitoring action group that will receive it.",
-      "Create or update one complete owner-reviewed Microsoft.Insights/activityLogAlerts resource: location Global, enabled true, exact subscription scope, category=Security, operationName=Microsoft.Security/securitySolutions/write, and a verified action group; preserve other intended alert properties.",
+      "Create or update one complete owner-reviewed Microsoft.Insights/activityLogAlerts resource: location Global, enabled true, exact subscription scope, category=Administrative, operationName=Microsoft.Security/securitySolutions/write, and a verified action group; preserve other intended alert properties.",
       "Trigger or observe an authorized Create or Update Security Solution event, confirm action delivery, recollect activity_log_alert facts and rerun azure.claude.activity_log_alert_subscription_security_solution_write."
     ],
-    "summary": "Create or correct the subscription-scoped activity log alert for Create or Update Security Solution in category Security."
+    "summary": "Create or correct the subscription-scoped activity log alert for Create or Update Security Solution in category Administrative."
   },
   "azure.claude.activity_log_alert_subscription_sql_firewall_rule_delete": {
     "caveats": [

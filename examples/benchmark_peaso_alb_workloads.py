@@ -41,11 +41,13 @@ def synthetic_snapshot(workloads=1000, layout='distributed'):
                     association['AssociationState'] = {'State': 'associated'}
                 for route in table['Routes']:
                     route['State'] = 'active'
-    snapshot['collections'].extend([
+    present = {collection['type'] for collection in snapshot['collections']}
+    snapshot['collections'].extend(collection for collection in (
         {'type': 'vpc_block_public_access_options', 'scope': scope, 'status': 'collected', 'items': [
             {'VpcBlockPublicAccessOptions': {'State': 'default-state', 'InternetGatewayBlockMode': 'off'}}]},
         {'type': 'internet_gateway', 'scope': scope, 'status': 'collected', 'items': [
-            {'InternetGatewayId': 'igw-a', 'Attachments': [{'VpcId': 'vpc-a', 'State': 'available'}]}]}])
+            {'InternetGatewayId': 'igw-a', 'Attachments': [{'VpcId': 'vpc-a', 'State': 'available'}]}]})
+        if collection['type'] not in present)
     facts = {kind: [] for kind in ('load_balancer', 'target_group', 'ecs_service', 'ecs_task',
                                   'ecs_task_definition', 'network_interface')}
     for i in range(workloads):

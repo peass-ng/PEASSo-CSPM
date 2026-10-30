@@ -13,10 +13,6 @@ pytest_plugins = (
     'tests.gcp_current_compute_iam_successor_20261027',
     'tests.gcp_current_dataflow_detector_successor_20261027',
     'tests.k8s_current_metadata_detector_successor_20261027',
-    # Sealed GCP referenced-source predecessors are intercepted by exact node ID.
-    # Load it for every session: a CI shard need not collect the module that
-    # also declares it (tests/test_gcp_referenced_source_current_compatibility_20261020.py).
-    'tests.gcp_referenced_source_historical_compatibility_20261020',
 )
 
 # Synthetic deployment identities for isolated tests; production has no defaults.

@@ -12,9 +12,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_disabled_in_always_mode():
-    # tests/conftest runs every proof in always mode.
-    assert cc.install() is False
-    assert ast.parse is cc._ORIGINAL_PARSE
+    script = (
+        'import ast, builtins\n'
+        'import peaso.compile_cache as cc\n'
+        'assert cc.install() is False\n'
+        'assert ast.parse is cc._ORIGINAL_PARSE and builtins.compile is cc._ORIGINAL_COMPILE\n'
+    )
+    env = dict(os.environ, PEASO_SOURCE_ATTESTATION='always', PYTHONPATH=str(ROOT))
+    subprocess.run([sys.executable, '-c', script], cwd=ROOT, env=env, check=True,
+                   capture_output=True, text=True, timeout=300)
 
 
 

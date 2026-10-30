@@ -42,5 +42,5 @@ def test_catalog_details_use_the_renderer():
     from peaso import privesc
     entry = next(e for e in privesc.catalog()["entries"] if (e.get("requires") or {}).get("all_of"))
     detail = engine.privesc_technique_details([entry["id"]])[entry["id"]]
-    assert detail["required_permissions"] == engine._required_permissions(entry["requires"])
+    assert detail["requires"] and detail["required_permissions"] == engine._required_permissions(detail["requires"])
     assert detail["required_permissions"]["leaves"]

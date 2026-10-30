@@ -108,7 +108,9 @@ def ordinary_capture(metadata, *, mode='collected', state='ACTIVE', name=NAME):
         'concurrency': 1, 'metrics_scopes': False}}
     snapshot = GCPCollector(connector, requirements=['workbench_instance'], transport=transport).collect()
     iam = 'https://notebooks.googleapis.com/v2/' + name + ':getIamPolicy'
-    assert [call[1] for call in transport.calls] == [URL] + ([iam] if mode != 'denied' else [])
+    # An instance outside the scanned project is not hydrated with its IAM policy.
+    hydrated = mode != 'denied' and name.startswith(SCOPE + '/')
+    assert [call[1] for call in transport.calls] == [URL] + ([iam] if hydrated else [])
     index = _index(snapshot, resources(snapshot))
     index['context'] = {'provider': 'gcp', 'scope': SCOPE}
     collection, = [c for c in snapshot['collections'] if c['type'] == 'workbench_instance']

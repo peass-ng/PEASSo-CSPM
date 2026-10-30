@@ -76,7 +76,11 @@ def test_multus_native_annotations_link_exact_cluster_and_namespace_and_reach_ag
     facts = multus_networks(pod)
     assert facts[0]['namespace'] == 'shared' and facts[0]['name'] == 'extra'
     assert 'SECRET_SENTINEL' not in json.dumps(facts)
-    graph, ai = topology('k8s', [('pod', 'pod', 'apps', pod), ('network_attachment_definition', 'extra', 'shared', nad)], {'cluster_id': 'cluster'})
+    # Collection keeps the Multus attachment facts but never the CNI arguments or plugin data.
+    collected = k8s._sanitize(pod)
+    assert 'SECRET_SENTINEL' not in json.dumps(collected)
+    assert multus_networks(collected) == facts
+    graph, ai = topology('k8s', [('pod', 'pod', 'apps', collected), ('network_attachment_definition', 'extra', 'shared', nad)], {'cluster_id': 'cluster'})
     assert linked(graph, node(graph, 'pod', 'pod'), node(graph, 'network_attachment_definition', 'extra'))
     assert '10.20.0.4' in json.dumps(ai)
     pod_data = next(r['data'] for r in ai['inventory'] if r['type'] == 'pod')

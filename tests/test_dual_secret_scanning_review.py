@@ -89,13 +89,13 @@ def test_one_finding_per_real_leak_across_checks_assets_and_scopes(real_scans):
     assert TOKEN_A not in json.dumps(rows) and TOKEN_B not in json.dumps(rows)
 
 
-def test_real_detected_value_in_filename_is_redacted():
+def test_real_detected_value_in_filename_keeps_exact_path_but_not_cache():
     pytest.importorskip('kingfisher_sdk')
     outcome = scanning.scan_content((f'token={TOKEN_A}\n').encode(), f'src/{TOKEN_A}.py')
     assert outcome['complete'] and outcome['leaks']
-    assert TOKEN_A not in json.dumps(outcome)
-    if hasattr(scanning, '_RESULTS'):
-        assert TOKEN_A not in repr(scanning._RESULTS)
+    # The owner sees the exact detector path; the process-wide cache never holds it.
+    assert {loc['path'] for leak in outcome['leaks'] for loc in leak['locations']} == {f'src/{TOKEN_A}.py'}
+    assert TOKEN_A not in repr(scanning._RESULTS)
 
 
 @pytest.mark.parametrize('failed_engine', ['kingfisher', 'trufflehog'])
@@ -222,8 +222,8 @@ def test_engine_report_retains_one_row_per_real_leak_across_native_kinds(real_sc
         def put_text(self, tenant, ident, kind, value): return self.put(tenant, ident, kind, value)
     artifacts = MemoryArtifacts()
     manifest = artifacts.rows[publish_report(artifacts, 'synthetic-tenant', 'd' * 32, report)]
-    persisted = [row for chunk in manifest['finding_chunks']
-                 for row in artifacts.rows[chunk['index_reference']]['items']]
+    persisted = [row for chunk in manifest['finding_index_chunks']
+                 for row in artifacts.rows[chunk['reference']]['items']]
     assert len(group_findings(persisted)) == 2
     assert len({row['secret_fingerprint'] for row in persisted}) == 2
     assert TOKEN_A not in json.dumps(artifacts.rows) and TOKEN_B not in json.dumps(artifacts.rows)

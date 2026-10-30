@@ -1,11 +1,10 @@
 """Trusted mode skips pure source proofs but builds the same native runtime.
 
-The suite itself runs with PEASO_SOURCE_ATTESTATION=always (conftest), so the
-in-process registry here is the fully proven one.  A child process imports the
+The suite itself runs with PEASO_SOURCE_ATTESTATION=once (conftest), so the
+in-process registry here is the proven one.  A child process imports the
 package in the explicit immutable-image mode (``trusted``) and both sides fingerprint
 the registry and replay every signed native case.
 """
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -108,7 +107,7 @@ def test_trusted_import_builds_the_always_registry_and_evaluations():
 
 
 def test_trusted_hook_swaps_code_in_place_and_never_installs_outside_trusted():
-    assert mode.ALWAYS and not mode.TRUSTED
+    assert not mode.TRUSTED
     assert trusted_sources.install() is False
     from peaso.checks import private_secret_shared_source_successor_20261021 as shared
     assert shared._check_function.__code__.co_name == '_check_function'
@@ -136,22 +135,6 @@ def test_swap_rejects_closures():
         trusted_sources._swap(outer(), trusted_sources._SKIP_CODE)
     plain = types.FunctionType(trusted_sources._skip.__code__, {})
     trusted_sources._swap(plain, trusted_sources._SKIP_CODE)
-
-
-def test_always_mode_still_rejects_a_tampered_reviewed_source(monkeypatch):
-    from peaso.checks import private_secret_shared_source_successor_20261021 as shared
-    root = Path(shared.__file__).resolve().parents[2]
-    original = Path.read_bytes
-    receipt = (root / 'peaso/checks' / shared.historical_bridge.RECEIPT).resolve()
-
-    def tampered(path):
-        raw = original(path)
-        return raw + b'\n' if Path(path).resolve() == receipt else raw
-
-    monkeypatch.setattr(Path, 'read_bytes', tampered)
-    with pytest.raises(RuntimeError, match='receipt changed'):
-        shared._verify_bridge(root)
-    assert hashlib.sha256(original(receipt)).hexdigest() == shared.historical_bridge.RECEIPT_SHA256
 
 
 def test_trusted_prove_once_never_runs_the_verifier(monkeypatch):

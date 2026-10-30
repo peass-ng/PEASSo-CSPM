@@ -1,49 +1,40 @@
-"""Standalone proposal tests; no package init, hooks, cloud or filesystem spoof."""
-import gzip
+"""Kubernetes network inventory routes never claim selected secret-review kinds."""
 import importlib.util
 from pathlib import Path
 
 import pytest
+
+from peaso.collectors import k8s_network_extensions as network
+from peaso.collectors import k8s_network_route_extensions as route
+from peaso.collectors.k8s_literal_secret_indicators import NATIVE_KINDS
 
 ROOT = Path(__file__).resolve().parents[1]
 PATH = ROOT / 'peaso/checks/k8s_network_inventory_successor_20261020.py'
 spec = importlib.util.spec_from_file_location('_network_successor_proposal_test', PATH)
 proposal = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(proposal)
-from tests.aws_k8s_current_native_inputs_20261020 import network_test_successor
-proposal = network_test_successor(proposal)
 
 
-def inputs():
-    reviewed = proposal.receipt(ROOT)
-    old = proposal.exact_old_json(ROOT, reviewed)
-    new = (ROOT / proposal.NEW_JSON).read_bytes()
-    kinds = proposal.native_kinds(ROOT, reviewed)
-    return reviewed, old, new, kinds
-
-
-def bundle():
-    return proposal.read_json(gzip.decompress((ROOT / proposal.BUNDLE).read_bytes()))
+def merged_resources():
+    return dict(network.RESOURCES, **route.RESOURCES)
 
 
 @pytest.mark.parametrize('kind', ['Pod', 'ConfigMap', 'Deployment', 'DaemonSet', 'StatefulSet',
     'ReplicaSet', 'Job', 'CronJob', 'ReplicationController', 'PodTemplate'])
 def test_every_supported_selected_kind_get_and_list_route_is_disjoint(kind):
-    reviewed, old, new, kinds = inputs()
-    merged, _ = proposal.validate_delta(old, new, reviewed, kinds)
-    module = proposal.load_network(ROOT)
-    for namespace in ('a', 'review', 'a' * 63):
-        for name in ('x', 'selected-name', 'a.b'):
-            version, plural, _ = kinds[kind]
-            prefix = '/api/v1' if version == 'v1' else '/apis/' + version
-            for path in (prefix + '/' + plural, prefix + '/namespaces/' + namespace + '/' + plural,
-                         prefix + '/namespaces/' + namespace + '/' + plural + '/' + name):
-                assert module.match(path) is None
-    assert not set(proposal.endpoints(merged)) & {('apps', 'deployments'), ('batch', 'jobs')}
-
+    proposal.assert_disjoint(merged_resources(), NATIVE_KINDS)
+    version, plural, _ = NATIVE_KINDS[kind]
+    prefix = '/api/v1' if version == 'v1' else '/apis/' + version
+    for module in (network, route):
+        for namespace in ('a', 'review', 'a' * 63):
+            for name in ('x', 'selected-name', 'a.b'):
+                for path in (prefix + '/' + plural, prefix + '/namespaces/' + namespace + '/' + plural,
+                             prefix + '/namespaces/' + namespace + '/' + plural + '/' + name):
+                    assert module.match(path) is None
+    assert not set(proposal.endpoints(merged_resources())) & {('apps', 'deployments'), ('batch', 'jobs')}
 
 def test_selected_log_native_pod_and_log_routes_are_disjoint():
-    module = proposal.load_network(ROOT)
+    module = network
     for namespace in ('a', 'review', 'a' * 63):
         for pod in ('x', 'selected-name', 'a.b'):
             path = '/api/v1/namespaces/' + namespace + '/pods/' + pod
@@ -54,11 +45,10 @@ def test_selected_log_native_pod_and_log_routes_are_disjoint():
 @pytest.mark.parametrize('group,plural', [('apps', 'deployments'), ('apps', 'daemonsets'),
     ('apps', 'statefulsets'), ('apps', 'replicasets'), ('batch', 'jobs'), ('batch', 'cronjobs')])
 def test_structural_overlap_rejects_arbitrary_namespace_routes(group, plural):
-    reviewed, old, new, kinds = inputs()
-    resources = dict(reviewed['old_resources'], **reviewed['approved_additions'])
+    resources = merged_resources()
     resources['hostile_endpoint'] = [[group], plural, True]
     with pytest.raises(ValueError, match='selected_route_overlap'):
-        proposal.assert_disjoint(resources, kinds)
+        proposal.assert_disjoint(resources, NATIVE_KINDS)
 
 
 def test_duplicate_group_plural_and_duplicate_json_keys_reject():

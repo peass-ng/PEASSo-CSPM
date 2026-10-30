@@ -170,3 +170,4 @@ cython_debug/
 /evidence/
 /test-results/
 /docs/compliance-ledgers/.work/
+frontend/node_modules

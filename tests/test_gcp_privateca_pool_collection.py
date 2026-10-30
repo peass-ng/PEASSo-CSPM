@@ -41,13 +41,15 @@ class Collector:
         assert scope == PROJECT and require_alias
         return {"project_id": "p1", "project_number": "1234"}
 
-    def pages(self, url, scope, *, key=None, single=False, transform=None):
+    def pages(self, url, scope, *, key=None, single=False, transform=None, params=None):
         self.urls.append(url)
         assert scope == PROJECT
         if key == "locations":
             yield [{"locationId": "us-central1"}], "locations"
         elif key == "caPools":
             yield [transform({"name": name}) for name in self.names], "pools"
+        elif key == "certificateAuthorities":
+            yield [], "authorities"
         elif single:
             yield [transform(self.policy)], "policy"
         else:
@@ -59,7 +61,7 @@ def test_reads_pool_and_policy_with_verified_project_alias(module):
     collector = Collector(["projects/1234/locations/us-central1/caPools/trusted"])
     fetch = m.scope_jobs(collector, PROJECT)[0][3]
     rows = [row for page, _ in fetch() for row in page]
-    assert rows == [{"name": POOL, "iamPolicy": {"bindings": []},
+    assert rows == [{"name": POOL, "certificateAuthorities": [], "iamPolicy": {"bindings": []},
                      "_coverage": {"iamPolicy": {"status": "collected"}}}]
     assert collector.urls[-1] == "https://privateca.googleapis.com/v1/" + POOL + ":getIamPolicy"
 
