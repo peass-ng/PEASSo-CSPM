@@ -5,6 +5,7 @@ callbacks. The roster selects IDs only; all security facts originate below.
 """
 from copy import deepcopy
 import json
+import re
 import socket
 from urllib.parse import parse_qs, urlsplit
 
@@ -329,6 +330,16 @@ class NativeHTTP:
                     response = deepcopy(row)
                     if self.mode == 'wrong-detail-type' and path == self.obj['id']: response['type'] = 'Microsoft.Network/networkSecurityGroups'
                     return response
+                if path == row['id'] + '/functions':
+                    # Function apps (and their slots) list FunctionEnvelope rows natively.
+                    site = re.split(r'/slots/', row['id'], maxsplit=1, flags=re.I)[0]
+                    owner = next(r for r in self.objects if r['id'].casefold() == site.casefold())
+                    assert row['type'].casefold() in ('microsoft.web/sites', 'microsoft.web/sites/slots')
+                    assert 'functionapp' in {part.strip().casefold() for part in str(owner.get('kind', '')).split(',')}
+                    assert query['api-version'] == ['2025-05-01']
+                    value = self.children.get(path, [])
+                    if isinstance(value, Exception): raise value
+                    return {'value': deepcopy(value)}
                 if path == row['id'] + '/providers/Microsoft.Insights/diagnosticSettings':
                     assert query['api-version'] == ['2021-05-01-preview']
                     return {'value': deepcopy(self.children.get(path, []))}
