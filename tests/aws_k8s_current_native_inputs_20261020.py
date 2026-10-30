@@ -114,7 +114,7 @@ def assert_modern_psp_native_applicability(check_id, monkeypatch):
     assert all('podsecuritypolicies' not in str(call) for call in pool.calls)
 
 
-TEST_PREDECESSORS_SHA256 = 'd76f19635759ed3a7d443c773c58d5c1aca36c8223b03b4ead4d18a45bf08798'
+TEST_PREDECESSORS_SHA256 = '08023acc452a16b3fa8f65ff84702fa6a0c569d7e0aba12bbeb6ee57f93ed113'
 TEST_PREDECESSORS = 'tests/fixtures/aws_k8s_residual_test_predecessors_20261020.json.gz'
 OWNED_TESTS = frozenset('tests/' + name + '.py' for name in (
     'test_aws_content_scan_selection_review', 'test_peaso_collectors_aws',
