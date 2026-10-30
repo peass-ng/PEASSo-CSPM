@@ -795,7 +795,7 @@ OWNER_RUNTIME_RECEIPTS = json.loads(r'''
   },
   "gcp.review.workbench.selected_referenced_source_secret_indicators_20261020": {
     "path": "peaso/checks/gcp_workbench_source_runtime_admission_20261020.json",
-    "sha256": "5ef240b2946f092bc36e20d8a4bac421b9c4544b6e7ad2f21d6d6eb0c9fbd87e"
+    "sha256": "fe6b2cc40cf9ecdf07e2e556b90a1658ea6e5b454061f87635e81022d655b39e"
   },
   "gcp.review.workbench.terminal_access_disabled": {
     "path": "peaso/checks/gcp_workbench_head3_admission_20261020.json",

@@ -74,7 +74,12 @@ def test_native_view_collection_uses_nested_parent_and_policy_get():
         def __init__(self):
             self.urls = []
 
-        def pages(self, url, scope, *, key=None, single=False, params=None):
+        def pages(self, url, scope, *, key=None, single=False, params=None, transform=None):
+            # Mirrors GCPCollector.pages, which projects each row before yielding it.
+            for rows, receipt in self._pages(url, scope, key=key, single=single, params=params):
+                yield ([transform(row) for row in rows] if transform else rows), receipt
+
+        def _pages(self, url, scope, *, key=None, single=False, params=None):
             self.urls.append(url)
             if key == "authorizedViewSets":
                 yield [{"name": VIEW.rsplit("/authorizedViews/", 1)[0]}], "sets"

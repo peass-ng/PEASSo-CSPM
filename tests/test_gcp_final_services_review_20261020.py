@@ -238,6 +238,15 @@ def plan(case, branch='good'):
         add('https://networksecurity.googleapis.com/v1/'+P+'/locations/global/serverTlsPolicies',
             {'serverTlsPolicies':[routes['https://networksecurity.googleapis.com/v1/'+TLS]['data']]
              if 'https://networksecurity.googleapis.com/v1/'+TLS in routes else []})
+        # The native network inventory hydrates each listed policy's IAM (16bb81e0).
+        if 'https://networksecurity.googleapis.com/v1/'+TLS in routes:
+            add('https://networksecurity.googleapis.com/v1/'+TLS+':getIamPolicy',{'bindings':[]})
+    if kind=='certificate':
+        # Certificate Manager reach now joins project IAM and custom roles (16bb81e0).
+        add(CRM,{'name':'projects/123','projectId':'native-one'})
+        add(C,{'name':'native-one','commonInstanceMetadata':{'fingerprint':'abc'}})
+        routes.setdefault(CRM+':getIamPolicy',{'data':{'bindings':[]},'method':'POST','primary':False})
+        routes.setdefault('https://iam.googleapis.com/v1/'+P+'/roles',{'data':{'roles':[]},'method':'GET','primary':False})
     if 'alert_policy' in deps:
         add('https://monitoring.googleapis.com/v3/'+P+'/alertPolicies',{'alertPolicies':[{'name':P+'/alertPolicies/review','enabled':not bad,
              'notificationChannels':[P+'/notificationChannels/review'],'combiner':'OR','conditions':[{'name':P+'/alertPolicies/review/conditions/review',

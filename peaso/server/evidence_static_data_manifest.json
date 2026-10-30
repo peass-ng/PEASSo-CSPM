@@ -31,7 +31,7 @@
   "peaso/collectors/aws_network_inventory.json": "efe0e786b99181478c8ce9385efe23863d28fe0467c98dc866804a0cf5212228",
   "peaso/collectors/azure_network_private_children.json": "57ed98862041070463fd07e5544b6dcb587f3ea691aa397f9ea8e061d42476f0",
   "peaso/collectors/azure_network_private_services.json": "ed9d4dd17c31c1ce82aef7b2b29aa03a2ed37dd21154bc95efd7c536d7b38359",
-  "peaso/collectors/gcp_network_private_services.json": "3e832206f9f06e3cfc0f59c9d47b36554a63221c3d442dd9ae358a405b408b04",
+  "peaso/collectors/gcp_network_private_services.json": "90f2eea134f3357a9781747bcfa8fb0395d3fd43a0de7dacaed251019cb670a4",
   "peaso/collectors/k8s_network_extensions.json": "0f4edb682316e4f0c0059af146f14bb6ee819cb03a0677e09825a26c945e615d",
   "peaso/collectors/k8s_network_route_extensions.json": "ef83a169812ab23a043d23ea653cb27884b89ab05d8e60aba56840b98342f6bb",
   "peaso/privesc/azure_observed_impact.json": "dab8191c8d17fd048fba72334546eee43f7ad721ea2911c4ad10b540952769fc",

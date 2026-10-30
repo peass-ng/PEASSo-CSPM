@@ -4329,7 +4329,7 @@ Seven unambiguous terminal techniques were moved from privilege-escalation secti
 |---|---|---|---|---|
 | `#authorized-view-iam-self-grant-authorizedviewssetiampolicy` | ## Authorized-view IAM self-grant (`authorizedViews.setIamPolicy`) | contactcenterinsights.authorizedViews.setIamPolicy | COVERED | `gcp-contactcenterinsights-authorizedviews-setiampolicy-self-grant` |
 
-## Current CSPM catalog reconciliation (HackTricks Cloud `4393380a88845b42bd208d3adbb6d61ad89f02fb`)
+## Current CSPM catalog reconciliation (HackTricks Cloud `4fab4d35d179f490e5c0c6343ab7ef690b4a6f45`)
 
 The heading sweep above records its historical source revision. The rows below record changes to the current automatic catalog. RETIRED entries remain documented in the source and exclusion catalog; they do not run as automatic checks.
 

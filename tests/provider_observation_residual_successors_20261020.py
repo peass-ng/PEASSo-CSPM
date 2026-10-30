@@ -676,9 +676,9 @@ PINNED = json.loads(r'''
   "tests/fixtures/gcp-alert-native-successor-20261020.json": "d96b5cc131dad48afbf37fb71cf5f3e51d6d3ec650539269f6d782b8f37f7aad",
   "tests/fixtures/gcp-compute-native-successor-20261020.json": "5d4a2038ed11af3a4ef4a9a1dff0fa38c74d5dde657f37308869528c6b359c5d",
   "tests/fixtures/gcp-final-services-native-successor-20261020.json": "09a0560846d444fc217f7f2b30f96b8cac709e72d1abb1fd19a5e21bfd22dbdb",
-  "tests/fixtures/gcp-native-review-behavior.json": "491de9e6bd9587721d67732baf22425f6b920af1ab01366a9863fcd3a1170e4f",
+  "tests/fixtures/gcp-native-review-behavior.json": "8f7874026b3fc2ec1264a4b005c4fba6e510c130f8b8bb377a761cc4ca446443",
   "tests/fixtures/gcp-native57-native-successor-20261020.json": "561872fb0ad465c851a53cff31cbc0e3b2ccaf72ac9da50bea84c66e0e8face9",
   "tests/fixtures/gcp-prior-bounded-native-successor-20261020.json": "0ca12fc2736547034ccf66a275c865c7793517f8c1a416edb9b75a3f5dcd15d4",
-  "tests/gcp_clarity_combined_successor_20261020.py": "57f88b167964348b2dcdbf99ce3dc1a08c35f9cabdd4138f9fcc49d05cf1624f"
+  "tests/gcp_clarity_combined_successor_20261020.py": "d15856f7dc03e4d6a4556c6067ae6071b0eced7789d2223df93c18ef6cda0c4f"
 }
 ''')

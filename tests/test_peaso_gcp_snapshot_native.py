@@ -5,6 +5,8 @@ from peaso.collectors.gcp import GCPCollector
 
 PROJECT = "projects/p1"
 BASE = "https://compute.googleapis.com/compute/v1/" + PROJECT
+# The cross-region snapshot aggregatedList exists only in Compute beta (9b483c7d).
+LIST = "https://compute.googleapis.com/compute/beta/" + PROJECT + "/aggregated/snapshots"
 
 
 def test_aggregated_snapshots_read_each_exact_policy():
@@ -21,7 +23,7 @@ def test_aggregated_snapshots_read_each_exact_policy():
 
     def read(url, scope, **kwargs):
         reads.append(url)
-        if url == BASE + "/aggregated/snapshots":
+        if url == LIST:
             return {"items": {"global": {"snapshots": [row("global")]},
                               "regions/us-central1": {"snapshots": [row("regions/us-central1")]}}}, "list-read"
         if url.endswith("/getIamPolicy"):
@@ -33,7 +35,7 @@ def test_aggregated_snapshots_read_each_exact_policy():
     snapshots = next(c for c in result["collections"] if c["type"] == "snapshot")
     assert snapshots["status"] == "collected"
     assert len(snapshots["items"]) == 2
-    assert reads == [BASE + "/aggregated/snapshots",
+    assert reads == [LIST,
                      BASE + "/global/snapshots/backup/getIamPolicy",
                      BASE + "/regions/us-central1/snapshots/backup/getIamPolicy"]
     assert all(item["_coverage"]["iamPolicy"]["status"] == "collected"

@@ -141,7 +141,8 @@ def native(kind, item, *, denied=False, partial=False, policy_denied=False, poli
     routes['https://cloudresourcemanager.googleapis.com/v3/' + SCOPE] = deepcopy(BASE['project'])
     routes['https://compute.googleapis.com/compute/v1/' + SCOPE] = {'name': 'review-project', 'id': '123456789'}
     iam_url = None
-    if kind in ('cloudrun_service', 'cloudrun_job', 'function', 'pubsub_subscription'):
+    # Workbench instance IAM is hydrated on every listed instance (75087001).
+    if kind in ('cloudrun_service', 'cloudrun_job', 'function', 'pubsub_subscription', 'workbench_instance'):
         version = '/v1/' if kind == 'pubsub_subscription' else '/v2/'
         iam_url = 'https://' + host + version + clean['name'] + ':getIamPolicy'
         routes[iam_url] = iam

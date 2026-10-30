@@ -10,11 +10,11 @@
     "_verify_runtime",
     "reviewed_inputs"
   ],
-  "gcp_receipt_sha256": "cb45c1f2e7b0e6e0e47dc12efb949eee7a7fa906f1a646760e7bbcc6b1481d8f",
-  "gcp_source_sha256": "b8d794c001f542c5767f1b6ab0cd55bb8f1a9808e2be6e6e72b1ebff4e831d01",
+  "gcp_receipt_sha256": "c7d917ee43570acff795098bac2fcc76c6c370ef2e1bd76be89f243cfd4c8ace",
+  "gcp_source_sha256": "676fdc4a71ce7b09402e820e6633163808a7bfbb3e4be6fa17b321e8266632ac",
   "normalized_source_sha256": "03b2f79ed4ead8672c6b6d13a209b70cbdd0edcd410da069c6f5c503c326fa98",
-  "raw_receipt_sha256": "4b67c5299d2854d58de7cb3bfd45bd44035700b8e866427a3927f3eafa603d3f",
-  "raw_source_sha256": "80406875bd042731f0e18d4f43ca2c43ca692106ed8f7c45e92490c402dd69c6",
+  "raw_receipt_sha256": "43636f3ea1a427d8fc4a26785a75c68ff12101bb0b7fdf01c6ddfd675f86fac5",
+  "raw_source_sha256": "e87688ffbb14f633fa39c533ec12d3ccb90b4d0c75ff48af159faf2be1d62dda",
   "schema": "gcp-private-workbench-head3-source-successor-v1",
   "workbench_receipt_sha256": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13"
 }

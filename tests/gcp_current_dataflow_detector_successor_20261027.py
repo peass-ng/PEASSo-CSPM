@@ -10,7 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 TEST = 'tests/test_gcp_dataflow_batch_source_runtime_20261020.py'
 SEALED = {
-    TEST: '9017b0e5c66505baed02396141b761783bc79b952aa65039eab57376b2e361ac',
+    TEST: '23ae6d0d6299871e0412f4b70dd173591d555c6098918560016efeaac5b2dd16',
     'docs/gcp-review/recheck-20261020/dataflow-batch-source-runtime-admission-review-20261020.json':
         'b659b2bcfd7a63e28d9848a54dd5184c959e2ca4dc55d475e86bdbb772a75c3c',
     'docs/gcp-review/recheck-20261020/dataflow-batch-source-runtime-public-findings-20261020.json':

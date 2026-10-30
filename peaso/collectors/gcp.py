@@ -5046,8 +5046,9 @@ class GCPCollector:
                                              "language": item.get("language"),
                                              "datasetLocation": dataset.get("location")})
                             if self.options.get("resource_iam", True):
+                                # Same bound API project as the list read, never a numeric scope alias.
                                 rows = self.parallel(lambda item: self.hydrate(item, "iamPolicy",
-                                    "https://bigquery.googleapis.com/bigquery/v2/" + item["name"] + ":getIamPolicy",
+                                    base + "/" + quote(item["name"].rsplit("/", 1)[1], safe="") + ":getIamPolicy",
                                     scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
                                     identity_validator=_validate_iam_policy), rows)
                             yield rows, request_id
@@ -5173,8 +5174,9 @@ class GCPCollector:
                                 if isinstance(item.get("schema"), dict) and isinstance(item["schema"].get("fields"), list):
                                     item["_schema_full"] = True
                             if self.options.get("resource_iam", True):
+                                # Same bound API project as the list/detail reads, never a numeric scope alias.
                                 item = self.hydrate(item, "iamPolicy",
-                                    f"https://bigquery.googleapis.com/bigquery/v2/{resource}:getIamPolicy",
+                                    base + "/" + quote(table_id, safe="") + ":getIamPolicy",
                                     scope, method="POST", body={"options": {"requestedPolicyVersion": 3}},
                                     identity_validator=_validate_iam_policy)
                             return item
@@ -6143,11 +6145,6 @@ class GCPCollector:
                 self.run_jobs([("iap_tunnel_policy", scope, "iap",
                                 lambda scope=scope: iap_policy_pages(self, scope))
                                for scope in self.scopes if scope.startswith("projects/")])
-            if "app_engine_iap_policy" in self.needed:
-                from .gcp_appengine_iap_policies import collection_pages as appengine_iap_pages
-                self.run_jobs([("app_engine_iap_policy", scope, "iap",
-                                lambda scope=scope: appengine_iap_pages(self, scope))
-                               for scope in self.scopes if scope.startswith("projects/")])
             if "instance_settings" in self.needed:
                 settings_jobs = []
                 for scope in (s for s in self.scopes if s.startswith("projects/")):
@@ -6420,6 +6417,17 @@ class GCPCollector:
             self.derive_sw52_native()
             self.perimeter_jobs()
             self.dependent_jobs()
+            # IAP targets join App Engine versions, which dependent_jobs collects.
+            if "app_engine_iap_policy" in self.needed:
+                from .gcp_appengine_iap_policies import collection_pages as appengine_iap_pages
+                self.run_jobs([("app_engine_iap_policy", scope, "iap",
+                                lambda scope=scope: appengine_iap_pages(self, scope))
+                               for scope in self.scopes if scope.startswith("projects/")])
+            if "iap_web_policy" in self.needed:
+                from .gcp_iap_web_policies import collection_pages as iap_web_pages
+                self.run_jobs([("iap_web_policy", scope, "iap",
+                                lambda scope=scope: iap_web_pages(self, scope))
+                               for scope in self.scopes if scope.startswith("projects/")])
             from .gcp_unused_directory_20261021 import collect as collect_unused_directory
             collect_unused_directory(self)
             from .gcp_key_usage_20261021 import collect as collect_key_usage

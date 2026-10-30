@@ -39,7 +39,7 @@ REGIONAL = {
 PRIVATE_SERVICES = json.loads(Path(__file__).with_name('gcp_network_private_services.json').read_text())
 REGIONAL.update({kind: (p['service'], p['version'], p['segment'], p['key']) for kind, p in PRIVATE_SERVICES.items()
                  if not p.get('project_wide') and not p.get('organization_scoped')})
-TYPES = set(REGIONAL) | set(PRIVATE_SERVICES) | {'binary_authorization_platform_policy', 'model_armor_exposure', 'target_pool', 'lakehouse_resource', 'pubsub_topic_attachment', 'dns_record_set', 'fraud_defense_exposure', 'backend_service_health', 'api_gateway_resource', 'binary_authorization_policy', 'dlp_exposure', 'identityplatform_config', 'dialogflow_es_fulfillment', 'containeranalysis_occurrence', 'service_extension_exposure', 'dataflow_network_job', 'app_engine_network_version', 'network_connectivity_hub', 'sac_exposure', 'pubsub_schema_iam', 'multicloud_exposure', 'cloudtasks_delivery', 'sovereign_partner_exposure', 'apigee_route', 'target_instance', 'firebase_rules_release', 'firebase_database_rules', 'service_networking_connection'}
+TYPES = set(REGIONAL) | set(PRIVATE_SERVICES) | {'binary_authorization_platform_policy', 'model_armor_exposure', 'target_pool', 'lakehouse_resource', 'pubsub_topic_attachment', 'dns_record_set', 'fraud_defense_exposure', 'backend_service_health', 'api_gateway_resource', 'binary_authorization_policy', 'dlp_exposure', 'identityplatform_config', 'dialogflow_es_fulfillment', 'containeranalysis_occurrence', 'service_extension_exposure', 'dataflow_network_job', 'app_engine_network_version', 'network_connectivity_hub', 'network_connectivity_hub_group', 'fleet_membership_feature', 'fleet_scope_member', 'sac_exposure', 'pubsub_schema_iam', 'multicloud_exposure', 'cloudtasks_delivery', 'sovereign_partner_exposure', 'apigee_route', 'target_instance', 'firebase_rules_release', 'firebase_database_rules', 'service_networking_connection'}
 DATAFLOW_FIELDS = "id,name,location,projectId,currentState,type,environment(workerPools(network,subnetwork,ipConfiguration))"
 APPENGINE_FIELDS = "versions(id,name,servingStatus,env,network,vpcAccessConnector),nextPageToken"
 BATCH_FIELDS = "jobs(name,uid,status(state),allocationPolicy(network,location,instances(instanceTemplate))),nextPageToken,unreachable"
@@ -349,6 +349,10 @@ def inventory_pages(collector, scope, plan, parent, root):
                                     'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
                                     params={'options.requestedPolicyVersion': 3})]
                             elif plan.get('iam_policy'):
+                                # Policy-bearing self-grant paths require the exact detail read.
+                                # The detail receipt is yielded with this page.
+                                details = [dict(details[0], _coverage={**details[0].get('_coverage', {}),
+                                    'network_detail': {'status': 'collected'}})]
                                 if plan.get('iam_method') == 'POST':
                                     details = [collector.hydrate(details[0], 'iamPolicy',
                                         root + '/' + name + ':getIamPolicy', scope, method='POST',
@@ -1280,6 +1284,95 @@ def binary_authorization_platform_policies(collector, scope):
         yield safe_rows, request_id
 
 
+def _fleet_membership_name(row, collector, scope):
+    """Validate one project membership in any location, with only a CRM-attested numeric alias."""
+    name = row.get('name') if isinstance(row, dict) else None
+    parts = name.split('/') if isinstance(name, str) else []
+    if len(parts) != 6 or parts[0] != 'projects' or parts[2] != 'locations' or parts[4] != 'memberships':
+        raise ReadError('malformed', 'fleet_membership_identity_invalid')
+    return _native_child_name(row, scope + '/locations/' + parts[3], 'memberships', collector, scope)
+
+
+def membership_features(collector, scope):
+    """Read each membership's Config Management MembershipFeature under its exact name."""
+    for members, receipt in collector.pages(f'https://gkehub.googleapis.com/v1/{scope}/locations/-/memberships', scope,
+            key='resources', params={'fields': 'resources(name),nextPageToken'}):
+        yield [], receipt
+        for member in members:
+            name, alias_receipts = _fleet_membership_name(member, collector, scope)
+            for alias_receipt in alias_receipts:
+                yield [], alias_receipt
+            for features, feature_receipt in collector.pages(f'https://gkehub.googleapis.com/v2/{name}/features', scope,
+                    key='membershipFeatures'):
+                kept = []
+                for feature in features:
+                    feature_name, _ = _native_child_name(feature, name, 'features', collector, scope)
+                    if feature_name == name + '/features/configmanagement':
+                        kept.append({key: feature[key] for key in ('name', 'lifecycleState') if key in feature})
+                yield kept, feature_receipt
+
+
+def scope_members(collector, scope):
+    """Bind each fleet scope only to memberships its own listMemberships call returns."""
+    root = 'https://gkehub.googleapis.com/v1'
+    parent = scope + '/locations/global'
+    for scopes, receipt in collector.pages(f'{root}/{parent}/scopes', scope, key='scopes',
+            params={'fields': 'scopes(name),nextPageToken'}):
+        yield [], receipt
+        for row in scopes:
+            fleet_scope, alias_receipts = _native_child_name(row, parent, 'scopes', collector, scope)
+            for alias_receipt in alias_receipts:
+                yield [], alias_receipt
+            for members, member_receipt in collector.pages(f'{root}/{fleet_scope}:listMemberships', scope,
+                    key='memberships'):
+                links = []
+                for member in members:
+                    membership, alias_receipts = _fleet_membership_name(member, collector, scope)
+                    for alias_receipt in alias_receipts:
+                        yield [], alias_receipt
+                    links.append({'scope': fleet_scope, 'membership': membership})
+                yield links, member_receipt
+
+
+def network_connectivity_hubs(collector, scope, groups=False, spokes=False):
+    """Read NCC hubs, or their groups, with the IAM policy of that exact hub or group."""
+    root = 'https://networkconnectivity.googleapis.com/v1'
+    parent = f'{scope}/locations/global'
+    parallel = getattr(collector, 'parallel', None)
+    run = (lambda function, rows: parallel(function, rows)) if callable(parallel) else (
+        lambda function, rows: [function(row) for row in rows])
+
+    def policy(safe, name):
+        return collector.hydrate(safe, 'iamPolicy', f'{root}/{name}:getIamPolicy', scope,
+            params={'options.requestedPolicyVersion': 3})
+
+    for hubs, request_id in collector.pages(f'{root}/{parent}/hubs', scope, key='hubs'):
+        if not groups:
+            def hub_row(hub):
+                name, _ = _native_child_name(hub, parent, 'hubs', collector, scope)
+                safe = {key: hub[key] for key in ('name', 'state', 'policyMode', 'presetTopology',
+                        'exportPsc', 'routingVpcs') if key in hub}
+                if spokes:
+                    attached = []
+                    for rows, _ in collector.pages(f'{root}/{name}:listSpokes', scope, key='spokes'):
+                        attached.extend({key: row[key] for key in ('name', 'hub', 'state', 'spokeType')
+                                         if key in row} for row in rows)
+                    safe['attachedSpokes'] = attached
+                return policy(safe, name)
+            yield run(hub_row, hubs), request_id
+            continue
+        yield [], request_id
+        for hub in hubs:
+            hub_name, alias_receipts = _native_child_name(hub, parent, 'hubs', collector, scope)
+            for alias_receipt in alias_receipts:
+                yield [], alias_receipt
+            for rows, group_receipt in collector.pages(f'{root}/{hub_name}/groups', scope, key='groups'):
+                def group_row(row, hub_name=hub_name):
+                    name, _ = _native_child_name(row, hub_name, 'groups', collector, scope)
+                    return policy({key: row[key] for key in ('name', 'state', 'autoAccept') if key in row}, name)
+                yield run(group_row, rows), group_receipt
+
+
 def scope_jobs(collector, scope):
     scope_kind = scope.split('/', 1)[0]
     if scope_kind not in {'projects', 'organizations'}:
@@ -1378,22 +1471,13 @@ def scope_jobs(collector, scope):
             ("service_networking_connection", "servicenetworking", private_service_connections)):
         if kind in collector.needed:
             jobs.append((kind, scope, service, lambda fetch=fetch: fetch(collector, scope)))
-    if "network_connectivity_hub" in collector.needed:
-        def ncc_hubs():
-            root = 'https://networkconnectivity.googleapis.com/v1'
-            parent = f'{scope}/locations/global'
-            for hubs, request_id in collector.pages(f'{root}/{parent}/hubs', scope, key='hubs'):
-                def with_spokes(hub):
-                    name, _ = _native_child_name(hub, parent, 'hubs', collector, scope)
-                    spokes = []
-                    for rows, _ in collector.pages(f'{root}/{name}:listSpokes', scope, key='spokes'):
-                        spokes.extend({key: row[key] for key in ('name', 'hub', 'state', 'spokeType')
-                                       if key in row} for row in rows)
-                    safe = {key: hub[key] for key in ('name', 'state', 'policyMode', 'presetTopology',
-                            'exportPsc', 'routingVpcs') if key in hub}
-                    safe['attachedSpokes'] = spokes
-                    return collector.hydrate(safe, 'iamPolicy', f'{root}/{name}:getIamPolicy', scope,
-                        params={'options.requestedPolicyVersion': 3})
-                yield collector.parallel(with_spokes, hubs), request_id
-        jobs.append(("network_connectivity_hub", scope, "networkconnectivity", ncc_hubs))
+    for kind, service, fetch in (
+            ("network_connectivity_hub", "networkconnectivity",
+             lambda: network_connectivity_hubs(collector, scope, spokes=True)),
+            ("network_connectivity_hub_group", "networkconnectivity",
+             lambda: network_connectivity_hubs(collector, scope, groups=True)),
+            ("fleet_membership_feature", "gkehub", lambda: membership_features(collector, scope)),
+            ("fleet_scope_member", "gkehub", lambda: scope_members(collector, scope))):
+        if kind in collector.needed and (kind == 'network_connectivity_hub' or scope_kind == 'projects'):
+            jobs.append((kind, scope, service, fetch))
     return jobs

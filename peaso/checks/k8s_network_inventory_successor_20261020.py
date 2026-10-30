@@ -16,7 +16,7 @@ import sys
 import types
 
 RECEIPT = 'peaso/checks/k8s_network_inventory_successor_20261020.json'
-RECEIPT_SHA256 = '1a2fdf5f809a3821718a0ba9e0ffb1259b59fd9fbf9086c1994ea41f5eb64cf1'
+RECEIPT_SHA256 = 'c6f9b0698777dd1bcb562db9090c6f7f5395cfc5ddceefc1fb4e18e3cf2c7c7b'
 OLD_JSON = 'peaso/collectors/k8s_network_extensions.json'
 NEW_JSON = 'peaso/collectors/k8s_network_route_extensions.json'
 NETWORK = 'peaso/collectors/k8s_network_extensions.py'

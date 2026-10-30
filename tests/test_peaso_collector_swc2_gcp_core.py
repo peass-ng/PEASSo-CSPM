@@ -102,8 +102,10 @@ def test_bigquery_table_schema_is_full_only_after_successful_detail():
             return {'datasetReference': {'projectId': 'p-one', 'datasetId': 'ds'}, 'id': 'p-one:ds'}
         if url.endswith('/tables'):
             return {'tables': [{'tableReference': {'projectId': 'p-one', 'datasetId': 'ds', 'tableId': 't'}}]}
+        if url.endswith('/tables/t:getIamPolicy'):
+            return {'bindings': []}
         assert url.endswith('/tables/t')
-        assert 'schema(fields(name,fields,policyTags(names)))' in request['params']['fields']
+        assert 'schema(fields(name,type,mode,fields,policyTags(names)))' in request['params']['fields']
         return {'tableReference': {'projectId': 'p-one', 'datasetId': 'ds', 'tableId': 't'},
                 'schema': {'fields': [{'name': 'customer', 'fields': [{'name': 'email',
                     'policyTags': {'names': ['projects/p-one/locations/us-central1/taxonomies/x/policyTags/y']}}]}]}}
@@ -197,6 +199,9 @@ def test_os_inventory_full_package_map_and_vm_fanout(mode, status, count):
             return {'items': {'zones/us-central1-a': {'instances': [
                 {'name': vm, 'id': vm_id, 'zone': f'{SCOPE}/zones/us-central1-a'}]}},
                 **({'nextPageToken': 'two'} if not page and mode in ('paginated', 'partial') else {})}
+        if url.endswith('/getIamPolicy'):
+            assert '/compute/v1/' in url and request['params'] == {'optionsRequestedPolicyVersion': 3}
+            return {'bindings': []}
         assert '/locations/us-central1-a/instances/' in url and url.endswith('/inventory')
         assert request['params'] == {'view': 'FULL'}
         if mode == 'error' or mode == 'partial' and '/456/' in url:

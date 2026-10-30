@@ -304,7 +304,7 @@ def test_selected_object_native_bearer_not_overridden_by_ambient_netrc(monkeypat
         pytest.fail('ambient netrc credentials override explicit native bearer on content GET',pytrace=False)
 
 
-def test_candidate_gke_native_reader_redacts_detected_value_in_reference_metadata(monkeypatch):
+def test_candidate_gke_native_reader_keeps_detected_value_in_reference_metadata(monkeypatch):
     from peaso.collectors import gcp_gke_literal_secret_indicators as bridge
     import ssl
     # Real pinned detector pair, exact native Pod/PodList and reader API seam.
@@ -342,8 +342,9 @@ def test_candidate_gke_native_reader_redacts_detected_value_in_reference_metadat
     projected,_=reader.read('/api/v1/namespaces/team/pods',{'limit':bridge.PAGE_SIZE})
     row,=projected['items']
     assert row[bridge.MARKER]['complete'] and row[bridge.MARKER]['leaks'] and len(calls)==1
-    if TOKEN in json.dumps([row,t.evidence])+repr(scanning._RESULTS):
-        pytest.fail('detected workload literal recurs unsanitized in retained native env reference metadata',pytrace=False)
+    # Found values stay visible (73706ae8); only the connector's own credential stays out.
+    assert TOKEN in json.dumps(row)
+    assert 'synthetic-native-auth' not in json.dumps([row,t.evidence])+repr(scanning._RESULTS)
 
 
 def test_candidate_dataflow_each_item_links_its_own_full_read_not_another_job(monkeypatch,clean):

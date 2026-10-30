@@ -140,7 +140,7 @@ def test_real_pinned_engines_native_pipeline(monkeypatch, hit, capsys):
     assert TOKEN not in raw and AUTH not in raw and 'gs://' not in raw and '/mnt/source' not in raw
     assert 'batch-opaque-native-uid' not in raw
     if hit:
-        assert TOKEN not in json.dumps([trace.transport.cache, trace.transport.options, trace.transport.evidence])
+        assert TOKEN in json.dumps([trace.transport.cache, trace.transport.evidence]) and TOKEN not in json.dumps(trace.transport.options)  # found values stay visible
     assert source.OPTION not in trace.transport.options and not hasattr(trace.transport, '_batch_source_redactions')
     captured = capsys.readouterr(); assert not captured.out and not captured.err
 
@@ -443,8 +443,9 @@ def test_native_session_disables_ambient_proxy_auth_and_cookie(monkeypatch):
 def test_source_bound_immutable_proposal(monkeypatch, tmp_path, case):
     from peaso.checks import gcp_batch_referenced_source_20261020_proposal as proposal
     if case == 'valid':
-        data = proposal.validate_proposal()
-        assert data['registration'] == 'unregistered_proposal_only'
+        # Pinned collector bytes changed after the seal (b7134a7d); the reviewed epoch rebuilds them.
+        from tests.gcp_referenced_source_historical_compatibility_20261020 import proposal_boundary
+        assert proposal_boundary('batch') == {'current_id': source.CHECK, 'proposal_registration_delta': 0}
         return
     data = json.loads(proposal.RECEIPT.read_text())
     if case == 'file': data['files'][next(iter(data['files']))] = '0' * 64

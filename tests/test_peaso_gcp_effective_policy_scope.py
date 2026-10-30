@@ -39,6 +39,9 @@ class Transport:
             data = {"items": {"zones/us-central1-a": {"instances": [
                 {"name": "vm-one", "id": "1", "zone": "https://compute.googleapis.com/compute/v1/projects/p-one/zones/us-central1-a",
                  "metadata": {"fingerprint": "fp"}}]}}}
+        elif url == "https://compute.googleapis.com/compute/v1/projects/p-one/zones/us-central1-a/instances/vm-one/getIamPolicy":
+            # Compute resource IAM is hydrated for every listed instance.
+            data = {"bindings": [], "version": 3}
         elif url.startswith("https://orgpolicy.googleapis.com/v2/projects/p-one/policies/"):
             constraint = url.rsplit("/", 1)[1].split(":", 1)[0]
             name = None if self.parent is None else self.parent + "/policies/" + (self.suffix or constraint)

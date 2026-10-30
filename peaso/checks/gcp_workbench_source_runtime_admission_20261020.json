@@ -28,7 +28,7 @@
     "peaso/collectors/gcp_workbench_source_runtime_20261020.py": "adcc2efb897fca6a58752680e5d695e29d3fba35944550cfd4cf81535bee2078",
     "peaso/collectors/gcp_workbench_referenced_source_20261020.py": "3c8a3b4dcaf51c6f1544dd1d4465d8a60c00ec1d605a3d808e7590b0ce219b73",
     "peaso/checks/gcp_workbench_referenced_source_20261020.py": "475399b2a09db35282535891993809d416eb0252a37752e94b0622f61cdd3567",
-    "peaso/checks/gcp_workbench_referenced_source_20261020_proposal.json": "7300d3ac8c91f8c4356d6ccf81732bf6a992b744a423e77f97b4d7f372630fc5",
+    "peaso/checks/gcp_workbench_referenced_source_20261020_proposal.json": "e44dbc3943cc5c2040efed4e9d5ac5e407dbb8705dff7afdb13d432ba440a260",
     "peaso/collectors/gcp_dataproc_referenced_source_secret_indicators.py": "75f3bb777dd00bb154f24de0f459994fefbced29262c91ec17967618f54801f0",
     "peaso/collectors/gcp_selected_object_secret_indicators.py": "fb9d1c2837660501bd87ab9642519f4caadfc395eee3193d1ccefd1bb2517959",
     "peaso/secret_scanning.py": "72aaf391e3b168d9b8f7a10603a5763c04137b5e7807fef320b4fc22fa1a9d19",

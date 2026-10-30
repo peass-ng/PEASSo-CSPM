@@ -122,7 +122,8 @@ def test_workbench_partial_failed_engine_match_is_scrubbed_but_not_trusted(monke
     assert rows[0][0] == 'UNKNOWN'
     marker = snapshot['collections'][0]['items'][0][workbench.source.MARKER]
     assert marker['leaks'] == []
-    assert workbench.TOKEN not in json.dumps([snapshot, rows, trace.collector.transport.cache, trace.collector.transport.evidence])
+    # Found values stay visible (73706ae8): seeded copies are not scrubbed.
+    assert workbench.TOKEN in json.dumps([snapshot, trace.collector.transport.cache, trace.collector.transport.evidence])
     assert not hasattr(trace.collector.transport, '_workbench_source_state')
 
 
@@ -139,7 +140,9 @@ def test_workbench_sealing_exception_still_clears_match_state(monkeypatch):
         workbench.capture(monkeypatch, real=True, payload=('token=' + workbench.TOKEN).encode(), mutate_snapshot=repeat)
     collector = saved['collector']
     assert not hasattr(collector.transport, '_workbench_source_state')
-    assert workbench.TOKEN not in json.dumps([collector.transport.cache, collector.transport.evidence, collector.options])
+    # Found values stay visible (73706ae8); only transient match state is released.
+    assert workbench.TOKEN in json.dumps(collector.transport.cache)
+    assert workbench.TOKEN not in json.dumps([collector.transport.evidence, collector.options])
 
 
 def test_dataflow_unselected_graph_url_changes_do_not_expand_source_scope(monkeypatch):

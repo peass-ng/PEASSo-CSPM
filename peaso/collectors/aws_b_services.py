@@ -116,6 +116,15 @@ def _metadata(value):
     return output
 
 
+def _ecs_definition_metadata(item):
+    """_detail already filtered Definition and re-added only the admitted
+    environment names; a second _metadata pass would drop those names."""
+    output = _metadata({key: value for key, value in item.items() if key != "Definition"})
+    if "Definition" in item:
+        output["Definition"] = item["Definition"]
+    return output
+
+
 def _read_list(requests, session, region, service, operation, expression, **arguments):
     read = requests.pages(session, service, region, operation, expression, **arguments)
     result = {"collection_status": read.status, "items": _metadata(read.items)}
@@ -501,7 +510,7 @@ def _enricher(kind):
                 item = copy.deepcopy(original)
                 item["Definition"] = _detail(requests, session, region, "ecs", "describe_task_definition",
                     taskDefinition=item["taskDefinitionArn"])
-                return _metadata(item)
+                return _ecs_definition_metadata(item)
 
             with ThreadPoolExecutor(max_workers=min(4, requests.workers), thread_name_prefix="aws-ecs-definition") as pool:
                 return list(pool.map(definition, items))
@@ -591,7 +600,8 @@ def _enricher(kind):
                 item["Stages"] = _read_list(requests, session, region, "apigateway", "get_stages", "item", restApiId=item["id"])
             elif kind == "http_api":
                 item["Stages"] = _read_list(requests, session, region, "apigatewayv2", "get_stages", "Items", ApiId=item["ApiId"])
-            output.append(item if kind == "codebuild_project" else _metadata(item))
+            output.append(item if kind == "codebuild_project" else
+                          _ecs_definition_metadata(item) if kind == "ecs_task_definition" else _metadata(item))
         return output
     return enrich
 

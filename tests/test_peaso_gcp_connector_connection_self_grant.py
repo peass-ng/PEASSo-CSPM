@@ -77,7 +77,12 @@ def test_native_collector_reads_exact_connection_and_iam_policy():
         def __init__(self):
             self.requests = []
 
-        def pages(self, url, scope, *, key=None, single=False, params=None):
+        def pages(self, url, scope, *, key=None, single=False, params=None, transform=None):
+            # Mirrors GCPCollector.pages, which projects each row before yielding it.
+            for rows, receipt in self._pages(url, scope, key=key, single=single, params=params):
+                yield ([transform(row) for row in rows] if transform else rows), receipt
+
+        def _pages(self, url, scope, *, key=None, single=False, params=None):
             self.requests.append((url, scope, key, single, params))
             if key == "connections":
                 yield [{"name": RESOURCE}], "list-receipt"

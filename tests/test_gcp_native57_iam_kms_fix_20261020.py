@@ -90,6 +90,10 @@ class FixAPI(NativeAPI):
             name = SCOPE + '/locations/us-central1/functions/native-function'
             if parsed.path == '/v2/' + self.scope + '/locations/-/functions':
                 return {'functions': [{'name': name, 'environment': 'GEN_2', 'state': 'ACTIVE', 'serviceConfig': {'serviceAccountEmail': EMAIL}}]}
+            # 75087001 made ``function`` depend on the project's Functions
+            # location listing (``cloudfunctions_location``).
+            if parsed.path == '/v2/' + self.scope + '/locations':
+                return {'locations': [{'name': self.scope + '/locations/us-central1', 'locationId': 'us-central1'}]}
             assert parsed.path == '/v2/' + name + ':getIamPolicy'
             return {}
         if parsed.hostname == 'iam.googleapis.com' and parsed.path == '/v1/roles/editor':

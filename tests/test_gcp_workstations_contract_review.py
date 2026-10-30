@@ -110,8 +110,9 @@ def test_read_only_workstations_inventory_keeps_exact_parent_names():
             }
             yield rows["/" + url.rsplit("/", 1)[-1]], url
 
-        def hydrate(self, item, field, url, scope):
+        def hydrate(self, item, field, url, scope, *, params=None):
             assert url.endswith(item["name"] + ":getIamPolicy")
+            assert params == {"options.requestedPolicyVersion": 3}
             return {**item, field: {"bindings": []}, "_coverage": {field: {"status": "collected"}}}
 
         def parallel(self, function, items):
@@ -135,6 +136,9 @@ def test_scan_permission_setup_names_each_workstations_read():
         "workstations.workstations.list",
         "workstations.workstations.getIamPolicy",
     )
-    assert all(permission in guide and permission in cli for permission in reads)
+    # The connector guide grants project roles, not a custom permission list; Viewer
+    # holds the list reads and Security Reviewer holds the getIamPolicy reads.
+    assert '"roles/viewer"' in guide and '"roles/iam.securityReviewer"' in guide
+    assert all(permission in cli for permission in reads)
     assert {"workstations_cluster", "workstations_config", "workstations_workstation"} <= SUPPORTED_TYPES
     assert {"workstations_cluster", "workstations_config"} <= DEPENDENCIES["workstations_workstation"]

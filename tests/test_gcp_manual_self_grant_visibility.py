@@ -18,9 +18,11 @@ IDS = {
 
 def test_manual_self_grants_are_documented_but_not_active_checks():
     active = {entry["id"] for entry in privesc.catalog()["entries"]}
-    excluded_path = (Path(__file__).resolve().parents[1]
-                     / "peaso/privesc/catalog/gcp/_excluded.yaml")
-    excluded = {entry.get("id"): entry for entry in yaml.safe_load(excluded_path.read_text())}
+    # PR #181 recorded these exclusions in _excluded_main_reconciliation.yaml; every
+    # catalog/gcp/_excluded*.yaml file is part of the excluded catalog.
+    catalog_dir = Path(__file__).resolve().parents[1] / "peaso/privesc/catalog/gcp"
+    excluded = {entry.get("id"): entry for path in sorted(catalog_dir.glob("_excluded*.yaml"))
+                for entry in yaml.safe_load(path.read_text()) or [] if isinstance(entry, dict)}
     assert IDS.isdisjoint(active)
     for ident in IDS:
         record = excluded[ident]

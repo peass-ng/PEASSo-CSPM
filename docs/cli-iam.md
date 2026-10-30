@@ -243,6 +243,10 @@ Use a dedicated auditor identity with read-only roles that cover:
   - `iam.roles.list` (custom roles discovery)
 - Service account keys:
   - `iam.serviceAccountKeys.list` (user-managed keys)
+- Cloud Workstations inventory (covered by `roles/viewer` and `roles/iam.securityReviewer`):
+  - `workstations.workstationClusters.list`
+  - `workstations.workstationConfigs.list` + `workstations.workstationConfigs.getIamPolicy`
+  - `workstations.workstations.list` + `workstations.workstations.getIamPolicy`
 - Group membership expansion (optional):
   - `cloudidentity.groups.get`
   - `cloudidentity.groups.list`

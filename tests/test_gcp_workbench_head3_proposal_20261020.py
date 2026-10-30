@@ -87,6 +87,10 @@ class NativeHTTP:
 
     def request(self, method, url, **kwargs):
         self.calls.append((method, url, kwargs))
+        if url == 'https://notebooks.googleapis.com/v2/' + self.row['name'] + ':getIamPolicy':
+            # 75087001 hydrates each listed instance's IAM policy.
+            assert method == 'GET' and kwargs['params'] == {'options.requestedPolicyVersion': 3}
+            return {'bindings': []}, 'wb-iam-1'
         assert method == 'GET' and url == URL
         if self.mode == 'denied':
             error = ReadError('denied', 'api_error', http_status=403)
@@ -104,7 +108,8 @@ def ordinary_capture(metadata, *, mode='collected', state='ACTIVE', name=NAME):
         'inventories': ['workbench_instance'], 'include_inherited': False,
         'concurrency': 1, 'metrics_scopes': False}}
     snapshot = GCPCollector(connector, requirements=['workbench_instance'], transport=transport).collect()
-    assert len(transport.calls) == 1
+    iam = 'https://notebooks.googleapis.com/v2/' + name + ':getIamPolicy'
+    assert [call[1] for call in transport.calls] == [URL] + ([iam] if mode != 'denied' else [])
     index = _index(snapshot, resources(snapshot))
     index['context'] = {'provider': 'gcp', 'scope': SCOPE}
     collection, = [c for c in snapshot['collections'] if c['type'] == 'workbench_instance']

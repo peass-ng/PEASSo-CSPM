@@ -563,9 +563,14 @@ def _workloads(snapshot, resources, by_type, signal):
             health_by_service = {compute_path(health["data"].get("backendService")): health["data"]
                 for health in by_type["backend_service_health"]
                 if health["scope"] == row["scope"] and health["data"].get("backendService")}
+            # Cloud Armor steps record per-route edge/backend decisions; only a
+            # backend service whose route is allowed carries the exposure.
             services = {compute_path(item.get("backend_service")) for step in assessment.path
                 if step.get("layer") == "cloud_armor"
-                for item in step.get("unprotected", []) if isinstance(item, dict)}
+                for item in [*(step.get("unprotected") or []),
+                             *(route for route in step.get("routes") or []
+                               if isinstance(route, dict) and route.get("decision") == "allow")]
+                if isinstance(item, dict) and item.get("backend_service")}
             for backend in cloud_workloads.candidates("backend_service", "gcp_backend_path",
                                                       [(row["scope"], service) for service in services]):
                 if backend["scope"] != row["scope"] or compute_path(backend["data"].get("selfLink")) not in services:

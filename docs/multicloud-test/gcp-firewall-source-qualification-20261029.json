@@ -3,7 +3,7 @@
   "aws_iam_access_analyzer_calls": 0,
   "base_main": "1f45df8dbabf707d3637bb6562e0789336fa4f8f",
   "baseline_test_correction": "Same stale exact-message failure reproduced on unchanged main; now asserts earlier finite successor exact error, same tamper bytes and AdmissionError; no production guard change.",
-  "candidate_source_sha256": "fe0e84bb0f5c59deb97810232db0a03d89b601ffaf2efc5e2a8fee0261f8c4d3",
+  "candidate_source_sha256": "7905bb5dd6cd790623ac8cb1a8c6189612c9072065559a6ce444e1b4627234d3",
   "combined_release_tests": "7 passed within initial16-test run; strict setup rerun separately below",
   "deploys": 0,
   "direct_sdk_sites": 29,
