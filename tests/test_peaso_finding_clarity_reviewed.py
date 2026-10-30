@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from peaso.checks import CHECKS
+from peaso.checks import CHECK_ALIASES, CHECKS
 from peaso.checks.finding_clarity_reviewed import ROWS, _digest, description, remediation
 
 PACK = Path(__file__).resolve().parents[1] / "peaso/rulepacks"
@@ -28,7 +28,12 @@ def source_rows():
 
 def test_reviewed_ids_are_exactly_thirty_registered_checks():
     assert len(ROWS) == 30
-    assert set(ROWS) <= {check.id for check in CHECKS}
+    registered = {check.id for check in CHECKS}
+    # fe6f7901 (#104) retired this exact overlapping id as an alias of its
+    # surviving native; its reviewed copy row is kept as history.
+    retired = {"aws.c2b.elasticache.cluster_public_subnet": "aws.c2b.elasticache.cluster_public_subnet_prowler"}
+    assert set(ROWS) - registered == set(retired)
+    assert all(CHECK_ALIASES[old] == new and new in registered for old, new in retired.items())
 
 
 @pytest.mark.parametrize("check_id", sorted(ROWS))

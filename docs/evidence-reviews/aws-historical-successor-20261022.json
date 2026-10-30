@@ -153,6 +153,31 @@
         }
       }
     },
+    "aws.claude_a.iam.prowler_role_service_trust_bound_to_account": {
+      "source": "peaso/checks/claude_aws_a_iam_prowler.py",
+      "evaluator_sha256": "99b746a20a95c7ac9626480210924deff7ae6edf85a3b834f11ec620bbfe85bf",
+      "description_contract_sha256": "a9b259104721981a426ccd96f6e6be9a3facc019cb06148e74ee7a0508254679",
+      "native_witnesses": {
+        "pass": {
+          "case_sha256": "73ebc8ee448bd690bb4211dee4376dcf9c049e25729d8f7b0ae9da25c36f105f",
+          "status": "PASS",
+          "evidence_sha256": "f41a7b2d9e227dd8e38c7f1cb8fd413052b36a1380dff096f0a38bd31eac9d9c",
+          "summary_sha256": "359da0e95ee713f18d464f81b034ae5f3d6abcb4ca852797b23b69888dfecea5"
+        },
+        "fail": {
+          "case_sha256": "5f6d7d4fec4d4557c06997f7e2c6fba1d6a9ac3f7432e754c617f4b0f7fd8a0e",
+          "status": "FAIL",
+          "evidence_sha256": "201d72128d676ea86b030a4bba446c19672acf7e955376d044ff6c94eaddf07f",
+          "summary_sha256": "c3bd96944efabb4626cf94341640767b16b7aee944676e4ccedd061e201e9abe"
+        },
+        "unknown": {
+          "case_sha256": "8717665092d982c86836183648cb29f4846b9b28b1705920fcf7cf29919ae32d",
+          "status": "UNKNOWN",
+          "evidence_sha256": "07143d9371e16471cb4601ceb8d78f5fb81105915c91b2959c2eca16cbe2079f",
+          "summary_sha256": "ddb5ce84840b10f96713e0ed848c91baa2a8307a48c79f2af969b44b70d29d1f"
+        }
+      }
+    },
     "aws.claude_a.iam.role_used_within_60_days": {
       "source": "peaso/unused_iam_aws_activity.py",
       "evaluator_sha256": "af034bd2c8bbde87453c3d958267b4cbd5835034324fa78ff968d01acf2f0a4b",
@@ -175,6 +200,31 @@
           "status": "UNKNOWN",
           "evidence_sha256": "248861611cb78fb9aee85a5216697b5bbe15f5d903d315b4db5501c9ea978cfb",
           "summary_sha256": "2eca310d559febdb2f2a3ce6d8260986ff3cf56adfb42b01fd83314247a69692"
+        }
+      }
+    },
+    "aws.claude_a.s3.prowler_acl_disabled": {
+      "source": "peaso/checks/claude_aws_a_s3.py",
+      "evaluator_sha256": "af010e883ece4165102f8aeeb5ca795365a06507cb4bc817f5e8ebd7465ee262",
+      "description_contract_sha256": "7749e97826b7a25a8aeb34b6d8f5ee039bcf3838410cfe5fe99affeb77335efe",
+      "native_witnesses": {
+        "pass": {
+          "case_sha256": "37991f9c183e5f1027ce9cab2c39c6daf5ba5c48425ea26503cd59654e6033b7",
+          "status": "PASS",
+          "evidence_sha256": "e40fc351d02fdac156f3ada736a29f04e090f7b8d91a28adab6085f3c11114ea",
+          "summary_sha256": "a3d076dd9a06e304e682d3ab04640e89e69c4008cfac50328e8320a637e084ec"
+        },
+        "fail": {
+          "case_sha256": "6895f333c8a6b8a9c5b94172919d148c120c8a76a16e02a38a68ffa7a5a01096",
+          "status": "FAIL",
+          "evidence_sha256": "d8218666c532da4d3c85c50ff05a320c839e4907c4f9aebe036979cf38b61566",
+          "summary_sha256": "addfa132dfe6e1eb2255ad20ddab3b132576f028b21246889800e8c1e2eb8a4a"
+        },
+        "unknown": {
+          "case_sha256": "563e6b71b670c8d0851b442db32a103336811aeeb1daac11757a334ee8e25991",
+          "status": "UNKNOWN",
+          "evidence_sha256": "5b42bf3b4536ddfd215d94551c836642a091638c9dcf2d66969c24daa31dcc32",
+          "summary_sha256": "4f3fdd3eb4db01a1430158c238b2d64797c1752f4d30a6640bf5ef83552405d8"
         }
       }
     },

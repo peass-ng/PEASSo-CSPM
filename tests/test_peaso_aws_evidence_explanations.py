@@ -121,7 +121,11 @@ def test_every_registered_aws_check_and_retired_alias_has_source_review_and_real
         'aws.claude_a.iam.access_keys_used_45',
         'aws.claude_a.iam.console_password_used_45',
         'aws.claude_a.iam.prowler_console_password_used_45',
+        # 5768474c: only a conditioned service trust is in scope.
+        'aws.claude_a.iam.prowler_role_service_trust_bound_to_account',
         'aws.claude_a.iam.role_used_within_60_days',
+        # a9d62a01: ownership controls are decided only from collected detail.
+        'aws.claude_a.s3.prowler_acl_disabled',
         'aws.claude_a.vpc.sg_in_use_anywhere',
         'aws.claude_a.vpc.sg_no_world_any_port_on_customer_enis',
         'aws.gap.iam.active_keys_used_within_45_days',

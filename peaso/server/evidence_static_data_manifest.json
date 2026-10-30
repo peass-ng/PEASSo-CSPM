@@ -19,7 +19,7 @@
   "peaso/checks/azure_servicebus_network_evidence.json": "ec2640cec94db54516d327395898b0d5eca9ce92375cf2a631c44c6429ae0217",
   "peaso/checks/azure_unknown_group_effects.json": "2353b473b1948af782c8d73b9348befcc875ce062123ed564d3c67e4ba53b8e6",
   "peaso/checks/azure_unknown_specific_effects.json": "6c7e9406e2ec99631f4bc7e018af3a2875c56a8ea043bb17993ac974f3126100",
-  "peaso/checks/central_batch_fixtures.json": "a145cffa0702ff94e29027a29c8e54cf5365b197f8028d9bfe9e2bfac1c1b0a0",
+  "peaso/checks/central_batch_fixtures.json": "f4a8328ebc809eac38868da5d5c9a3b2a02bab1e0b975f45209b6e7c976be3e0",
   "peaso/checks/gcp_consolidated_secret_profiles_20261020.json": "89693bfe01782c44e5dfc273fe1940a671cf878173164b44fadfa550a70d36d3",
   "peaso/checks/gcp_evidence_explanations.json": "91d201e8a8c094c538dbc759d4fad695cb16c3cae41ae582925af03a79d14cfc",
   "peaso/checks/gcp_evidence_explanations_current_20261023.json": "6b47bb6104debf65bb5ec8c7178547ec0d57da044d73153ae72587ed6a0addfb",

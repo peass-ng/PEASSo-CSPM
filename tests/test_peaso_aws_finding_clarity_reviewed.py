@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from peaso.checks import CHECKS
+from peaso.checks import CHECK_ALIASES, CHECKS
 from peaso.checks.catalog import _base_description_for
 from peaso.checks.fixtures import CASES
 from peaso.checks.finding_clarity_reviewed import ROWS as PREVIOUS
@@ -15,6 +15,30 @@ from peaso.checks.aws_finding_clarity_reviewed import SEVERITY_REVIEW, SEVERITY_
 
 PACK = Path(__file__).resolve().parents[1] / "peaso/rulepacks"
 REGISTRY = {check.id: check for check in CHECKS}
+# fe6f7901 (#104) retired these exact overlapping reviewed ids as aliases of a
+# surviving registered native check; their reviewed copy rows stay as history.
+RETIRED_REVIEWED_ALIASES = {
+    "aws.a.cloudwatch.cross_account_role_absent": "aws.claude2_a.cloudwatch.cross_account_sharing_role_absent",
+    "aws.b.redshift.no_public_endpoint": "aws.cb.redshift.not_publicly_accessible",
+    "aws.c2b.ecs.service_no_public_ip": "aws.c2b.ecs.awsvpc_service_no_public_ip",
+    "aws.c2b.elasticache.cluster_public_subnet": "aws.c2b.elasticache.cluster_public_subnet_prowler",
+}
+
+# fe6f7901: (severity reviewed for the retired id, severity of its survivor).
+RETIRED_PRIORITY_SEVERITIES = {
+    "aws.a.cloudwatch.cross_account_role_absent": ("medium", "low"),
+    "aws.b.redshift.no_public_endpoint": ("medium", "critical"),
+    "aws.c2b.ecs.service_no_public_ip": ("high", "high"),
+    "aws.c2b.elasticache.cluster_public_subnet": ("medium", "medium"),
+}
+
+
+def _registered(cid):
+    """Resolve only the exact reviewed retirements; any other missing id fails."""
+    if cid in RETIRED_REVIEWED_ALIASES:
+        assert cid not in REGISTRY and CHECK_ALIASES[cid] == RETIRED_REVIEWED_ALIASES[cid]
+        return REGISTRY[RETIRED_REVIEWED_ALIASES[cid]]
+    return REGISTRY[cid]
 
 
 @pytest.fixture(scope="module")
@@ -43,9 +67,9 @@ def remediations():
 
 def test_scope_is_711_distinct_aws_controls_after_the_initial_review():
     assert len(ROWS) == 711
-    assert set(ROWS) <= REGISTRY.keys()
+    assert set(ROWS) - REGISTRY.keys() == set(RETIRED_REVIEWED_ALIASES) - PREVIOUS.keys()
     assert not set(ROWS) & PREVIOUS.keys()
-    assert all(REGISTRY[cid].provider == "aws" for cid in ROWS)
+    assert all(_registered(cid).provider == "aws" for cid in ROWS)
     frontend = (PACK.parents[1] / "frontend/src/awsReviewedCheckIds.ts").read_text()
     ids = json.loads(frontend.split("Set<string>(", 1)[1].split(");", 1)[0])
     assert set(ids) == set(ROWS) | {cid for cid in PREVIOUS if cid.startswith("aws.")}, "Specific evidence prose must not claim an unreviewed check"
@@ -216,6 +240,43 @@ _MANAGED_VERSION_PREDECESSOR = 'def aws_documents(item):\n    documents, unresol
 _MANAGED_VERSION_SUCCESSOR_SHA256 = '8815ab5071a819f27ff1d00fd57dde6dd9c416dd5c93e1ac10da54b3c26efe40'
 
 
+# Source files edited after the priority review (alias retirements in fe6f7901,
+# fail-closed detail status in a9d62a01 and later reviewed native edits). The
+# severities above are still compared with the live registry for every id.
+PRIORITY_SOURCE_SUCCESSORS = {
+    "peaso/checks/__init__.py": {
+        "historical_sha256": "18312adcf5e0e32f12c5aa182d4f9886dacf5c64afa71f3e11540302096247b4",
+        "current_sha256": "9e30d82d62313b05b8b0c8c83b4c3bb1de339563dd8976fc2d59929cce4587ae"},
+    "peaso/checks/aws_a_cloudwatch.py": {
+        "historical_sha256": "7a1676c0684b5a13873664dee3ede626c05dc890c0af23009e09365dc1fdd05e",
+        "current_sha256": "7cae38304bca4ec34d34d7604f44af5f07c084a49987c204e63988276c5b67f9"},
+    "peaso/checks/aws_a_s3.py": {
+        "historical_sha256": "c52c29a395fa7a92d05679850b5ac69cdc44e84a59a70080f7d864cb4f4bba2c",
+        "current_sha256": "ff02961210c23380ae79b3ea983e7734f5205ef49acb0a3e00bbb5f7eea3916d"},
+    "peaso/checks/batch_remaining_aws.py": {
+        "historical_sha256": "93bd371abb6c9c16dcaec0c813eebf0f3fb7e6d71b9a6b12a8b6aaf99ecc3f93",
+        "current_sha256": "b4130e72a349b150a6cfe567d4c1e58abcc76c07810dfc5bab77af5af26dac81"},
+    "peaso/checks/claude2_aws_b_compute.py": {
+        "historical_sha256": "4c4059e8eaec5777274a9affdd3d64608d9c78970b117d6b2fa8383b72e69a4e",
+        "current_sha256": "8b061001de6711d59ac584c15f09a703fa2f41b8455838bba714d862634db4ed"},
+    "peaso/checks/claude2_aws_b_data.py": {
+        "historical_sha256": "5916d6a78cffd92a3aaacf9d1498df334170f43e760752ca28f470f5c19689b8",
+        "current_sha256": "cce4938d49ca2d51394fb19b380eb50e97d007938822ac3595dd359178d7e102"},
+    "peaso/checks/claude_aws_a_iam.py": {
+        "historical_sha256": "671b51dad0a630377080f1f74a41eb6b0afa481fae9bd29c4c7da5c6d9dc8eaf",
+        "current_sha256": "5a1f81ead33c02f957be1d1ee2461afaa7a07b2cb62ec8997dcbc377f3c5c687"},
+    "peaso/checks/claude_aws_a_iam_prowler.py": {
+        "historical_sha256": "c0235336e05c8f7a2eff651afd5698938cd3c9ee163599d07037ac7ae022d23e",
+        "current_sha256": "36e91dbfdc78dc4970dad0085ee83fb856bcc12b9395e4c1945b7d079e6944fb"},
+    "peaso/checks/claude_aws_a_s3.py": {
+        "historical_sha256": "18c38c1034a800039d7a11eec8c0d281d42c63051c1d90d02b1a0ba15a4e1160",
+        "current_sha256": "154081adf1d201d3616dbf1f3741c84bed0d16ecdf3397733473d367a34373cf"},
+    "peaso/checks/claude_aws_b_messaging.py": {
+        "historical_sha256": "48c8fd57ba42ed480b33f9dc6b2dcefe2fdbf18d53aaad4f987fdc2807dd687c",
+        "current_sha256": "3c01e5e55f6bb580757ad65dd8239f0edd21943b3539f1d2ae4d4c9168fb4084"},
+}
+
+
 def _reviewed_priority_source(source):
     text = (PACK.parents[1] / source["file"]).read_bytes()
     if source["file"] == "peaso/checks/__init__.py":
@@ -255,10 +316,24 @@ def _reviewed_priority_source(source):
 def test_priority_proposals_are_bound_to_the_actual_unchanged_sources():
     assert set(SEVERITY_REVIEW) == set(SEVERITY_SOURCE_REVIEW) == set(ROWS) | {cid for cid in PREVIOUS if cid.startswith("aws.")}
     for cid, proposal in SEVERITY_REVIEW.items():
-        assert proposal["current"] == REGISTRY[cid].severity
+        if cid in RETIRED_PRIORITY_SEVERITIES:
+            # The retired id no longer has its own registration; its reviewed
+            # severity stays historical and the survivor keeps its own.
+            retired, survivor = RETIRED_PRIORITY_SEVERITIES[cid]
+            assert proposal["current"] == retired and _registered(cid).severity == survivor
+        else:
+            assert proposal["current"] == _registered(cid).severity
         assert proposal["recommended"] in {"info", "low", "medium", "high", "critical"}
         assert proposal["reason"]
         source = SEVERITY_SOURCE_REVIEW[cid]
+        successor = PRIORITY_SOURCE_SUCCESSORS.get(source["file"])
+        if successor is not None:
+            # The historical receipt stays frozen; the reviewed later edit is
+            # admitted only as these exact current bytes.
+            assert source["sha256"] == successor["historical_sha256"]
+            current = hashlib.sha256((PACK.parents[1] / source["file"]).read_bytes()).hexdigest()
+            assert current == successor["current_sha256"], source["file"]
+            continue
         assert hashlib.sha256(_reviewed_priority_source(source)).hexdigest() == source["sha256"]
 
 

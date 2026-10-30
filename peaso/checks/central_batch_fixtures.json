@@ -11874,6 +11874,7 @@
   "aws_g6_ecs_all_containers_logging": {
     "fail": {
       "Definition": {
+        "collection_status": "collected",
         "taskDefinition": {
           "containerDefinitions": [
             {
@@ -11893,6 +11894,7 @@
             "items": [
               {
                 "Definition": {
+                  "collection_status": "collected",
                   "taskDefinition": {
                     "containerDefinitions": [
                       {
@@ -11921,6 +11923,7 @@
         {
           "data": {
             "Definition": {
+              "collection_status": "collected",
               "taskDefinition": {
                 "containerDefinitions": [
                   {
@@ -11946,6 +11949,7 @@
             "items": [
               {
                 "Definition": {
+                  "collection_status": "collected",
                   "taskDefinition": {
                     "containerDefinitions": [
                       {
@@ -11977,6 +11981,7 @@
         {
           "data": {
             "Definition": {
+              "collection_status": "collected",
               "taskDefinition": {
                 "containerDefinitions": [
                   {
@@ -12002,6 +12007,7 @@
     "missing": {},
     "pass": {
       "Definition": {
+        "collection_status": "collected",
         "taskDefinition": {
           "containerDefinitions": [
             {
@@ -12024,6 +12030,7 @@
             "items": [
               {
                 "Definition": {
+                  "collection_status": "collected",
                   "taskDefinition": {
                     "containerDefinitions": [
                       {
@@ -12055,6 +12062,7 @@
         {
           "data": {
             "Definition": {
+              "collection_status": "collected",
               "taskDefinition": {
                 "containerDefinitions": [
                   {
@@ -12079,6 +12087,7 @@
     "proposed_spec_sha256": "c0eff24e0b69214a769efc515adb9323ec3dd81b5c6d1b958d37282b662c71f8",
     "unknown": {
       "Definition": {
+        "collection_status": "collected",
         "taskDefinition": {
           "containerDefinitions": [
             {
@@ -12101,6 +12110,7 @@
             "items": [
               {
                 "Definition": {
+                  "collection_status": "collected",
                   "taskDefinition": {
                     "containerDefinitions": [
                       {
@@ -12132,6 +12142,7 @@
         {
           "data": {
             "Definition": {
+              "collection_status": "collected",
               "taskDefinition": {
                 "containerDefinitions": [
                   {
