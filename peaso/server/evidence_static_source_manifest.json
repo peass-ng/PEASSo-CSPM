@@ -75,7 +75,7 @@
   "peaso/checks/k8s_ports_components.py": "0b717883a125ed880899da71f58053d6b59756c8f18f0b5ea5b9f4d44fd5538e",
   "peaso/checks/k8s_ports_workloads.py": "5178e59a5d8a8dacfd349eaed2d55c1655dd1745baabae042006c59c8cbc6a6a",
   "peaso/checks/k8s_workload_clarity_reviewed.py": "4faad1de0c73c2fd38f87f0f384a111047373281aba51182e3c298e585c03fb5",
-  "peaso/checks/k8s_workload_finding_summary.py": "150be33377e8f329a7e1b4cd2ac2c1970f091ee87ae03d30c695009a3bc5eb16",
+  "peaso/checks/k8s_workload_finding_summary.py": "7df35072df208eefa0023f59ddec52be5f3dc0ee367b457c541da150deff1e49",
   "peaso/checks/provider_scope_observed_evidence.py": "8c29a1d52e64ce16fd9c0651db06a573118b776c2f1c2208db5bef468b14e2ae",
   "peaso/checks/public_source_secret_observed_20261020.py": "c43b3159a39681bd7168541345b666d02a5d509474d372cd6c1796c7fae99532",
   "peaso/checks/selected_configuration_content_observed_20261020.py": "557b419a76bd8e3b77618e1a0dbe94c396549c67b6480b3578a8e0b82b01ae5c",

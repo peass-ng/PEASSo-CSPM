@@ -92,7 +92,7 @@ def pod_level_observation(finding):
             lines = (f'The PodSpec declares ServiceAccount “{safe_value}”.',
                      'The workload may use this identity for Kubernetes API requests.',
                      'Its assigned permissions could allow access to other resources.')
-        elif status == 'FAIL' and value in (None, ''):
+        elif status == 'FAIL' and 'declared_service_account' in evidence and value in (None, ''):
             lines = ('The PodSpec declares no ServiceAccount name.',
                      'The workload may use the namespace’s default ServiceAccount.',
                      'That identity could have permissions shared with other workloads.')
@@ -102,7 +102,7 @@ def pod_level_observation(finding):
             lines = ('The PodSpec declares seccompProfile.type=RuntimeDefault.',
                      'This profile may restrict system calls available to the workload.',
                      'A container override could change the effective restriction.')
-        elif status == 'FAIL' and value in (None, 'Localhost', 'Unconfined'):
+        elif status == 'FAIL' and 'declared_pod_profile' in evidence and value in (None, 'Localhost', 'Unconfined'):
             declaration = ('no Pod-level seccomp profile' if value is None else
                            f'seccompProfile.type={value}')
             lines = (f'The PodSpec declares {declaration}.',
