@@ -34,7 +34,10 @@ def sdk(monkeypatch):
         routes.append((service, region))
         return clients[service, region]
     monkeypatch.setattr(aws.Requests, 'client', client)
-    requests = aws.Requests({'retry_attempts': 1})
+    # botocore Stubber answers in FIFO order per client. b8745bca reads the
+    # per-bucket S3 details concurrently, so keep one worker here; the serial
+    # path assigns identical rows (aws_request_pool.ordered_map keeps order).
+    requests = aws.Requests({'retry_attempts': 1, 'service_concurrency': 1})
     yield requests, session, stub, routes
     for value in stubs.values():
         value.assert_no_pending_responses()
