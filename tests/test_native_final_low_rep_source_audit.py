@@ -235,3 +235,26 @@ def test_final_helper_proof_and_incomplete_absence_stay_separate():
                      'aws.claude_a.guardduty.prowler_no_high_severity_findings',
                      'aws.claude_a.guardduty.prowler_runtime_monitoring'):
         assert reviewed(check_id, s3_coverage=coverage)['decision'] == 'retain_ai'
+
+
+def test_collector_pin_refresh_receipt_binds_current_cited_ranges():
+    # The refreshed whole-file collector pins must come from the reviewed
+    # range-by-range receipt, and every cited range must still hash exactly.
+    from pathlib import Path
+    root = Path(audit.__file__).resolve().parents[1]
+    receipt = json.loads((root / 'docs/ai-review/native-final-low-rep-collector-pin-refresh-20261030.json').read_text())
+    assert receipt['audit_commit'] == 'a9d62a01'
+    for path, row in receipt['sources'].items():
+        assert audit.SPECIAL_SOURCE_PINS[path] == row['new_source_sha256']
+        assert hashlib.sha256((root / path).read_bytes()).hexdigest() == row['new_source_sha256']
+    cited = {(path, span) for path, spans in audit.FINAL_COLLECTOR_REFS.values() for span in spans.split(',')}
+    recorded = {(row['path'], row['new_lines']) for row in receipt['ranges']}
+    assert cited <= recorded
+    for row in receipt['ranges']:
+        first, last = map(int, row['new_lines'].split('-'))
+        data = b''.join((root / row['path']).read_bytes().splitlines(True)[first - 1:last])
+        assert hashlib.sha256(data).hexdigest() == row['new_range_sha256'], row
+        if row['status'] == 'byte_identical_moved':
+            assert row['old_range_sha256'] == row['new_range_sha256'], row
+        else:
+            assert row['status'] == 'reviewed_additive' and row['review_note'], row
