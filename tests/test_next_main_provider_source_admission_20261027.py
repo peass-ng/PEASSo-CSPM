@@ -7,7 +7,12 @@ from peaso import private_secret_source_epoch_20261021 as epoch,private_reviewed
 from peaso.collectors import azure,azure_graph_batch as graph,k8s,aws_code_log_content_indicators as logs,aws_selected_configuration_secret_indicators as selected,gcp_configuration_secret_indicators as gcp
 ROOT=Path(__file__).resolve().parents[1]
 def graph_proof():current.trusted_definition(azure.AzureTransport.request,ROOT)
-def log_proof():epoch.trusted_definition(logs.project_response,ROOT)
+LOG_PATH='peaso/collectors/aws_code_log_content_indicators.py'
+def log_proof():
+    # c2e6a793 changed scan_logs after this receipt; production proves the
+    # unchanged project_response through the finite current-source successor.
+    before=next(row['before'] for row in epoch.source_rows()[LOG_PATH]['definitions'] if row['name']=='project_response')
+    current._finite_source().unchanged_callable_projection(logs.project_response,{'path':LOG_PATH,'sha256':before},ROOT)
 def k8s_proof():current.verify_k8s_literal_current(k8s,ROOT)
 
 def test_next_main_and_existing_current_producers_admit():
