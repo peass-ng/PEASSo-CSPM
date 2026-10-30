@@ -4357,6 +4357,7 @@ def collect(connector, requirements=None, *, transport=None):
                             yield projected
                     membership_jobs.append(("app_configuration_nsp_membership", perimeter_id, "Microsoft.Network", memberships))
                 reader.run(membership_jobs)
+        deferred_export_jobs = []
         if "cost_export" in wanted:
             def billing_export_scopes():
                 account_url = ARM + "/providers/Microsoft.Billing/billingAccounts?api-version=2024-04-01&includeAll=true"
@@ -4449,7 +4450,11 @@ def collect(connector, requirements=None, *, transport=None):
                 if collection["type"] in ("resource_group", "management_group", "cost_export_billing_scope") and collection["status"] in ("collected", "empty", "partial"):
                     export_scopes.extend(item["id"] for item in collection["items"] if isinstance(item.get("id"), str))
             export_scopes = list(dict.fromkeys(export_scopes))
-            reader.run([("cost_export", scope, "Microsoft.CostManagement", lambda scope=scope: cost_exports(scope)) for scope in export_scopes])
+            export_jobs = [("cost_export", scope, "Microsoft.CostManagement", lambda scope=scope: cost_exports(scope)) for scope in export_scopes]
+            if "acat_report" in wanted and reader.workers > 1 and not reader.explicit_limits:
+                deferred_export_jobs = export_jobs
+            else:
+                reader.run(export_jobs)
         if "acat_report" in wanted:
             def acat_reports():
                 url = ARM + "/providers/Microsoft.AppComplianceAutomation/reports?api-version=2024-06-27"
@@ -4473,7 +4478,7 @@ def collect(connector, requirements=None, *, transport=None):
                                                          "storageInfo": {"subscriptionId": storage.get("subscriptionId")}
                                                          if storage is not None else None}})
                     yield projected
-            reader.run([("acat_report", tenant_scope, "Microsoft.AppComplianceAutomation", acat_reports)])
+            reader.run(deferred_export_jobs + [("acat_report", tenant_scope, "Microsoft.AppComplianceAutomation", acat_reports)])
         if "acat_webhook" in wanted:
             acat_jobs = []
             for collection in reader.collections:

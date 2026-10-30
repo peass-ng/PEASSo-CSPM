@@ -303,6 +303,13 @@ def build(root, platform, assigned, reviews, write_json):
             if stored is not value:
                 db.execute('UPDATE records SET detail=? WHERE domain=? AND id=?', (encode(stored), domain, ident))
         db.commit()
+        # The default reader lists every status/candidate in severity/id order.
+        # record_order has candidate between domain and risk, so it cannot serve
+        # that ordering and SQLite otherwise scans/sorts the entire domain for
+        # each page. Build after the final source rows, without duplicating any
+        # summary/detail or changing the candidate-filtered lookup index.
+        db.execute('CREATE INDEX record_all_order ON records(domain,risk,id)')
+        db.commit()
         resource_counts = dict(Counter(row.get('type', 'unknown') for row in platform.get('source_inventory', platform.get('inventory', []))))
         source_counts = dict(db.execute("SELECT domain,COUNT(*) FROM records WHERE domain NOT LIKE 'decision_%' GROUP BY domain ORDER BY domain"))
         overview = {'version': 2, 'scan': {key: compact(value) for key, value in scan.items()},
