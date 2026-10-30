@@ -54,10 +54,13 @@ def test_request_checks_reach_collection_and_evaluation(tmp_path, route, provide
 def test_cli_checks_override_request_for_both_phases(tmp_path, route):
     file = tmp_path / 'request.json'
     file.write_text(json.dumps({'connector': {'provider': 'aws', 'scopes': ['123456789012/us-east-1']},
-                                'checks': ['old.check']}))
-    args = cli.build_parser().parse_args(['scan', '--request', str(file), '--checks', 'new.check', '--quiet'])
+                                'checks': ['aws.claude_a.vpc.vpcs_in_multiple_regions']}))
+    # Selected check IDs are validated against the provider registry, so both are real.
+    args = cli.build_parser().parse_args(['scan', '--request', str(file), '--checks',
+                                          'aws.claude_a.vpc.nondefault_vpcs_in_multiple_regions', '--quiet'])
     cli._execute(args, {'categories': None, 'checks': args.checks, 'frameworks': None})
-    assert route['request']['checks'] == route['evaluation']['checks'] == ['new.check']
+    assert route['request']['checks'] == route['evaluation']['checks'] == [
+        'aws.claude_a.vpc.nondefault_vpcs_in_multiple_regions']
 
 
 def test_auth_and_options_files_route_without_enabling_content(tmp_path, route):

@@ -13,7 +13,7 @@ TARGET = 'peaso/collectors/aws_selected_configuration_secret_indicators.py'
 
 def test_current_and_historical_callable_proof():
     proof = epoch.trusted_definition(producer.collect_selected, ROOT)
-    assert proof['current']['source_sha256'] == '85372f9597ec1d5ef8d84e2fea4ec2cdf980a72baaaa5f55c7a3916b54eb94ba'
+    assert proof['current']['source_sha256'] == 'a2d0d058fcb5b39aa92fb4ed31c8db7d5dfd6f1a4ec528295b8ec3e8bfab7613'
     assert proof['historical']['source_sha256'] == 'd639bec8e2b20bd0ebdd72ef774995bbaa12f9ed0051cc4f6f4635290907cc0b'
     row = {'path': TARGET, 'qualname': 'collect_selected', 'sha256': proof['historical']['source_sha256']}
     assert epoch.callable_projection(producer.collect_selected, row, ROOT)['sha256'] == proof['current']['source_sha256']

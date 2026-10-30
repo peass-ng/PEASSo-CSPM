@@ -71,10 +71,17 @@ def test_collector_derives_complete_account_view_without_duplicate_vpc_calls(mon
             {"RegionName": region, "OptInStatus": "opt-in-not-required"} for region in REGIONS]}, {"AllRegions": True})
         for region in REGIONS:
             stubs[("ec2", region)].add_response("describe_vpcs", {"Vpcs": [{"VpcId": "vpc-same", "IsDefault": False}]}, {})
+            # The regional VPC reader enriches each VPC with its two DNS attributes.
+            stubs[("ec2", region)].add_response("describe_vpc_attribute", {"VpcId": "vpc-same",
+                "EnableDnsSupport": {"Value": True}}, {"VpcId": "vpc-same", "Attribute": "enableDnsSupport"})
+            stubs[("ec2", region)].add_response("describe_vpc_attribute", {"VpcId": "vpc-same",
+                "EnableDnsHostnames": {"Value": True}}, {"VpcId": "vpc-same", "Attribute": "enableDnsHostnames"})
         snapshot = aws.collect({"provider": "aws", "scopes": [ACCOUNT]}, ["vpc_account_inventory"])
         derived = next(c for c in snapshot["collections"] if c["type"] == "vpc_account_inventory")
         assert derived["status"] == "collected" and derived["global"] is True
-        assert snapshot["metadata"]["calls"] == 4
+        # STS, DescribeRegions, then one DescribeVpcs and two VPC DNS attribute reads per Region;
+        # the account-wide view itself adds no API calls.
+        assert snapshot["metadata"]["calls"] == 8
         assert len({i["id"] for i in derived["items"]}) == 2
         report = evaluate_snapshot(snapshot, categories=["hardening"], checks=[
             "aws.claude_a.vpc.vpcs_in_multiple_regions", "aws.claude_a.vpc.nondefault_vpcs_in_multiple_regions"])

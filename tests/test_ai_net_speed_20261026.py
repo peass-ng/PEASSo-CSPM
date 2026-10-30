@@ -12,40 +12,9 @@ from peaso.snapshot import make_snapshot, resources
 
 # ------------------------------------------------- original per-call scans
 
-def original_gcp_firewall(inventory, instance, interface, assessment):
-    data = instance["data"]
-    network = interface.get("network")
-    tags = set(as_list((data.get("tags") or {}).get("items")))
-    accounts = {s.get("email") for s in as_list(data.get("serviceAccounts")) if isinstance(s, dict)}
-    allowed, decided = {}, {}
-    policies = inventory.items("firewall_policy")
-    for policy in policies:
-        rules = sorted((r for r in as_list(policy["data"].get("rules")) if isinstance(r, dict) and r.get("direction", "INGRESS") == "INGRESS"
-                        and not r.get("disabled")), key=lambda r: int(r.get("priority", 1000)))
-        for rule in rules:
-            match = rule.get("match") or {}
-            if not any(ie._internet(x) for x in as_list(match.get("srcIpRanges"))):
-                continue
-            targets = as_list(rule.get("targetResources"))
-            if targets and network not in targets:
-                continue
-            if rule.get("targetSecureTags") or rule.get("targetServiceAccounts"):
-                assessment.gap("firewall", f"firewall policy {ie.native_id(policy)} rule {rule.get('priority')} targets tags/service accounts", None)
-                assessment.unresolved[-1]["decisive"] = False
-                continue
-            ports = ie._gcp_rule_ports(match.get("layer4Configs"))
-            fresh = ie.subtract(ports, decided)
-            if rule.get("action") == "allow":
-                allowed = ie.union(allowed, fresh)
-                decided = ie.union(decided, ports)
-            elif rule.get("action") == "deny":
-                decided = ie.union(decided, ports)
-    if policies:
-        assessment.step("firewall_policy", "evaluated", policies=[ie.native_id(p) for p in policies], allowed=ie.describe(allowed))
-    elif inventory.state("firewall_policy").startswith("missing"):
-        assessment.gap("firewall_policy", "hierarchical/network firewall policies not collected", "compute firewallPolicies")
-        assessment.unresolved[-1]["decisive"] = False
-    candidates = []
+def original_gcp_network_internet_rules(inventory, network):
+    """Per-interface rescan of every VPC firewall rule, without the network index."""
+    rules = []
     for rule in inventory.items("firewall"):
         r = rule["data"]
         if r.get("network") != network or r.get("direction", "INGRESS") != "INGRESS" or r.get("disabled"):
@@ -53,30 +22,10 @@ def original_gcp_firewall(inventory, instance, interface, assessment):
         sources = as_list(r.get("sourceRanges"))
         if not sources and (r.get("sourceTags") or r.get("sourceServiceAccounts")):
             continue
-        if sources and not any(ie._internet(x) for x in sources):
+        if sources and not any(ie._public_source(x) for x in sources):
             continue
-        if r.get("targetTags") and not tags & set(r["targetTags"]):
-            continue
-        if r.get("targetServiceAccounts") and not accounts & set(r["targetServiceAccounts"]):
-            continue
-        candidates.append(rule)
-    if inventory.state("firewall").startswith("missing"):
-        assessment.gap("firewall", f"VPC firewall rules {inventory.state('firewall')}", "compute firewalls.list")
-        return None
-    matched = []
-    for rule in sorted(candidates, key=lambda x: (int(x["data"].get("priority", 1000)), 0 if x["data"].get("denied") else 1)):
-        r = rule["data"]
-        ports = ie._gcp_rule_ports(r.get("denied") or r.get("allowed"))
-        fresh = ie.subtract(ports, decided)
-        if r.get("allowed") and not ie.empty(fresh):
-            allowed = ie.union(allowed, fresh)
-            matched.append({"rule": r.get("name"), "priority": r.get("priority", 1000), "action": "allow", "ports": ie.describe(fresh)})
-        elif r.get("denied") and not ie.empty(fresh):
-            matched.append({"rule": r.get("name"), "priority": r.get("priority", 1000), "action": "deny", "ports": ie.describe(fresh)})
-        decided = ie.union(decided, ports)
-    assessment.step("firewall", "allow" if not ie.empty(allowed) else "block", network=network, matched_rules=matched,
-                    implied="deny ingress", allowed=ie.describe(allowed))
-    return allowed
+        rules.append(rule)
+    return rules
 
 
 def original_azure_backend_nics(inventory, pool_ids):
@@ -93,7 +42,7 @@ def run_both(monkeypatch, snapshot):
     rows = resources(snapshot)
     fresh = json.dumps(ie.internet_findings(snapshot, rows), sort_keys=True, default=str)
     with monkeypatch.context() as patch:
-        patch.setattr(ie, "_gcp_firewall", original_gcp_firewall)
+        patch.setattr(ie, "_gcp_network_internet_rules", original_gcp_network_internet_rules)
         patch.setattr(ie, "_azure_backend_nics", original_azure_backend_nics)
         patch.setattr(ie, "_azure_nic_config_index", lambda inventory: None)
         reference = json.dumps(ie.internet_findings(snapshot, rows), sort_keys=True, default=str)
@@ -227,9 +176,10 @@ def test_static_evidence_drift_falls_back_to_native(monkeypatch):
 
 
 def test_single_stage_proves_and_prepares_only_its_own_stage(monkeypatch, tmp_path):
+    """Hardening/Exposure are native-final; only the Network stage prepares its input."""
     from test_progressive_analyzer_20261022 import _exact_reuse_fixture
     from peaso.ai import network, pipeline
-    _exact_reuse_fixture(monkeypatch, tmp_path)
+    calls = _exact_reuse_fixture(monkeypatch, tmp_path)
     prepared = []
     original = network.prepare
     monkeypatch.setattr(network, "prepare", lambda *args: prepared.append(1) or original(*args))
@@ -238,14 +188,15 @@ def test_single_stage_proves_and_prepares_only_its_own_stage(monkeypatch, tmp_pa
             for category in ("hardening", "exposure")]
     report = {"provider": "aws", "created_at": "t", "snapshot_id": "s", "findings": rows, "graphs": {}}
     early = pipeline.review_scan(report, {}, {}, tenant="tenant", artifacts=None, stages=("hardening",))
-    assert prepared == [] and early["review_fingerprints"]["exposure"] == {}
-    full = pipeline.review_scan(report, {}, {}, tenant="tenant", artifacts=None)
-    assert prepared == [1]
-    assert early["review_fingerprints"]["hardening"] == full["review_fingerprints"]["hardening"]
-    assert set(full["review_fingerprints"]["exposure"]) == {"exposure-1"}
-    reused = pipeline.review_scan(report, {}, {}, tenant="tenant", artifacts=None,
+    assert prepared == [] and early["status"] == "skipped" and early["reason"] == "no_ai_sections_selected"
+    full = pipeline.review_scan(report, {}, {}, tenant="tenant", artifacts=None, stages=("network",))
+    assert prepared == [1] and full["status"] == "completed" and calls == []
+    assert full["native_final"]["hardening"] == ["hardening-1"]
+    assert [row["finding_id"] for row in full["reviews"]["hardening"]] == ["hardening-1"]
+    assert full["coverage"]["model_reviewed"] == 0
+    reused = pipeline.review_scan(report, {}, {}, tenant="tenant", artifacts=None, stages=("network",),
                                   reused_stages={"hardening": early})
-    assert reused["reviews"] == full["reviews"]
+    assert prepared == [1, 1] and reused["reviews"] == full["reviews"]
 
 
 def _expand(document):
