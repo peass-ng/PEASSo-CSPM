@@ -27,6 +27,7 @@ def test_normal_read_only_docker_collection_reaches_exact_engine_verdict(monkeyp
                 value=row();value['properties']['status']['code']=code;return value
             return {'value':[]}
     monkeypatch.setattr(azure,'AzureTransport',lambda auth:Transport())
+    monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:Transport())
     policy={'status':'collected','scope':SCOPE,'checks':{CID:{'maxReportAgeSeconds':3600,'assessmentKeys':[KEY]}}}
     snapshot=collect_live({'provider':'azure','scopes':[SCOPE],
         'options':{'retries':0,'compliance_policy':policy}},['vm','security_assessment'])
@@ -53,6 +54,7 @@ def test_denied_optional_get_preserves_actual_list_capture_but_does_not_invent_b
             if path==RID:raise azure.AzureReadError('denied',403)
             return {'value':[]}
     monkeypatch.setattr(azure,'AzureTransport',lambda auth:Transport())
+    monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:Transport())
     policy={'status':'collected','scope':SCOPE,'checks':{CID:{'maxReportAgeSeconds':3600,'assessmentKeys':[KEY]}}}
     snapshot=collect_live({'provider':'azure','scopes':[SCOPE],
         'options':{'retries':0,'compliance_policy':policy}},['vm','security_assessment'])
