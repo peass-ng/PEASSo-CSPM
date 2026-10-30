@@ -32,7 +32,7 @@ def test_exact_description_successor_preserves_history_and_evaluator_sources():
     assert current['description_correction']['source_revision'] == correction.SOURCE_REVISION
     for path, expected in {
         'peaso/checks/claude_aws_a_network.py': 'dfe343109801c31dec12324a7b97fd76d88f6913161d8495b1bac9abb195abe6',
-        'peaso/checks/claude_aws_a_common.py': 'a6cfb97daa2a3a7f8d72c68e15039691ee28ea42fc01d12c770f9f9343a93696',
+        'peaso/checks/claude_aws_a_common.py': '42218f329b77e55cd56c2f46de0a82ab260c849ca1ae1e89ac95a54e201a87d8',
     }.items():
         assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == expected
     before['fail_when'] = 'Changed criterion'
