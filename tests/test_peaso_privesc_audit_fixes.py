@@ -372,10 +372,21 @@ def test_k8s_phantom_service_account_only_for_dangling_and_impersonation():
     assert set(reached(result, "k8s:c1:user:dev", "k8s-rbac-dangling-serviceaccount-reference")) == {phantom}
 
 
+def _sa_node_readers(names=("builder", "ca")):
+    """Bind builder and ca to a cluster-scoped read that a namespaced grant cannot hold.
+    Impersonating a ServiceAccount is an escalation only when that account adds a right."""
+    role = kobj("ClusterRole", "node-reader", rules=[{"apiGroups": [""], "resources": ["nodes"], "verbs": ["get"]}])
+    binding = kobj("ClusterRoleBinding", "node-reader-b", roleRef={"kind": "ClusterRole", "name": "node-reader"},
+                   subjects=[{"kind": "ServiceAccount", "name": n, "namespace": "a"} for n in names])
+    return role, binding
+
+
 def test_k8s_group_labels_are_per_technique_and_namespace():
     r, b = grant("ns-admin", "a", [{"apiGroups": ["*"], "resources": ["*"], "verbs": ["*"]}], {"kind": "User", "name": "dev"})
+    # Every ServiceAccount in the namespace adds a right, so each technique reaches the whole group.
+    reader, reader_binding = _sa_node_readers(("default", "builder", "ca"))
     tids = ("k8s-workloads-pods-create", "k8s-rbac-serviceaccounts-token-create", "k8s-rbac-impersonate-serviceaccounts")
-    result = real(k8s([r], [b]), *tids)
+    result = real(k8s([r, reader], [b, reader_binding]), *tids)
     nodes = {n["id"]: n for n in result["graph"]["nodes"]}
     labels = {}
     for edge in result["graph"]["edges"]:
@@ -725,7 +736,8 @@ def test_azure_pim_eligibility_scoped_to_au_is_flagged():
 def test_k8s_resource_names_restrict_targets_to_named_objects(tid, rule):
     def snap(r):
         role_obj, binding = grant("r", "a", [r], {"kind": "User", "name": "dev"})
-        return k8s([role_obj], [binding])
+        reader, reader_binding = _sa_node_readers()
+        return k8s([role_obj, reader], [binding, reader_binding])
 
     everyone = real(snap(rule), tid)
     assert set(reached(everyone, "k8s:c1:user:dev", tid)) >= {"k8s:c1:sa:a:builder", "k8s:c1:sa:a:ca"}
