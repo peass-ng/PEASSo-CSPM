@@ -23,7 +23,8 @@ def capture(sdk,monkeypatch,mode='good'):
  if mode=='location_denied':s3.add_client_error('get_bucket_location','AccessDenied',http_status_code=403,expected_params={'Bucket':BUCKET})
  else:s3.add_response('get_bucket_location',{'LocationConstraint':'us-west-2'}if mode in('cross_region','west_positive')else{'LocationConstraint':'EU'}if mode=='eu_cross_region'else{'LocationConstraint':'ap-south-1'}if mode=='home_unproved'else{},{'Bucket':BUCKET})
  for operation in ('get_public_access_block','get_bucket_policy_status','get_bucket_policy','get_bucket_encryption','get_bucket_versioning','get_bucket_acl','get_bucket_ownership_controls','get_bucket_logging','get_bucket_lifecycle_configuration','get_bucket_notification_configuration','get_bucket_replication','get_object_lock_configuration','get_bucket_tagging'):
-  s3.add_response(operation,{'TagSet':[]}if operation=='get_bucket_tagging'else{}, {'Bucket':BUCKET})
+  # The bucket policy read pins the scanned account as expected bucket owner.
+  s3.add_response(operation,{'TagSet':[]}if operation=='get_bucket_tagging'else{}, {'Bucket':BUCKET,**({'ExpectedBucketOwner':ACCOUNT}if operation=='get_bucket_policy'else{})})
  if mode not in ('restricted','region_denied','duplicate_region'):
   if mode in('west_positive','eu_cross_region'):backup.add_response('list_backup_plans',{'BackupPlansList':[]},{})
   plan_arn=PLAN.replace(REGION,'us-west-2')if mode=='west_positive'else PLAN

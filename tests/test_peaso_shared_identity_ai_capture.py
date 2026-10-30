@@ -19,7 +19,7 @@ def test_collector_withholds_shared_identity_and_derived_tokens(method, allowed,
         assert access.enabled() is allowed
         access.bearer('gcp', 'https://www.googleapis.com', 'synthetic-cloud-session')
         access.remember('k8s', 'derived-cluster', {'format': 'kubeconfig', 'token': 'synthetic-derived-session'})
-        return make_snapshot('gcp', ['fixture'], [{'type': 'project', 'scope': 'fixture',
+        return make_snapshot('gcp', ['projects/fixture'], [{'type': 'project', 'scope': 'projects/fixture',
             'status': 'collected', 'items': [{'projectId': 'fixture'}]}])
 
     monkeypatch.setattr('peaso.engine.collect_snapshot', collect)
@@ -33,8 +33,17 @@ def test_collector_withholds_shared_identity_and_derived_tokens(method, allowed,
     try:
         process.start()
         child.close()
-        assert parent.poll(15)
-        success, reference, *rest = parent.recv()
+        # The child streams runtime/collection metrics ("__name__", payload)
+        # over the same pipe before its final (success, reference) reply.
+        while True:
+            assert parent.poll(15)
+            message = parent.recv()
+            if not (isinstance(message, tuple) and len(message) == 2 and isinstance(message[0], str)
+                    and message[0].startswith('__') and message[0].endswith('__')):
+                break
+            assert 'synthetic-cloud-session' not in json.dumps(message[1], default=str)
+            assert 'synthetic-derived-session' not in json.dumps(message[1], default=str)
+        success, reference, *rest = message
         assert success, rest
         snapshot = artifacts.get('alice', reference)
         assert 'synthetic-cloud-session' not in json.dumps(snapshot)

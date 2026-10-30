@@ -764,8 +764,6 @@ def aws_federated_trust(snapshot, resource):
 
 def gcp_wif_provider(snapshot, resource):
     data = resource["data"]
-    if data.get("state") == "DELETED" or data.get("disabled") is True:
-        return None
     issuer = str(data.get("oidc", {}).get("issuerUri", "")) if isinstance(data.get("oidc"), dict) else ""
     condition = data.get("attributeCondition")
     def grant_unconditional(binding):
@@ -1065,7 +1063,7 @@ def azure_federated_credential(snapshot, resource):
     expression = props.get("claimsMatchingExpression")
     evidence = {"issuer": issuer, "subject": subject or None, "audiences": copy.deepcopy(props.get("audiences")),
                 "claims_matching_expression": copy.deepcopy(expression)}
-    if resource["type"] == "managed_identity_federated_credential":
+    if resource.get("type") == "managed_identity_federated_credential":
         parsed = urlsplit(issuer)
         value = expression.get("value") if isinstance(expression, dict) else None
         audiences = props.get("audiences")

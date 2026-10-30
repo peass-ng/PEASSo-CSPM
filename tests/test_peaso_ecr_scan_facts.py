@@ -205,7 +205,12 @@ def test_engine_selected_fact_signal_is_private_and_check_scoped(monkeypatch):
         return {"provider": "aws", "scopes": [], "collections": [], "metadata": {}}
 
     monkeypatch.setattr(collectors, "collect_live", capture)
-    monkeypatch.setattr(engine, "validate", lambda snapshot: snapshot)
+    def validate(snapshot, *, metadata_entry=None):
+        # The engine records its collection plan through validate's single-pass metadata entry.
+        assert metadata_entry is not None and metadata_entry[0] == "collection_plan"
+        return {**snapshot, "metadata": {**snapshot["metadata"], metadata_entry[0]: metadata_entry[1]}}
+
+    monkeypatch.setattr(engine, "validate", validate)
     monkeypatch.setattr(engine, "seal", lambda snapshot: snapshot)
     engine.collect_snapshot({"connector": {"provider": "aws"}, "categories": ["hardening"], "checks": [CHECK]})
     assert seen[-1][0] is True and "ecr_repository" in seen[-1][1]

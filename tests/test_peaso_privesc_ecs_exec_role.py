@@ -37,7 +37,7 @@ def snapshot(*, grant=(CLUSTER, TASK), agent="RUNNING", enabled=True, task_role=
 @pytest.fixture(autouse=True)
 def avoid_unrelated_check_import(monkeypatch):
     exposure = types.ModuleType("peaso.principal_exposure")
-    exposure.annotate_privesc = lambda *args: None
+    exposure.annotate_privesc = lambda snapshot, graph, findings, model, inventory=None: None
     monkeypatch.setitem(sys.modules, exposure.__name__, exposure)
 
 

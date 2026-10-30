@@ -175,17 +175,25 @@ def test_native_real_detectors_public_pass_fail_unknown_roundtrip(monkeypatch):
             assert results[0]['id'] == 'secret-' + leak['fingerprint']
 
 
-def test_real_sdk_hit_scrubs_adversarial_sibling_options_aliases_and_cache_keys(monkeypatch):
+def test_real_sdk_hit_keeps_found_value_visible_and_scrubs_connector_credentials(monkeypatch):
+    # Found secrets are shown to the tenant in clear text (73706ae8): a sibling
+    # inventory row, option or cached read that carries the found value keeps
+    # it. Only the connector's own credentials and transient grant state go.
     snapshot, trace = capture(monkeypatch, (POSITIVE,), sibling=True, seed=True)
     findings = evaluate(snapshot)
     assert len(findings) == 1 and findings[0]['status'] == 'FAIL'
+    assert findings[0]['evidence']['secret_leaks']
     assert any(c[1] == 'ListProjects' for c in trace.calls)
+    sibling = [row for c in snapshot['collections'] if c['type'] == 'codebuild_project'
+               for row in c['items'] if row.get('id') == TOKEN]
+    assert sibling, 'customer inventory carrying the found value is kept intact'
     all_surfaces = json.dumps(snapshot) + json.dumps(findings) + repr(trace.prior_alias) + repr(trace.requests)
     for reader in trace.readers:
         all_surfaces += repr(list(reader._cache)) + repr(reader.configuration_content_redactions)
         assert not reader.configuration_content_redactions and not getattr(reader, runtime.STATE)
-    assert TOKEN not in all_surfaces
-    assert base64.b64encode(TOKEN.encode()).decode() not in all_surfaces
+    assert all(runtime.OPTION not in o and runtime.GRANT not in o for o in trace.requests)
+    for credential in ('offline-key', 'offline-secret'):
+        assert credential not in all_surfaces
 
 
 def test_partial_positive_is_retained_without_manufactured_detector_parts(monkeypatch):

@@ -926,6 +926,13 @@ NETWORK_SERVICE_LABELS = {'aws': {'agentcore_agent_runtime': 'bedrock-agentcore-
          'workstation': 'workstations',
          'workstation_cluster': 'workstations',
          'workstation_config': 'workstations'}}
+# Native network_catalog labels every GCP private-service workload from this
+# data-only collector manifest (no evaluator import). Derive it here too, so
+# kinds added to the manifest keep the native label; the literal above retains
+# the native later overrides (service mesh, TLS policy, DNS).
+_GCP_PRIVATE_SERVICES = json.loads((Path(__file__).resolve().parents[1] / "collectors" / "gcp_network_private_services.json").read_text())
+for _kind, _row in _GCP_PRIVATE_SERVICES.items():
+    NETWORK_SERVICE_LABELS["gcp"].setdefault(_kind, _row["service"])
 for _provider, _labels in NETWORK_SERVICE_LABELS.items():
     ANALYSIS_KIND_SERVICES[_provider].update(_labels)
 

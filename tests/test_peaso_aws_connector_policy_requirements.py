@@ -20,7 +20,12 @@ def test_hosted_role_attaches_recommended_managed_policies_within_quota():
 
     template = json.loads((Path(__file__).parents[1] / 'infra/aws/customer-role.json').read_text())
     role = template['Resources']['AuditRole']['Properties']
-    assert role['ManagedPolicyArns'] == [PREFIX + name for name in POLICIES]
+    # The hosted role grants only the read-only baseline policies. Product
+    # collectors never call live IAM Access Analyzer APIs
+    # (access_analyzer_live_api_banned), so the broad analyzer policy, which
+    # also allows analyzer creation, is intentionally not attached.
+    assert role['ManagedPolicyArns'] == [PREFIX + 'ReadOnlyAccess', PREFIX + 'SecurityAudit']
+    assert PREFIX + 'IAMAccessAnalyzerFullAccess' not in role['ManagedPolicyArns']
     custom = sum(resource['Type'] == 'AWS::IAM::ManagedPolicy'
                  for resource in template['Resources'].values())
     assert custom + len(role['ManagedPolicyArns']) <= IAM_MANAGED_POLICIES_PER_ROLE

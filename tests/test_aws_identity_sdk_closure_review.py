@@ -371,22 +371,16 @@ def test_public_native_root_mfa_joins(native, cid, state):
 ANALYZER_IDS = ['aws.a.accessanalyzer.region_present', 'aws.a.accessanalyzer.region_active']
 
 
-@pytest.mark.parametrize('state', ['ACTIVE', 'CREATING', 'DISABLED', 'FAILED', 'FUTURE', 'denied', 'foreign'])
-def test_public_analyzer_native_states_without_creation(native, state):
-    account = FOREIGN if state == 'foreign' else ACCOUNT
-    status = 'ACTIVE' if state == 'foreign' else state
-    rows = [{'arn': f'arn:aws:access-analyzer:{REGION}:{account}:analyzer/{kind.lower()}', 'name': kind.lower(),
-             'type': kind, 'status': status, 'createdAt': NOW} for kind in ('ACCOUNT', 'ACCOUNT_UNUSED_ACCESS')]
-    native.add('accessanalyzer', 'list_analyzers', {'analyzers': rows} if state != 'denied' else None,
-               error='AccessDeniedException' if state == 'denied' else None)
-    if status == 'ACTIVE':
-        for row in rows:
-            native.add('accessanalyzer', 'list_findings_v2', {'findings': []}, {'analyzerArn': row['arn'], 'filter': {'status': {'eq': ['ACTIVE']}}})
+def test_public_analyzer_checks_never_contact_live_access_analyzer(native):
+    # 88f12bec banned every live IAM Access Analyzer read in scans. Without a
+    # saved analyzer result both analyzer checks stay UNKNOWN (never PASS),
+    # and no Access Analyzer client or operation is ever used.
     snapshot = native.collect(['access_analyzer'])
-    statuses = evaluate(snapshot, ANALYZER_IDS, 'analyzer_'+state, native)
-    assert statuses[ANALYZER_IDS[0]] == ['DENIED' if state == 'denied' else 'UNKNOWN' if state == 'foreign' else 'PASS']
-    assert statuses[ANALYZER_IDS[1]] == ['DENIED' if state == 'denied' else 'UNKNOWN' if state in ('FUTURE', 'foreign') else 'PASS' if status == 'ACTIVE' else 'FAIL']
-    assert not any(operation in ('CreateAnalyzer', 'DeleteAnalyzer') for service, operation in native.calls)
+    statuses = evaluate(snapshot, ANALYZER_IDS, 'analyzer_live_api_banned', native)
+    assert statuses == {cid: ['UNKNOWN'] for cid in ANALYZER_IDS}
+    assert 'accessanalyzer' not in native.clients
+    assert not any(service == 'accessanalyzer' for service, operation in native.calls)
+    assert all(c['status'] != 'collected' for c in snapshot['collections'] if c['type'] == 'access_analyzer')
 
 
 @pytest.mark.parametrize('state', ['present', 'absent', 'denied', 'malformed'])
