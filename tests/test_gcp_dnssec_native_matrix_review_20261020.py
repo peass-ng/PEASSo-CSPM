@@ -16,6 +16,7 @@ CASES = [
     ('invalid_visibility', 'UNKNOWN'), ('private', 'NOT_APPLICABLE'),
     ('dnssec_off', 'NOT_APPLICABLE'),
 ]
+ZONE_IAM_URL = 'https://dns.googleapis.com/dns/v1/projects/p-one/managedZones/review:getIamPolicy'
 
 
 @pytest.mark.parametrize('flavor', ['claude', 'ports'])
@@ -37,12 +38,17 @@ def test_native_dnssec_default_key_evidence(key_type, slug, scenario, expected, 
     original = deepcopy(zone)
 
     def resolve(request):
+        if request['url'] == ZONE_IAM_URL:
+            # 16bb81e0 hydrates each managed zone's IAM policy with one POST.
+            assert request['method'] == 'POST'
+            return {'version': 3, 'bindings': []}
         assert request['method'] == 'GET'
         assert request['url'] == 'https://dns.googleapis.com/dns/v1/projects/p-one/managedZones'
         return {'kind': 'dns#managedZonesListResponse', 'managedZones': [zone]}
 
     collected, transport = snapshot(['dns_managed_zone'], resolve)
-    assert zone == original and len(transport.requests) == 1
+    assert zone == original and [r['url'] for r in transport.requests] == [
+        'https://dns.googleapis.com/dns/v1/projects/p-one/managedZones', ZONE_IAM_URL]
     if scenario == 'denied_algorithm':
         collected['collections'][0]['items'][0]['dnssecConfig']['defaultKeySpecs'][0]['_coverage'] = {'algorithm': {'status': 'denied'}}
         collected.pop('snapshot_id', None)
@@ -66,6 +72,10 @@ def test_native_dnssec_enabled_visibility_and_state(visibility, state, expected,
             'visibility': visibility, 'dnssecConfig': {'state': state}}
 
     def resolve(request):
+        if request['url'] == ZONE_IAM_URL:
+            # 16bb81e0 hydrates each managed zone's IAM policy with one POST.
+            assert request['method'] == 'POST'
+            return {'version': 3, 'bindings': []}
         assert request['method'] == 'GET'
         assert request['url'] == 'https://dns.googleapis.com/dns/v1/projects/p-one/managedZones'
         return {'kind': 'dns#managedZonesListResponse', 'managedZones': [zone]}
@@ -75,5 +85,6 @@ def test_native_dnssec_enabled_visibility_and_state(visibility, state, expected,
     cid = 'gcp.claude.dns_zone.dnssec_enabled' if flavor == 'claude' else 'gcp.ports.dns_managed_zone_dnssec_enabled'
     if flavor == 'ports' and state == 'transfer' and visibility == 'public': expected = 'PASS'
     rows = evaluate_snapshot(collected, checks=[cid])['findings']
-    assert collected == before and len(transport.requests) == 1
+    assert collected == before and [r['url'] for r in transport.requests] == [
+        'https://dns.googleapis.com/dns/v1/projects/p-one/managedZones', ZONE_IAM_URL]
     assert len(rows) == 1 and rows[0]['status'] == expected

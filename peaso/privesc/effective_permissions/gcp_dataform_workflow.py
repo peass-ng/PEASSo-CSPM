@@ -231,6 +231,11 @@ def select(model, candidates, caller):
         sa = model.sas.get('serviceAccount:' + str(target.attrs.get('email') or ''))
         if sa is None or sa.attrs.get('disabled'):
             continue
+        # Google-managed agents (e.g. {number}@cloudservices) are modeled from
+        # the project number only; their IAM policy is Google-owned, so the
+        # Dataform service agent cannot be granted Token Creator on them.
+        if sa.attrs.get('service_agent'):
+            continue
         if not _has(model, caller, 'iam.serviceAccounts.actAs', sa.attrs['resource']):
             continue
         if not _known(model, caller, 'iam.serviceAccounts.actAs', sa.attrs['resource']):

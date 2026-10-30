@@ -212,8 +212,17 @@ def normalize_os_inventory(data, scope, instance, expected_name):
         if isinstance(entry.get('installTime'), str):
             projected['installTime'] = entry['installTime']
         packages.append(projected)
-    return {'name': native_name, 'instanceName': instance, 'updateTime': data['updateTime'],
-            'items': {'installedPackages': packages}, '_representation': 'full'}
+    output = {'name': native_name, 'instanceName': instance, 'updateTime': data['updateTime'],
+              'items': {'installedPackages': packages}, '_representation': 'full'}
+    # Patch-job and guest-policy privesc reviews need the native OS identity
+    # and agent version; keep only those fields (not hostname or kernel).
+    info = data.get('osInfo')
+    if isinstance(info, dict):
+        kept = {key: info[key] for key in ('shortName', 'longName', 'version', 'osconfigAgentVersion')
+                if isinstance(info.get(key), str)}
+        if kept:
+            output['osInfo'] = kept
+    return output
 
 
 def dependent(collector):
