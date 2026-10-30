@@ -12,7 +12,7 @@ from types import MappingProxyType
 from typing import Mapping
 
 MANIFEST_PATH = Path(__file__).resolve().parents[1] / 'checks' / 'bulk_pending.json'
-MANIFEST_SHA256 = '23dfa5158099db0804848b989a78641fc4777b911bc02298c3ec02cb66e3ac5c'
+MANIFEST_SHA256 = 'eeaa69cd90dd1e0a44ce240faf5e583e67526a8e5de811633264e9b9601c5d4e'
 MAX_MANIFEST_BYTES = 256 * 1024
 
 
