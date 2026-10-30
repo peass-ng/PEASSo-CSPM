@@ -36,6 +36,7 @@ class CombinedAPI(API):
 def snapshot(monkeypatch, rows, mode='complete'):
     api = CombinedAPI(rows, mode)
     monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: api)
     now = datetime.now(timezone.utc)
     owner = {'status': 'collected', 'scope': SCOPE, 'authorized_by': 'security-owner',
         'document_id': 'explicit-mfa-obligation', 'observed_at': (now-timedelta(hours=1)).isoformat(),

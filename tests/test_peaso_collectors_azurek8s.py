@@ -620,6 +620,7 @@ def test_auth_failure_produces_denied_coverage_not_exception_or_secret(monkeypat
     monkeypatch.setattr(k8s, "_new_api", fail)
     snapshot = k8s.collect({"scopes": ["team-a"], "auth": {"token": "fake-token"}}, ["pod", "role"])
     assert {c["status"] for c in snapshot["collections"]} == {"denied"}
+    monkeypatch.setattr(azure, "AzureTransport", fail)
     monkeypatch.setattr(azure, "AzureTransportExposure", fail)
     snapshot = azure.collect({"scopes": ["sub-a"], "auth": {"client_secret": "fake-token"}}, ["vnet"])
     assert collection(snapshot, "vnet")["status"] == "denied"
@@ -780,6 +781,7 @@ def test_hosted_cannot_fallback_to_worker_identity(monkeypatch):
     snapshot = k8s.collect({"options": {"hosted": True}}, ["pod"])
     assert collection(snapshot, "pod")["status"] == "malformed"
     monkeypatch.setattr(azure, "AzureTransport", unexpected)
+    monkeypatch.setattr(azure, "AzureTransportExposure", unexpected)
     snapshot = azure.collect({"scopes": ["sub-a"], "options": {"hosted": True}}, ["vnet"])
     assert collection(snapshot, "vnet")["status"] == "malformed"
 
@@ -1008,6 +1010,7 @@ def test_selected_namespace_inventory_gets_only_selected_namespaces_in_their_sco
 
 def test_hosted_stale_credential_fields_cannot_authorize_ambient_method(monkeypatch):
     monkeypatch.setattr(azure, "AzureTransport", lambda *_: pytest.fail("Azure worker identity source must not run"))
+    monkeypatch.setattr(azure, "AzureTransportExposure", lambda *_: pytest.fail("Azure worker identity source must not run"))
     snapshot = azure.collect({"scopes": ["sub-a"], "options": {"hosted": True}, "auth": {"method": "managed-identity", "client_secret": "stale-secret"}}, ["vnet"])
     assert collection(snapshot, "vnet")["status"] == "malformed"
     monkeypatch.setattr(k8s, "_new_api", lambda *_: pytest.fail("Kubeconfig worker identity source must not run"))

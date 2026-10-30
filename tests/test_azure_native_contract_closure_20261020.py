@@ -77,6 +77,10 @@ class Wire:
         self.responses[SCOPE] = BASE['subscription']
         self.responses[RG] = {'id': RG, 'name': 'review', 'type': 'Microsoft.Resources/resourceGroups', 'location': 'eastus', 'properties': {}}
         self.denied = {SCOPE + '/providers/Microsoft.Authorization/locks', RG + '/providers/Microsoft.Authorization/locks'}
+        # Current read-only Stream Analytics output inventory (metadata child
+        # list); the reviewed job declares no outputs.
+        self.child_lists = {row['id'] + '/outputs': '2020-03-01' for kind, row in rows.items() if kind == 'stream_analytics_job'}
+        self.responses.update({path: {'value': []} for path in self.child_lists})
         for row in rows.values():
             rid = row['id']
             self.denied.add(rid + '/providers/Microsoft.Insights/diagnosticSettings')
@@ -111,6 +115,7 @@ class Wire:
         if u.path=='/providers/Microsoft.Management/managementGroups':versions={'2020-05-01'}
         if u.path==SCOPE+'/providers/Microsoft.Authorization/roleDefinitions':assert query.get('$filter')==["type eq 'CustomRole'"]
         if u.path == SCOPE: versions = {'2022-12-01'}
+        if u.path in self.child_lists: versions = {self.child_lists[u.path]}
         if u.path in (RG, SCOPE + '/resourceGroups/another'): versions = {'2021-04-01'}
         assert query.get('api-version', [None])[0] in versions
         value = deepcopy(self.responses[u.path])

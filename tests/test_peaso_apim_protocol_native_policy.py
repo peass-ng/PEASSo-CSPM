@@ -62,7 +62,7 @@ def test_public_native_protocol_policy(monkeypatch,mode,expected):
     return{'value':rev}
    if path==(A+';rev=2').casefold():return{'id':A+';rev=2','properties':{'protocols':['https']}}
    return{'value':[]}
- transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+ transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
  connector={'provider':'azure','scopes':[S],'auth':{'method':'token','arm_token':'INERT-TOKEN'},
             'options':{'retries':0,'compliance_policy':{}if mode=='no-policy'else{'sw23':pol}}}
  original=copy.deepcopy(connector)
@@ -263,7 +263,7 @@ def test_actual_relative_revision_shape_through_public_collection_and_signed_eng
    if path==(api+'/revisions').casefold():return{'count':1,'value':[copy.deepcopy(raw)]}
    if path==revision.casefold():return{'id':revision,'properties':{'protocols':['http'if mode=='http'else'https'],'isCurrent':True}}
    return{'count':0,'value':[]}
- transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+ transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
  connector={'provider':'azure','scopes':[S],'auth':{'method':'token','arm_token':'INERT-TOKEN'},
             'options':{'retries':0,'compliance_policy':{'sw23':owner}}};original=copy.deepcopy(connector)
  snapshot=collect_snapshot({'connector':connector,'checks':[CID]})
@@ -334,7 +334,7 @@ def test_current_base_id_alias_collect_to_signed_engine(monkeypatch,mode,expecte
    if path==(api+'/revisions').casefold():return{'count':2 if mode=='list-total-short'else len(revrows),'value':revrows}
    if path==revision.casefold():return returned
    return{'count':0,'value':[]}
- transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+ transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
  connector={'provider':'azure','scopes':[S],'auth':{'method':'token','arm_token':'INERT-TOKEN'},
             'options':{'retries':0,'compliance_policy':{}if mode=='no-policy'else{'sw23':owner}}};before=copy.deepcopy(connector)
  snapshot=collect_snapshot({'connector':connector,'checks':[CID]})

@@ -434,6 +434,7 @@ def _identity_capture(monkeypatch, cid, data, *, concurrency, verified_tenant, j
     transport.credential = None
     transport.token = lambda audience: "offline-native-fixture"
     monkeypatch.setattr(azure, "AzureTransport", lambda auth: transport)
+    monkeypatch.setattr(azure, "AzureTransportExposure", lambda auth: transport)
     snapshot = engine.collect_snapshot({"connector": {"provider": "azure", "scopes": [fixtures.SUB], "auth": {"tenant_id": fixtures.TENANT},
                                                       "options": {"retries": 0, "concurrency": concurrency}}, "checks": [cid]})
     findings = engine.evaluate_snapshot(snapshot, checks=[cid])["findings"]
@@ -542,6 +543,7 @@ def _mfa_run(monkeypatch, mode, concurrency, users):
                         "tenantId": fixtures.GROUP if mode == "foreign_subscription" else fixtures.TENANT}
             return {"value": []}
     monkeypatch.setattr(azure, "AzureTransport", lambda auth: Transport())
+    monkeypatch.setattr(azure, "AzureTransportExposure", lambda auth: Transport())
     connector = {"provider": "azure", "scopes": [fixtures.SUB],
                  "auth": {"method": "token", "arm_token": "mock", "graph_token": "mock"},
                  "options": {"retries": 0, "concurrency": concurrency}}

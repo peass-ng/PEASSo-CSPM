@@ -45,6 +45,15 @@ class Wire(NativeHTTP):
             assert request.get_method()=='GET' and urlsplit(request.full_url).netloc=='management.azure.com'
             self.calls.append({'method':'GET','host':'management.azure.com','path':DB+'/transparentDataEncryption/current'})
             raise HTTPError(request.full_url,403,'native fixture denied',{},io.BytesIO(b'{}'))
+        parsed=urlsplit(request.full_url)
+        if parsed.path in {self.d['rid']+'/azureADOnlyAuthentications',self.d['rid']+'/privateEndpointConnections'}:
+            # Current read-only server child LISTs; the reviewed server declares none.
+            assert request.get_method()=='GET' and request.data is None and parsed.netloc=='management.azure.com'
+            assert parse_qs(parsed.query)=={'api-version':['2023-08-01']}
+            self.calls.append({'method':'GET','host':parsed.netloc,'path':parsed.path,'query':parse_qs(parsed.query)})
+            response=io.BytesIO(b'{"value": []}');response.status=200
+            self.responses.append(response)
+            return response
         response=super().open(request,timeout)
         self.responses.append(response)
         return response
@@ -111,14 +120,20 @@ def test_preexisting_child_optional_type_name_compatibility(monkeypatch):
 
 def test_current_successor_preserves_predecessor_and_is_idempotent():
     from peaso import checks
-    from peaso.checks import azure_nsp_query_cmk_production_tde_successor_20261020 as admission
+    # The TDE-only successor is now a historical epoch: Azure collect gained the
+    # separately reviewed package/metadata-only statements, and the current
+    # admission chain keeps the same signed TDE receipt.
+    from peaso.checks import azure_metadata_only_tde_admission_successor_20261020 as admission
+    from peaso.checks import azure_nsp_query_cmk_production_tde_successor_20261020 as tde_historical
     from peaso.checks import azure_nsp_query_cmk_production_admission_20261020 as predecessor
     before=tuple(checks.CHECKS)
     receipt,_,_=admission.reviewed_inputs()
     admission.install();admission.install()
     assert tuple(checks.CHECKS)==before
     assert receipt['before_collect_sha256']!=receipt['functions']['peaso.collectors.azure:collect']['source_sha256']
-    # The old signed receipt is historical, rather than silently repinned.
+    # The old signed receipts are historical, rather than silently repinned.
+    with pytest.raises(RuntimeError,match='Azure collect changed outside reviewed TDE body'):
+        tde_historical.reviewed_inputs()
     with pytest.raises(RuntimeError,match='production disk callable source changed'):
         predecessor.reviewed_inputs()
 
@@ -126,7 +141,8 @@ def test_current_successor_preserves_predecessor_and_is_idempotent():
 @pytest.mark.parametrize('which',['collect','selected'])
 def test_current_successor_rejects_executing_callable_replacement(monkeypatch,which):
     import types
-    from peaso.checks import azure_nsp_query_cmk_production_tde_successor_20261020 as admission
+    from peaso.checks import azure_metadata_only_tde_admission_successor_20261020 as admission
+    admission.reviewed_inputs()
     name='collect'if which=='collect'else'_selected';original=getattr(azure,name)
     clone=types.FunctionType(original.__code__,original.__globals__,original.__name__,original.__defaults__,original.__closure__)
     clone.__kwdefaults__=original.__kwdefaults__;clone.__qualname__=original.__qualname__
@@ -139,10 +155,18 @@ def test_current_successor_rejects_source_and_historical_drift(tmp_path,which):
     import shutil
     from pathlib import Path
     from peaso.checks import azure_nsp_query_cmk_production_tde_successor_20261020 as admission
-    from tests.test_azure_nsp_query_cmk_production_admission_20261020 import copy_inputs
-    root=copy_inputs(tmp_path)
-    receipt,_,_=admission.reviewed_inputs()
+    from peaso.checks import azure_metadata_only_tde_admission_successor_20261020 as current
+    root=Path(__file__).resolve().parents[1]
+    # The current chain admits the same signed TDE receipt; the TDE-only helper
+    # is historical and must keep rejecting today's collect epoch.
+    receipt,_,_=current.reviewed_inputs()
+    assert receipt==json.loads((root/'peaso/checks'/admission.RECEIPT).read_bytes())
     paths={receipt['helper_path'],'peaso/checks/'+admission.RECEIPT,receipt['predecessor_pack']['path'],*receipt['predecessor_files']}
+    for helper in (admission.prepared.predecessor,admission.prepared,admission):
+        relative='peaso/checks/'+helper.RECEIPT;signed=json.loads((root/relative).read_bytes())
+        paths.update({relative,signed['helper_path'],*signed.get('sources',{}),*signed.get('predecessor_files',{})})
+        paths.update(row['path']for row in signed['functions'].values());paths.update(row['path']for row in signed['fixtures'])
+        if 'predecessor_pack' in signed:paths.add(signed['predecessor_pack']['path'])
     for relative in paths:
         destination=tmp_path/relative;destination.parent.mkdir(parents=True,exist_ok=True)
         shutil.copyfile(root/relative,destination)
@@ -150,7 +174,10 @@ def test_current_successor_rejects_source_and_historical_drift(tmp_path,which):
         'receipt':'peaso/checks/'+admission.RECEIPT,'predecessor_helper':'peaso/checks/azure_nsp_query_cmk_production_admission_20261020.py',
         'predecessor_receipt':'peaso/checks/azure_nsp_query_cmk_production_admission_20261020.json',
         'predecessor_pack':receipt['predecessor_pack']['path'],'cases':receipt['fixtures'][0]['path']}
-    assert admission.reviewed_inputs(tmp_path)[0]==receipt
+    epoch='Azure collect changed outside reviewed TDE body'
+    # Every copied input passes the file guards; only the historical collect
+    # epoch gate rejects the unmodified copy.
+    with pytest.raises(RuntimeError,match=epoch):admission.reviewed_inputs(tmp_path)
     target=tmp_path/targets[which]
     if which in ('collect','selected'):
         text=target.read_text();name='collect'if which=='collect'else'_selected'
@@ -159,4 +186,7 @@ def test_current_successor_rejects_source_and_historical_drift(tmp_path,which):
         target.write_text(text)
     else:
         with target.open('ab')as stream:stream.write(b'\n')
-    with pytest.raises(RuntimeError):admission.reviewed_inputs(tmp_path)
+    with pytest.raises(RuntimeError)as error:admission.reviewed_inputs(tmp_path)
+    if which not in ('collect','selected'):
+        # Signed file drift is caught by its own guard before the epoch gate.
+        assert str(error.value)!=epoch

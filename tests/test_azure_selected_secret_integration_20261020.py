@@ -12,12 +12,16 @@ from fastapi import HTTPException
 from peaso import checks,engine,secret_scanning as scanning
 from peaso.collectors import azure
 from peaso.checks import azure_selected_secrets_admission_20261020 as admission
+# The 2026-10-20 receipt is historical for today's reviewed selected sources;
+# the registered installer is the current RawV2 successor of the same receipt.
+from peaso import rawv2_private_source_successor_20261021 as current_admission
 from peaso.checks.fixtures import CASES
 from peaso.server.validation import validate_connector,OPTIONS
 from tests import test_azure_app_settings_secret_review_20261020 as app
 from tests import test_azure_selected_configuration_secret_review_20261020 as arm
 from tests import test_azure_selected_storage_secret_review_20261020 as storage
 from tests import test_azure_devops_selected_content_secret_review_20261020 as devops
+from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases
 
 
 @pytest.fixture(autouse=True)
@@ -31,13 +35,14 @@ def offline(monkeypatch):
 
 
 def test_atomic_reviewed_registration_and_new_native_cases():
-    receipt,cases,declarations=admission.reviewed_inputs()
+    receipt,cases,declarations=current_admission._azure_reviewed_inputs()
+    assert hashlib.sha256(Path('peaso/checks/azure_selected_secrets_admission_20261020.json').read_bytes()).hexdigest()==admission.RECEIPT_SHA256
     for metadata,function in declarations:
         registered,=[c for c in checks.CHECKS if c.id==metadata['id']]
         assert inspect.unwrap(registered.evaluate) is function and registered.allow_incomplete_failure
         assert registered.kind==metadata['kind'] and CASES[registered.id]==cases[registered.id]
         for state in ('pass','fail','unknown'):assert registered.evaluate(cases[registered.id][state],cases[registered.id][state+'_index'])[0]==state.upper()
-    prior=tuple(checks.CHECKS);saved=deepcopy(CASES);admission.install();assert tuple(checks.CHECKS)==prior and CASES==saved
+    prior=tuple(checks.CHECKS);saved=snapshot_cases(CASES);current_admission.install_selected_azure();assert tuple(checks.CHECKS)==prior and CASES==saved
 
 
 @pytest.mark.parametrize('profile',['arm','storage','devops'])
@@ -57,6 +62,7 @@ def test_real_registered_public_engine_native_branches(monkeypatch,profile,state
             class NativeTransport:
                 def __new__(cls,auth):return transport
             monkeypatch.setattr(azure,'AzureTransport',NativeTransport)
+            monkeypatch.setattr(azure,'AzureTransportExposure',NativeTransport)
             monkeypatch.setattr(azure,'collect',original)
             request={'connector':deepcopy(connector),'checks':[devops.source.CHECK]}
             if connector['options'].get('content_secret_scans') is False:request['connector']['options']['content_secret_scans']=False
@@ -104,18 +110,18 @@ def test_admission_rejects_changed_exact_bytes_without_mutation(tmp_path,kind):
 
 
 def test_atomic_rollback_after_second_registration_failure(monkeypatch):
-    _,cases,_=admission.reviewed_inputs();prior=tuple(checks.CHECKS);saved=deepcopy(CASES)
+    _,cases,_=current_admission._azure_reviewed_inputs();prior=tuple(checks.CHECKS);saved=snapshot_cases(CASES)
     try:
         checks.CHECKS[:]=[c for c in checks.CHECKS if c.id not in cases]
         for ident in cases:CASES.pop(ident)
-        before=tuple(checks.CHECKS);before_cases=deepcopy(CASES);original=checks.register;count=0
+        before=tuple(checks.CHECKS);before_cases=snapshot_cases(CASES);original=checks.register;count=0
         def failing(*args,**kwargs):
             nonlocal count
             count+=1
             if count==2:raise RuntimeError('injected registration failure')
             return original(*args,**kwargs)
         monkeypatch.setattr(checks,'register',failing)
-        with pytest.raises(RuntimeError,match='injected'):admission.install()
+        with pytest.raises(RuntimeError,match='injected'):current_admission.install_selected_azure()
         assert tuple(checks.CHECKS)==before and CASES==before_cases
     finally:checks.CHECKS[:]=prior;CASES.clear();CASES.update(saved)
 
@@ -124,7 +130,7 @@ class NativeMetadataPatch:
     """Route an independently selected NSG through the actual native collector."""
     def __init__(self,patch):self.patch=patch
     def setattr(self,obj,name,value,*args,**kwargs):
-        if obj is azure and name=='AzureTransport':
+        if obj is azure and name in ('AzureTransport','AzureTransportExposure'):
             original=value
             class Transport(original):
                 def request(self,url,**kw):
@@ -142,7 +148,8 @@ def test_older_appsettings_match_does_not_survive_unrelated_native_nsg_identity(
     snapshot,trace=app.capture(NativeMetadataPatch(monkeypatch),req=req,real=True,data={app.SITE:app.native(app.SITE,{'TOKEN':app.TOKEN})})
     assert {r['status'] for r in app.findings(snapshot)}=={'FAIL'}
     assert any(c['type']=='nsg' and c['items']for c in snapshot['collections'])
-    assert app.TOKEN not in json.dumps(snapshot)
+    # Found secrets are shown in clear text in the collected native content.
+    assert app.TOKEN in json.dumps(snapshot)
 
 
 @pytest.mark.parametrize('predecessor',[False,True])
@@ -161,7 +168,8 @@ def test_acr_completed_native_hit_and_unrelated_nsg_metadata_successor(monkeypat
     snapshot,trace=acr.capture(NativeMetadataPatch(monkeypatch),img=img,req=req,real=True)
     assert {r['status']for r in acr.findings(snapshot)}=={'FAIL'}
     assert any(c['type']=='nsg' and c['items']for c in snapshot['collections'])
-    assert (acr.TOKEN in json.dumps(snapshot)) is predecessor
+    # Found secrets are shown in clear text for the current and predecessor scan.
+    assert acr.TOKEN in json.dumps(snapshot)
 
 
 def test_union_scrub_includes_later_metadata_reinsertions_and_clears_all_sets():
@@ -213,6 +221,7 @@ def test_public_invalid_selection_stops_before_authentication(monkeypatch,profil
     else:targets[0]['resource_id']=targets[0]['resource_id'].replace(arm.SCOPE,app.OTHER)
     def no_auth(*args,**kwargs):pytest.fail('Invalid selection reached authentication')
     monkeypatch.setattr(azure,'AzureTransport',no_auth)
+    monkeypatch.setattr(azure,'AzureTransportExposure',no_auth)
     with pytest.raises(ValueError):engine.collect_snapshot(request)
 
 

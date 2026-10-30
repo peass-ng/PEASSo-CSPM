@@ -16,10 +16,14 @@ def test_actual_native_collector_evidence_has_brief_copy(monkeypatch, mode):
     rows, _, _ = capture(monkeypatch, CID, mode)
     finding, = rows
     text = evidence_summary(finding)
-    assert text and 'collection' in text
+    assert text
     assert text.count('.') <= 3
     assert '7776000' not in text and '{' not in text
-    assert ('older than 90 days' in text) == (mode == 'negative')
+    if mode == 'negative':
+        # Reviewed resource-first copy names the old key and its recorded age.
+        assert text.startswith('Storage access key key1 was created about ') and 'days before this capture' in text
+    else:
+        assert 'collection' in text and 'older than 90 days' not in text
 
 
 def finding(age):

@@ -92,7 +92,7 @@ def test_external_snapshot_list_proves_sharing_without_storing_capability_url():
 
 
 def test_data_plane_host_binding_rejects_foreign_origin():
-    transport = azure.AzureTransport({"method": "token", "arm_token": "unused"})
+    transport = azure.AzureTransportExposure({"method": "token", "arm_token": "unused"})
     transport.allow_grafana("https://workspace.eus.grafana.azure.com")
     assert "workspace.eus.grafana.azure.com" in transport.grafana_hosts
     with pytest.raises(azure.AzureReadError):

@@ -112,6 +112,7 @@ def test_normal_hosted_native_device_consideration(monkeypatch, mode, expected):
     if mode == 'unverified': api.verified_tenant = None
     if mode == 'foreign_tenant': api.tenant = api.verified_tenant = OTHER
     monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+    monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
     configured = options(api.raw, mode)
     auth = {'method':'token','arm_token':'inert','graph_token':'inert'}
     validate_connector('azure',auth,configured,SimpleNamespace(auth_mode='cognito'))
@@ -145,7 +146,7 @@ def test_hosted_intake_rejects_observed_claims_and_unbound_approval(mutation):
 
 
 def test_native_device_review_does_not_create_geographic_review_inventory(monkeypatch):
-    api = API('complete'); monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+    api = API('complete'); monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
     connector = {'provider':'azure','scopes':[SUB],'options':options(api.raw)}
     snapshot = collect_live(connector,plan_collection({'connector':connector,'checks':[native.CID,GEO]}))
     result = evaluate_snapshot(snapshot,checks=[native.CID,GEO],include_not_applicable=True)['findings']

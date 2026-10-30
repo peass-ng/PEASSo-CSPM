@@ -130,7 +130,8 @@ def test_hosted_normative_and_credential_roundtrip(monkeypatch,ca,method):
 @pytest.mark.parametrize('server',['https://other.example.net:443','https://user@other.example.net','https://other.example.net/','https://other.example.net?x=1','https://other.example.net#f','http://other.example.net','https://OTHER.example.net','https://other.example.net.','https://xn--other.example.net','https://127.0.0.1','https://éxample.net','https://other.example.net?','https://other.example.net#','https://other.example.net\n'])
 def test_invalid_origin_rejected_before_transport(monkeypatch,ca,server):
  _,_,options,auth,_=fixture(ca);auth['aks_workloads'][0]['server']=server
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before normalization'));monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:pytest.fail('transport before normalization'))
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before normalization'))
+ monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:pytest.fail('transport before normalization'))
  with pytest.raises(ValueError):azure.collect({'auth':auth,'options':options,'scopes':[SUB]},['pod'])
  for provider in ('azure','aws'):
   with pytest.raises(Exception):validate_connector(provider,auth,options,SimpleNamespace(auth_mode='local'))
@@ -153,7 +154,8 @@ def test_real_client_disables_environment_proxy_and_redirects(monkeypatch,ca):
 @pytest.mark.parametrize('field,value',[('ca_cert_data','not-a-certificate'),('ca_cert_data','-----BEGIN PRIVATE KEY-----'),('token','has whitespace'),('token',''),('cluster_id','arn:aws:eks:us-east-1:123456789012:cluster/example')])
 def test_invalid_context_before_auth_transport(monkeypatch,ca,field,value):
  _,_,options,auth,_=fixture(ca);auth['aks_workloads'][0][field]=value
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before input rejection'));monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:pytest.fail('transport before input rejection'))
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before input rejection'))
+ monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:pytest.fail('transport before input rejection'))
  with pytest.raises(ValueError):azure.collect({'auth':auth,'options':options,'scopes':[SUB]},['pod'])
 
 @pytest.mark.parametrize('owner_field',['pods','inventory_complete','cluster_uid','source_operation','approved'])
@@ -163,7 +165,8 @@ def test_owner_policy_cannot_claim_native_observations(ca,owner_field):
 
 def test_foreign_selected_subscription_before_transport(monkeypatch,ca):
  _,_,options,auth,_=fixture(ca)
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before binding rejection'));monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:pytest.fail('transport before binding rejection'))
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:pytest.fail('transport before binding rejection'))
+ monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:pytest.fail('transport before binding rejection'))
  with pytest.raises(ValueError):azure.collect({'auth':auth,'options':options,'scopes':['99999999-9999-9999-9999-999999999999']},['pod'])
 
 def test_limit_range_is_actual_list_not_runtime_evidence(monkeypatch,ca):

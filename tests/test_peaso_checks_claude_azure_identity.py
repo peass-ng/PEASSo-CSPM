@@ -4,7 +4,7 @@ import copy
 import pytest
 
 import peaso.checks.claude_azure_identity as identity
-from peaso.checks import CHECKS
+from peaso.checks import CHECK_ALIASES, CHECKS, evaluate_check
 from peaso.checks.claude_azure_common import scope_index
 from peaso.checks.fixtures import CASES
 from tests.azure_native_successor_inputs_20261020 import current_cases
@@ -22,7 +22,9 @@ def cid(slug):
 
 
 def test_group_registers_unique_prefixed_ids():
-    assert len(IDS) == len(set(IDS)) == 87
+    # aks_authorized_ip_ranges is retired as an alias of azure.aks.api_server_restricted.
+    assert len(IDS) == len(set(IDS)) == 86
+    assert CHECK_ALIASES[cid("aks_authorized_ip_ranges")] == "azure.aks.api_server_restricted"
     assert all(check_id.startswith("azure.claude.") for check_id in IDS)
 
 
@@ -131,7 +133,9 @@ def test_time_based_rules_need_snapshot_time():
     assert run(cid("entra_app_credential_not_expiring"), expired, {"context": {"created_at": "2026-01-01T00:00:00Z"}}) == "FAIL"
     user = {"id": "u", "accountEnabled": True, "signInActivity": {"lastSignInDateTime": None}}
     assert run(cid("entra_user_recent_sign_in"), user, {"context": {"created_at": "2026-01-01T00:00:00Z"}}) == "UNKNOWN"
-    assert run(cid("entra_user_recent_sign_in"), dict(user, accountEnabled=False), {}) == "NOT_APPLICABLE"
+    # Without verified directory capture authority even a disabled user fails closed;
+    # the bound NOT_APPLICABLE path is covered in test_unused_iam_azure_user_completion.
+    assert run(cid("entra_user_recent_sign_in"), dict(user, accountEnabled=False), {}) == "UNKNOWN"
     assert run(cid("entra_user_recent_sign_in"), {"id": "u", "accountEnabled": True}, {"context": {"created_at": "2026-01-01T00:00:00Z"}}) == "UNKNOWN"
 
 
@@ -251,7 +255,8 @@ def test_vault_private_endpoint_rules():
 def test_aks_edges():
     assert run(cid("aks_azure_policy_addon"), {"properties": {"addonProfiles": {"azurePolicy": {"enabled": True}}}}) == "PASS"
     assert run(cid("aks_azure_policy_addon"), {"properties": {"addonProfiles": {"azurepolicy": {"enabled": True}, "azurePolicy": {"enabled": False}}}}) == "UNKNOWN"
-    assert run(cid("aks_authorized_ip_ranges"), {"properties": {"apiServerAccessProfile": {"enablePrivateCluster": True}}}) == "NOT_APPLICABLE"
+    # The retired alias resolves to the exposure survivor, which passes a private API server.
+    assert evaluate_check(cid("aks_authorized_ip_ranges"), {"properties": {"apiServerAccessProfile": {"enablePrivateCluster": True}}})[0] == "PASS"
     assert run(cid("aks_max_pods_at_least_50"), {"properties": {"agentPoolProfiles": []}}) == "UNKNOWN"
     assert run(cid("aks_network_policy_configured"), {"properties": {"networkProfile": {"networkPolicy": "none"}}}) == "FAIL"
     assert run(cid("aks_secret_store_rotation"), {"properties": {"addonProfiles": {}}}) == "FAIL"

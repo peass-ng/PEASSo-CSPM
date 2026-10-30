@@ -105,11 +105,16 @@ def case(cid,mode):
  listing(SCOPE+'/providers/'+ep,[parent]);put(rid,parent)
  for field,segment,v in azure.EMBEDDED_LISTS.get(family,()):listing(rid+'/'+segment,[],v)
  for field,segment,v in azure.EMBEDDED_SINGLETONS.get(family,()):put(rid+'/'+segment,arm(rid+'/'+segment,{}),v)
- for path,row in [(SERVER+'/auditingSettings',auditing),(SERVER+'/securityAlertPolicies',security),(rid+'/firewallRules',firewall),(rid+'/administrators',admins[0])]:listing(path,[row],'2023-08-01'if family=='sql_server'else version)
+ # Current App Configuration exposure inventories: NSP associations and Event Grid
+ # subscriptions are separate read-only child LISTs; the reviewed store declares none.
+ if family=='app_configuration':listing(rid+'/networkSecurityPerimeterConfigurations',[],'2025-08-01-preview');listing(rid+'/providers/Microsoft.EventGrid/eventSubscriptions',[],'2025-02-15')
+ # Flexible-server child LISTs keep their own API version after the parent GET moved on.
+ child_versions={rid+'/'+segment:v for field,segment,v in azure.EMBEDDED_LISTS.get(family,())}
+ for path,row in [(SERVER+'/auditingSettings',auditing),(SERVER+'/securityAlertPolicies',security),(rid+'/firewallRules',firewall),(rid+'/administrators',admins[0])]:listing(path,[row],'2023-08-01'if family=='sql_server'else child_versions.get(path,version))
  listing(SERVER+'/databases',[db],'2023-08-01');put(DB,db,'2023-08-01');put(tde['id'],tde,'2023-08-01')
  for field,segment,v in azure.EMBEDDED_LISTS.get('sql_database',()):listing(DB+'/'+segment,[],v)
  listing(DB+'/providers/Microsoft.Insights/diagnosticSettings',[],'2021-05-01-preview')
- if family=='mysql_flexible_server':listing(rid+'/administrators',admins,version)
+ if family=='mysql_flexible_server':listing(rid+'/administrators',admins,child_versions[rid+'/administrators'])
  diag=arm(rid+'/providers/Microsoft.Insights/diagnosticSettings/audit',{'workspaceId':WORKSPACE,'logs':[{'category':'AuditEvent','enabled':True}]});diag['type']='Microsoft.Insights/diagnosticSettings'
  listing(rid+'/providers/Microsoft.Insights/diagnosticSettings',[diag],'2021-05-01-preview')
  put(diag['id'],diag,'2021-05-01-preview')
@@ -222,7 +227,11 @@ def case(cid,mode):
   for native in index:native['type']='Microsoft.Unrelated/resources'
  if mode=='foreign'and cid==DIAG:
   for native in index:native['id']=native['id'].replace(SUB,OTHER)
- return {'family':family,'endpoint':ep,'version':version,'parent':parent,'rid':rid,'routes':routes,'versions':versions,'key':key,'rotation':rotation,'deciding':path,'index':index}
+ # The native database administrator reader keeps its own reviewed server GET
+ # version while the inventory parent GET moved on; both read the same server.
+ from peaso.collectors.azure_database_native import SOURCES as DATABASE_SOURCES
+ alternate={rid:DATABASE_SOURCES[family][1]}if family in DATABASE_SOURCES else{}
+ return {'family':family,'endpoint':ep,'version':version,'parent':parent,'rid':rid,'routes':routes,'versions':versions,'alternate':alternate,'key':key,'rotation':rotation,'deciding':path,'index':index}
 
 class NativeHTTP:
  def __init__(self,cid,mode='positive',mutate=None):
@@ -258,7 +267,7 @@ class NativeHTTP:
    elif path==SCOPE+'/resources':
     assert q['api-version']==['2021-04-01'];value={'value':d['index']}
    elif path in d['routes']:
-    assert q['api-version']==[d['versions'][path]],(path,q,d['versions'][path])
+    assert q['api-version']in([d['versions'][path]],[d['alternate'].get(path)]),(path,q,d['versions'][path])
     child_path=path.startswith(d['rid']+'/')or path==BACKUP+'/backupInstances'
     if self.mode=='child_denied'and child_path:denied()
     value=deepcopy(d['routes'][path])

@@ -143,7 +143,7 @@ def test_scoped_inventory_is_traversed_once(cid,kind,field,children):
 
 class OfflineReader:
     workers=1
-    def __init__(self,children):self.children=children;self.urls=[]
+    def __init__(self,children):self.children=children;self.urls=[];self.collections=[]
     def pages(self,request,url):
         self.urls.append(url)
         if 'privateEndpointConnections?' in url or 'ruleCollectionGroups?' in url:yield copy.deepcopy(self.children)

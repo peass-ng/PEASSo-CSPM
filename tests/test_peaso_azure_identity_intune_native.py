@@ -71,7 +71,7 @@ def capture(monkeypatch,mode='ok',selected=None):
     if mode=='workspace_denied':raise Denied('SECRET_MUST_NOT_ESCAPE')
     return {'id':WORKSPACE+'other'if mode=='foreign_workspace'else WORKSPACE,'properties':{}}
    return {'value':[]}
- transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+ transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
  connector={'provider':'azure','scopes':[SUB],'auth':{'method':'token','arm_token':'fixture','graph_token':'fixture'},'options':{'retries':0,'compliance_policy':policy}}
  if selected:
   from tests.archived_check_contract import collect_snapshot

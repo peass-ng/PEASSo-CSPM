@@ -5037,7 +5037,30 @@ The following rows map active techniques to their current HackTricks privilege-e
 | `az-post-exploitation/az-notification-hubs-post-exploitation.md#notification-hubs` | Notification Hubs |  | STRUCTURAL | section introduction |
 | `az-post-exploitation/az-notification-hubs-post-exploitation.md#key-less-push-with-notificationhubsdebugsendaction` | Key-less push with `NotificationHubs/debugSend/action` |  | EXCLUDED | Sends push notifications to devices; no identity gain. |
 
-## Current CSPM catalog reconciliation (HackTricks Cloud `4393380a88845b42bd208d3adbb6d61ad89f02fb`)
+## Heading reconciliation (HackTricks Cloud `4fab4d35d179f490e5c0c6343ab7ef690b4a6f45`)
+
+Headings added to `az-privilege-escalation/**` since the sweep above. Technique headings map to the current catalog ids below; repeated or bypass headings inherit their parent row.
+
+| Key | Heading | Requirements | Status | Catalog ids / reason |
+|---|---|---|---|---|
+| `az-privilege-escalation/az-authorization-privesc.md#policy-assignment-remediation-with-an-existing-user-assigned-identity` | Policy assignment remediation with an existing user-assigned identity | See catalog prerequisite actions | MAPPED | `azure-policy-assignment-write-user-assigned-identity` |
+| `az-privilege-escalation/az-automation-accounts-privesc.md#read-runbook-source-for-hardcoded-secrets-1` | Read runbook source for hardcoded secrets |  | SUBSECTION | repeated heading of #read-runbook-source-for-hardcoded-secrets: MAPPED `azure-automation-runbook-source-credential` |
+| `az-privilege-escalation/az-automation-accounts-privesc.md#harvest-secrets-from-prior-job-output-and-streams-1` | Harvest secrets from prior job output and streams |  | SUBSECTION | repeated heading of #harvest-secrets-from-prior-job-output-and-streams: MAPPED `azure-automation-job-output-credential` |
+| `az-privilege-escalation/az-cosmosDB-privesc.md#same-native-rbac-self-grant-on-the-other-cosmos-apis-cassandra--gremlin--table--mongodb-account` | Same native-RBAC self-grant on the other Cosmos APIs (Cassandra / Gremlin / Table / MongoDB account) | See catalog prerequisite actions | MAPPED | `azure-cosmos-other-api-role-assignment-write` |
+| `az-privilege-escalation/az-data-factory-privesc.md#exchange-a-supplied-github-authorization-code-with-factoriesgetgithubaccesstokenaction` | Exchange a supplied GitHub authorization code with `factories/getGitHubAccessToken/action` | See catalog prerequisite actions | MAPPED | `azure-datafactory-github-oauth-external-principal` |
+| `az-privilege-escalation/az-entraid-privesc/README.md#group-owner-joins-an-owned-group` | Group owner joins an owned group | See catalog prerequisite actions | MAPPED | `azure-entraid-group-owner-membership` |
+| `az-privilege-escalation/az-entraid-privesc/az-conditional-access-policies-mfa-bypass.md#device-code-block-limited-to-selected-resources` | Device-code block limited to selected resources |  | SUBSECTION | of #conditional-access-policies-bypasses: EXCLUDED: Authentication-control bypass for an already-compromised credential; no new principal privileges. |
+| `az-privilege-escalation/az-logic-apps-privesc.md#assign-a-user-assigned-identity-to-a-writable-workflow` | Assign a user-assigned identity to a writable workflow | See catalog prerequisite actions | MAPPED | `azure-logicapp-assign-user-assigned-identity` |
+| `az-privilege-escalation/az-purview-privesc.md#microsoftpurviewaccountsaddrootcollectionadminaction--root-collection-administrator-grant` | `Microsoft.Purview/accounts/addrootcollectionadmin/action` — root collection administrator grant | See catalog prerequisite actions | MAPPED | `azure-purview-add-root-collection-admin` |
+| `az-privilege-escalation/az-sql-privesc.md#reset-a-sql-server-administrator-password-with-microsoftsqlserverswrite` | Reset a SQL server administrator password with `Microsoft.Sql/servers/write` | See catalog prerequisite actions | MAPPED | `azure-sql-server-admin-password-reset` |
+| `az-privilege-escalation/az-sql-privesc.md#reset-a-sql-managed-instance-administrator-password` | Reset a SQL Managed Instance administrator password | See catalog prerequisite actions | MAPPED | `azure-sqlmi-admin-password-reset` |
+| `az-privilege-escalation/az-sql-privesc.md#set-a-sql-managed-instance-entra-administrator` | Set a SQL Managed Instance Entra administrator | See catalog prerequisite actions | MAPPED | `azure-sqlmi-entra-admin-write` |
+| `az-privilege-escalation/az-sql-privesc.md#set-a-sql-server-entra-administrator-with-microsoftsqlserversadministratorswrite` | Set a SQL server Entra administrator with `Microsoft.Sql/servers/administrators/write` | See catalog prerequisite actions | MAPPED | `azure-sql-server-entra-admin-write` |
+| `az-privilege-escalation/az-storage-privesc.md#read-a-verified-credential-from-a-blob` | Read a verified credential from a blob | See catalog prerequisite actions | MAPPED | `azure-storage-blob-content-credential` |
+| `az-privilege-escalation/az-virtual-machines-and-network-privesc.md#reimage-a-vm-with-new-customdata` | Reimage a VM with new customData | See catalog prerequisite actions | MAPPED | `azure-vm-customdata-reimage` |
+| `az-privilege-escalation/az-vmware-solution-avs-privesc.md#run-command-identity-grants-without-reading-credentials-scriptexecutionswrite` | Run Command identity grants without reading credentials (`scriptExecutions/write`) | See catalog prerequisite actions | MAPPED | `azure-avs-run-command-vcenter-grant-external-principal` |
+
+## Current CSPM catalog reconciliation (HackTricks Cloud `4fab4d35d179f490e5c0c6343ab7ef690b4a6f45`)
 
 The heading sweep above records its historical source revision. The rows below record every current Azure automatic technique and the main-only paths retired from automatic evaluation. RETIRED entries remain documented in the source and exclusion catalog; they do not run as automatic checks.
 

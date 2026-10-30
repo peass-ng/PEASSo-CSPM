@@ -57,7 +57,7 @@ def capture(monkeypatch,mode='no_limit',**limits):
     if mode=='denied_policy':raise Denied('SENSITIVE_PAYLOAD')
     return {'id':OP+('/policies/foreign'if mode=='foreign_policy'else'/policies/policy'),'properties':{'format':'rawxml','value':xml}}
    return {'value':[]}
- t=Transport();monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:t)
+ t=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:t);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:t)
  policy=copy.deepcopy(POLICY)
  if mode=='foreign_approval':policy['scope']='/subscriptions/foreign'
  if mode=='forged_observations':policy['operations_complete']=True

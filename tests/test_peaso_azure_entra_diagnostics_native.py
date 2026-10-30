@@ -67,6 +67,7 @@ def capture(monkeypatch, mode='ok', subscriptions=1):
             return {'value': []}
     transport = Transport()
     monkeypatch.setattr(azure, 'AzureTransport', lambda auth: transport)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: transport)
     policy = {'sw21': {'status': 'collected', 'scope': TSCOPE, 'entraDiagnostics': {
         'activityCategories': ['AuditLogs', 'SignInLogs'], 'requiredActivityCategories': ['AuditLogs', 'SignInLogs'],
         'approvedSinkIds': [WORKSPACE], 'minimumRetentionDays': 30}}}

@@ -61,7 +61,7 @@ def capture(monkeypatch,mode,*,keys_next='ABSENT',versions_next='ABSENT',**limit
    if path==RID:return {'id':RID,'type':'Microsoft.KeyVault/vaults','name':'fixturevault','properties':{'vaultUri':ORIGIN}}
    if path.endswith('/resources'):return {'data':[],'resultTruncated':False}
    return {'value':[]}
- transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+ transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
  options={'retries':0,'concurrency':1,**limits}
  if mode!='missing_policy':options['compliance_policy']={'sw32':copy.deepcopy(POLICY)}
  snapshot=collect_live({'provider':'azure','scopes':[SUB],'auth':{'method':'token','arm_token':'fixture','vault_token':'fixture-vault'},'options':options},['vault_key'])

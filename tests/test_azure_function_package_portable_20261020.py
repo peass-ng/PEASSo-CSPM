@@ -341,6 +341,11 @@ def test_actual_detector_unavailability_keeps_original_incomplete_semantics(monk
     def unavailable():
         raise RuntimeError('native-private-scanner-error ' + native.SECRET)
     monkeypatch.setattr(secret_scanning, '_trufflehog', unavailable)
+    # Bytes an earlier complete TruffleHog run reported clean are reused from the
+    # per-process clean memo; start empty so this run really needs the detector.
+    from peaso import secret_scan_clean
+    with secret_scan_clean._LOCK:
+        monkeypatch.setattr(secret_scan_clean, '_CLEAN', type(secret_scan_clean._CLEAN)())
     package = io.BytesIO()
     with zipfile.ZipFile(package, 'w') as archive:
         archive.writestr('main.py', ('TOKEN=' + native.SECRET if hit else 'mode=ready').encode())

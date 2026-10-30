@@ -115,6 +115,7 @@ def capture(monkeypatch, *, targets=None, data=None, identity=None, response=Non
         def close(self):
             self.closed = True
     monkeypatch.setattr(azure, 'AzureTransport', Transport)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', Transport)
     monkeypatch.setattr(source.http.client, 'HTTPSConnection', Connection)
     req = deepcopy(req if req is not None else request(targets))
     trace.req = req
@@ -230,6 +231,7 @@ def test_invalid_selection_before_credentials(monkeypatch, values):
     req = request();req['connector']['options'][source.OPTION] = values
     def forbidden(*a,**k):pytest.fail('invalid selection reached auth')
     monkeypatch.setattr(azure,'AzureTransport', forbidden)
+    monkeypatch.setattr(azure,'AzureTransportExposure', forbidden)
     with pytest.raises(ValueError):engine.collect_snapshot(req)
 
 
@@ -238,6 +240,7 @@ def test_invalid_scope_before_credentials(monkeypatch, scopes):
     req = request();req['connector']['scopes']=scopes
     def forbidden(*a,**k):pytest.fail('invalid scope reached auth')
     monkeypatch.setattr(azure,'AzureTransport', forbidden)
+    monkeypatch.setattr(azure,'AzureTransportExposure', forbidden)
     with pytest.raises(ValueError):engine.collect_snapshot(req)
 
 

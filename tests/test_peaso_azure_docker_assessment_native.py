@@ -87,7 +87,7 @@ def test_normal_collect_live_uses_same_native_get_and_scope_capture_without_secr
                 value=row();value['properties'].pop('metadata');return {'value':[value]}
             if path==RID:return row()
             return {'value':[]}
-    t=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:t)
+    t=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:t);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:t)
     snapshot=collect_live({'provider':'azure','scopes':[SCOPE],'options':{'retries':0}},['vm','security_assessment'])
     rows=[e for e in snapshot['collections'] if e['type']=='security_assessment'];assert len(rows)==1
     value=rows[0]['items'][0];assert value['properties']['metadata']['assessmentType']=='BuiltIn'

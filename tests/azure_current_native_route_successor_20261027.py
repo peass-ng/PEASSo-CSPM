@@ -52,8 +52,37 @@ def _current_azure_native_auxiliary_routes(request):
         route = module.SLOT + '/basicPublishingCredentialsPolicies/scm'
         diagnostics = module.SLOT + '/providers/Microsoft.Insights/diagnosticSettings'
 
+        slot_singletons = {module.SLOT + '/config/authsettingsV2': ('config/authsettingsV2', '2025-05-01'),
+                           module.SLOT + '/config/web': ('config/web', '2023-12-01')}
+        functions = module.SITE + '/functions'
+        scale_set = module.ENDPOINTS['vm_scale_set'][2]
+        scale_set_children = (scale_set + '/networkInterfaces', scale_set + '/publicipaddresses')
+
         def request_current(self, url, *, body=None, audience=module.azure.ARM):
             parsed = urlsplit(url)
+            # Current read-only child LISTs: Function HTTP trigger envelopes for a
+            # function-kind site and VMSS instance NIC/public IP inventories. The
+            # sealed fixtures declare no functions and no scale-set instances.
+            if ((parsed.path == functions and self.kind == 'app_service'
+                 and 'functionapp' in str(self.obj.get('kind', '')).split(','))
+                    or (parsed.path in scale_set_children and self.kind == 'vm_scale_set')):
+                assert parsed.scheme == 'https' and parsed.netloc == 'management.azure.com'
+                assert body is None and audience == module.azure.ARM
+                assert parse_qs(parsed.query) == {'api-version': [
+                    '2025-05-01' if parsed.path == functions else '2018-10-01']}
+                self.calls.append({'method': 'GET', 'url': url, 'body': None})
+                return {'value': []}
+            if self.cid == 'azure.claude2.web_app_slot_https_only' and parsed.path in slot_singletons:
+                # Current slot singleton GETs mirror the reviewed parent-site DTO.
+                suffix, version = slot_singletons[parsed.path]
+                assert parsed.scheme == 'https' and parsed.netloc == 'management.azure.com'
+                assert body is None and audience == module.azure.ARM
+                assert parse_qs(parsed.query) == {'api-version': [version]}
+                self.calls.append({'method': 'GET', 'url': url, 'body': None})
+                slot_config = deepcopy(self.children[module.SITE + '/' + suffix])
+                slot_config['id'] = parsed.path
+                slot_config['type'] = 'Microsoft.Web/sites/slots/config'
+                return slot_config
             if self.cid == 'azure.claude2.web_app_slot_https_only' and parsed.path in (route, diagnostics):
                 assert parsed.scheme == 'https' and parsed.netloc == 'management.azure.com'
                 assert body is None and audience == module.azure.ARM

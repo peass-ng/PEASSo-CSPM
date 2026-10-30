@@ -48,7 +48,7 @@ class API:
     ('partial', 'partial'), ('duplicate', 'malformed'), ('foreign', 'malformed'),
     ('outside', 'collected'), ('overlap', 'collected'), ('changed_overlap', 'partial'), ('retention', 'malformed')])
 def test_normal_native_activity_coverage_pipeline(monkeypatch, mode, expected):
-    api = API(mode); monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    api = API(mode); monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api);monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: api)
     connector = {'provider': 'azure', 'scopes': [SCOPE],
         'auth': {'method': 'token', 'arm_token': 'inert'},
         'options': {'concurrency': 1, 'retries': 0, 'activity_days': 90 if mode == 'retention' else 30}}

@@ -173,6 +173,7 @@ def collect(monkeypatch, targets=None, literal='mode=ready', *, real=False, tran
         def close(self):
             self.closed = True
     monkeypatch.setattr(azure, 'AzureTransport', Transport)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', Transport)
     monkeypatch.setattr(source.http.client, 'HTTPSConnection', Connection)
     snapshot = engine.collect_snapshot(deepcopy(req if req is not None else request(targets)))
     result = engine.evaluate_snapshot(snapshot, checks=[source.CHECK])

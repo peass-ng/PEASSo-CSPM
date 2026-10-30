@@ -62,7 +62,7 @@ def capture(monkeypatch,kind='mysql',mode='ok',allow_azure=False,selected_check=
     if mode=='admin_denied':raise Denied('SECRET_MUST_NOT_ESCAPE')
     return {'value':[]if mode=='no_admin'else[admin]}
    return {'value':[]}
- transport=Transport();monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
+ transport=Transport();monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
  connector={'provider':'azure','scopes':[SUB],'auth':{'method':'token','arm_token':'fixture'},'options':{'retries':0,**limits,'compliance_policy':{'sw15':{'status':'collected','scope':SUB,'allowAzureServices':allow_azure}}}}
  if selected_check:
   from peaso.engine import collect_snapshot
