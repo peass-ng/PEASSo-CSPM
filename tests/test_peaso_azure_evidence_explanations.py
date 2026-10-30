@@ -1882,7 +1882,7 @@ PINNED_SUCCESSOR_INPUTS = json.loads(r'''
   "peaso/checks/azure_ml_job_secrets_admission_20261020_fixtures.json": "2840b0e2bafc61a25771b49d29bda2fd2ef25890e8763caaec5691fe0afeba69",
   "peaso/checks/azure_ml_selected_asset_secret_review_20261020.py": "4c66fc194c7c94537581f240ee6999ee87e6677c6deeb5e65b510c4eddf6f472",
   "peaso/checks/azure_ml_selected_job_secret_review_20261020.py": "20536cbdc302fdbee0565304aca63314e9ada62c769e17e383b3c3dc00798bd1",
-  "peaso/checks/azure_native_contract_closure_20261020.py": "03913ec9fa37ea1ab64ed103eb6491cc5bbfdf94a901db2c47c0908c23bd1f4a",
+  "peaso/checks/azure_native_contract_closure_20261020.py": "4f05044102b87c56f4da90aaa9917d2c17587569675632f3f98ecf6db29b1a61",
   "peaso/checks/azure_native_review_copy_20261020.py": "89a6fc92ac9861a088960e7736dfe05aa69ee778289b5b8c3e005a6f4b218393",
   "peaso/checks/azure_nsp_query_cmk_production_cases_20261020.json": "0ba1cb3e3b5b670d056ab2f15090131a98cf802e14e872f54678347fbd361ca0",
   "peaso/checks/azure_nsp_query_cmk_runtime_review_20261020.py": "f18440a1a6c796dcc2d97b4194497ecf4023d881c73371d8a737a8b89fc4891f",
