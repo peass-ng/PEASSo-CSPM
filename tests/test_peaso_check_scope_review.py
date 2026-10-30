@@ -22,7 +22,10 @@ def test_every_registered_check_has_a_scope_and_grouping_contract():
 def test_all_account_only_scope_checks_run_once_per_account_even_when_evidence_is_missing():
     checks = [check for check in _registry() if check.provider == "aws" and check.target == "scope"
               and set(check.dependencies) <= aws_global_types() and explicit_scope(check) != "aws_region"]
-    assert len(checks) >= 34
+    # aws.claude_a.organizations.no_untrusted_delegated_administrators is an
+    # account-global check, but native_only.json excludes it from the automated
+    # registry: it needs a customer trusted-account list (see test_peaso_native_only_scope).
+    assert len(checks) >= 33
     scopes = [account + "/" + region for account in (A, B) for region in REGIONS]
     for check in checks:
         assert evaluation_scope(check) == "aws_account", check.id
@@ -127,4 +130,6 @@ def test_account_global_scope_preserves_existing_positive_and_negative_fixture_v
             after = check.evaluate(data, changed)[0]
             assert before == after, (check.id, name, before, after)
             checked.append((check.id, name))
-    assert len(checked) >= 58
+    # 28 registered account-scope checks with pass and fail fixtures; the
+    # excluded organizations delegated-administrator check no longer counts.
+    assert len(checked) >= 56

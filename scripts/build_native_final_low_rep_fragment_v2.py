@@ -7,13 +7,12 @@ runtime, and the exact 992 snapshot is used only to resolve recorded refs.
 import argparse
 import gzip
 import hashlib
-import ijson
 import json
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.audit_native_final_low_reps import SNAPSHOT_SHA256
+from scripts.audit_native_final_low_reps import SNAPSHOT_SHA256, json_items
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -220,7 +219,7 @@ def build(source_receipt, source_inventory, snapshot):
         kinds.add('iam_password_policy')
     rows = {kind: [] for kind in kinds}
     with gzip.open(snapshot, 'rb') as stream:
-        for collection in ijson.items(stream, 'collections.item'):
+        for collection in json_items(stream, 'collections.item'):
             kind = collection.get('type')
             if kind in rows and collection.get('status') == 'collected':
                 rows[kind].extend(collection.get('items') or [])
