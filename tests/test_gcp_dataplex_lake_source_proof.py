@@ -7,7 +7,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PROOF = ROOT / 'docs/perf/gcp-dataplex-lake-location-source-proof-20261029.json'
-PROOF_SHA256 = '6ee450225cd894225d6617db5f36714b5ae691cca23aaed3fb66e28ea74a491f'
+PROOF_SHA256 = '7520da5317b4248830c24f0780f4e0d78d4a98d0d5fa42de4a551471822d443a'
 
 
 def predecessor(current, row):

@@ -500,7 +500,7 @@
   "rss_caveat": "Final peaks2,097,364,992/2,324,168,704B exceed before peaks1,847,181,312/1,712,373,760/1,748,500,480B. ReturnRSS also increased. No memory improvement or no-growth claim. Final maximum is well within the reviewed16GiB task configuration with~13.84GiB margin, but these are whole macOS process high-water values including imports/retained recordings/sealing, not production ECS cgroup proof.",
   "scope": "One full saved-provider response set, frozen30-day window, latency_scale0.5, concurrency4. All native item fields, order, statuses/errors and response digests compared; only generated scan-context fields and3typed local network-read timestamps excluded. Snapshot-level metadata not compared except reader call count.",
   "source_hashes": {
-    "peaso/collectors/azure.py": "2cb2a4a0c328730f9badca2f01000b52abe30c63748d32e1e8302f7e5871f4fe",
+    "peaso/collectors/azure.py": "7597a911a8077bb62445685b8e5d65745eec983077aaa695a55a30c08a33b2c9",
     "peaso/collectors/azure_identity_enforcement_review_20261020.py": "f77099dbc28736157c1b2418f0e9ffc005b94c60fcc8facbaaf6f95b952da69c",
     "peaso/collectors/azure_page_prefetch.py": "03436f522d3820c545bc8fac98cd4b0a8d69792d0616b98874a88f3b5e293f30"
   },

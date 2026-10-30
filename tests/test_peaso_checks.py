@@ -32,6 +32,19 @@ for _policy_item in (
     _policy_item['Policy']['Statement'][0]['Condition']['StringEquals']['aws:PrincipalOrgID'] = 'o-1234567890'
 del _resource_policy_case, _policy_item
 CASES.update(_bulk_cases)
+# ECS logging now fails closed unless DescribeTaskDefinition detail is recorded
+# as collected (the collector's _detail status). Keep the archived central case
+# and add that native status to every detail projection of its successor.
+def _with_collected_ecs_detail(value):
+    if isinstance(value, dict):
+        value = {key: _with_collected_ecs_detail(item) for key, item in value.items()}
+        if isinstance(value.get('Definition'), dict) and 'taskDefinition' in value['Definition']:
+            value['Definition'] = {'collection_status': 'collected', **value['Definition']}
+        return value
+    if isinstance(value, list):
+        return [_with_collected_ecs_detail(item) for item in value]
+    return value
+CASES['aws_g6_ecs_all_containers_logging'] = _with_collected_ecs_detail(CASES['aws_g6_ecs_all_containers_logging'])
 
 
 PAB = {key: True for key in ("BlockPublicAcls", "IgnorePublicAcls", "BlockPublicPolicy", "RestrictPublicBuckets")}

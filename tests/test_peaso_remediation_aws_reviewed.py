@@ -28,6 +28,27 @@ def reviewed():
     return json.loads(SHARD.read_text())
 
 
+
+def shard_before_reference_titles(path="peaso/rulepacks/remediation_aws_reviewed.json",
+                                   rows_count=271, ensure_ascii=True):
+    """Exact shard bytes before the reviewed documentation-label overlay (98b81b17).
+
+    Each shard keeps its own encoding: ASCII-escaped for the central shard and
+    literal UTF-8 for the family shard.
+    """
+    raw = (ROOT / path).read_bytes()
+    data = json.loads(raw)
+    assert (json.dumps(data, indent=2, ensure_ascii=ensure_ascii) + "\n").encode() == raw
+    overlay = json.loads((ROOT / "tests/fixtures/remediation_reference_title_overlay.json").read_text())
+    assert overlay["schema_version"] == 1
+    rows = overlay["sources"][path]
+    assert len(rows) == rows_count
+    for row in rows:
+        reference = data[row["id"]]["references"][row["index"]]
+        assert reference == {"title": row["new_title"], "url": row["url"]}, row
+        reference["title"] = row["old_title"]
+    return (json.dumps(data, indent=2, ensure_ascii=ensure_ascii) + "\n").encode()
+
 def test_reviewed_entries_are_assigned_native_checks_with_exact_kind():
     from tests.release_successor_history import registered_before_bulk
     checks = {check.id: check for check in registered_before_bulk(CHECKS)}
@@ -108,7 +129,7 @@ def test_reviewed_entries_are_assigned_native_checks_with_exact_kind():
     assert len(entries) == len(assigned) == 622
     assert len(assigned | set(next20)) == 624
     assert not set(entries) & set(next20)
-    assert hashlib.sha256(SHARD.read_bytes()).hexdigest() == "b19eef2e094da960355bfa3d1a78a2f4618742aa7d1eda18c4e0da1fe857fa8c"
+    assert hashlib.sha256(shard_before_reference_titles()).hexdigest() == "b19eef2e094da960355bfa3d1a78a2f4618742aa7d1eda18c4e0da1fe857fa8c"
     assert {check_id for check_id in checks if check_id.startswith("aws.b.")} <= set(entries)
     assert {check_id for check_id in checks if check_id.startswith("aws.a.")} <= set(entries)
     assert {check_id for check_id in checks if check_id.startswith("aws.htbp.")} <= set(entries)
@@ -175,7 +196,7 @@ def test_api_gateway_stage_entries_match_signed_native_predicates_and_preserve_l
     # Reverse the two source-bound WAFv2 reviews first. This reproduces the
     # exact 620-entry pre-WAF shard, so every older raw-byte overlay remains
     # independently pinned below.
-    current_raw = SHARD.read_bytes()
+    current_raw = shard_before_reference_titles()
     waf_start = current_raw.index(b',\n  "aws.pci.wafv2.rule_group_metrics": {')
     waf_end = current_raw.rfind(b'\n}\n')
     assert current_raw[waf_end:] == b'\n}\n'
@@ -241,7 +262,7 @@ def test_api_gateway_stage_entries_match_signed_native_predicates_and_preserve_l
     restored_iam = _source414_reviewed_baseline(repin["source_path"], current_iam,
         "2002c02d63715d2b878d6405ca2bd7df87d02d7832e424b5bd1964c113a96423")
     assert hashlib.sha256(restored_iam).hexdigest() == "2002c02d63715d2b878d6405ca2bd7df87d02d7832e424b5bd1964c113a96423"
-    family_raw = (ROOT / repin["path"]).read_bytes()
+    family_raw = shard_before_reference_titles(repin["path"], 244, ensure_ascii=False)
     assert hashlib.sha256(family_raw).hexdigest() == repin["post_sha256"]
     family_prior = json.loads(family_raw)
     assert len(repin["fields"]) == 66

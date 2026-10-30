@@ -39,6 +39,9 @@ REGIONAL = {
 PRIVATE_SERVICES = json.loads(Path(__file__).with_name('gcp_network_private_services.json').read_text())
 REGIONAL.update({kind: (p['service'], p['version'], p['segment'], p['key']) for kind, p in PRIVATE_SERVICES.items()
                  if not p.get('project_wide') and not p.get('organization_scoped')})
+# GCPCollector owns this kind: it lists it once with the reviewed field mask
+# below plus per-service IAM, so this catalog must not schedule a second read.
+GCP_COLLECTOR_OWNED = frozenset({'media_cdn_service'})
 TYPES = set(REGIONAL) | set(PRIVATE_SERVICES) | {'binary_authorization_platform_policy', 'model_armor_exposure', 'target_pool', 'lakehouse_resource', 'pubsub_topic_attachment', 'dns_record_set', 'fraud_defense_exposure', 'backend_service_health', 'api_gateway_resource', 'binary_authorization_policy', 'dlp_exposure', 'identityplatform_config', 'dialogflow_es_fulfillment', 'containeranalysis_occurrence', 'service_extension_exposure', 'dataflow_network_job', 'app_engine_network_version', 'network_connectivity_hub', 'network_connectivity_hub_group', 'fleet_membership_feature', 'fleet_scope_member', 'sac_exposure', 'pubsub_schema_iam', 'multicloud_exposure', 'cloudtasks_delivery', 'sovereign_partner_exposure', 'apigee_route', 'target_instance', 'firebase_rules_release', 'firebase_database_rules', 'service_networking_connection'}
 DATAFLOW_FIELDS = "id,name,location,projectId,currentState,type,environment(workerPools(network,subnetwork,ipConfiguration))"
 APPENGINE_FIELDS = "versions(id,name,servingStatus,env,network,vpcAccessConnector),nextPageToken"
@@ -239,6 +242,7 @@ def _netapp_safe_volume(row):
 
 def inventory_pages(collector, scope, plan, parent, root):
     projection = {'eventarc_pipeline': _eventarc_pipeline,
+                  'eventarc_trigger': _eventarc_trigger,
                   'agent_registry_interface': _agent_registry_interface,
                   'agent_gateway': _agent_gateway,
                   'vertex_agent_engine': _vertex_agent_engine,
@@ -505,6 +509,51 @@ def lakehouse_resources(collector, scope):
                             yield [policy(namespace_name + '/tables/' + table['name'], 'table')], table_receipt
 
 
+def _eventarc_target_facts(target):
+    """Metadata-only Eventarc destination facts (no credentials or URL paths)."""
+    if not isinstance(target, dict):
+        return None
+    facts = {field: target[field] for field in ("topic", "messageBus", "workflow", "cloudFunction")
+             if isinstance(target.get(field), str)}
+    for kind, fields in (("cloudRun", ("service", "region")),
+                         ("gke", ("cluster", "location", "namespace", "service"))):
+        descriptor = target.get(kind)
+        if isinstance(descriptor, dict):
+            facts[kind] = {field: descriptor[field] for field in fields if isinstance(descriptor.get(field), str)}
+    network = target.get("networkConfig")
+    if isinstance(network, dict) and isinstance(network.get("networkAttachment"), str):
+        facts["networkConfig"] = {"networkAttachment": network["networkAttachment"]}
+    endpoint = target.get("httpEndpoint")
+    uri = endpoint.get("uri") if isinstance(endpoint, dict) else None
+    if isinstance(uri, str):
+        try:
+            parts = urlsplit(uri)
+            if parts.scheme in ("http", "https") and parts.hostname:
+                facts["httpEndpoint"] = {"uri": parts.scheme + "://" + parts.netloc.rsplit("@", 1)[-1]}
+        except ValueError:
+            pass
+    auth = target.get("authenticationConfig")
+    if isinstance(auth, dict):
+        for key in ("googleOidc", "oauthToken"):
+            value = auth.get(key)
+            if isinstance(value, dict) and isinstance(value.get("serviceAccount"), str):
+                facts["authenticationConfig"] = {key: {"serviceAccount": value["serviceAccount"]}}
+                break
+    return facts
+
+
+def _eventarc_trigger(row):
+    projected = {field: row[field] for field in ("name", "eventFilters", "serviceAccount") if field in row}
+    if (facts := _eventarc_target_facts(row.get("destination"))) is not None:
+        projected["destination"] = facts
+    transport = row.get("transport")
+    pubsub = transport.get("pubsub") if isinstance(transport, dict) else None
+    if isinstance(pubsub, dict):
+        projected["transport"] = {"pubsub": {field: pubsub[field] for field in ("topic", "subscription")
+                                             if isinstance(pubsub.get(field), str)}}
+    return projected
+
+
 def _eventarc_pipeline(row):
     projected = {"name": row.get("name"), "destinations": []}
     destinations = row.get("destinations", [])
@@ -513,7 +562,7 @@ def _eventarc_pipeline(row):
     for destination in destinations:
         if not isinstance(destination, dict):
             raise ReadError("malformed", "eventarc_pipeline_destination_invalid")
-        item = {key: destination[key] for key in ("workflow", "messageBus", "topic") if key in destination}
+        item = _eventarc_target_facts(destination)
         network = destination.get("networkConfig")
         if isinstance(network, dict) and isinstance(network.get("networkAttachment"), str):
             item["networkAttachment"] = network["networkAttachment"]
@@ -1379,6 +1428,7 @@ def scope_jobs(collector, scope):
         return []
     jobs = [(kind, scope, spec[0], lambda kind=kind: regional_pages(collector, scope, kind))
             for kind, spec in REGIONAL.items() if kind in collector.needed and kind != 'dlp_exposure'
+            and kind not in GCP_COLLECTOR_OWNED
             and PRIVATE_SERVICES.get(kind, {}).get('scope_kind', 'projects') == scope_kind]
     if 'dlp_exposure' in collector.needed:
         from .gcp_dlp_exposure import collection_pages

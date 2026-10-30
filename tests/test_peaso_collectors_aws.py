@@ -804,9 +804,12 @@ def test_incomplete_or_ambiguous_auth_does_not_resolve_default(auth, monkeypatch
 def test_sensitive_value_and_mutation_apis_blocked(sdk):
     session, add, _ = sdk
     requests = aws.Requests({})
-    for service, operation in [("secretsmanager", "get_secret_value"), ("s3", "get_object"), ("logs", "get_log_events"), ("accessanalyzer", "create_analyzer"), ("ec2", "create_network_insights_path")]:
+    for service, operation in [("secretsmanager", "get_secret_value"), ("s3", "get_object"), ("logs", "get_log_events"), ("ec2", "create_network_insights_path")]:
         with pytest.raises(aws.ReadFailure, match="non_read_operation"):
             requests.call(session, service, REGION, operation)
+    # Access Analyzer is banned outright, before any operation-level allowlist decision.
+    with pytest.raises(aws.ReadFailure, match="access_analyzer_live_api_banned"):
+        requests.call(session, "accessanalyzer", REGION, "create_analyzer")
     assert requests.calls == 0
 
 

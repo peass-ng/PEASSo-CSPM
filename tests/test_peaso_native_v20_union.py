@@ -55,7 +55,7 @@ def test_direct_library_rejects_invalid_owner_inputs_before_transport(mode,monke
    row['resourceId']=row['resourceId'].replace(SCOPE,foreign);row['approvedSinkIds']=[s.replace(SCOPE,foreign)for s in row['approvedSinkIds']]
  if mode=='bad_options':options=[]
  transport=Mock(side_effect=AssertionError('cloud I/O forbidden'));factory=Mock(side_effect=AssertionError('credential resolution forbidden'))
- monkeypatch.setattr(azure,'AzureTransport',factory)
+ monkeypatch.setattr(azure,'AzureTransport',factory);monkeypatch.setattr(azure,'AzureTransportExposure',factory)
  with pytest.raises(ValueError):azure.collect({'provider':'azure','scopes':[SUB],'options':options},['azure_diagnostic_eligible_resource'],transport=transport)
  assert transport.call_count==factory.call_count==0
 
@@ -151,7 +151,7 @@ def test_private_union_aks_databricks_and_route_policy_survive_one_public_pipeli
  arm=db.API(routes);arm.close=lambda:None;apis=[]
  def new_api(context):
   api=Api();apis.append(api);return api
- monkeypatch.setattr(azure,'AzureTransport',lambda auth:arm);monkeypatch.setattr(k8s,'_new_api',new_api)
+ monkeypatch.setattr(azure,'AzureTransport',lambda auth:arm);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:arm);monkeypatch.setattr(k8s,'_new_api',new_api)
  route_check='azure_route_table_network_http_internet_access_restricted_5cd2484'
  checks=[aks.native.IMAGES,aks.native.PORTS,db.CHECK,route_check]
  snapshot=collect_snapshot({'connector':{'provider':'azure','scopes':[db.SUB],'auth':auth,'options':options},'checks':checks})

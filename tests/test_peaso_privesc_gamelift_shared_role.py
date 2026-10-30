@@ -44,7 +44,11 @@ def test_collector_keeps_fleet_role_and_compute_metadata_only():
                                     "Status": "ACTIVE", "InstanceRoleArn": TARGET,
                                     "InstanceRoleCredentialsProvider": "SHARED_CREDENTIAL_FILE",
                                     "Secret": "must-not-collect"}])
-            assert operation == "list_compute" and kwargs == {"FleetId": FLEET_ID}
+            assert kwargs == {"FleetId": FLEET_ID}
+            if operation == "describe_fleet_port_settings":
+                return ReadResult([{"FromPort": 7777, "ToPort": 7777, "IpRange": "0.0.0.0/0", "Protocol": "UDP",
+                                    "Secret": "must-not-collect"}])
+            assert operation == "list_compute"
             return ReadResult([{"FleetId": FLEET_ID, "ComputeName": "i-123", "ComputeStatus": "Active",
                                 "Secret": "must-not-collect"}])
 
@@ -52,6 +56,7 @@ def test_collector_keeps_fleet_role_and_compute_metadata_only():
     assert result.status == "collected"
     assert result.items[0]["InstanceRoleArn"] == TARGET
     assert result.items[0]["Computes"]["items"][0]["ComputeName"] == "i-123"
+    assert result.items[0]["InboundPermissions"]["items"] == [{"FromPort": 7777, "ToPort": 7777, "IpRange": "0.0.0.0/0", "Protocol": "UDP"}]
     assert "Secret" not in str(result.items)
 
 

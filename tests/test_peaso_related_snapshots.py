@@ -74,7 +74,12 @@ def test_cli_related_snapshot_flag(tmp_path):
     assert _cross_edges(json.loads(single.read_text())) == 0
 
 
-def test_server_scan_group_joins_cluster_and_cloud_scans_including_scheduled(tmp_path):
+def test_server_scan_group_joins_cluster_and_cloud_scans_including_scheduled(tmp_path, monkeypatch):
+    # Each run spawns collector and analyzer children that inherit the environment. The suite-wide
+    # PEASO_SOURCE_ATTESTATION=always re-proves every source on their cold imports (minutes of CPU
+    # per child), which can outlast the scan deadline. The children still prove every pinned source
+    # once in the shipped mode; this process keeps the mode it was imported with.
+    monkeypatch.delenv("PEASO_SOURCE_ATTESTATION", raising=False)
     from peaso.server import create_app
     from peaso.server.config import Settings
     from peaso.worker import Worker

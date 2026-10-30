@@ -150,7 +150,11 @@ import pytest
 raise SystemExit(pytest.main(['--noconftest', '-p', 'no:cacheprovider',
     sys.argv[2], '-q', '--junitxml=' + sys.argv[3]]))
 """
-    child_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    # The suite-wide PEASO_SOURCE_ATTESTATION=always re-proves every pinned source on
+    # each nested call (minutes of CPU for a cold peaso.checks import). This child
+    # does not test attestation, so it runs the shipped mode, which still proves
+    # every pinned source once on first use.
+    child_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PEASO_SOURCE_ATTESTATION": "once"}
     child_env.pop("PYTEST_PLUGINS", None)
     child_env.pop("PYTEST_ADDOPTS", None)
     result = subprocess.run(

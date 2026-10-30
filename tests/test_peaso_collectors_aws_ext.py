@@ -145,10 +145,14 @@ def test_client_vpn_routing_reads_scoped_routes_and_associations(stub):
         {"ClientVpnEndpointId": endpoint, "AssociationId": "cvpn-assoc-1234",
          "TargetNetworkId": "subnet-1234", "VpcId": "vpc-1234", "Status": {"Code": "associated"},
          "SecurityGroups": ["sg-1234"]}]}, {"ClientVpnEndpointId": endpoint})
+    ec2.add_response("describe_client_vpn_authorization_rules", {"AuthorizationRules": [
+        {"ClientVpnEndpointId": endpoint, "DestinationCidr": "10.0.0.0/16", "AccessAll": True,
+         "Status": {"Code": "active"}}]}, {"ClientVpnEndpointId": endpoint})
     read = run("client_vpn_routing", session)
     assert read.status == "collected" and read.items[0]["id"] == endpoint
     assert read.items[0]["Routes"]["items"][0]["TargetSubnet"] == "subnet-1234"
     assert read.items[0]["TargetNetworks"]["items"][0]["VpcId"] == "vpc-1234"
+    assert read.items[0]["AuthorizationRules"]["items"][0]["AccessAll"] is True
 
 
 def test_client_vpn_routing_denied_route_stays_partial(stub):
@@ -160,6 +164,8 @@ def test_client_vpn_routing_denied_route_stays_partial(stub):
     ec2.add_client_error("describe_client_vpn_routes", "AccessDeniedException",
                          expected_params={"ClientVpnEndpointId": endpoint})
     ec2.add_response("describe_client_vpn_target_networks", {"ClientVpnTargetNetworks": []},
+                     {"ClientVpnEndpointId": endpoint})
+    ec2.add_response("describe_client_vpn_authorization_rules", {"AuthorizationRules": []},
                      {"ClientVpnEndpointId": endpoint})
     read = run("client_vpn_routing", session)
     assert read.status == "partial" and read.items[0]["Routes"]["collection_status"] == "denied"

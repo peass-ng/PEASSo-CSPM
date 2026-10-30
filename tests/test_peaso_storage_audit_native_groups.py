@@ -46,7 +46,7 @@ MODES=[('disabled_audit',['read','write','delete']),('disabled_audit_plus_read',
        ('diagnostics_denied',None),('diagnostics_partial',None),('categories_denied',None)]
 @pytest.mark.parametrize('mode,missing',MODES,ids=[m for m,_ in MODES])
 def test_native_group_operation_evidence(monkeypatch,mode,missing):
-    api=GroupAPI(mode);monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+    api=GroupAPI(mode);monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
     connector={'provider':'azure','scopes':[SCOPE],'auth':{'method':'token','arm_token':'inert','storage_token':'inert'},'options':options('absent')}
     requirements=historical_requirements()
     assert set(requirements)=={'storage_account',native.KIND}

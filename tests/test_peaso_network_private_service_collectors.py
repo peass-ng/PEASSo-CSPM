@@ -165,7 +165,13 @@ def test_azure_independent_private_link_census_targets_are_collected_with_native
     graph, ai = topology('azure', [(kind, rid, SCOPE, result['items'][0]), ('private_endpoint', endpoint, SCOPE, {})])
     assert linked(graph, node(graph, kind, rid), node(graph, 'private_endpoint', endpoint))
     assert 'Disabled' in json.dumps(ai)
-    assert '10.0.0.0/8' in json.dumps(ai)
+    if kind == 'monitor_workspace':
+        # Microsoft.Monitor/accounts has no IP filter property; the reviewed metadata
+        # projection keeps only native access fields and private endpoint links.
+        assert '10.0.0.0/8' not in json.dumps(result['items'][0])
+        assert result['items'][0]['properties']['privateEndpointConnections'][0]['privateEndpointId'] == endpoint
+    else:
+        assert '10.0.0.0/8' in json.dumps(ai)
 
 
 def test_azure_traffic_controller_association_is_the_native_subnet_attachment():

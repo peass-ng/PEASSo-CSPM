@@ -22,7 +22,8 @@ def test_analyzer_native_publication_precedes_fresh_stage_handoff(tmp_path, monk
         return {'provider': 'k8s', 'snapshot_id': snapshot['snapshot_id'],
                 'findings': [], 'stats': {}, 'graphs': {}}
 
-    def publish(artifacts, tenant, ident, report, native):
+    def publish(artifacts, tenant, ident, report, native, **kwargs):
+        assert set(kwargs) <= {"_shared"}
         phase = report['publication']['phase']
         events.append(phase)
         return 'native-report' if phase == 'analyzing' else 'final-report'

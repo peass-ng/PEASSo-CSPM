@@ -23,6 +23,12 @@ class RawV2PublicSourceSuccessorTest(unittest.TestCase):
         module = helper()
         receipt = module._receipt(ROOT)
         old = (ROOT / module.SCANNER).read_bytes()
+        if hashlib.sha256(old).hexdigest() != module.SCANNER_AFTER:
+            # Later scanner edits are admitted by the immutable 2026-10-21 source
+            # epoch, whose archived predecessor is exactly this successor's after.
+            from peaso import private_secret_source_epoch_20261021 as epoch
+            self.assertEqual(epoch.source_rows()[module.SCANNER]['before_sha256'], module.SCANNER_AFTER)
+            old = epoch.predecessor_bytes(module.SCANNER, old, module.SCANNER_AFTER, ROOT)
         self.assertEqual(hashlib.sha256(old).hexdigest(), module.SCANNER_AFTER)
         for edit in reversed(receipt['edits']):
             after = edit['after'].encode()

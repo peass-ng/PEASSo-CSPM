@@ -1086,9 +1086,22 @@ def split_policy(policy):
                 if policy_size({"Version": "2012-10-17", "Statement": remaining}) <= IAM_MANAGED_POLICY_LIMIT:
                     break
             extra = {"Version": "2012-10-17", "Statement": remaining}
-        if policy_size(extra) > IAM_MANAGED_POLICY_LIMIT or len(documents) + 1 > IAM_MANAGED_POLICIES_PER_ROLE:
+        extras = [extra]
+        if policy_size(extra) > IAM_MANAGED_POLICY_LIMIT:
+            # Unused space was not enough. Keep each exact companion statement
+            # whole and spread the rest over as few new documents as fit; the
+            # role attachment quota is still enforced below and in refresh().
+            extras = []
+            for statement in extra["Statement"]:
+                if extras and policy_size({"Version": "2012-10-17",
+                                           "Statement": extras[-1]["Statement"] + [statement]}) <= IAM_MANAGED_POLICY_LIMIT:
+                    extras[-1]["Statement"].append(statement)
+                else:
+                    extras.append({"Version": "2012-10-17", "Statement": [statement]})
+        if (any(policy_size(item) > IAM_MANAGED_POLICY_LIMIT for item in extras) or
+                len(documents) + len(extras) > IAM_MANAGED_POLICIES_PER_ROLE):
             raise ValueError("WAF association metadata exceeds existing IAM policy budgets")
-        return documents + [extra]
+        return documents + extras
     reviewed_logical, reviewed_documents = _reviewed_policy_allocation()
     if policy == reviewed_logical:
         # The signed role kept its original two near-limit partitions and

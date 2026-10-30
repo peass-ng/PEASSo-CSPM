@@ -34,8 +34,13 @@ def test_real_report_publisher_keeps_images_separate_and_safe(tmp_path):
     import subprocess
     import sys
     from pathlib import Path
+    # The child checks report publication in the shipped attestation mode. The
+    # suite-wide PEASO_SOURCE_ATTESTATION=always re-proves every pinned source on
+    # each nested call during the cold peaso.checks import (minutes of CPU), which
+    # is unrelated to keeping image observations separate and safe.
+    env = {key: value for key, value in os.environ.items() if key != 'PEASO_SOURCE_ATTESTATION'}
     result = subprocess.run([sys.executable, '-c',
         'from pathlib import Path; from tests.test_peaso_image_report_publisher_20261021 import _proof; import sys; _proof(Path(sys.argv[1]))', str(tmp_path)],
-        cwd=str(Path(__file__).parent), env={**os.environ, 'PYTHONPATH':os.pathsep.join(sys.path), 'PYTHONDONTWRITEBYTECODE':'1'},
-        capture_output=True, text=True, timeout=90)
+        cwd=str(Path(__file__).parent), env={**env, 'PYTHONPATH':os.pathsep.join(sys.path), 'PYTHONDONTWRITEBYTECODE':'1'},
+        capture_output=True, text=True, timeout=180)
     assert result.returncode == 0, result.stderr

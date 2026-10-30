@@ -37,14 +37,19 @@ def test_hosted_kubernetes_cannot_select_ambient_credentials(method, public_dns)
 
 def test_hosted_access_probe_uses_dns_pinned_transport(monkeypatch):
     from peaso.server.access_check import check_access
+    from peaso.server import k8s_access_transport
     captured = []
-    def new_api(auth):
-        captured.append(auth)
+    def public_server(server):
+        captured.append(server)
         raise ValueError('Stop before I/O')
-    monkeypatch.setattr(k8s, '_new_api', new_api)
-    check_access('k8s', {'method': 'token', 'server': 'https://cluster.example', 'token': 'customer-token'},
-                 ['default'], {}, Settings(auth_mode='cognito'))
-    assert captured[0]['_hosted'] is True
+    # Hosted preflight never loads the generated SDK client; it resolves and
+    # pins the public endpoint through the collector's DNS guard.
+    monkeypatch.setattr(k8s, '_new_api', lambda auth: pytest.fail('hosted preflight used the SDK loader'))
+    monkeypatch.setattr(k8s_access_transport, '_public_server', public_server)
+    result = check_access('k8s', {'method': 'token', 'server': 'https://cluster.example', 'token': 'customer-token'},
+                          ['default'], {}, Settings(auth_mode='cognito'))
+    assert captured == ['https://cluster.example']
+    assert result['status'] == 'blocked'
 
 
 def test_local_kubeconfig_exec_helper_is_rejected_before_sdk_loader(tmp_path, monkeypatch):

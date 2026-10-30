@@ -12429,7 +12429,7 @@
     "id": "analysis.coverage",
     "provider": "aws",
     "status": "UNKNOWN",
-    "summary": "The scan lacks complete inventory for access analyzer and apigateway domain name and 19 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed."
+    "summary": "The scan lacks complete inventory for access analyzer and apigateway domain name and 23 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed."
   },
   {
     "id": "analysis.federated_trust",
@@ -12440,8 +12440,14 @@
   {
     "id": "analysis.internet_exposure",
     "provider": "aws",
-    "status": "FAIL",
-    "summary": "The API endpoint at https://a.execute-api.us-east-1.amazonaws.com is configured to accept internet traffic on tcp/443. This can admit internet callers; no connection was attempted."
+    "status": "UNKNOWN",
+    "summary": "The resource policy owner, conditions or applicable Deny could not be resolved; foreign use remains uncertain."
+  },
+  {
+    "id": "analysis.internet_exposure",
+    "provider": "aws",
+    "status": "UNKNOWN",
+    "summary": "The API endpoint cannot be resolved; inventory evidence is incomplete. Missing path layers prevent a public-reachability conclusion."
   },
   {
     "id": "analysis.grant_review",
@@ -12477,12 +12483,12 @@
     "id": "analysis.coverage",
     "provider": "gcp",
     "status": "UNKNOWN",
-    "summary": "The scan lacks complete inventory for backend service health and firewall policy and 8 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed."
+    "summary": "The scan lacks complete inventory for backend service health and firewall policy and 11 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed."
   },
   {
     "id": "analysis.federated_trust",
     "provider": "gcp",
-    "status": "FAIL",
+    "status": "MANUAL",
     "summary": "Issuer https://token.actions.githubusercontent.com has no attribute condition, so its token holders may exchange tokens. IAM grants and provider-side claims still affect access."
   },
   {
@@ -12519,7 +12525,7 @@
     "id": "analysis.coverage",
     "provider": "azure",
     "status": "UNKNOWN",
-    "summary": "The scan lacks complete inventory for container group and directory applications and 12 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed."
+    "summary": "The scan lacks complete inventory for container group and directory applications and 13 other required inventories. Missing records can hide grants or principals, so full access cannot be assessed."
   },
   {
     "id": "analysis.federated_trust",
@@ -12531,7 +12537,7 @@
     "id": "analysis.internet_exposure",
     "provider": "azure",
     "status": "FAIL",
-    "summary": "The web application endpoint at demo.azurewebsites.net is configured to accept internet traffic on tcp/443. This can admit internet callers; no connection was attempted."
+    "summary": "The App Service allows public network access, and its main site IP rules allow a public source.\nA request may reach the main site endpoint if its hostname and service are active.\nIf authentication also allows it, that could expose app data."
   },
   {
     "id": "analysis.grant_review",

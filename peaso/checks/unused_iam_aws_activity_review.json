@@ -13,7 +13,7 @@
     "not_applicable_when": null
   },
   "updated_description_fields": {
-    "description": "Reviews the current IAM role creation date and AWS RoleLastUsed timestamp against the captured UTC 60-day interval. New roles do not fail merely because no usage is recorded. Known last-use dates must be within the current role lifetime. An old role without a recorded date remains unresolved because the available AWS tracking interval is not an explicit complete inactivity proof; ACTIVE unused-access analyzer findings are independent evidence.",
+    "description": "Compares the IAM role creation date and AWS RoleLastUsed date with a 60-day window before capture. New roles do not fail for missing use. Recorded use must fall within the role lifetime. Old roles without recorded use stay unresolved, because AWS tracking cannot prove inactivity.",
     "evaluated": [
       "RoleName, RoleId and role ARN/account consistency",
       "CreateDate and captured observation time",

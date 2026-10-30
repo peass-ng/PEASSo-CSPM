@@ -49,6 +49,7 @@ def current_native_cases():
 
 
 SELECTED_SECRET_IDS = {
+    'k8s.review.selected_flux_artifact_secret_indicators',
     'k8s.review.selected_container_logs.secret_indicators',
     'k8s.review.selected_literals.secret_indicators',
     'k8s.review.selected_metadata.secret_indicators',
@@ -65,6 +66,46 @@ def compatibility_receipt():
     return json.loads((Path(__file__).parents[1] / 'docs/check-review/k8s-public-observation-compatibility-20261020.json').read_text())
 
 
+# Active controls registered after the frozen 2026-10-20 receipt. The receipt
+# stays immutable; each successor is replayed here with its own fixture branches.
+SUCCESSOR_BRANCH_STATUSES = {
+    'k8s.iam.clusterrole_has_declared_consumers': {'pass': 'PASS', 'fail': 'FAIL'},
+    'k8s.iam.clusterrolebinding_subjects_exist': {'pass': 'PASS', 'fail': 'FAIL'},
+    'k8s.iam.legacy_serviceaccount_token_recently_used': {'pass': 'PASS', 'fail': 'FAIL'},
+    'k8s.iam.role_has_declared_consumers': {'pass': 'PASS', 'fail': 'FAIL'},
+    'k8s.iam.rolebinding_subjects_exist': {'pass': 'PASS', 'fail': 'FAIL'},
+    'k8s.iam.serviceaccount_has_declared_consumers': {'pass': 'PASS', 'fail': 'FAIL'},
+    'k8s.network.endpoints_controller_service_reference_resolves': {'pass': 'PASS', 'fail': 'FAIL'},
+    'k8s.network.endpointslice_service_reference_resolves': {'pass': 'PASS', 'fail': 'FAIL'},
+    'k8s.network.ingress_service_backends_resolve': {'pass': 'PASS', 'fail': 'FAIL'},
+    'k8s.network.networkpolicy_selects_current_pod': {'pass': 'PASS', 'fail': 'FAIL'},
+    'k8s.network.service_has_current_backend_declaration': {'pass': 'PASS', 'fail': 'FAIL'},
+    'k8s.review.selected_flux_artifact_secret_indicators': {'pass': 'PASS', 'fail': 'FAIL', 'unknown': 'UNKNOWN'},
+    'k8s.review.selected_registry_image_high_vulnerabilities': {'pass': 'PASS', 'fail': 'FAIL', 'unknown': 'UNKNOWN'},
+    'k8s.review.selected_registry_image_secret_indicators': {'pass': 'PASS', 'fail': 'FAIL', 'unknown': 'UNKNOWN'},
+    'k8s.review.selected_text_content.secret_indicators': {'pass': 'PASS', 'fail': 'FAIL', 'unknown': 'UNKNOWN'},
+}
+
+
+def current_receipt():
+    receipt = deepcopy(compatibility_receipt())
+    assert not set(SUCCESSOR_BRANCH_STATUSES) & set(receipt['active_ids'])
+    receipt['active_ids'] = sorted(set(receipt['active_ids']) | set(SUCCESSOR_BRANCH_STATUSES))
+    receipt['active_branch_statuses'] = {**receipt['active_branch_statuses'], **SUCCESSOR_BRANCH_STATUSES}
+    counts = Counter(receipt['active_status_counts'])
+    for states in SUCCESSOR_BRANCH_STATUSES.values():
+        counts.update(states.values())
+    receipt['active_status_counts'] = dict(counts)
+    return receipt
+
+
+def assert_observation_lines(text):
+    """Observed evidence is one legacy sentence or AGENTS.md's 3-5 connected lines."""
+    lines = text.split('\n')
+    assert len(lines) == 1 or 3 <= len(lines) <= 5, text
+    assert all(line.strip() for line in lines) and len(text) < 600, text
+
+
 def recorded_observation(finding, summary):
     """Test accounting only: explicitly distinguish saved evidence from rendering.
 
@@ -77,7 +118,8 @@ def recorded_observation(finding, summary):
     allowed = SELECTED_SECRET_IDS | {cid for cid in current_native_cases() if cid.startswith('k8s.claude.')}
     assert cid in allowed, finding
     observed = evidence.get('observed')
-    assert isinstance(observed, str) and observed and '\n' not in observed and len(observed) < 600
+    assert isinstance(observed, str) and observed
+    assert_observation_lines(observed)
     if status == 'UNKNOWN':
         assert any(word in observed.lower() for word in ('unbound', 'not be bound', 'unavailable', 'incomplete'))
     return observed
@@ -187,9 +229,9 @@ def actual_observations():
 
 
 def test_every_current_active_control_has_accounted_actual_observations(actual_observations):
-    receipt = compatibility_receipt()
+    receipt = current_receipt()
     assert set(CHECK_BY_ID) == set(receipt['active_ids'])
-    assert len(CHECK_BY_ID) == 938
+    assert len(CHECK_BY_ID) == 938 + len(SUCCESSOR_BRANCH_STATUSES)
     counts=Counter()
     missing=[]
     witnesses = {}
@@ -200,7 +242,7 @@ def test_every_current_active_control_has_accounted_actual_observations(actual_o
         if not isinstance(summary,str) or not summary:
             missing.append(finding)
         else:
-            assert '\n' not in summary and len(summary)<600
+            assert_observation_lines(summary)
         assert finding==before
         counts[finding['status']]+=1
         witnesses.setdefault(finding['check_id'], {})[finding['fixture_state']] = finding['status']

@@ -33,6 +33,9 @@ def test_google_native_detail_metadata_reaches_map_and_actual_agent_database(tmp
     root = api_root(plan['service'], plan['version'], location)
     assert urlsplit(root).hostname in HOSTS
     def resolve(request):
+        if plan.get('iam_policy') and request['url'] == root + '/' + name + ':getIamPolicy':
+            assert request['method'] == ('POST' if plan.get('iam_method') in ('POST', 'POST_EMPTY') else 'GET')
+            return {'bindings': []}
         assert request['method'] == 'GET'
         if request['url'] == root + '/' + name.rsplit('/', 1)[0]:
             return {plan['key']: [{'name': name}]}

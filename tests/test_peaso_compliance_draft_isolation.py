@@ -173,6 +173,11 @@ def test_unpublished_checks_in_isolated_child(name, record_property):
     env = os.environ.copy()
     assert CHILD_FILE_ENV not in env, "the proxy must run in the ordinary parent process"
     env[CHILD_FILE_ENV] = name
+    # The suite-wide PEASO_SOURCE_ATTESTATION=always re-proves every pinned source on
+    # each nested call (minutes of CPU for a cold peaso.checks import). This child
+    # does not test attestation, so it runs the shipped mode, which still proves
+    # every pinned source once on first use.
+    env["PEASO_SOURCE_ATTESTATION"] = "once"
     with tempfile.TemporaryDirectory(prefix="peaso-compliance-draft-") as temp:
         junit = Path(temp) / "child.xml"
         command = [sys.executable, "-m", "pytest", "-q", "-ra", "-p", "no:cacheprovider",

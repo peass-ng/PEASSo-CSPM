@@ -75,8 +75,20 @@ REVIEWED_RDS_RUNTIME_SUCCESSORS = {
 }
 DESCRIPTION_FIELD_ORDER = ("description", "fail_when", "evaluated", "not_applicable_when", "pass_when")
 DESCRIPTION_FIELDS = set(DESCRIPTION_FIELD_ORDER)
-ANALYSIS_IDS = {"analysis.grant_review", "analysis.inactive_identity", "analysis.principal_exposure",
-                "analysis.network_review", "analysis.coverage", "analysis.internet_exposure", "analysis.federated_trust"}
+
+def _analysis_ids():
+    # Source of truth: registered analysis checks plus manual-only analysis ids
+    # (same set peaso_compliance_materialize treats as live analysis checks).
+    from peaso.analysis import ANALYSIS_CHECKS, MANUAL_ONLY_ANALYSIS_CHECK_IDS
+    return frozenset({row["id"] for row in ANALYSIS_CHECKS} | MANUAL_ONLY_ANALYSIS_CHECK_IDS)
+
+
+def __getattr__(name):
+    # Resolved lazily so importing this module does not load the analysis package.
+    if name == "ANALYSIS_IDS":
+        return _analysis_ids()
+    raise AttributeError(name)
+
 SOURCE_ERRATA = {
     "gcp-api-key-service-name-erratum-20261018.json": (
         "gcp.apikeys.active_service_restrictions",
@@ -480,7 +492,7 @@ def compile_verified(ledger_root: Path, audit_matrix: dict, native_catalog: dict
     # Preserve old requirement IDs while materialization emits only live checks.
     from peaso.checks import CHECK_ALIASES
     native.update(historical_alias_metadata(indexed, native, CHECK_ALIASES))
-    for cid in ANALYSIS_IDS & set(indexed):
+    for cid in _analysis_ids() & set(indexed):
         if indexed[cid].get("provider") != "all" or cid in native:
             raise ValueError("Analysis check metadata is malformed")
         native[cid] = indexed[cid]

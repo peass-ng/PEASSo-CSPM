@@ -141,8 +141,10 @@ def evaluate(item, index):
                 'This could expose sensitive data to people with access to the workload.')
         else:
             evidence['observed'] = ('The referenced ConfigMap values have no recognized secret pattern.\n'
-                'The workload may receive those values through its declared references.')
+                'The workload may receive those values through its declared references.\n'
+                'Those values are less likely to expose sensitive data to people with access to the workload.')
         return status, evidence
     except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
-        return 'UNKNOWN', {'observed': ('A ConfigMap reference, read, or version for this workload is missing or inconsistent.\n'
-            'The referenced values and their possible exposure remain unclear.')}
+        return 'UNKNOWN', {'observed': ('A ConfigMap reference, read, or version for this workload is missing, incomplete, or inconsistent.\n'
+            'Whether the referenced ConfigMap values resemble secrets is unclear.\n'
+            'Secret-like values there could expose sensitive data to people with access to the workload.')}

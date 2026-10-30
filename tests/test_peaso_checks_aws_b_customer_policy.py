@@ -69,7 +69,9 @@ def test_current_declared_read_actions_are_verified_and_sts_not_granted():
     assert "sts:AssumeRole" not in actions and "sts:GetCallerIdentity" not in actions
     assert "iam:GenerateCredentialReport" in actions
     assert "iam:GenerateServiceLastAccessedDetails" in actions
-    for action in actions - {"apigateway:GET", "cloudtrail:LookupEvents", "iam:SimulatePrincipalPolicy", "ec2:SearchTransitGatewayRoutes", "iam:GenerateCredentialReport", "iam:GenerateServiceLastAccessedDetails", "braket:SearchDevices"}:
+    # AWS authorizes the Budgets read APIs as budgets:ViewBudget plus aws-portal:ViewBilling.
+    for action in actions - {"apigateway:GET", "cloudtrail:LookupEvents", "iam:SimulatePrincipalPolicy", "ec2:SearchTransitGatewayRoutes", "iam:GenerateCredentialReport", "iam:GenerateServiceLastAccessedDetails", "braket:SearchDevices",
+                             "budgets:ViewBudget", "aws-portal:ViewBilling"}:
         assert action.split(":", 1)[1].startswith(("Get", "List", "Describe", "BatchGet"))
     documents = split_policy(policy)
     assert len(documents) <= IAM_MANAGED_POLICIES_PER_ROLE
@@ -324,6 +326,22 @@ _NETWORK_HISTORY_ACTIONS = {action for resource in _NETWORK_HISTORY['Resources']
     for action in ([statement['Action']] if isinstance(statement['Action'], str) else statement['Action'])}
 _POST_HISTORICAL_METADATA_READS.update(pair for pair in _NATIVE_NETWORK_READS
     if iam_action(*pair) not in _NETWORK_HISTORY_ACTIONS)
+# The reviewed Exposure sweep reads were added on 2026-10-28, after every signed
+# archive below. Only reads absent from those archives are removed here.
+from peaso.collectors.aws import READ_ACTIONS as _CURRENT_READS
+_EXPOSURE_REVIEWED_ACTIONS = (set(policy_module.BIG_WAVE_EXPOSURE_READ_REFERENCES) |
+    set(policy_module.EXPOSURE_METADATA_READ_REFERENCES) | set(policy_module.EXPOSURE_SWEEP_READ_REFERENCES))
+def _granted_action(pair):
+    try:
+        return iam_action(*pair)
+    except ValueError:  # collector-local names that the policy builder never grants
+        return None
+_POST_HISTORICAL_METADATA_READS.update(pair for pair in _CURRENT_READS
+    if _granted_action(pair) in _EXPOSURE_REVIEWED_ACTIONS and _granted_action(pair) not in _NETWORK_HISTORY_ACTIONS)
+_POST_HISTORICAL_METADATA_READS.update({('apigatewayv2', 'list_portals'), ('mediapackage', 'list_origin_endpoints'),
+    ('mediatailor', 'list_playback_configurations'),
+    # The scoped OAS30 export read adds its API Gateway resource after these archives.
+    ('apigatewayv2', 'export_api')})
 
 
 def _build_historical_policy(*args, **kwargs):

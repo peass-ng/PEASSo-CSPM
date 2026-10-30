@@ -40,14 +40,15 @@ def test_documented_omission_requires_complete_native_operation_proof():
 
 
 def test_account_role_absence_cannot_pass_if_inventory_unavailable_or_foreign():
-    check = REGISTRY["aws.a.cloudwatch.cross_account_role_absent"]
-    subject = {"scope": "123456789012/us-east-1"}
-    assert check.evaluate(subject, scope_fixture("iam_role", [], status="denied"))[0] == "UNKNOWN"
-    assert check.evaluate(subject, scope_fixture("iam_role", [{"RoleName": "OtherRole"}]))[0] == "PASS"
-    index = scope_fixture("iam_role", [])
-    index["collections"]["iam_role"][0]["account_id"] = "999999999999"
-    index["collections"]["iam_role"][0]["scope"] = "999999999999/us-east-1"
-    assert check.evaluate(subject, index)[0] == "UNKNOWN"
+    from peaso.checks import CHECK_ALIASES
+    survivor = "aws.claude2_a.cloudwatch.cross_account_sharing_role_absent"
+    assert CHECK_ALIASES["aws.a.cloudwatch.cross_account_role_absent"] == survivor
+    assert "aws.a.cloudwatch.cross_account_role_absent" not in {c.id for c in CHECKS}
+    check, cases = next(c for c in CHECKS if c.id == survivor), CASES[survivor]
+    assert check.evaluate(copy.deepcopy(cases["pass"]), copy.deepcopy(cases["index"]))[0] == "PASS"
+    assert check.evaluate(copy.deepcopy(cases["roles_denied"]), copy.deepcopy(cases["roles_denied_index"]))[0] == "UNKNOWN"
+    foreign = dict(copy.deepcopy(cases["pass"]), Account="999999999999")
+    assert check.evaluate(foreign, copy.deepcopy(cases["index"]))[0] == "UNKNOWN"
 
 
 @pytest.mark.parametrize("status,inherited,expected", [("ACTIVATED", [], "PASS"), ("ARCHIVED", ["ACCOUNT_DATA_PROTECTION"], "PASS"), ("DISABLED", [], "FAIL"), ("DELETED", [], "FAIL"), ("UNKNOWN", [], "UNKNOWN")])

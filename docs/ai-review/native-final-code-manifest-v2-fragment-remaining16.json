@@ -2,7 +2,7 @@
   "base_commit": "d3e0e0ebfc8cf85196951460ed6db99f59e99c19",
   "checks": [
     {
-      "audit_receipt_sha256": "af1424d169fdad98722dc7cb76acb210d35f20cdafccba31295119794d0ecba2",
+      "audit_receipt_sha256": "56e893baa90f3ec8de4d85e284b7bb1015793360bb2ff1d90d4a1f41e8b14173",
       "check_id": "aws_config_all_resources_recorded",
       "deterministic_evidence": {
         "code_path_audit_ref": {

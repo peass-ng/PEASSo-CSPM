@@ -29,6 +29,8 @@ def test_user_fallback_retains_complete_identity_semantics(monkeypatch, mode):
         return {'value': [{'id': U1, 'accountEnabled': True}, {'id': U2, 'accountEnabled': False}],
                 '@odata.nextLink': azure.GRAPH + '/v1.0/users?$skiptoken=next'}
     monkeypatch.setattr(PartitionAPI, 'request', request)
+    # collect() constructs AzureTransportExposure; route it to the fixture installed as AzureTransport.
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: azure.AzureTransport(auth))
     policies = [row('only-a', [U1])]
     if mode == 'valid-fallback':
         policies.append(row('also-b', [U2]))

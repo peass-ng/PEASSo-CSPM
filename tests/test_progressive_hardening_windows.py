@@ -5,6 +5,8 @@ import json
 import threading
 import time
 
+import pytest
+
 from peaso.ai import progressive_kinds
 from peaso.ai import pipeline
 from peaso import progressive_analyzer
@@ -73,11 +75,13 @@ def test_final_merger_accepts_only_complete_revision_bound_window():
     assert progressive_kinds.reusable_windows(Artifacts(), 'tenant', sections, stages) is None
 
 
-def test_watcher_admits_one_full_window_while_section_runs(monkeypatch, tmp_path):
+def test_watcher_launches_no_hardening_window_even_when_windows_flag_is_set(monkeypatch, tmp_path):
+    # Hardening verdicts are native-final; the former progressive window flag starts no model stage.
     artifacts, store = Artifacts(), FakeStore()
     report = artifacts.values['report-json']
     report.update(provider='aws', snapshot_id='sha256:partial',
                   findings=[_row(index, 'kind_a') for index in range(120)])
+    report['publication']['sections']['hardening'] = {'status': 'complete', 'data_revision': 1}
     artifacts.values['partial-report']['summary'] = {'publication': report['publication']}
     artifacts.values['partial-snapshot'] = {'provider': 'aws', 'snapshot_id': 'sha256:partial',
         'metadata': {'incremental': {'phase': 'collecting', 'sequence': 7}}}
@@ -85,35 +89,20 @@ def test_watcher_admits_one_full_window_while_section_runs(monkeypatch, tmp_path
     launches = []
 
     class Stage:
-        def __init__(self, worker, tenant, ident, stage, revision, job, selectors, wave=None):
-            self.stage, self.revision, self.wave = stage, revision, wave
-            self.process = self
-            launches.append(self)
-        def start(self): pass
-        def poll(self):
-            if self.wave is None:
-                return progressive_analyzer._PENDING
-            ids = self.wave['selected_ids']
-            result = {'status': 'completed', 'stage_inputs': {'hardening': ids},
-                'reviews': {'hardening': [{'finding_id': ident, 'verdict': 'FAIL', 'reason': ''}
-                                          for ident in ids]}}
-            return artifacts.put('tenant', 'scan', 'ai-review', {
-                'stage': self.stage, 'data_revision': self.revision,
-                'leader_ids': self.wave['leader_ids'], 'result': result})
-        def close(self): pass
-        def request_stop(self): pass
-        def join(self, timeout=None): pass
-        def is_alive(self): return False
+        def __init__(self, worker, tenant, ident, stage, revision, job, selectors):
+            launches.append(stage)
+            raise AssertionError('no progressive Hardening stage may start')
 
     monkeypatch.setattr(progressive_analyzer, '_StageProcess', Stage)
     monkeypatch.setattr(progressive_analyzer, 'review_concurrency', lambda: 3)
     monkeypatch.setattr(progressive_kinds, 'candidate_kinds',
                         lambda report, snapshot, selectors: {'kind_a': {'check.kind_a'}})
     monkeypatch.setenv('PEASO_AI_PROGRESSIVE_HARDENING_WINDOWS', '1')
+    finals = []
 
-    def final(*args, stage_poll=None):
-        assert stage_poll is None or stage_poll(store.job('tenant', 'scan'))
-        assert store.stage_results('tenant', 'scan')['hardening_w_0000']['data_revision'] == 0
+    def final(*args, **kwargs):
+        finals.append(kwargs)
+        assert store.stage_results('tenant', 'scan') == {}
         store.row['status'] = 'completed'
 
     worker = SimpleNamespace(role='analyzer', store=store, artifacts=artifacts,
@@ -121,136 +110,86 @@ def test_watcher_admits_one_full_window_while_section_runs(monkeypatch, tmp_path
         stopping=Stopper(8, lambda tick: store.row.update(status='collected') if tick == 3 else None),
         run_once=final)
     assert progressive_analyzer.run_progressive(worker, 'tenant', 'scan', poll_seconds=0) == 'completed'
-    assert len(launches) == 1 and launches[0].stage == 'hardening_w_0000'
-    assert len(launches[0].wave['leader_ids']) == 120
+    assert launches == [] and finals == [{}]
 
 
-def test_early_window_rechecks_share_one_full_call(monkeypatch):
-    rows = [_row(index, f'kind_{index}') for index in range(80)]
-    for offset, leader in ((80, 0), (100, 40)):
-        rows.extend(dict(_row(index, f'kind_{leader}'), evidence={'index': leader})
-                    for index in range(offset, offset + 20))
+def test_network_is_one_model_call_without_reviewer_batches(monkeypatch):
+    assert not hasattr(pipeline, 'review_batches')
     calls = []
 
-    def invoke(stage, platform, entries, token, findings, reviews, timeout):
-        calls.append([row['id'] for row in findings])
-        return {'items': [{'finding_id': row['id'],
-            'verdict': 'PASS' if row['id'] in {'f0', 'f40'} else 'FAIL',
-            'reason': 'Verified.' if row['id'] in {'f0', 'f40'} else ''}
-            for row in findings]}
+    def invoke_before_deadline(stage, platform, access, token, findings, reviews, end, limit, **kwargs):
+        calls.append((stage, findings, reviews))
+        return {'explanation': '', 'findings': []}
 
-    monkeypatch.setattr(pipeline, 'invoke', invoke)
+    monkeypatch.setattr(pipeline, 'invoke_before_deadline', invoke_before_deadline)
     monkeypatch.setattr(pipeline, 'review_concurrency', lambda: 2)
-    output, failed = pipeline.review_batches({'provider': 'aws'}, {}, [], None,
-        rows, [], time.monotonic() + 30, stages={'hardening'}, coalesce_rechecks=True)
-    assert not failed and len(output['hardening']) == len(rows)
-    assert sorted(map(len, calls)) == [40, 40, 40]
-    assert len({row['finding_id'] for row in output['hardening']}) == len(rows)
+    monkeypatch.setattr(pipeline, 'review_credentials', lambda *args: [])
+    monkeypatch.setattr(pipeline, 'validate_network', lambda data, network: dict(data))
+    network = {'inventory': [], 'findings': []}
+    output, failed = pipeline.review_network({'provider': 'aws'}, [], None, network,
+                                             time.monotonic() + 30)
+    assert not failed and output['status'] == 'completed'
+    assert calls == [('network', [], [])]
 
 
-def test_final_reuse_rechecks_a_group_whose_members_changed(monkeypatch, tmp_path):
-    from tests.test_progressive_analyzer_20261022 import _exact_reuse_fixture
-    calls = _exact_reuse_fixture(monkeypatch, tmp_path)
-    first = dict(_row(0, 'kind_a'), evidence={'same': True})
-    later = dict(_row(1, 'kind_a'), evidence={'same': True})
-    base = {'provider': 'aws', 'snapshot_id': 'sha256:captured',
-            'created_at': '2026-10-27T13:00:00Z', 'findings': [first], 'graphs': {}}
-    prior = pipeline.review_scan(base, {}, {}, tenant='tenant', artifacts=None,
-                                 stages=('hardening',))
-    prior['early_kind'] = True
-    calls.clear()
-    final = pipeline.review_scan(dict(base, findings=[first, later]), {}, {},
-        tenant='tenant', artifacts=None, stages=('hardening',),
-        reused_stages={'hardening': prior})
-    assert [ids for stage, ids, _ in calls if stage == 'hardening'] == [['f0']]
-    assert [row['finding_id'] for row in final['reviews']['hardening']] == ['f0', 'f1']
-
-
-def test_final_reuse_keeps_exact_early_rows_and_reviews_only_new_input(monkeypatch, tmp_path):
+def test_hardening_only_stage_selection_starts_no_model_review(monkeypatch, tmp_path):
     from tests.test_progressive_analyzer_20261022 import _exact_reuse_fixture
     calls = _exact_reuse_fixture(monkeypatch, tmp_path)
     rows = [_row(index, f'kind_{index}') for index in range(40)]
     report = {'provider': 'aws', 'snapshot_id': 'sha256:captured',
               'created_at': '2026-10-27T13:00:00Z', 'findings': rows, 'graphs': {}}
-    prior = pipeline.review_scan(report, {}, {}, tenant='tenant', artifacts=None,
-                                 stages=('hardening',), early_kind_window=True)
-    prior['early_kind'] = True
-    calls.clear()
-    final = pipeline.review_scan(dict(report, findings=[*rows, _row(40, 'new_kind')]),
-        {}, {}, tenant='tenant', artifacts=None, stages=('hardening',),
-        reused_stages={'hardening': prior})
-    assert [ids for stage, ids, _ in calls if stage == 'hardening'] == [['f40']]
-    assert [row['finding_id'] for row in final['reviews']['hardening']] == [
-        *[f'f{index}' for index in range(40)], 'f40']
+    output = pipeline.review_scan(report, {}, {}, tenant='tenant', artifacts=None,
+                                  stages=('hardening', 'exposure'))
+    assert output['status'] == 'skipped' and output['reason'] == 'no_ai_sections_selected'
+    assert calls == []
 
 
-def test_final_native_hardening_starts_while_exposure_is_active(monkeypatch, tmp_path):
+def test_final_hardening_rows_are_native_final_and_ignore_early_reuse(monkeypatch, tmp_path):
+    from tests.test_progressive_analyzer_20261022 import _exact_reuse_fixture
+    calls = _exact_reuse_fixture(monkeypatch, tmp_path)
+    first = dict(_row(0, 'kind_a'), evidence={'same': True})
+    later = dict(_row(1, 'kind_a'), evidence={'same': True})
+    base = {'provider': 'aws', 'snapshot_id': 'sha256:captured',
+            'created_at': '2026-10-27T13:00:00Z', 'findings': [first, later], 'graphs': {}}
+    prior = {'status': 'completed', 'early_kind': True,
+             'reviews': {'hardening': [{'finding_id': 'f0', 'verdict': 'PASS', 'reason': 'Stale.'}]}}
+    final = pipeline.review_scan(base, {}, {}, tenant='tenant', artifacts=None,
+        stages=('priorities',), reused_stages={'hardening': prior})
+    assert [stage for stage, _, _ in calls if stage in {'hardening', 'exposure'}] == []
+    assert final['native_final']['hardening'] == ['f0', 'f1']
+    assert [row['finding_id'] for row in final['reviews']['hardening']] == ['f0', 'f1']
+    assert final['stage_inputs'] == {'hardening': [], 'exposure': []}
+    assert final['coverage']['model_reviewed'] == 0
+
+
+def test_watcher_starts_no_native_checkpoint_stage_for_hardening_or_exposure(monkeypatch, tmp_path):
     artifacts, store = Artifacts(), FakeStore()
-    report = artifacts.values['report-json']
-    report['publication']['sections']['exposure'] = {'status': 'complete', 'data_revision': 1,
-        'settled_kinds': True, 'settled_revision': 1}
-    artifacts.values['partial-report']['summary']['publication']['sections'][
-        'exposure'] = {'status': 'complete', 'data_revision': 1,
-            'settled_kinds': True, 'settled_revision': 1}
-    artifacts.values['native-report'] = {'publication': {'state': 'partial', 'phase': 'analyzing',
-        'sections': {'hardening': {'status': 'complete', 'data_revision': 9}}}}
-    artifacts.values['native-snapshot'] = {'snapshot_id': 'sha256:native'}
-    tasks = {}
-    original_claim = store.claim_stage
-
-    def claim_after_native(*args):
-        with store.lock:
-            status = store.row['status']
-            store.row['status'] = 'collecting'
-        try:
-            return original_claim(*args)
-        finally:
-            with store.lock:
-                store.row['status'] = status
-
-    store.claim_stage = claim_after_native
+    sections = artifacts.values['partial-report']['summary']['publication']['sections']
+    for stage in ('hardening', 'exposure'):
+        sections[stage] = {'status': 'complete', 'data_revision': 1,
+                           'settled_kinds': True, 'settled_revision': 1}
+    launched = []
 
     class Stage:
-        def __init__(self, worker, tenant, ident, stage, revision, job, selectors,
-                     wave=None, native_final=False):
-            self.stage, self.revision = stage, revision
-            self.native_final = native_final
-            self.refs = job['partial_report'], job['partial_snapshot']
-            self.done = False
-            self.process = self
-            tasks[stage] = self
-        def start(self): pass
-        def poll(self): return f'{self.stage}-ref' if self.done else progressive_analyzer._PENDING
-        def close(self): pass
-        def request_stop(self): pass
-        def join(self, timeout=None): pass
-        def is_alive(self): return not self.done
-        def kill(self): self.done = True
+        def __init__(self, worker, tenant, ident, stage, revision, job, selectors):
+            launched.append(stage)
+            raise AssertionError('no Hardening or Exposure stage may start')
 
     monkeypatch.setattr(progressive_analyzer, '_StageProcess', Stage)
     monkeypatch.setattr(progressive_analyzer, 'review_concurrency', lambda: 2)
+    finals = []
 
-    def final(*args, stage_poll=None):
-        assert stage_poll is not None and 'exposure' in tasks
-        with store.lock:
-            store.row['status'] = 'analyzing'
-        native = {'report_ref': 'native-report', 'snapshot_ref': 'native-snapshot',
-            'sections': {'hardening': {'status': 'complete', 'data_revision': 9}}}
-        assert not stage_poll(store.job('tenant', 'scan'), native_checkpoint=native)
-        assert tasks['hardening'].native_final
-        assert tasks['hardening'].refs == ('native-report', 'native-snapshot')
-        assert tasks['exposure'].refs == ('partial-report', 'partial-snapshot')
-        tasks['exposure'].done = tasks['hardening'].done = True
-        assert stage_poll(store.job('tenant', 'scan'))
-        assert set(store.stage_results('tenant', 'scan')) == {'exposure', 'hardening'}
-        with store.lock:
-            store.row['status'] = 'completed'
+    def final(*args, **kwargs):
+        finals.append(kwargs)
+        assert store.stage_results('tenant', 'scan') == {}
+        store.row['status'] = 'completed'
 
     worker = SimpleNamespace(role='analyzer', store=store, artifacts=artifacts,
         settings=SimpleNamespace(state_dir=tmp_path, identity_dir=tmp_path, lease_seconds=30),
         stopping=Stopper(8, lambda tick: store.row.update(status='collected') if tick == 2 else None),
         run_once=final)
     assert progressive_analyzer.run_progressive(worker, 'tenant', 'scan', poll_seconds=0) == 'completed'
+    assert launched == [] and finals == [{}]
 
 
 def test_native_child_accepts_only_analyzing_phase_and_revision():
@@ -266,72 +205,18 @@ def test_native_child_accepts_only_analyzing_phase_and_revision():
     assert progressive_analyzer._ready(refs, artifacts, 'tenant', phase='analyzing') is None
 
 
-def test_exposure_needs_revision_bound_kind_seal_during_collect():
-    section = {'status': 'complete', 'data_revision': 7}
-    assert not progressive_analyzer._exposure_stable(section)
-    section.update(settled_kinds=True, settled_revision=6)
-    assert not progressive_analyzer._exposure_stable(section)
-    section['settled_revision'] = 7
-    assert progressive_analyzer._exposure_stable(section)
-
-
-def test_unsealed_exposure_waits_and_starts_from_native_checkpoint(monkeypatch, tmp_path):
-    artifacts, store = Artifacts(), FakeStore()
-    artifacts.values['partial-report']['summary']['publication']['sections']['exposure'] = {
-        'status': 'complete', 'data_revision': 1}
-    launched = []
-    active_tasks = []
-
-    class Stage:
-        def __init__(self, worker, tenant, ident, stage, revision, job, selectors,
-                     wave=None, native_final=False):
-            assert native_final
-            launched.append(stage)
-            self.stage = stage
-            self.process = self
-            self.done = False
-            active_tasks.append(self)
-        def start(self): pass
-        def poll(self): return f'{self.stage}-ref' if self.done else progressive_analyzer._PENDING
-        def close(self): pass
-        def request_stop(self): self.done = True
-        def join(self, timeout=None): pass
-        def is_alive(self): return not self.done
-        def kill(self): self.done = True
-
-    monkeypatch.setattr(progressive_analyzer, '_StageProcess', Stage)
-    monkeypatch.setattr(progressive_analyzer, 'review_concurrency', lambda: 2)
-    original_claim = store.claim_stage
-
-    def claim_after_native(*args):
-        with store.lock:
-            status = store.row['status']
-            store.row['status'] = 'collecting'
-        try:
-            return original_claim(*args)
-        finally:
-            with store.lock:
-                store.row['status'] = status
-
-    store.claim_stage = claim_after_native
-
-    def final(*args, stage_poll=None):
-        assert stage_poll is not None and not launched
-        with store.lock:
-            store.row['status'] = 'analyzing'
-        payload = {'report_ref': 'native-report', 'snapshot_ref': 'native-snapshot',
-            'sections': {stage: {'status': 'complete', 'data_revision': 9}
-                         for stage in ('hardening', 'exposure')}}
-        assert not stage_poll(store.job('tenant', 'scan'), native_checkpoint=payload)
-        assert launched == ['hardening', 'exposure']
-        for task in active_tasks:
-            task.done = True
-        assert stage_poll(store.job('tenant', 'scan'))
-        with store.lock:
-            store.row['status'] = 'completed'
-
-    worker = SimpleNamespace(role='analyzer', store=store, artifacts=artifacts,
-        settings=SimpleNamespace(state_dir=tmp_path, identity_dir=tmp_path, lease_seconds=30),
-        stopping=Stopper(8, lambda tick: store.row.update(status='collected') if tick == 2 else None),
-        run_once=final)
-    assert progressive_analyzer.run_progressive(worker, 'tenant', 'scan', poll_seconds=0) == 'completed'
+@pytest.mark.parametrize('stage', ['hardening', 'exposure', 'hardening_w_0000'])
+def test_stage_child_rejects_every_non_network_stage(monkeypatch, stage):
+    artifacts = Artifacts()
+    sections = artifacts.values['report-json']['publication']['sections']
+    sections[stage] = {'status': 'complete', 'data_revision': 5,
+                       'settled_kinds': True, 'settled_revision': 5}
+    monkeypatch.setattr(progressive_analyzer, 'FileArtifacts', lambda path: artifacts)
+    monkeypatch.setattr(progressive_analyzer.signal, 'signal', lambda *args: None)
+    monkeypatch.setattr(progressive_analyzer, 'review_scan',
+                        lambda *a, **kw: pytest.fail('non-Network stage reviewed'))
+    sent = []
+    connection = SimpleNamespace(send=sent.append, close=lambda: None)
+    progressive_analyzer._stage_child({'mode': 'file', 'root': '/unused'}, 'tenant', 'scan', stage, 5,
+        'partial-report', 'partial-snapshot', {}, time.time() + 10, {}, threading.Event(), connection)
+    assert sent == []

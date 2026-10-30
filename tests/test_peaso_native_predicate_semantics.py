@@ -131,7 +131,7 @@ def test_lightsail_rdp_and_nat_routes_are_not_misclassified():
     assert status(cid, base) == "FAIL"
     base["networking"]["ports"][0]["cidrs"] = ["10.0.0.0/8"]
     assert status(cid, base) == "PASS"
-    for cid in ("aws.cb.neptune.no_public_subnet_steampipe", "aws.c2b.elasticache.cluster_public_subnet"):
+    for cid in ("aws.cb.neptune.no_public_subnet_steampipe", "aws.c2b.elasticache.cluster_public_subnet_prowler"):
         fixture = CASES[cid]
         index = copy.deepcopy(fixture["fail_index"])
         for table in index["route_table"]:
