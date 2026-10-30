@@ -98,7 +98,7 @@ def test_actual_arm_shapes_to_frozen_engine(mode,expected):
  assert finding['status']==expected,finding
  assert all('listKeys'not in url and 'secrets/'not in url for url in api.calls)
 def test_collect_live_registry_dispatch(monkeypatch):
- api=API(fixture('good'));monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);api.close=lambda:None
+ api=API(fixture('good'));monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api);api.close=lambda:None
  connector={'provider':'azure','scopes':[SUB],'options':{'retries':0}}
  snapshot=collect_live(connector,requirements=['resource_diagnostic_setting'])
  assert evaluate_snapshot(snapshot,checks=[CHECK])['findings'][0]['status']=='PASS'

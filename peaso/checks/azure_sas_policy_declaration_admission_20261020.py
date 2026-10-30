@@ -8,7 +8,7 @@ from . import azure_sas_expiry_policy_declaration_proposal_20261020 as candidate
 from . import azure_native_contract_closure_20261020 as native
 from . import facts
 
-RECEIPT_SHA256 = '29e3f79019384d4430267d048a870338be807bc906dd7a9818cff50683a842d8'
+RECEIPT_SHA256 = 'fd4b0a2f84496399dac4782d5f2b0476d6ec462f0bbaa32ccd3981934f26b6c0'
 RECEIPT = 'azure_sas_policy_declaration_admission_20261020.json'
 
 

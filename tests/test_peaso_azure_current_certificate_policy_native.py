@@ -47,7 +47,7 @@ def capture(monkeypatch,mode='good',reviewed_process=False):
     if mode=='unversioned_current':row['id']=ORIGIN+'/certificates/cert'
     return row
    return {'value':[]}
- api=API();monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+ api=API();monkeypatch.setattr(azure,'AzureTransport',lambda auth:api);monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
  policy={'status':'collected','scope':SCOPE,'certificateIssuance':{'approvedIssuers':['ContosoCA'],'approvedKeyTypes':['RSA','EC'],'approvedEcCurves':['P-256'],'minimumRsaBits':2048,'assessedAt':NOW}}
  connector={'provider':'azure','scopes':[SCOPE],'auth':{'tenant_id':TENANT,'method':'token','arm_token':'fixture','vault_token':'fixture'},'options':{'retries':0,'max_pages':1,'compliance_policy':{'sw33':policy}}}
  snap=collect_live(connector,plan_collection({'connector':connector,'checks':[CHECK]}))

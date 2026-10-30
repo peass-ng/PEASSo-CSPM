@@ -17,7 +17,7 @@
   },
   "sources": {
     "peaso/checks/azure_sas_expiry_policy_declaration_proposal_20261020.py": "3da44b2f1ce9727abb44b0b382bef83f01886244ce16a4c4b76fe91605e0748e",
-    "peaso/checks/azure_native_contract_closure_20261020.py": "4f05044102b87c56f4da90aaa9917d2c17587569675632f3f98ecf6db29b1a61",
+    "peaso/checks/azure_native_contract_closure_20261020.py": "03913ec9fa37ea1ab64ed103eb6491cc5bbfdf94a901db2c47c0908c23bd1f4a",
     "peaso/checks/facts.py": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926"
   },
   "predicate_sha256": "04470589148bd1c953b09298cb5be03b0a4cac8b58b6d0ececb358eca6e53f11",

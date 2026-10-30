@@ -18,6 +18,9 @@ NATIVE = {
     'stream_analytics_job': ('Microsoft.StreamAnalytics/streamingjobs', '2020-03-01'),
     'storage_account': ('Microsoft.Storage/storageAccounts', '2023-05-01'),
 }
+# The collector's storage-account full GET moved to 2026-06-01; both reviewed
+# read-only GET versions return the same declared properties used here.
+ACCEPTED_VERSIONS = {'storage_account': ('2023-05-01', '2026-06-01')}
 
 
 def _safe(fn):
@@ -102,7 +105,7 @@ def _inventory(index, kind):
         seen.add(rid)
         proof = bound(row)
         if (get(proof, 'source_operation', str) != 'get' or get(proof, 'read_only', bool) is not True
-                or get(proof, 'api_version', str) != version):
+                or get(proof, 'api_version', str) not in ACCEPTED_VERSIONS.get(kind, (version,))):
             raise Unavailable('authoritative native GET metadata is unavailable')
         representation = get(proof, 'representation', str)
         if kind in ('storage_account', 'log_analytics_cluster'):

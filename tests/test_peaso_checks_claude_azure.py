@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import peaso.checks.claude_azure  # noqa: F401  (registers every claude_azure group)
-from peaso.checks import CHECKS, HACKTRICKS
+from peaso.checks import CHECKS, HACKTRICKS, resolve_check_id
 from peaso.checks.claude_azure_common import CHECK_IDS, PREFIX
 from peaso.checks.fixtures import CASES
 
@@ -49,7 +49,7 @@ def test_supported_rows_reference_registered_claude_predicates():
         else:
             assert entry["native_checks"], key
             for cid in entry["native_checks"]:
-                assert cid in REGISTRY, cid
+                assert resolve_check_id(cid) in REGISTRY, cid
             if entry["disposition"] == "ported":
                 # A ported row may be a conjunction of a new predicate and an existing native one.
                 assert any(cid.startswith(PREFIX) for cid in entry["native_checks"]), key

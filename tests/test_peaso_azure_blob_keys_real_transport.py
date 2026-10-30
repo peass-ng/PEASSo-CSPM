@@ -19,6 +19,7 @@ def _public_capture(monkeypatch, duplicate_kind=None):
     account, containers, scopes, _ = fixture('cmk')
     calls = []
     class Response(io.BytesIO):
+        status = 200  # native transport accepts only documented 200 representations
         def __enter__(self): return self
         def __exit__(self, *args): self.close()
     class Opener:

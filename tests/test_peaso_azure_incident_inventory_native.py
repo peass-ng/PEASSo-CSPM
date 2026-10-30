@@ -69,6 +69,7 @@ def test_hosted_native_incidents_reuse_sentinel_traversal(monkeypatch, mode, sta
                     if mode in ('pagination', 'partial') else {})}
             raise AssertionError('Unexpected endpoint: ' + path)
     monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport())
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: Transport())
     auth = {'method': 'token', 'arm_token': 'inert-fixture'}
     options = {'concurrency': 1, 'retries': 1, 'compliance_policy': {'sw27': {
         'status': 'collected', 'scope': SCOPE, 'incidentTriage': {

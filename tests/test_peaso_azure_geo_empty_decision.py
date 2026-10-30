@@ -30,6 +30,7 @@ def capture(monkeypatch, decision='noBlockRequired', approval=True, nonempty=Fal
         return {'value':[]}
     transport = FakeAzure(response); transport.tenant=transport.verified_tenant=TENANT
     monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+    monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
     options={'retries':1,'concurrency':1}
     if approval: options['compliance_policy']=deepcopy(context['metadata']['compliance_policy'])
     auth={'method':'token','arm_token':'inert','graph_token':'inert'}

@@ -644,7 +644,7 @@ PINNED = json.loads(r'''
   "peaso/checks/azure_aks_legacy_projection_review_20261020.py": "d2aac095ecf0da4019853fb86c4be7129e5f2f75578c1484414bb8b17cfac633",
   "peaso/checks/azure_aks_legacy_projection_review_20261020_fixtures.json": "7e4233f962bc14aa19ddeb4cf9f9c0d3d26a78ca0f600dde3600fa372e06e3a6",
   "peaso/checks/azure_bulk_clarity_reviewed.py": "6c36caa185c2b483eb94185110aa8b514ddebefe56188e2d9e0dc1f921967d22",
-  "peaso/checks/azure_final_native_admission_20261020.json": "208520e936e2f692d2bb03ac93d49915134ed84e0fd2e3ae2c9dc409675a6431",
+  "peaso/checks/azure_final_native_admission_20261020.json": "42a55529fcb6436b00949bdc0c0205e11dbf789a2f14c3801f0e2d298e9d5b38",
   "peaso/checks/azure_final_native_admission_20261020.py": "30dfd6f2bee166ece1cce8d322693d72e42f7351650cc71d1b22c10fae050518",
   "peaso/checks/azure_function_monitoring_declaration_proposal_20261020.py": "69a85e993fca6a514afdfa4b43df692cd37eb241daa41df5e025298ca75578c1",
   "peaso/checks/azure_function_settings_runtime_admission_20261020.json": "178950d8db8913f2fd070240139c0c467fbd8fc105cd1d2d973fcda98f6afab3",

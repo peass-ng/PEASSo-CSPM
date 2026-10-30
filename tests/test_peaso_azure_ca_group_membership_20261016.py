@@ -146,6 +146,7 @@ def test_collect_live_uses_existing_native_hook(monkeypatch):
     api = Transport(routes(policies=[policy(excludes=[])]))
     api.close = lambda: None
     monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: api)
     snapshot = collect_live({'provider': 'azure', 'scopes': [SUB], 'options': {'retries': 0}},
                             ['conditional_access_policy', KIND])
     got = groups(snapshot)

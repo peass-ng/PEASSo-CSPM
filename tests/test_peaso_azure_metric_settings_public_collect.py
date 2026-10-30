@@ -48,6 +48,7 @@ def test_hosted_settings_use_native_rules_and_group_enabled_state(monkeypatch, m
                 return {'value': []}
             raise AssertionError('Unexpected endpoint: ' + path)
     monkeypatch.setattr(azure, 'AzureTransport', lambda auth: Transport())
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: Transport())
     auth = {'method': 'token', 'arm_token': 'inert-fixture'}
     options = {'concurrency': 1, 'retries': 1, 'compliance_policy': {'sw25': approval()}}
     validate_connector('azure', auth, options, SimpleNamespace(auth_mode='cognito'))

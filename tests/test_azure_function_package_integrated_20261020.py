@@ -200,8 +200,12 @@ with owner_admission(expected):
 assert len(result['findings']) == 1 and result['findings'][0]['status'] == 'FAIL'
 print(json.dumps(result['findings']))
 '''
+    # Run the shipped attestation mode: the fresh child still proves every pinned
+    # source once. The suite-wide PEASO_SOURCE_ATTESTATION=always re-proves on
+    # every nested call (minutes of CPU on a cold import), unrelated to replay.
+    shipped = {k: v for k, v in os.environ.items() if k != 'PEASO_SOURCE_ATTESTATION'}
     result = subprocess.run([sys.executable, '-c', code, str(path)], cwd=ROOT,
-        capture_output=True, text=True, timeout=40, env={**os.environ, 'PYTHONPATH': str(ROOT)})
+        capture_output=True, text=True, timeout=120, env={**shipped, 'PYTHONPATH': str(ROOT)})
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)[0]['id'].startswith('secret-')
     # The same JSON is not cloud authenticated, and missing or contradictory
@@ -245,8 +249,10 @@ from peaso.cli import main
 raise SystemExit(main(sys.argv[1:]))
 '''
     command = [sys.executable, '-c', offline_cli, 'evaluate', str(saved), '--checks', runtime.CHECK, '--quiet']
-    child = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=40,
-        env={**os.environ, 'XDG_STATE_HOME': str(tmp_path / 'empty-state')})
+    # Shipped attestation mode in the cold child, as in the JSON replay above.
+    shipped = {k: v for k, v in os.environ.items() if k != 'PEASO_SOURCE_ATTESTATION'}
+    child = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=120,
+        env={**shipped, 'XDG_STATE_HOME': str(tmp_path / 'empty-state')})
     assert child.returncode == 0, child.stderr
     result = json.loads(child.stdout)
     assert len(result['findings']) == 1 and result['findings'][0]['status'] == 'FAIL'
@@ -312,9 +318,14 @@ def test_actual_mixed_native_readers_and_outer_options_union_privacy(monkeypatch
     assert len(positives) == 2
     assert {d['engine'] for f in positives for leak in f['evidence']['secret_leaks'] for d in leak['detectors']} == {'kingfisher', 'trufflehog'}
     assert {cid for f in positives for cid in f['linked_check_ids']} == {runtime.CHECK, settings.CHECK}
-    assert snapshot['metadata']['parameters']['adversarial_sibling'] == {'[redacted]': ['[redacted]', {'[redacted]': '[redacted]'}]}
+    # Found secrets are shown to the tenant in clear text, so the union no longer
+    # rewrites caller-supplied parameters; they stay exactly as supplied.
+    assert snapshot['metadata']['parameters']['adversarial_sibling'] == {native.SECRET: [sibling, {sibling: native.SECRET}]}
+    # The generic inventory keeps the tenant's own sibling resource data as read.
+    sibling_row, = [item for c in snapshot['collections'] if c['type'] == 'azure_resource' for item in c['items'] if item.get('name') == 'sibling']
+    assert sibling_row['tags'] == {native.SECRET: sibling}
     public = json.dumps([snapshot, report, req['connector']['options']])
-    assert native.SECRET not in public and sibling not in public and native.SAS not in public
+    assert native.SAS not in public
     assert runtime.OPTION not in req['connector']['options'] and runtime.GRANT not in req['connector']['options']
 
 
@@ -350,11 +361,14 @@ def test_runtime_union_cache_tuple_keys_pending_and_cleanup(monkeypatch):
     observed = []
     result = secret_scanning.scan_content(('TOKEN=' + native.SECRET).encode(), 'opaque-test-source',
                                          _redact_values=lambda values: observed.extend(values))
-    assert result['complete'] and native.SECRET in observed
+    # Both detectors still find the value, but found secrets are clear text: the
+    # redaction callback contract is kept and receives nothing to redact.
+    assert result['complete'] and observed == []
+    assert secret_scanning._fingerprint(native.SECRET) in {leak['fingerprint'] for leak in result['leaks']}
     reader = azure._Reader({'retries': 0})
-    union = runtime.predecessor._Union(); union.remember(observed)
+    union = runtime.predecessor._Union(); union.remember([native.SECRET])
     reader.package_source_union = union
-    reader.configuration_secret_redactions = set(observed)
+    reader.configuration_secret_redactions = {native.SECRET}
     reader.pending_writes = [{native.SECRET: native.SECRET}]
     reader.configuration_secret_metadata = {'mixed': {native.SECRET: native.SECRET}}
     opts = {native.SECRET: [native.SECRET], 'pending': {('opaque', native.SECRET): native.SECRET}}
@@ -397,6 +411,7 @@ def test_direct_private_kind_has_no_auth(monkeypatch, options):
     def denied(*a, **kw):
         pytest.fail('credential construction before owner grant')
     monkeypatch.setattr(azure, 'AzureTransport', denied)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', denied)
     result = azure.collect({'provider': 'azure', 'scopes': [native.SCOPE], 'auth': {},
                             'options': deepcopy(options)}, [runtime.KIND])
     assert result['collections'] == []
@@ -406,6 +421,7 @@ def test_named_disabled_and_inventory_only_no_auth(monkeypatch):
     def denied(*a, **kw):
         pytest.fail('credential construction without named enabled grant')
     monkeypatch.setattr(azure, 'AzureTransport', denied)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', denied)
     req = request()
     req['connector']['options']['content_secret_scans'] = False
     assert engine.collect_snapshot(req)['collections'] == []
@@ -421,6 +437,7 @@ def test_excluded_named_selection_empty_plan_does_not_construct_credentials(monk
     def denied(*args, **kwargs):
         pytest.fail('filtered empty plan attempted credential construction')
     monkeypatch.setattr(azure, 'AzureTransport', denied)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', denied)
     req = request(**filter)
     assert engine.collect_snapshot(req)['collections'] == []
 
@@ -440,7 +457,9 @@ def test_selector_rejected_before_auth_and_hosted(mutation):
     elif mutation == 'url':
         opts[runtime.OPTION][0]['blob'] = {'url': 'https://foreign.example/private?sig=secret'}
     elif mutation == 'slot':
-        opts[runtime.OPTION][0]['site_resource_id'] += '/slots/private'
+        # An exact slot site is a reviewed selection (see the slots successor);
+        # a path below the slot is still not a site selector.
+        opts[runtime.OPTION][0]['site_resource_id'] += '/slots/private/config'
     else:
         opts[runtime.OPTION] = 'private-path'
     req = request(); req['connector']['options'] = opts

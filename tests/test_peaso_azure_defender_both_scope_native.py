@@ -41,6 +41,7 @@ def scan(monkeypatch, rows=(), fault=None):
             raise AssertionError('unexpected request '+path)
         def close(self):pass
     monkeypatch.setattr(azure,'AzureTransport',Transport)
+    monkeypatch.setattr(azure,'AzureTransportExposure',Transport)
     req={'connector':{'provider':'azure','scopes':[SCOPE],
         'auth':{'method':'az-cli','tenant_id':TENANT},
         'options':{'max_calls':10,'max_resources':100,'retries':0,'concurrency':1}},

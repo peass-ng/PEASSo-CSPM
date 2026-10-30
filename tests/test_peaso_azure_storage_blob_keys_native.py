@@ -179,6 +179,7 @@ def test_normal_hosted_intake_plan_collect(monkeypatch, mode, expected):
             return {'value': []}
     transport = HostedTransport()
     monkeypatch.setattr(azure, 'AzureTransport', lambda auth: transport)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: transport)
     auth, options = {'method': 'token', 'arm_token': 'inert-fixture'}, {'concurrency': 1, 'retries': 1}
     validate_connector('azure', auth, options, SimpleNamespace(auth_mode='cognito'))
     connector = {'provider': 'azure', 'scopes': [SCOPE], 'auth': auth, 'options': options}

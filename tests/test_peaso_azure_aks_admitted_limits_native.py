@@ -31,6 +31,7 @@ def capture(monkeypatch,ca,mode='good'):
     def factory(context):
         api=Api();apis.append(api);return api
     monkeypatch.setattr(azure,'AzureTransport',lambda auth:arm)
+    monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:arm)
     monkeypatch.setattr(k8s,'_new_api',factory)
     snap=collect_snapshot({'connector':{'provider':'azure','scopes':[SUB],'auth':auth,'options':options},'checks':[native.LIMITS]})
     status=evaluate_snapshot(snap,checks=[native.LIMITS])['findings'][0]['status']

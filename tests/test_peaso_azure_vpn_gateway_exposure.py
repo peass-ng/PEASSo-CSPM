@@ -1,7 +1,6 @@
 """VPN gateway listeners use collected gateway, public-IP and connection facts."""
 
 from peaso.analysis.internet_exposure import _observed, assess
-from peaso.collectors.azure import _metadata_only
 from peaso.snapshot import make_snapshot, resources
 
 
@@ -65,9 +64,15 @@ def test_vpn_gateway_non_vpn_or_unconfigured():
 
 
 def test_vpn_gateway_radius_secret_is_not_kept_in_snapshot_metadata():
-    projected = _metadata_only({"properties": {"vpnClientConfiguration": {
-        "vpnClientProtocols": ["OpenVPN"], "radiusServerSecret": "do-not-store"}}})
-    assert projected == {"properties": {"vpnClientConfiguration": {"vpnClientProtocols": ["OpenVPN"]}}}
+    # The collector's read path strips the RADIUS secret before metadata retention.
+    from peaso.collectors.azure import _ReaderExposure
+    scope = "/subscriptions/00000000-0000-0000-0000-000000000000"
+    gateway = scope + "/resourceGroups/rg/providers/Microsoft.Network/virtualNetworkGateways/gw"
+    native = {"id": gateway, "properties": {"vpnClientConfiguration": {
+        "vpnClientProtocols": ["OpenVPN"], "radiusServerSecret": "do-not-store"}}}
+    collection = _ReaderExposure({})._read(("virtual_network_gateway", scope, "Microsoft.Network", lambda: iter([[native]])))
+    assert collection["status"] == "collected"
+    assert collection["items"] == [{"id": gateway, "properties": {"vpnClientConfiguration": {"vpnClientProtocols": ["OpenVPN"]}}}]
 
 
 def test_gateway_selection_includes_public_address_and_connection_facts():

@@ -148,7 +148,7 @@ def collect(monkeypatch,targets=None,raw=None,*,real=False,fault=None,missing_en
             self.response=response;trace.responses.append(response)
         def getresponse(self):return self.response
         def close(self):self.closed=True
-    monkeypatch.setattr(azure,'AzureTransport',Transport);monkeypatch.setattr(source.http.client,'HTTPSConnection',Connection)
+    monkeypatch.setattr(azure,'AzureTransport',Transport);monkeypatch.setattr(azure,'AzureTransportExposure',Transport);monkeypatch.setattr(source.http.client,'HTTPSConnection',Connection)
     # Final production hooks perform selection, scoped reads, provenance and
     # union redaction; no candidate integration bridge is installed here.
     if seed:

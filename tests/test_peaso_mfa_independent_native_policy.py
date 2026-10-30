@@ -23,6 +23,7 @@ def baseline(monkeypatch):
                  "options": {"retries": 0, "compliance_policy": policy}}
     api = API("complete")
     monkeypatch.setattr(azure, "AzureTransport", lambda auth: api)
+    monkeypatch.setattr(azure, "AzureTransportExposure", lambda auth: api)
     return collect_live(connector, plan_collection({"connector": connector, "checks": CHECKS}))
 
 

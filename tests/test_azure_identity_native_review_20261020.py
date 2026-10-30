@@ -110,7 +110,7 @@ def native_data():
         '/v1.0/identityGovernance/privilegedAccess/group/assignmentScheduleInstances':{'value':[]},
         '/v1.0/applications':{'value':[app]},
         '/v1.0/servicePrincipals':{'value':[sp]},
-        '/v1.0/applications/'+APP+'/federatedIdentityCredentials':{'value':[{'id':GROUP,'name':'protected-environment','issuer':'https://token.actions.githubusercontent.com','subject':'repo:review/repo:environment:production','audiences':['api://AzureADTokenExchange']}]},
+        '/beta/applications/'+APP+'/federatedIdentityCredentials':{'value':[{'id':GROUP,'name':'protected-environment','issuer':'https://token.actions.githubusercontent.com','subject':'repo:review/repo:environment:production','audiences':['api://AzureADTokenExchange']}]},
         SCOPE+'/providers/Microsoft.ManagedIdentity/userAssignedIdentities':{'value':[{'id':MI,'name':'review','type':'Microsoft.ManagedIdentity/userAssignedIdentities','properties':{'principalId':SP,'tenantId':TENANT,'clientId':APP}}]},
         MI:{'id':MI,'name':'review','type':'Microsoft.ManagedIdentity/userAssignedIdentities','properties':{'principalId':SP,'tenantId':TENANT,'clientId':APP}},
         MI+'/federatedIdentityCredentials':{'value':[{'id':MI+'/federatedIdentityCredentials/protected-environment','name':'protected-environment','type':'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials',
@@ -197,7 +197,7 @@ def prepare(cid,opposite=False):
     if cid.endswith('service_principal_no_password_credentials'):d['/v1.0/servicePrincipals']['value'][0]['passwordCredentials']=[{'keyId':KEY,'endDateTime':(datetime.now(timezone.utc)+timedelta(days=120)).isoformat()}]
     if 'fic_github_not_pull_request' in cid:
         if '.managed_identity.' in cid:d[MI+'/federatedIdentityCredentials']['value'][0]['properties']['subject']='repo:review/repo:pull_request'
-        else:d['/v1.0/applications/'+APP+'/federatedIdentityCredentials']['value'][0]['subject']='repo:review/repo:pull_request'
+        else:d['/beta/applications/'+APP+'/federatedIdentityCredentials']['value'][0]['subject']='repo:review/repo:pull_request'
     if cid.endswith('iam_subscription_tenant_transfer_restricted'):d['/providers/Microsoft.Subscription/policies/default']['properties']['blockSubscriptionsLeavingTenant']=False
     if 'custom_role' in cid or cid.endswith('iam_no_custom_owner_roles'):d[SCOPE+'/providers/Microsoft.Authorization/roleDefinitions']['value'][0]['properties']['permissions'][0]['actions']=['*']
     if cid.endswith('iam_no_user_access_administrator_assignment'):d[SCOPE+'/providers/Microsoft.Authorization/roleAssignments']['value'][0]['properties']['roleDefinitionId']=SCOPE+'/providers/Microsoft.Authorization/roleDefinitions/'+UAA
@@ -231,6 +231,7 @@ def capture(monkeypatch,cid,branch='positive',data=None,**options):
     supplied = prepare(cid,branch=='opposite') if data is None else data
     api=NativeAPI(_with_prior_native_source_gaps(cid,supplied),deny=branch=='denied',partial=branch=='partial',omit=branch=='omitted')
     monkeypatch.setattr(azure,'AzureTransport',lambda auth:api)
+    monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:api)
     request={'connector':{'provider':'azure','scopes':[SUB],'auth':{'tenant_id':TENANT},'options':{'retries':0,'concurrency':1,**options}},'checks':[cid]}
     snapshot=engine.collect_snapshot(request)
     findings=engine.evaluate_snapshot(snapshot,checks=[cid])['findings']
@@ -385,7 +386,7 @@ def test_native_credential_inventory_boundaries(monkeypatch,cid,mode):
 @pytest.mark.parametrize('mode,expected_state',[('other_issuer','NOT_APPLICABLE'),('missing_subject','UNKNOWN'),('denied','DENIED')])
 def test_native_federated_credential_subject_and_availability(monkeypatch,cid,mode,expected_state):
     data=prepare(cid);managed='.managed_identity.' in cid
-    path=MI+'/federatedIdentityCredentials' if managed else '/v1.0/applications/'+APP+'/federatedIdentityCredentials'
+    path=MI+'/federatedIdentityCredentials' if managed else '/beta/applications/'+APP+'/federatedIdentityCredentials'
     row=data[path]['value'][0]['properties'] if managed else data[path]['value'][0]
     if mode=='other_issuer':row['issuer']='https://issuer.example.test/'
     if mode=='missing_subject':row.pop('subject')
@@ -416,6 +417,7 @@ def test_real_readonly_request_objects_and_json_decoder(monkeypatch,cid,branch):
     transport.owned=False;transport.credential=None
     transport.token=lambda audience:'inert-offline-token' if audience in (azure.GRAPH,azure.ARM) else pytest.fail('unexpected auth audience')
     monkeypatch.setattr(azure,'AzureTransport',lambda auth:transport)
+    monkeypatch.setattr(azure,'AzureTransportExposure',lambda auth:transport)
     request={'connector':{'provider':'azure','scopes':[SUB],'auth':{'tenant_id':TENANT},'options':{'retries':0,'concurrency':1}},'checks':[cid]}
     snapshot=engine.collect_snapshot(request);findings=engine.evaluate_snapshot(snapshot,checks=[cid])['findings']
     selected=[f for f in findings if f['scope'] in (SCOPE,TSCOPE) or '/applications/' in f['scope']]
