@@ -51,6 +51,7 @@ class GapAPI(API):
 def test_native_operation_gaps_without_delivery_claim(monkeypatch, mode, missing):
     api = GapAPI(mode)
     monkeypatch.setattr(azure, 'AzureTransport', lambda auth: api)
+    monkeypatch.setattr(azure, 'AzureTransportExposure', lambda auth: api)
     connector = {'provider': 'azure', 'scopes': [SCOPE], 'auth': {
         'method': 'token', 'arm_token': 'inert', 'storage_token': 'inert'}, 'options': options('absent')}
     snapshot = collect_live(connector, historical_requirements())

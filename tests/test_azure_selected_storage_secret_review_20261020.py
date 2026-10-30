@@ -19,6 +19,7 @@ from urllib.parse import quote
 import zipfile
 import pytest
 from peaso import checks,engine,secret_scanning as scanning
+from peaso import secret_scan_clean
 from peaso import collectors
 from peaso.collectors import azure,azure_selected_storage_secret_indicators as source
 from peaso.snapshot import seal
@@ -77,9 +78,11 @@ def isolated(monkeypatch):
     for key in ('connect','connect_ex','sendto'):monkeypatch.setattr(socket.socket,key,blocked)
     monkeypatch.setattr(azure,'credential_for',blocked)
     monkeypatch.setenv('AZURE_CONFIG_DIR','/nonexistent/selected-storage-review')
-    original=list(checks.CHECKS);consumer.install(checks.register);scanning._RESULTS.clear()
+    # Each case proves fresh engine runs: drop memoized results and the
+    # per-process clean-bytes memo that skips repeat TruffleHog stdin scans.
+    original=list(checks.CHECKS);consumer.install(checks.register);scanning._RESULTS.clear();secret_scan_clean._CLEAN.clear()
     yield
-    checks.CHECKS[:]=original;scanning._RESULTS.clear();assert not attempts
+    checks.CHECKS[:]=original;scanning._RESULTS.clear();secret_scan_clean._CLEAN.clear();assert not attempts
 
 
 def request(targets,**opts):
