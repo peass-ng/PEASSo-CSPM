@@ -115,17 +115,74 @@ def test_gcp_firebase_apphosting_uses_identical_backend_request_for_scan_cache()
 
 def test_gcp_media_cdn_global_service_collection_feeds_exposure():
     from peaso.analysis import analyze
+    from peaso.collectors.gcp_network_catalog import PRIVATE_SERVICES
+    service = "projects/p-one/locations/global/edgeCacheServices/s"
     def resolver(request):
         assert request["method"] == "GET"
+        if "networkservices.googleapis.com" not in request["url"]:
+            return {}  # declared supporting reads, empty in this fixture
+        # One masked list read plus the reviewed per-service IAM read.
+        if request["url"].endswith(":getIamPolicy"):
+            assert request["url"] == f"https://networkservices.googleapis.com/v1/{service}:getIamPolicy"
+            return {"bindings": []}
         assert request["url"] == "https://networkservices.googleapis.com/v1/projects/p-one/locations/global/edgeCacheServices"
+        assert request["params"]["fields"] == PRIVATE_SERVICES["media_cdn_service"]["fields"]
         assert "ipv4Addresses" in request["params"]["fields"]
-        return {"edgeCacheServices": [{"name": "projects/p-one/locations/global/edgeCacheServices/s",
-                                        "ipv4Addresses": ["34.8.8.8"], "requireTls": True}]}
+        return {"edgeCacheServices": [{"name": service, "ipv4Addresses": ["34.8.8.8"], "requireTls": True}]}
     snap, transport = snapshot(["media_cdn_service"], resolver)
     assert collection(snap, "media_cdn_service")["status"] == "collected"
-    assert len(transport.requests) == 1
+    # Other requests are the declared supporting reads (project, IAM, roles, Cloud Armor).
+    media = [r for r in transport.requests if "networkservices.googleapis.com" in r["url"]]
+    assert len(media) == 2
+    assert collection(snap, "media_cdn_service")["items"][0]["iamPolicy"] == {"bindings": []}
     assert any(f["check_id"] == "analysis.internet_exposure" and f["status"] == "FAIL"
                for f in analyze(snap)["findings"])
+
+
+@pytest.mark.parametrize("kind,segment", [("eventarc_pipeline", "pipelines"), ("eventarc_trigger", "triggers")])
+def test_gcp_eventarc_single_owner_keeps_union_of_fields_and_iam(kind, segment):
+    from peaso.collectors.gcp_network_catalog import PRIVATE_SERVICES
+    plan = PRIVATE_SERVICES[kind]
+    base = "https://eventarc.googleapis.com/v1/projects/p-one/locations"
+    regional = api_root("eventarc", "v1", "us-central1")
+    name = "projects/p-one/locations/us-central1/" + segment + "/one"
+    target = {"httpEndpoint": {"uri": "https://user:Zq9secretval@hook.example.com/path"},
+              "networkConfig": {"networkAttachment": "projects/p-one/regions/us-central1/networkAttachments/a"},
+              "authenticationConfig": {"googleOidc": {"serviceAccount": "sa@p-one.iam.gserviceaccount.com"}}}
+    row = ({"name": name, "destinations": [target]} if kind == "eventarc_pipeline" else
+           {"name": name, "destination": target, "serviceAccount": "sa@p-one.iam.gserviceaccount.com",
+            "transport": {"pubsub": {"topic": "projects/p-one/topics/t"}}})
+    def resolver(request):
+        assert request["method"] == "GET"
+        url = request["url"]
+        if url == base:
+            return {"locations": [{"locationId": "us-central1", "name": "projects/p-one/locations/us-central1"}]}
+        if url == regional + "/" + name.rsplit("/", 1)[0]:
+            assert request["params"]["fields"] == plan["fields"]
+            return {segment: [row]}
+        if url == regional + "/" + name:
+            assert request["params"]["fields"] == plan["get_fields"]
+            return row
+        if url == regional + "/" + name + ":getIamPolicy":
+            return {"bindings": []}
+        raise AssertionError(url)
+    snap, transport = snapshot([kind], resolver)
+    eventarc = [r["url"] for r in transport.requests if "eventarc" in r["url"]]
+    # One collector: one list, one reviewed detail read and one IAM read per item.
+    assert len(eventarc) == len(set(eventarc)) == 4
+    item, = collection(snap, kind)["items"]
+    assert item["iamPolicy"] == {"bindings": []}
+    facts = item["destinations"][0] if kind == "eventarc_pipeline" else item["destination"]
+    assert facts["httpEndpoint"] == {"uri": "https://hook.example.com"}
+    assert facts["networkConfig"] == target["networkConfig"]
+    assert facts["authenticationConfig"] == target["authenticationConfig"]
+    if kind == "eventarc_pipeline":
+        assert facts["httpOriginStatus"] == "malformed" and "httpOrigin" not in facts
+        assert facts["networkAttachment"] == target["networkConfig"]["networkAttachment"]
+    else:
+        assert item["transport"] == {"pubsub": {"topic": "projects/p-one/topics/t"}}
+        assert item["serviceAccount"] == "sa@p-one.iam.gserviceaccount.com"
+    assert "Zq9secretval" not in json.dumps(snap)
 
 
 @pytest.mark.parametrize("kind,segment", [("target_pool", "targetPools"), ("target_instance", "targetInstances")])

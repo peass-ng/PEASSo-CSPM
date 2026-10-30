@@ -44,7 +44,7 @@
     {
       "path": "peaso/collectors/gcp_network_catalog.py",
       "before_sha256": "ddc35862eab9f095af0de716068cd12b791b9bf9357e3ebb254c87b061746e9e",
-      "after_sha256": "369b523e5c0368776290558a2d6a6b75f56c3edd2518c6ea1159b9d37542b8fd",
+      "after_sha256": "bdb4b56c7071c06361c9eae24b0d5f3792748a78ec3b27992271c83d857691d7",
       "inverse_edits": [
         {
           "start": 8,
@@ -55,8 +55,41 @@
           "predecessor": []
         },
         {
-          "start": 126,
-          "end": 133,
+          "start": 41,
+          "end": 44,
+          "current": [
+            "# GCPCollector owns this kind: it lists it once with the reviewed field mask\n",
+            "# below plus per-service IAM, so this catalog must not schedule a second read.\n",
+            "GCP_COLLECTOR_OWNED = frozenset({'media_cdn_service'})\n"
+          ],
+          "predecessor": []
+        },
+        {
+          "start": 61,
+          "end": 65,
+          "current": [
+            "BACKUPDR_ALL_LOCATIONS = frozenset({\n",
+            "    'backupdr_backup_plan', 'backupdr_backup_plan_association', 'backupdr_management_server',\n",
+            "})\n",
+            "_BACKUPDR_ALL_SEGMENTS = frozenset(REGIONAL[kind][2] for kind in BACKUPDR_ALL_LOCATIONS)\n"
+          ],
+          "predecessor": []
+        },
+        {
+          "start": 122,
+          "end": 127,
+          "current": [
+            "    if kind in BACKUPDR_ALL_LOCATIONS:\n",
+            "        # Each of these three native list operations explicitly supports all\n",
+            "        # locations. This retains multi-regions without guessing valid regions.\n",
+            "        yield ['-'], None\n",
+            "        return\n"
+          ],
+          "predecessor": []
+        },
+        {
+          "start": 138,
+          "end": 145,
           "current": [
             "            # Only lakes and inventories rooted under lakes require a region.\n",
             "            # Explicit selections above and catalog multi-regions stay intact.\n",
@@ -69,31 +102,8 @@
           "predecessor": []
         },
         {
-          "start": 58,
-          "end": 62,
-          "current": [
-            "BACKUPDR_ALL_LOCATIONS = frozenset({\n",
-            "    'backupdr_backup_plan', 'backupdr_backup_plan_association', 'backupdr_management_server',\n",
-            "})\n",
-            "_BACKUPDR_ALL_SEGMENTS = frozenset(REGIONAL[kind][2] for kind in BACKUPDR_ALL_LOCATIONS)\n"
-          ],
-          "predecessor": []
-        },
-        {
-          "start": 119,
-          "end": 124,
-          "current": [
-            "    if kind in BACKUPDR_ALL_LOCATIONS:\n",
-            "        # Each of these three native list operations explicitly supports all\n",
-            "        # locations. This retains multi-regions without guessing valid regions.\n",
-            "        yield ['-'], None\n",
-            "        return\n"
-          ],
-          "predecessor": []
-        },
-        {
-          "start": 168,
-          "end": 182,
+          "start": 171,
+          "end": 185,
           "current": [
             "\n",
             "\n",
@@ -113,8 +123,16 @@
           "predecessor": []
         },
         {
-          "start": 273,
-          "end": 275,
+          "start": 244,
+          "end": 245,
+          "current": [
+            "                  'eventarc_trigger': _eventarc_trigger,\n"
+          ],
+          "predecessor": []
+        },
+        {
+          "start": 277,
+          "end": 279,
           "current": [
             "        wildcard_backupdr = (plan['service'] == 'backupdr' and plan['segment'] in _BACKUPDR_ALL_SEGMENTS\n",
             "                             and parent_name == scope + '/locations/-')\n"
@@ -122,8 +140,8 @@
           "predecessor": []
         },
         {
-          "start": 280,
-          "end": 293,
+          "start": 284,
+          "end": 297,
           "current": [
             "                    identity_error = None\n",
             "                    if wildcard_backupdr:\n",
@@ -142,8 +160,8 @@
           "predecessor": []
         },
         {
-          "start": 298,
-          "end": 301,
+          "start": 302,
+          "end": 305,
           "current": [
             "                            name, _ = _backupdr_inventory_name(item, parent_name, plan, collector, scope)\n",
             "                            native_root = (api_root(plan['service'], plan['version'], name.split('/')[3])\n",
@@ -154,8 +172,8 @@
           ]
         },
         {
-          "start": 307,
-          "end": 308,
+          "start": 311,
+          "end": 312,
           "current": [
             "                                return collector.hydrate(item, 'iamPolicy', native_root + '/' + name + ':getIamPolicy', scope,\n"
           ],
@@ -164,8 +182,8 @@
           ]
         },
         {
-          "start": 310,
-          "end": 311,
+          "start": 314,
+          "end": 315,
           "current": [
             "                                return collector.hydrate(item, 'iamPolicy', native_root + '/' + name + ':getIamPolicy', scope,\n"
           ],
@@ -174,8 +192,8 @@
           ]
         },
         {
-          "start": 312,
-          "end": 313,
+          "start": 316,
+          "end": 317,
           "current": [
             "                            return collector.hydrate(item, 'iamPolicy', native_root + '/' + name + ':getIamPolicy', scope,\n"
           ],
@@ -184,11 +202,81 @@
           ]
         },
         {
-          "start": 329,
-          "end": 331,
+          "start": 333,
+          "end": 335,
           "current": [
             "                    if identity_error is not None:\n",
             "                        raise identity_error\n"
+          ],
+          "predecessor": []
+        },
+        {
+          "start": 507,
+          "end": 552,
+          "current": [
+            "def _eventarc_target_facts(target):\n",
+            "    \"\"\"Metadata-only Eventarc destination facts (no credentials or URL paths).\"\"\"\n",
+            "    if not isinstance(target, dict):\n",
+            "        return None\n",
+            "    facts = {field: target[field] for field in (\"topic\", \"messageBus\", \"workflow\", \"cloudFunction\")\n",
+            "             if isinstance(target.get(field), str)}\n",
+            "    for kind, fields in ((\"cloudRun\", (\"service\", \"region\")),\n",
+            "                         (\"gke\", (\"cluster\", \"location\", \"namespace\", \"service\"))):\n",
+            "        descriptor = target.get(kind)\n",
+            "        if isinstance(descriptor, dict):\n",
+            "            facts[kind] = {field: descriptor[field] for field in fields if isinstance(descriptor.get(field), str)}\n",
+            "    network = target.get(\"networkConfig\")\n",
+            "    if isinstance(network, dict) and isinstance(network.get(\"networkAttachment\"), str):\n",
+            "        facts[\"networkConfig\"] = {\"networkAttachment\": network[\"networkAttachment\"]}\n",
+            "    endpoint = target.get(\"httpEndpoint\")\n",
+            "    uri = endpoint.get(\"uri\") if isinstance(endpoint, dict) else None\n",
+            "    if isinstance(uri, str):\n",
+            "        try:\n",
+            "            parts = urlsplit(uri)\n",
+            "            if parts.scheme in (\"http\", \"https\") and parts.hostname:\n",
+            "                facts[\"httpEndpoint\"] = {\"uri\": parts.scheme + \"://\" + parts.netloc.rsplit(\"@\", 1)[-1]}\n",
+            "        except ValueError:\n",
+            "            pass\n",
+            "    auth = target.get(\"authenticationConfig\")\n",
+            "    if isinstance(auth, dict):\n",
+            "        for key in (\"googleOidc\", \"oauthToken\"):\n",
+            "            value = auth.get(key)\n",
+            "            if isinstance(value, dict) and isinstance(value.get(\"serviceAccount\"), str):\n",
+            "                facts[\"authenticationConfig\"] = {key: {\"serviceAccount\": value[\"serviceAccount\"]}}\n",
+            "                break\n",
+            "    return facts\n",
+            "\n",
+            "\n",
+            "def _eventarc_trigger(row):\n",
+            "    projected = {field: row[field] for field in (\"name\", \"eventFilters\", \"serviceAccount\") if field in row}\n",
+            "    if (facts := _eventarc_target_facts(row.get(\"destination\"))) is not None:\n",
+            "        projected[\"destination\"] = facts\n",
+            "    transport = row.get(\"transport\")\n",
+            "    pubsub = transport.get(\"pubsub\") if isinstance(transport, dict) else None\n",
+            "    if isinstance(pubsub, dict):\n",
+            "        projected[\"transport\"] = {\"pubsub\": {field: pubsub[field] for field in (\"topic\", \"subscription\")\n",
+            "                                             if isinstance(pubsub.get(field), str)}}\n",
+            "    return projected\n",
+            "\n",
+            "\n"
+          ],
+          "predecessor": []
+        },
+        {
+          "start": 560,
+          "end": 561,
+          "current": [
+            "        item = _eventarc_target_facts(destination)\n"
+          ],
+          "predecessor": [
+            "        item = {key: destination[key] for key in (\"workflow\", \"messageBus\", \"topic\") if key in destination}\n"
+          ]
+        },
+        {
+          "start": 1337,
+          "end": 1338,
+          "current": [
+            "            and kind not in GCP_COLLECTOR_OWNED\n"
           ],
           "predecessor": []
         }

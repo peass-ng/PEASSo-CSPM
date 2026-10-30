@@ -2519,7 +2519,10 @@ class GCPCollector:
         add("firestore_database", "firestore", firestore_databases)
         def media_cdn_rows(segment, response_key):
             url = f"https://networkservices.googleapis.com/v1/{scope}/locations/global/{segment}"
-            for items, request_id in self.pages(url, scope, key=response_key):
+            # Media CDN services keep the reviewed catalog field mask on the single list read.
+            mask = NETWORK_PRIVATE_SERVICES["media_cdn_service"]["fields"] if segment == "edgeCacheServices" else None
+            for items, request_id in self.pages(url, scope, key=response_key,
+                                                params={"fields": mask} if mask else None):
                 projected = []
                 for item in items:
                     name = item.get("name")
@@ -3678,51 +3681,10 @@ class GCPCollector:
                         def projected(row):
                             fields = {
                                 "eventarc_enrollment": ("name", "messageBus", "destination", "celMatch"),
-                                "eventarc_pipeline": ("name",),
-                                "eventarc_trigger": ("name", "eventFilters", "serviceAccount"),
                                 "eventarc_channel": ("name", "provider", "state", "pubsubTopic"),
                                 "eventarc_channel_connection": ("name", "channel"),
                             }.get(kind, ("name",))
                             item = {field: row[field] for field in fields if field in row}
-                            def target_facts(target):
-                                if not isinstance(target, dict):
-                                    return None
-                                facts = {field: target[field] for field in ("topic", "messageBus", "workflow", "cloudFunction")
-                                         if isinstance(target.get(field), str)}
-                                for kind, fields in (("cloudRun", ("service", "region")),
-                                                     ("gke", ("cluster", "location", "namespace", "service"))):
-                                    descriptor = target.get(kind)
-                                    if isinstance(descriptor, dict):
-                                        facts[kind] = {field: descriptor[field] for field in fields
-                                                       if isinstance(descriptor.get(field), str)}
-                                network = target.get("networkConfig")
-                                if isinstance(network, dict) and isinstance(network.get("networkAttachment"), str):
-                                    facts["networkConfig"] = {"networkAttachment": network["networkAttachment"]}
-                                endpoint = target.get("httpEndpoint")
-                                uri = endpoint.get("uri") if isinstance(endpoint, dict) else None
-                                if isinstance(uri, str):
-                                    parts = urlsplit(uri)
-                                    if parts.scheme in ("http", "https") and parts.hostname:
-                                        facts["httpEndpoint"] = {"uri": parts.scheme + "://" + parts.netloc.rsplit("@", 1)[-1]}
-                                auth = target.get("authenticationConfig")
-                                if isinstance(auth, dict):
-                                    for key in ("googleOidc", "oauthToken"):
-                                        value = auth.get(key)
-                                        if isinstance(value, dict) and isinstance(value.get("serviceAccount"), str):
-                                            facts["authenticationConfig"] = {key: {"serviceAccount": value["serviceAccount"]}}
-                                            break
-                                return facts
-                            if kind == "eventarc_pipeline" and isinstance(row.get("destinations"), list):
-                                item["destinations"] = [facts for target in row["destinations"]
-                                                         if (facts := target_facts(target)) is not None]
-                            if kind == "eventarc_trigger":
-                                if (facts := target_facts(row.get("destination"))) is not None:
-                                    item["destination"] = facts
-                                transport = row.get("transport")
-                                pubsub = transport.get("pubsub") if isinstance(transport, dict) else None
-                                if isinstance(pubsub, dict):
-                                    item["transport"] = {"pubsub": {field: pubsub[field] for field in ("topic", "subscription")
-                                                                    if isinstance(pubsub.get(field), str)}}
                             name = item.get("name")
                             if not isinstance(name, str) or not re.fullmatch(
                                     re.escape(scope) + r"/locations/" + re.escape(location)
@@ -3746,8 +3708,7 @@ class GCPCollector:
             add(kind, "eventarc", fetch)
         eventarc_resources("eventarc_message_bus", "messageBuses", "messageBuses")
         eventarc_resources("eventarc_enrollment", "enrollments", "enrollments")
-        eventarc_resources("eventarc_pipeline", "pipelines", "pipelines")
-        eventarc_resources("eventarc_trigger", "triggers", "triggers")
+        # eventarc_pipeline and eventarc_trigger are collected once by the network catalog.
         eventarc_resources("eventarc_channel", "channels", "channels")
         eventarc_resources("eventarc_channel_connection", "channelConnections", "channelConnections")
         def firebase_apphosting_backends():
