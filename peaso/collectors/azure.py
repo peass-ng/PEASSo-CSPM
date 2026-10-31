@@ -2313,6 +2313,19 @@ def _arm_error_code(exc):
 _PROVIDER_NOT_REGISTERED = frozenset(("SubscriptionNotRegistered", "MissingSubscriptionRegistration"))
 
 
+def _pim_group_pages(reader, request, url):
+    """PIM-for-Groups pages; Graph answers 400 ResourceTypeNotSupported for groups PIM
+    cannot manage (on-premises synced and dynamic groups), which therefore hold no PIM rows."""
+    started = False
+    try:
+        for page in reader.pages(request, url, audience=GRAPH, next_key="@odata.nextLink"):
+            started = True
+            yield page
+    except Exception as exc:
+        if started or _status_code(exc) not in (400, "400") or _arm_error_code(exc) != "ResourceTypeNotSupported":
+            raise
+
+
 def _read_failure(exc, items):
     """Collection status and safe error for a list job that raised."""
     if (not items and _status_code(exc) in (404, 409, "404", "409")
@@ -5178,7 +5191,7 @@ def collect(connector, requirements=None, *, transport=None):
                 query = urlencode({"$filter": f"groupId eq '{group_id}'"})
                 url = GRAPH + "/v1.0/identityGovernance/privilegedAccess/group/" + endpoint + "?" + query
                 def eligibility_rows(url=url, group_id=group_id):
-                    for page in reader.pages(request, url, audience=GRAPH, next_key="@odata.nextLink"):
+                    for page in _pim_group_pages(reader, request, url):
                         for row in page:
                             if (not isinstance(row, dict) or not isinstance(row.get("id"), str)
                                     or str(row.get("groupId", "")).casefold() != group_id.casefold()
@@ -5225,7 +5238,7 @@ def collect(connector, requirements=None, *, transport=None):
                                    "$expand": "policy($expand=rules)"})
                 url = GRAPH + "/v1.0/policies/roleManagementPolicyAssignments?" + query
                 def policy_rows(url=url, group_id=group_id, access_id=access_id):
-                    for page in reader.pages(request, url, audience=GRAPH, next_key="@odata.nextLink"):
+                    for page in _pim_group_pages(reader, request, url):
                         for row in page:
                             if (not isinstance(row, dict) or not isinstance(row.get("id"), str)
                                     or str(row.get("scopeId", "")).casefold() != group_id.casefold()

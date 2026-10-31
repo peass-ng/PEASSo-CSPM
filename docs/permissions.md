@@ -107,6 +107,10 @@ For Entra ID checks, grant these application permissions and give admin consent:
 `Directory.Read.All`, `Policy.Read.All`, `AuditLog.Read.All`, `Reports.Read.All`,
 `RoleManagement.Read.Directory`, `Organization.Read.All`.
 
+Optional, for PIM for Groups and access-package checks: `PrivilegedAccess.Read.AzureADGroup`,
+`RoleManagementPolicy.Read.AzureADGroup` and `EntitlementManagement.Read.All`. Without them those
+inventories are reported as denied.
+
 ### Auth methods
 
 | Mode | Methods |
