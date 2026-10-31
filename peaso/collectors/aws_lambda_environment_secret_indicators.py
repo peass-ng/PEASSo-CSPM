@@ -172,7 +172,8 @@ def project_response(response,service,operation,arguments,*,request_context=None
                 or not isinstance(metadata.get('RequestId'),str) or not _UUID.fullmatch(metadata['RequestId'])):
             raise Incomplete('native_read_provenance')
         env=response.get('Environment')
-        if isinstance(env,dict) and set(env)=={'Variables'} and env['Variables']=={}:
+        # Lambda omits Environment when the function has no variables configured.
+        if 'Environment' not in response or (isinstance(env,dict) and set(env)=={'Variables'} and env['Variables']=={}):
             raise Incomplete('environment_no_literals')
         if isinstance(env,dict) and 'Error' in env:
             raise Incomplete('environment_error')

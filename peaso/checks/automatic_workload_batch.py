@@ -102,11 +102,14 @@ def _automatic_issue(item, index, kind, batch, marker_name):
             'reason': 'access_denied', 'operation': expected, 'provider_code': issue['code'],
             'complete': False}
     if kind == 'lambda_selected_environment' and issue['status'] == 'unknown':
+        # A function with no variable values has no environment content that could hold a secret.
         if issue['code'] == 'environment_no_literals':
-            observed = 'Lambda returned zero configured literal environment variables; no content was scanned.'
-        elif issue['code'] == 'environment_empty':
-            observed = 'Lambda environment variables contained no nonempty literal values; no content was scanned.'
-        elif issue['code'] == 'environment_error':
+            return 'PASS', {'observed': 'The Lambda function has no environment variables configured, so there was no environment content to scan.',
+                'operation': expected, 'complete': True}
+        if issue['code'] == 'environment_empty':
+            return 'PASS', {'observed': 'Every Lambda environment variable value is empty, so there was no environment content to scan.',
+                'operation': expected, 'complete': True}
+        if issue['code'] == 'environment_error':
             observed = 'Lambda reported an environment configuration error; no content was scanned.'
         elif issue['code'] == 'environment_unavailable':
             observed = 'The Lambda environment field was unavailable; no content was scanned.'
