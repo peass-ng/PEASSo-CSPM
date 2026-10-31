@@ -18,7 +18,8 @@ class NativeTransport(Transport):
     def __init__(self, *, targets=(TARGET,), rows=None):
         super().__init__()
         self.targets = targets
-        self.rows = rows if rows is not None else [(TARGET, "DISABLED"), (MARKET, "DISABLED")]
+        # The unrelated row is ENABLED: unrelated DISABLED catalog rows are not stored.
+        self.rows = rows if rows is not None else [(TARGET, "DISABLED"), (MARKET, "ENABLED")]
 
     def request(self, method, url, **kwargs):
         response, ref = super().request(method, url, **kwargs)
@@ -61,7 +62,8 @@ def test_fully_resolved_disabled_target_with_unrelated_marketplace_is_fail():
 
 
 def test_marketplace_target_and_filtered_optional_config_are_supported():
-    assert capture(targets=(MARKET,), mutate=lambda rows: rows[1].pop("config"))["status"] == "FAIL"
+    assert capture(targets=(MARKET,), rows=[(TARGET, "DISABLED"), (MARKET, "DISABLED")],
+                   mutate=lambda rows: rows[1].pop("config"))["status"] == "FAIL"
 
 
 def test_case_insensitive_api_target_and_service_dns_join():
