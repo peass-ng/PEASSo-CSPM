@@ -22,6 +22,23 @@ def remember(key, dropped):
     DROPPED[key] = dropped
 
 
+# GKE load-balancer annotations: provider-written resource names, scheme and
+# source-range settings, and NEG status JSON. They identify the cloud edge of a
+# Service, Ingress or Gateway and hold no workload literals; values stay bounded.
+CLOUD_EDGE_ANNOTATIONS = frozenset({
+    "cloud.google.com/load-balancer-type", "networking.gke.io/load-balancer-type",
+    "service.beta.kubernetes.io/load-balancer-source-ranges",
+    "service.kubernetes.io/backend-service", "service.kubernetes.io/tcp-forwarding-rule",
+    "service.kubernetes.io/udp-forwarding-rule", "service.kubernetes.io/l3-forwarding-rule",
+    "service.kubernetes.io/l3-forwarding-rule-ipv6",
+    "cloud.google.com/neg", "cloud.google.com/neg-status",
+    "ingress.kubernetes.io/forwarding-rule", "ingress.kubernetes.io/https-forwarding-rule",
+    "ingress.kubernetes.io/target-proxy", "ingress.kubernetes.io/https-target-proxy",
+    "ingress.kubernetes.io/url-map",
+    "networking.gke.io/forwarding-rules", "networking.gke.io/target-proxies", "networking.gke.io/url-maps",
+})
+CLOUD_EDGE_MAX = 4096
+
 MULTUS_ANNOTATIONS = ("k8s.v1.cni.cncf.io/networks", "k8s.v1.cni.cncf.io/network-status")
 MULTUS_FIELDS = ("name", "namespace", "interface", "ips", "mac", "default", "default-route")
 

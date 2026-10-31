@@ -952,7 +952,8 @@ def _sanitize(value):
                 "kubernetes.io/ingress.class", "kubernetes.io/psp", "iam.amazonaws.com/permitted",
                 "iam.amazonaws.com/role", "openshift.io/scc", "openshift.io/required-scc", "kubernetes.io/service-account.name",
                 "kubernetes.io/service-account.uid") or (isinstance(k, str) and k.startswith(_MANAGED_ANNOTATION_PREFIXES) and isinstance(v, str) and len(v) <= 253)
-                or (k in nginx_fields and isinstance(v, str) and len(v) <= 253))}
+                or (k in nginx_fields and isinstance(v, str) and len(v) <= 253)
+                or (k in k8s_sanitize_keys.CLOUD_EDGE_ANNOTATIONS and len(v) <= k8s_sanitize_keys.CLOUD_EDGE_MAX))}
             for multus in k8s_sanitize_keys.MULTUS_ANNOTATIONS:
                 if multus in result[key]:
                     projected = k8s_sanitize_keys.multus_annotation(result[key][multus])
