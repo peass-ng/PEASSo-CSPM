@@ -1087,6 +1087,10 @@ def _client_error(operation, code, message):
     ("ListCustomModels", "UnknownOperationException", "Unknown Operation", "region_operation_unsupported"),
     ("ListEndpoints", "UnknownOperationException", "Operation is disabled in this region.", "region_operation_unsupported"),
     ("ListEmailIdentities", "UnknownOperationException", None, "region_operation_unsupported"),
+    ("ListCustomModels", "ValidationException", "Unknown Operation", "region_operation_unsupported"),
+    ("DescribeDBClusters", "InvalidParameterValue", "Unrecognized engine name: docdb", "region_operation_unsupported"),
+    ("DescribeDBInstances", "InvalidParameterValue", "Unrecognized engine name: docdb", "region_operation_unsupported"),
+    ("ListDashboards", "UnsupportedUserEditionException", "Account 222233334444 is not subscribed for QuickSight", "service_not_enabled"),
 ])
 def test_documented_service_state_replies_are_facts_not_denials(operation, code, message, state):
     failure = aws._failure(_client_error(operation, code, message))
@@ -1100,6 +1104,8 @@ def test_documented_service_state_replies_are_facts_not_denials(operation, code,
     ("ListFindings", "AccessDeniedException", "Macie is not enabled."),
     ("ListCustomModels", "ValidationException", "1 validation error detected"),
     ("GetDevEndpoints", "AccessDeniedException", ""),
+    ("DescribeDBClusters", "InvalidParameterValue", "Unrecognized engine name: mysql-custom"),
+    ("ListDashboards", "UnsupportedUserEditionException", "This operation is not supported for the STANDARD edition"),
 ])
 def test_undocumented_or_nonmatching_replies_stay_denied_or_unknown(operation, code, message):
     failure = aws._failure(_client_error(operation, code, message))

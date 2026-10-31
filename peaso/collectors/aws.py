@@ -64,7 +64,11 @@ _SERVICE_STATES = (
     ({"GetDelegatedAdminAccount"}, "ResourceNotFoundException", r"No delegated admin found for caller account\.?", "no_delegated_administrator"),
     ({"GetDevEndpoints"}, "AccessDeniedException", r"GetDevEndpoints operation is currently disabled\.?", "operation_disabled_for_account"),
     ({"GetDevEndpoints"}, "InvalidInputException", r"Operation is not supported in <[a-z]{2}(?:-[a-z]+)+-[0-9]> region\.?", "region_operation_unsupported"),
-    ({"ListCustomModels"}, "ValidationException", r"Unknown operation\.?", "region_operation_unsupported"),
+    ({"ListCustomModels"}, "ValidationException", r"Unknown [Oo]peration\.?", "region_operation_unsupported"),
+    # Amazon DocumentDB is not offered in every region; the shared RDS API
+    # then rejects the engine filter instead of returning an empty list.
+    ({"DescribeDBClusters", "DescribeDBInstances"}, "InvalidParameterValue", r"Unrecognized engine name: docdb\.?", "region_operation_unsupported"),
+    (None, "UnsupportedUserEditionException", r"Account [0-9]{12} is not subscribed for QuickSight\.?", "service_not_enabled"),
     (None, "UnknownOperationException", r"Unknown Operation\.?|Operation is disabled in this region\.?|" + _EMPTY_MESSAGE, "region_operation_unsupported"),
     ({"GetInstances", "GetRelationalDatabases", "GetStaticIps"}, "RegionSetupInProgressException",
      r"Lightsail is setting up this region for your account, please try again later\.?", "region_setup_in_progress"),
