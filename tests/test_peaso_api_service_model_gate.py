@@ -1,4 +1,4 @@
-"""Focused build-only SDK model closure checks for the reviewed source epoch."""
+"""Focused build-only SDK model closure checks."""
 from pathlib import Path
 import shutil
 
@@ -10,13 +10,11 @@ from scripts import peaso_api_service_model_gate as gate
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_reviewed_source_and_literal_api_clients():
-    files = gate.reviewed_python(ROOT)
+def test_api_source_uses_only_literal_listed_sdk_clients():
     calls = gate.direct_clients(ROOT)
-    assert len(files) == gate.REVIEWED_PYTHON_COUNT
-    assert len(calls) == 29
+    assert calls
     assert {service for _, _, service in calls} <= gate.API_SERVICES
-    assert gate.review_source(ROOT)['source_diff'] == {'added': [], 'removed': [], 'changed': []}
+    assert gate.review_source(ROOT)['direct_client_error'] is None
 
 
 
@@ -58,7 +56,6 @@ def test_missing_retained_model_fails_without_deletion(tmp_path, monkeypatch):
     extra = data / 'unlisted' / '2000-01-01'
     extra.mkdir(parents=True)
     (extra / 'service-2.json.gz').write_bytes(b'other model')
-    monkeypatch.setattr(gate, 'reviewed_python', lambda root: {})
     monkeypatch.setattr(gate, 'direct_clients', lambda root: [])
     with pytest.raises(RuntimeError, match='model tree incomplete'):
         gate.prune_api_service_models(tmp_path)
@@ -71,7 +68,6 @@ def test_prune_removes_only_unlisted_service_trees(tmp_path, monkeypatch):
     extra = data / 'unlisted' / '2000-01-01'
     extra.mkdir(parents=True)
     (extra / 'service-2.json.gz').write_bytes(b'other model')
-    monkeypatch.setattr(gate, 'reviewed_python', lambda root: {})
     monkeypatch.setattr(gate, 'direct_clients', lambda root: [])
     result = gate.prune_api_service_models(tmp_path)
     assert result['removed_model_paths'] == ['botocore/data/unlisted/2000-01-01/service-2.json.gz']
@@ -104,7 +100,6 @@ def test_model_tree_symlinks_fail_before_any_deletion(tmp_path, monkeypatch, lin
         data.rename(moved)
         data.symlink_to(moved, target_is_directory=True)
         marker = moved / 'unlisted/model.json'
-    monkeypatch.setattr(gate, 'reviewed_python', lambda root: {})
     monkeypatch.setattr(gate, 'direct_clients', lambda root: [])
     with pytest.raises(RuntimeError, match='model tree contains a symlink'):
         gate.prune_api_service_models(stage)

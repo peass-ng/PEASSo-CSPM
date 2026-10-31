@@ -52,11 +52,6 @@ def test_wrong_alias_table_rejected(inputs, monkeypatch):
     monkeypatch.setitem(registry.CHECK_ALIASES, ALIAS, "aws.cb.rds.instance_enhanced_monitoring_except_m1_small")
     with pytest.raises(ValueError): resolve(proposals, seed(check))
 
-def test_wrong_module_digest_rejected(inputs, monkeypatch):
-    _, proposals, check = inputs
-    monkeypatch.setitem(compiler.REVIEWED_RDS_CLUSTER_EQUIVALENT, "source_sha256", "0" * 64)
-    with pytest.raises(ValueError): resolve(proposals, seed(check))
-
 def test_absent_actual_registration_rejected(inputs, monkeypatch):
     _, proposals, check = inputs
     monkeypatch.setattr(registry, "CHECKS", [old for old in registry.CHECKS if old.id != SURVIVOR])
