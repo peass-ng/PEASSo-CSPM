@@ -486,18 +486,18 @@ def test_ingress_unresolved_default_backend(request):
 
 
 @pytest.mark.parametrize('cid',[cid for cid in IDS if REGISTRY[cid].kind in WORKLOADS and 'effective_runtime_default_seccomp' in cid])
-@pytest.mark.parametrize('branch',['windows','unresolved_os','container_override','init_override','unresolved_profile'])
+@pytest.mark.parametrize('branch',['windows','default_linux_os','container_override','init_override','unresolved_profile'])
 def test_cis_seccomp_applicability_inheritance(cid,branch,request):
     def mutate(rows):
         kind=REGISTRY[cid].kind;s=spec_of(rows[kind][0],kind)
         if branch=='windows':s['os']={'name':'windows'}
-        elif branch=='unresolved_os':s.pop('os')
+        elif branch=='default_linux_os':s.pop('os')
         elif branch=='unresolved_profile':s.pop('securityContext')
         elif branch=='container_override':s['containers'][0]['securityContext']={'seccompProfile':{'type':'Unconfined'}}
         else:s['initContainers']=[{'name':'setup','image':'registry.example.test/team/setup:v2','securityContext':{'seccompProfile':{'type':'Unconfined'}}}]
     statuses,_,_=run(cid,branch,mutate=mutate)
     RECEIPTS[-1]['testnode']=request.node.nodeid
-    assert statuses==[{'windows':'NOT_APPLICABLE','unresolved_os':'UNKNOWN','container_override':'FAIL','init_override':'FAIL','unresolved_profile':'UNKNOWN'}[branch]],RECEIPTS[-1]
+    assert statuses==[{'windows':'NOT_APPLICABLE','default_linux_os':'PASS','container_override':'FAIL','init_override':'FAIL','unresolved_profile':'UNKNOWN'}[branch]],RECEIPTS[-1]
 
 
 @pytest.mark.parametrize('cid',[cid for cid in IDS if REGISTRY[cid].kind=='admission_policy'])

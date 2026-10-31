@@ -36,13 +36,12 @@ def _register(check_id, kind, title, evaluate, *, category="hardening", dependen
 def _runtime_seccomp(item, kind):
     spec = get(item, _PODSPEC[kind], dict)
     os_spec = optional(spec, "os", {}, dict)
-    os_name = optional(os_spec, "name", None)
-    if os_name not in (None, "linux", "windows"):
+    # Kubernetes treats a Pod without spec.os as a Linux Pod.
+    os_name = optional(os_spec, "name", "linux")
+    if os_name not in ("linux", "windows"):
         return unknown("unrecognized Pod OS", observed_os=os_name)
     if os_name == "windows":
         return "NOT_APPLICABLE", {"reason": "seccomp is a Linux Pod control", "observed_os": os_name}
-    if os_name is None:
-        return unknown("Pod OS not established for Linux seccomp applicability")
     pod_context = optional(spec, "securityContext", {}, dict)
     pod_profile = optional(pod_context, "seccompProfile", {}, dict)
     inherited = optional(pod_profile, "type", None)
@@ -74,7 +73,7 @@ def _runtime_seccomp(item, kind):
         return result(True, non_runtime_default=failures,
                       semantics="Pod/container declaration, not runtime enforcement")
     if unresolved:
-        return unknown("Pod OS and effective seccomp profile are not both known", containers=unresolved)
+        return unknown("no seccompProfile declared and the kubelet seccompDefault setting is not recorded", containers=unresolved)
     return result(False, assessed_containers=len(containers), effective_profile="RuntimeDefault",
                   semantics="Pod/container declaration, not runtime enforcement")
 

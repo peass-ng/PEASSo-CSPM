@@ -22,7 +22,8 @@ IDS = [POD_ID, BACKEND_ID, REDIRECT_ID]
           dependencies=["pod"])
 def pod_run_as_user(item, index):
     spec = get(item, "spec", dict)
-    os_name = get(spec, "os.name", str)
+    # Kubernetes treats a Pod without spec.os as a Linux Pod.
+    os_name = optional(optional(spec, "os", {}, dict), "name", "linux", str)
     if os_name == "windows":
         return "NOT_APPLICABLE", {"reason": "runAsUser is a Linux Pod setting", "observed_os": os_name}
     if os_name != "linux":

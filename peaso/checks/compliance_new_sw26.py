@@ -523,7 +523,8 @@ def pod_identity(item, index):
     bad, linux = [], []
     for pod in pods:
         rid = get(pod, "id", str)
-        os_name = get(pod, "spec.os.name", str)
+        # Kubernetes treats a Pod without spec.os as a Linux Pod.
+        os_name = optional(optional(get(pod, "spec", dict), "os", {}, dict), "name", "linux", str)
         if os_name == "windows":
             continue
         if os_name != "linux":
