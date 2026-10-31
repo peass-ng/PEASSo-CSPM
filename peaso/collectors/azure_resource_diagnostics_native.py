@@ -5,9 +5,9 @@ import re
 ARM = 'https://management.azure.com'
 VERSION = '2021-05-01-preview'
 NATIVE_TYPES = {'resource_diagnostic_setting', 'azure_diagnostic_eligible_resource'}
-# These documented resource types expose resource logs at their own identity.
-# Other tracked parents may hide logging child/proxy resources from /resources.
-OWN_RESOURCE_LOG_TYPES = {'microsoft.keyvault/vaults', 'microsoft.operationalinsights/workspaces'}
+# Every resource listed by ARM is asked for its diagnostic categories at its own
+# identity. Storage accounts also log through service children that /resources
+# omits, so those children are listed explicitly below.
 CHECK = 'azure_log_analytics_workspace_monitor_diagnostic_setting_with_appropriate_categories_48f6b2b'
 SEGMENT = r'[^/?#%\s\\]+'
 RESOURCE = (r'/subscriptions/'+SEGMENT+r'/resourceGroups/'+SEGMENT+r'/providers/'+SEGMENT+
@@ -36,6 +36,28 @@ def identity(value, pattern):
     return value
 
 
+def resource_kind(rid):
+    """ARM resource type of an identity, e.g. microsoft.compute/virtualmachines/extensions."""
+    suffix = re.split('/providers/', rid, flags=re.I)[-1].split('/')
+    return (suffix[0]+'/'+'/'.join(suffix[1::2])).casefold()
+
+
+def unsupported_type_pages(reader, request, url, kind, unsupported):
+    """Category pages; Azure answers 400 ResourceTypeNotSupported for a resource type
+    that has no diagnostic settings, so that type holds no resource logs to route."""
+    from .azure import _arm_error_code, _status_code
+    started = False
+    try:
+        for page in reader.pages(request, url):
+            started = True
+            yield page
+    except Exception as exc:
+        code = _arm_error_code(exc) or getattr(exc, 'code', None)
+        if started or _status_code(exc) not in (400, '400') or code != 'ResourceTypeNotSupported':
+            raise
+        unsupported.add(kind)
+
+
 def collect(reader, request, scopes, wanted):
     if not NATIVE_TYPES.intersection(wanted):
         return
@@ -62,8 +84,6 @@ def collect(reader, request, scopes, wanted):
                     native_type = match.group(1)+'/'+'/'.join(parts[::2])
                     if native_type.casefold() != resource_type.casefold():
                         raise ValueError('diagnostic resource identity/type mismatch')
-                    if resource_type.casefold() not in OWN_RESOURCE_LOG_TYPES | {'microsoft.storage/storageaccounts'}:
-                        raise AzureReadError('diagnostic_resource_type_unmapped')
                     seen.add(rid.casefold())
                     if reader.budget.max_items is not None and len(resources) >= reader.budget.max_items:
                         raise AzureReadError('resource_limit')
@@ -87,10 +107,14 @@ def collect(reader, request, scopes, wanted):
                             if reader.budget.max_items is not None and len(resources)>=reader.budget.max_items:
                                 raise AzureReadError('resource_limit')
                             resources.append(child)
+            unsupported = set()
             for rid in resources:
                 prefix = rid+'/providers/Microsoft.Insights/'
                 categories, category_ids, names = [], set(), set()
-                for page in reader.pages(request, ARM+prefix+'diagnosticSettingsCategories?api-version='+VERSION):
+                kind_of = resource_kind(rid)
+                if kind_of in unsupported:
+                    continue
+                for page in unsupported_type_pages(reader, request, ARM+prefix+'diagnosticSettingsCategories?api-version='+VERSION, kind_of, unsupported):
                     for raw in page:
                         cid = identity(raw.get('id'), re.escape(prefix)+r'diagnosticSettingsCategories/'+SEGMENT)
                         props = raw.get('properties')
