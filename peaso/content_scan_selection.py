@@ -269,6 +269,21 @@ def named_checks(request):
 
 
 
+def _within_selectors(provider, request, candidates):
+    """Keep enabled content checks that the request's explicit checks name.
+
+    Enabling a stage turns on its configured checks for a full scan; a scan
+    narrowed with explicit checks must not also read every other configured
+    content family. Category and framework filters stay hardening-only.
+    """
+    named = [check for check in request.get('checks') or [] if isinstance(check, str)]
+    if not candidates or not named:
+        return candidates
+    from .checks import CHECK_ALIASES
+    keep = {CHECK_ALIASES.get(check, check) for check in named}
+    return [check for check in candidates if check in keep]
+
+
 def prepare_request(provider, options, request):
     result = dict(request)
     selected = list(request.get('content_checks') or [])
@@ -281,7 +296,7 @@ def prepare_request(provider, options, request):
         if value is True:
             if options.get(option) is not True or not configured[stage]:
                 raise ValueError('Configure enabled ' + stage + ' targets in the connector first')
-            selected.extend(configured[stage])
+            selected.extend(_within_selectors(provider, request, configured[stage]))
         elif value is False:
             blocked = {check for owner, _, group, check in ROWS if owner == provider and group == stage}
             selected = [check for check in selected if check not in blocked]
