@@ -1,5 +1,0 @@
-# Subnet firewall route evidence
-
-`azure.gap.network_subnet_protected_by_firewall` accepts a current, complete route universe only when an independently approved `coverage` record binds the snapshot scope, subnet, attached NIC IDs, and SHA-256 of all supplied route rows. The record's `ExternalCompleteSubnetRouting_Read` provenance must name the source approved by subnet policy and assert complete NIC inventory, active route tables, and Internet destination partition. These are external authority claims; the Azure `networkInterfaces/getEffectiveRouteTable` result alone cannot prove every NIC or Internet destination was covered.
-
-A locally observed active NIC route that uniquely selects `Internet` for a public destination can prove FAIL without the complete universe. A safe sampled route, an unbound or stale coverage record, an ambiguous route prefix, or a missing approved firewall leaves protection UNKNOWN. The synthetic PASS fixture exercises the explicit external contract and does not claim a live Azure validation.

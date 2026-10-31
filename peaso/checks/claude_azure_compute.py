@@ -4,7 +4,7 @@ Data Box Edge and Databricks predicates.
 Predicates read ARM-native shapes and preserve unavailable evidence as UNKNOWN.
 Registration alone does not establish that a live collector can produce every prerequisite.
 Public automation admission and collected coverage determine which checks can run; see
-docs/peaso-checks.md for the current evidence and automation contracts.
+docs/checks.md for the current evidence and automation contracts.
 """
 from __future__ import annotations
 from .claude_azure_common import *  # noqa: F401,F403

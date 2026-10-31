@@ -214,7 +214,7 @@ async function fetchArtifact(value: string) {
   return response;
 }
 
-// Privilege Escalation Map endpoints (docs/peaso-privesc.md).
+// Privilege Escalation Map endpoints (docs/privesc.md).
 const scanPath = (scanId: string) => `/scans/${encodeURIComponent(scanId)}`;
 export const privescApi = {
   graph: (scanId: string) => `${scanPath(scanId)}/graphs/privesc`,

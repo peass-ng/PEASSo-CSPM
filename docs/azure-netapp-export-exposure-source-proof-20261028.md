@@ -1,5 +1,0 @@
-# Azure NetApp Files exposure source proof
-
-The read-only [volume LIST API](https://learn.microsoft.com/en-us/rest/api/netapp/volumes/list?view=rest-netapp-2026-01-01) includes protocol types, delegated subnet, and ordered NFS export-policy rules. The existing cached volume collector now preserves only these exposure fields. [NetApp export rules](https://learn.microsoft.com/en-us/azure/azure-netapp-files/network-attached-storage-permissions) evaluate client CIDRs in order; a first broad read or write rule admits any routed NFS client. The detector reports a foreign connected VNet peering as an external route and leaves unproven client ownership UNKNOWN.
-
-For SMB volumes, [Microsoft documents user/group ACLs as the access control](https://learn.microsoft.com/en-us/azure/azure-netapp-files/data-plane-security). Those effective file ACLs are data-plane state absent from the NetApp management volume LIST/GET schema, so the `azure-mgmt-netapp` provider alone cannot enumerate every third-party SMB grant.

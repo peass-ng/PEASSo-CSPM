@@ -1,5 +1,5 @@
 // Fixture privilege-escalation map for the explicit demo mode. Shapes follow
-// docs/peaso-privesc.md exactly. Illustrative data only: no cloud was assessed.
+// docs/privesc.md exactly. Illustrative data only: no cloud was assessed.
 import type {
   Finding,
   PrivescConfidence,

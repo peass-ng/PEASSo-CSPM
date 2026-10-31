@@ -1,7 +1,7 @@
 # Disposable QA resources
 
 These helpers belong to the supervised integration dispatch recorded in
-`docs/peaso-validation.md`. They deliberately pin its authorized accounts,
+`docs/testing.md` ("Testing against real clouds"). They deliberately pin its authorized accounts,
 subscription, task and existing Cognito pool. They are not general cloud cleanup
 commands and contain no wildcard deletion or administrator grants.
 

@@ -1,4 +1,4 @@
-"""Shared strict helpers for the claude2_gcp partition (see docs/peaso-checks.md).
+"""Shared strict helpers for the claude2_gcp partition (see docs/checks.md).
 
 Missing, denied, malformed or unrecognized facts raise ``Unavailable`` (-> UNKNOWN). Absence-based FAIL
 results require complete scoped inventories *and* proof that no uncollected organization/folder

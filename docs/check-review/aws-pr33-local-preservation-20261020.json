@@ -1,6 +1,0 @@
-{
-  "source": "peaso/collectors/aws.py::_safe",
-  "accepted_production_commit": "b8d031c12cd6980ec9b4500d11d5edd2926946b6",
-  "function_sha256": "84bf5268488d7282360dccef3190d97608e014b080c41336fbcd77fc357926d6",
-  "scope": "Exact incoming accepted scalar Environment tag exception only; no other dirty AWS collector changes replaced."
-}

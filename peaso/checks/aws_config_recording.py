@@ -2,8 +2,7 @@
 
 Signed proposal aws_config_all_resources_recorded, admitted under the revised
 signed spec PROPOSED_SPEC_SHA256. It supersedes the original proposal
-SUPERSEDED_SPEC_SHA256, which stays in docs/compliance-ledgers/new-checks-aws.json
-as provenance. Evaluates one account/region scope from the existing config_recorder
+SUPERSEDED_SPEC_SHA256. Evaluates one account/region scope from the existing config_recorder
 collection (config:DescribeConfigurationRecorders without arguments, i.e. the
 customer managed recorder, plus per-name config:DescribeConfigurationRecorderStatus).
 

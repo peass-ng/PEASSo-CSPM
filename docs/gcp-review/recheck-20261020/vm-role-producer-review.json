@@ -1,8 +1,0 @@
-{
-  "defect": "Duplicate native Role identities silently retained the first list observation or last merged job observation, allowing a permission-free duplicate to mask a conflicting grant.",
-  "source": "peaso/collectors/gcp.py",
-  "before_sha256": "46410096a8afe434cad29c75d101ff821acc64f56b652607d5dccc4957986d3c",
-  "after_sha256": "1d9c9809d5a896a49da2c439499e82300702a181f41e35723073e9afd620cf70",
-  "correction": "Duplicate role identity makes its inventory incomplete, both within paginated envelopes and across merged job envelopes. Retained rows are not complete permission proof.",
-  "released": false
-}

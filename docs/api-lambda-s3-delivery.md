@@ -1,7 +1,0 @@
-# API Lambda package delivery
-
-The API and scheduler Lambda functions use the same `infra/aws/build/api.zip` bytes. Terraform uploads that ZIP to `runtime-packages/<SHA-256>.zip` in the dedicated private artifacts bucket and passes the exact content-addressed bucket/key to both functions. The object uses SSE-KMS with the existing connector key. The function references make the object upload finish before either code update begins. The artifacts bucket remains unversioned, preserving scan and workspace artifact deletion behavior.
-
-`api_zip` remains a local build path so `filebase64sha256` binds the package, the release manifest, and the saved plan to the exact reviewed bytes. The existing zipped and expanded size limits still apply. The deployment review checks the dedicated bucket/key, source hash, SHA-256 metadata, KMS key, and matching content-addressed keys for both functions. Resolved review compares each Lambda's `CodeSha256` and active state with the reviewed ZIP.
-
-This is an additive source successor. Historical Terraform source hashes remain pinned; the deploy guard reconstructs both the first S3 delivery draft and the exact pre-change `api.tf` and `storage.tf` bytes before accepting this successor. Any production plan that changes the two existing Lambda resources and adds the package object needs its own explicit action approval; existing historical update contracts do not authorize these new actions.

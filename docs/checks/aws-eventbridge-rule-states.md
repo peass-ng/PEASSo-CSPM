@@ -1,7 +1,0 @@
-# EventBridge enabled rule states
-
-The GuardDuty alert/forwarding, incident containment configuration, Inspector metric forwarding and Security Hub critical alert checks accept both documented enabled states: `ENABLED` and `ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS`. `DISABLED` remains disabled; unknown values remain UNKNOWN. An unrelated valid rule with the extended state no longer makes the whole regional inventory malformed. Matching event patterns, readable targets and any required approved pipeline inputs remain necessary.
-
-[DescribeRule](https://docs.aws.amazon.com/eventbridge/latest/APIReference/API_DescribeRule.html) lists the three valid states. [PutRule](https://docs.aws.amazon.com/eventbridge/latest/APIReference/API_PutRule.html) documents the extended state as enabled for all events, including management events delivered through CloudTrail. This change performs no API calls or rule updates. It evaluates collected configuration; it does not establish delivery to a SIEM, successful notifications, execution of containment or its effectiveness.
-
-Directed native-snapshot regressions cover all five checks with both enabled states and disabled rules, unknown states, denied target reads, and an unrelated valid extended-state rule. Synthetic approved pipeline values in these tests are test fixtures, not observations or approvals for a customer scan. Existing completed scan results remain unchanged.

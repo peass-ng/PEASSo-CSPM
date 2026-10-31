@@ -2086,7 +2086,7 @@ REQUIREMENT_FIELDS = {
 # satisfies the requirement. With `verb_prefix` it expresses KEP-5284 constrained impersonation
 # (verbs impersonate-on:<mode>:<verb> on the impersonated request's resource).
 K8S_RESOURCE_MATCH = ("any",)
-# ---- schema extensions (v1.1, backward compatible; see docs/peaso-privesc-schema.md "Extensions") ----------------
+# ---- schema extensions (v1.1, backward compatible; see docs/privesc.md) ----------------
 # Nested boolean requirement groups: an item of all_of / an any_of group may be {all_of: [...]} or {any_of: [...]}.
 GROUP_KEYS = ("all_of", "any_of")
 MAX_GROUP_DEPTH = 4

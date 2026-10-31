@@ -1,5 +1,0 @@
-# SIEM archive observation binding
-
-`azure_c5_ops_13_03b` now requires independently approved external delivery and hash-comparison observations for each policy-listed archive. The delivery observation binds the account, container, closed window, source and destination event-ID digests and counts, synchronized-clock result, approved source, and capture time. Each original/copy hash comparison binds its source and destination event IDs to the same container, window, approved hash source, and capture time.
-
-A measured unlocked or under-retained archive, missing destination event, unsynchronized clock, or mismatched bound hash is FAIL. If one archive has a measured violation and another archive lacks evidence, the control remains FAIL with unresolved IDs reported. Missing or foreign observations are UNKNOWN when no independent violation is established. The fixture uses synthetic external observations; native container immutability settings alone do not establish event delivery or integrity.

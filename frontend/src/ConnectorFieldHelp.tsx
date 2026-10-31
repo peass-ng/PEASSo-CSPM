@@ -150,13 +150,12 @@ const providerOptions: Record<Provider, Record<string, string>> = {
 
 export function ConnectorFieldHelp({ provider, kind, platform = false }: { provider: Provider; kind: "auth" | "options"; platform?: boolean }) {
   const fields = kind === "auth" ? authFields[provider] : { ...commonOptions, ...providerOptions[provider] };
-  const guide = { aws: "peaso-aws-collector", gcp: "peaso-gcp-collector", azure: "peaso-azure-k8s-collectors", k8s: "peaso-azure-k8s-collectors" }[provider];
   return <details className="connector-field-help">
     <summary>{kind === "auth" ? "Supported auth document fields" : "Supported collector option fields"}</summary>
     {kind === "auth" && platform ? <p>This shared identity accepts no additional credentials. Enter exact project IDs and follow its setup guide.</p> : <>
       <p>{kind === "auth" ? "Upload a JSON object containing only fields needed by the selected authentication method. Its method is selected in the form. Never supply server-generated approval labels or hosted External IDs." : "Enter a JSON object. Omit fields to keep provider defaults. Limits can produce incomplete coverage; credentials belong in authentication fields, never here. Scope selection in the form takes precedence."}</p>
       <dl>{Object.entries(fields).map(([field, description]) => <div key={field}><dt><code>{field}</code></dt><dd>{description}</dd></div>)}</dl>
-      <p><a href={`https://github.com/peass-ng/PEASSo-CSPM/blob/main/docs/${guide}.md`} target="_blank" rel="noreferrer">Provider guide and specialized settings</a> · <a href="https://github.com/peass-ng/PEASSo-CSPM/blob/main/docs/secret-content-permissions.md" target="_blank" rel="noreferrer">Selected content permissions</a></p>
+      <p><a href="https://github.com/peass-ng/PEASSo-CSPM/blob/main/docs/collectors.md" target="_blank" rel="noreferrer">Collector guide and specialized settings</a> · <a href="https://github.com/peass-ng/PEASSo-CSPM/blob/main/docs/permissions.md" target="_blank" rel="noreferrer">Permissions</a></p>
     </>}
   </details>;
 }

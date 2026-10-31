@@ -1,5 +1,0 @@
-# Recovery Services vault network exposure source proof
-
-The existing cached `Microsoft.RecoveryServices/vaults` LIST and GET, plus private-endpoint child collection, provide the vault network facts. The [current vault LIST schema](https://learn.microsoft.com/en-us/rest/api/recoveryservices/vaults/list-by-subscription-id?view=rest-recoveryservices-2026-07-01) defines `properties.publicNetworkAccess` and `properties.privateEndpointConnections`, including private endpoint ID and approval state. [Azure Backup policy guidance](https://learn.microsoft.com/en-us/azure/backup/policy-reference) states that disabling public network access limits exposure to public internet clients.
-
-Native analysis now reports authenticated TCP/443 public vault access when public network access is enabled and cross-subscription private sharing when a foreign private endpoint is approved. Missing network or approval facts remain UNKNOWN. Backup restore authorization, recipient identity and specialized replication paths are residual UNKNOWN; this handler does not infer those from the vault gate.

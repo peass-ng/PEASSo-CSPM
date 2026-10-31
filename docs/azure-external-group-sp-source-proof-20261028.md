@@ -1,5 +1,0 @@
-# Azure external service-principal group membership source proof (2026-10-28)
-
-Microsoft documents that [Graph v1.0 group-member LIST omits service principals](https://learn.microsoft.com/en-us/graph/api/group-list-members?view=graph-rest-1.0) and recommends the beta group-member LIST as a workaround. Exposure scans that collect both ARM role assignments and directory memberships now use `GET /beta/groups/{id}/members?$select=id` for every observed group. Paged results still enter the existing membership collection and native nested-group traversal. Other directory-only consumers keep their v1.0 route.
-
-The per-scan Graph first-page prefetch batches only these reviewed beta group-member GETs at `/beta/$batch`; the read-only POST guard rejects other beta operations. A failed group list or partial member page remains incomplete. Beta API behavior can change, so this is positive observed membership evidence rather than proof that a missing service principal has no group access. No cloud resource is modified.

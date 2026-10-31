@@ -1,4 +1,0 @@
-...........................................                              [100%]
-43 passed in 0.34s
-
-Focused Chromium spec: {"duration": 2133.02, "expected": 27, "flaky": 0, "skipped": 0, "startTime": "2026-10-20T16:17:40.377Z", "unexpected": 0}

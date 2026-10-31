@@ -1,8 +1,0 @@
-{
-  "source": "peaso/checks/gcp_extended.py",
-  "before": "DEPENDENCIES = {PREFIX + \"network.flow_logs\": [\"subnetwork\", \"vpc_flow_logs_config\"]}",
-  "after": "DEPENDENCIES = {PREFIX + \"network.flow_logs\": [\"subnetwork\", \"vpc_flow_logs_config\"],\n                PREFIX + \"project.os_login_2fa\": [\"project\", \"org_policy_effective\"]}",
-  "reason": "The unset OS Login metadata branch consumes compute.requireOsLogin effective policy; selected-check plans must collect it, not only native tests that manually request it.",
-  "before_module_sha256": "bac528160f263d7107e75803e449571641ade84e4137182782726f252ca37f9a",
-  "after_module_sha256": "f2d535d449b2babb2d7ba61d839be491b0c83c25642b5f63e41051ffec2689ae"
-}

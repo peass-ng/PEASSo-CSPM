@@ -2,8 +2,7 @@
 
 Only TCP/UDP new flows between explicit private endpoints are supported. Every
 allowance needs complete associations, policy/routing context, and address domain
-evidence; unknown is a first-class result. Provider documentation is linked in
-docs/peaso-reachability.md beside each supported case.
+evidence; unknown is a first-class result. See docs/network-and-exposure.md.
 """
 from __future__ import annotations
 

@@ -1,7 +1,0 @@
-# Azure Red Hat OpenShift hosted control plane exposure source proof
-
-The read-only [HCP cluster LIST](https://learn.microsoft.com/en-us/rest/api/openshift/hcp/hcp-open-shift-clusters/list-by-subscription?view=rest-openshift-hcp-2026-09-01-preview) and [GET](https://learn.microsoft.com/en-us/rest/api/openshift/hcp/hcp-open-shift-clusters/get?view=rest-openshift-hcp-2026-09-01-preview) expose separate `api.visibility`, `api.url`, `api.authorizedCidrs`, `ingress.type`, and `console.url` fields. The API schema states Public/Private visibility and that default ingress can be Public, Private, or Disabled. The collector uses one cached LIST and one GET per cluster, with metadata-only projection before persistence.
-
-Native analysis reports the actual API URL port only when visibility is Public and the IPv4 allow list admits a public source. It reports public default ingress on TCP 80/443 and the console URL when valid. Private or restricted profiles block those paths; missing or malformed fields yield UNKNOWN. The focused test exercises unrestricted and CIDR-restricted public API, private/disabled ingress, malformed values, a synthetic secret, and one detail read per cluster.
-
-ARM does not enumerate OpenShift workload Routes, Services, or their access policies; those require the separate Kubernetes API collector. The HCP etcd Key Vault is a separate Azure resource whose effective network policy belongs to the vault inventory.

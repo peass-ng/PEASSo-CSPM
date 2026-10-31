@@ -2158,7 +2158,7 @@ def _run_privesc(snapshot, technique_filter, related=(), inventory=None):
     started = time.perf_counter()
     try:
         from . import privesc
-        # Related snapshots join cross-provider paths (contract: docs/peaso-privesc.md "Cross-snapshot analysis").
+        # Related snapshots join cross-provider paths (see docs/privesc.md).
         # A missing target inventory or unresolved selector is coverage evidence,
         # not an identified principal that can be reached by an escalation path.
         # Keep those diagnostics in coverage without emitting memberless graph nodes.

@@ -1,6 +1,0 @@
-......................................................                   [100%]
-54 passed in 31.60s
-
-Root-authorized original service-image native HTTP fixture correction:
-.                                                                        [100%]
-1 passed in 1.31s
