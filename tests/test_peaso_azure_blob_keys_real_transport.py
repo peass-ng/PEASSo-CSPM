@@ -15,8 +15,10 @@ from peaso.server.validation import validate_connector
 from tests.test_peaso_azure_storage_blob_keys_native import fixture, SCOPE, ACCOUNT, CONTAINER, ES, EP, PRIVATE, native
 
 
-def _public_capture(monkeypatch, duplicate_kind=None):
+def _public_capture(monkeypatch, duplicate_kind=None, arm_etags=True):
     account, containers, scopes, _ = fixture('cmk')
+    if not arm_etags:  # real ARM GETs of accounts and encryption scopes carry no etag
+        account.pop('etag'); [scope.pop('etag') for scope in scopes]
     calls = []
     class Response(io.BytesIO):
         status = 200  # native transport accepts only documented 200 representations
@@ -97,3 +99,7 @@ def test_real_transport_projects_blob_xml_before_public_evaluation(monkeypatch):
 @pytest.mark.parametrize('duplicate_kind', ['account', 'container', 'scope'])
 def test_duplicate_native_arm_lists_are_partial_before_key_projection(monkeypatch, duplicate_kind):
     _public_capture(monkeypatch, duplicate_kind)
+
+
+def test_account_and_scope_without_arm_etag_still_reach_a_verdict(monkeypatch):
+    _public_capture(monkeypatch, arm_etags=False)
