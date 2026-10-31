@@ -1104,6 +1104,7 @@ def _client_error(operation, code, message):
     ("ListSubscribers", "ResourceNotFoundException", "The request failed because Security Lake isn't enabled for your account in any Regions. Enable Security Lake for your account and then try again.", "service_not_enabled"),
     ("GetDataLakeExceptionSubscription", "AccessDeniedException", "To perform this operation, your account must be a delegated Security Lake administrator account or a standalone Security Lake account.", "not_delegated_administrator"),
     ("DescribeDomains", "NotAuthorized", "New domain creation not supported on this account. Please reach out to AWS Support for assistance.", "service_not_enabled"),
+    ("ListCases", "SecurityIncidentResponseNotActiveException", "Account 123456789012 does not have an active membership. Please sign up with AWS Security Incident Response to perform this action.", "service_not_enabled"),
 ])
 def test_documented_service_state_replies_are_facts_not_denials(operation, code, message, state):
     failure = aws._failure(_client_error(operation, code, message))
