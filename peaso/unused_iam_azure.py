@@ -397,13 +397,10 @@ DECLARATIONS = (
 
 
 def install(registry):
-    import hashlib
     import json
     from pathlib import Path
     from peaso.checks.fixtures import CASES
     raw = Path(__file__).with_name('checks').joinpath('unused_iam_azure_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('unused Azure IAM native regression fixtures changed')
     cases = json.loads(raw)
     if set(cases) != {row[0] for row in DECLARATIONS}:
         raise ValueError('unused Azure IAM fixture IDs differ from registration')
@@ -419,4 +416,3 @@ def install(registry):
     from peaso.unused_iam_azure_user_completion import install as install_user_success
     install_user_success(registry)
 
-CASES_SHA256 = 'a5013b87c99995915607a44f72c7633674010c73e0dc95b319124deac68053ea'

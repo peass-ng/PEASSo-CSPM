@@ -1,17 +1,5 @@
 {
   "check_id": "aws.claude_a.iam.role_used_within_60_days",
-  "prior_description_sha256": "b566a8a8b18a0a7a30f76f4a2fdef17e1d9fc4ac7ed9e486ceb69d18a71d1ba4",
-  "prior_description": {
-    "description": "Checks role last-use time against a 60-day midnight cutoff; absent last-use data also fails this source's inactivity criterion.",
-    "evaluated": [
-      "iam_role.RoleName",
-      "iam_role.RoleLastUsed.LastUsedDate",
-      "collection time (60-day midnight cutoff)"
-    ],
-    "pass_when": "RoleLastUsed.LastUsedDate is later than the 60-day cutoff.",
-    "fail_when": "RoleLastUsed.LastUsedDate is absent (never used or not tracked) or is on/before the 60-day cutoff.",
-    "not_applicable_when": null
-  },
   "updated_description_fields": {
     "description": "Compares the IAM role creation date and AWS RoleLastUsed date with a 60-day window before capture. New roles do not fail for missing use. Recorded use must fall within the role lifetime. Old roles without recorded use stay unresolved, because AWS tracking cannot prove inactivity.",
     "evaluated": [

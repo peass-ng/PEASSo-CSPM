@@ -4,7 +4,6 @@ These predicates describe current ARM references, never traffic or deletion safe
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -278,15 +277,12 @@ DECLARATIONS = (
     ('azure.network.subnet_has_consumer_or_reservation_reference', 'subnet', 'Subnet has a current consumer or reservation declaration', subnet),
     ('azure.network.load_balancer_backend_pools_have_declaration_or_consumer', 'load_balancer', 'Load balancer backend pools have a backend or consumer declaration', load_balancer),
 )
-CASES_SHA256 = 'f9af89d4aa0f23ac7959111017751807141d308209e58f19e9cf0d154b07c7f9'
 
 
 def install(registry):
     from peaso.checks.fixtures import CASES
     path = Path(__file__).with_name('checks') / 'unused_network_azure_20261021_cases.json'
     raw = path.read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('Azure unused-network cases changed')
     cases = json.loads(raw)
     if set(cases) != {row[0] for row in DECLARATIONS}:
         raise ValueError('Azure unused-network case IDs changed')

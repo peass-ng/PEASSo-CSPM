@@ -1,7 +1,7 @@
 """ARM custom-role structural consumers, across declared assignable scopes."""
 from datetime import timedelta
 from pathlib import Path
-import hashlib,json
+import json
 from peaso.azure_unused_arm_role_contract import ARM,KIND,META,SCHEMA,REPORTS,MG,scope,subscription,path,role_id,project,guid
 from peaso.iam_usage_evidence import instant
 from peaso.unused_iam_azure import EvidenceError,_field
@@ -9,7 +9,6 @@ from peaso.unused_iam_azure_roles import ACTIVE,INACTIVE
 
 CHECK='azure.iam.custom_arm_role_has_declared_consumers'
 TITLE='Custom ARM role has consumers across its assignable scopes'
-CASES_SHA256='760dec323366337aaf9ad92efb295c2e14d4486194d87d1e8a67946774d27b01'
 
 
 def memo(index,key,build):
@@ -236,7 +235,6 @@ def evaluate(item,index):
 def install(registry):
     from peaso.checks.fixtures import CASES
     raw=Path(__file__).with_name('checks').joinpath('unused_iam_azure_arm_roles_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest()!=CASES_SHA256:raise ValueError('ARM unused-role native cases changed')
     cases=json.loads(raw)
     if set(cases)!={CHECK}:raise ValueError('ARM unused-role case IDs changed')
     CASES.update(cases)

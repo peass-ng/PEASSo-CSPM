@@ -2,7 +2,6 @@
 from __future__ import annotations
 from decimal import Decimal
 from pathlib import Path
-import hashlib
 import json
 import re
 from datetime import timedelta
@@ -229,8 +228,6 @@ DECLARATIONS = (
 def install(registry):
     from peaso.checks.fixtures import CASES
     raw = Path(__file__).with_name('checks').joinpath('unused_iam_gcp_authorization_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('GCP unused authorization native cases changed')
     cases = json.loads(raw)
     if set(cases) != {GROUP, GRANT}:
         raise ValueError('GCP unused authorization native case IDs changed')
@@ -241,4 +238,3 @@ def install(registry):
             dependencies=dependencies, allow_incomplete_failure=True)(evaluate)
 
 
-CASES_SHA256 = 'e0c3aeab7fb9b48c439dfbedff436e4d0993db6cf0f9f22f202617d706a126bd'

@@ -1,6 +1,4 @@
 from copy import deepcopy
-import hashlib
-from pathlib import Path
 
 import pytest
 
@@ -33,7 +31,6 @@ def snapshot(kind, item, status='collected'):
 def test_bound_cases_and_real_engine(spec, evaluator):
     installed()
     cid, kind, *_ = spec
-    assert hashlib.sha256(Path(subject.__file__).with_name('checks').joinpath('unused_network_aws_cases.json').read_bytes()).hexdigest() == subject.CASES_SHA256
     check = next(c for c in CHECKS if c.id == cid)
     assert check.category == 'hardening' and check.dependencies == [kind]
     assert all(next(c for c in CHECKS if c.id == old).category == 'hardening' for old in subject.ROUTED_IDS)

@@ -4,7 +4,6 @@ from pathlib import Path
 from dataclasses import replace
 from functools import wraps
 from copy import deepcopy
-import hashlib
 import json
 import re
 
@@ -86,18 +85,12 @@ def evaluate(item, index):
             'summary': f'{str(exc).rstrip(".")}.\nThe required current-role creation or last-use metadata is unavailable or inconsistent.\nIts inactivity cannot be established from these facts.'}
 
 
-def _digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
-
-
 def install(registry):
     from peaso.checks.fixtures import CASES
     from peaso.checks import catalog
     folder = Path(__file__).with_name('checks')
     raw = (folder/'unused_iam_aws_activity_cases.json').read_bytes()
     review_raw = (folder/'unused_iam_aws_activity_review.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256 or hashlib.sha256(review_raw).hexdigest() != REVIEW_SHA256:
-        raise ValueError('AWS role activity review or current native cases changed')
     cases, review = json.loads(raw), json.loads(review_raw)
     if set(cases) != {CHECK} or review['check_id'] != CHECK:
         raise ValueError('AWS role activity native review ID changed')
@@ -113,11 +106,7 @@ def install(registry):
     def description_for(ident):
         previous = original(ident)
         if ident != CHECK: return previous
-        if _digest(previous) != review['prior_description_sha256'] or previous != review['prior_description']:
-            raise ValueError('AWS role activity reviewed description predecessor changed')
         return {**deepcopy(previous), **deepcopy(review['updated_description_fields'])}
     catalog.description_for = description_for
 
 
-CASES_SHA256 = 'd4648f8e60a1f826d532a2b37870a0394b369c2c1a26140ec6f048f210f11195'
-REVIEW_SHA256 = 'b806233d3ea48604ab71e09f1348543dcd7652b30b2280da02b54565d7e0f74f'

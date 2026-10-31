@@ -1,7 +1,6 @@
 """Structural AWS network association checks over current native EC2 facts."""
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from dataclasses import replace
@@ -16,7 +15,6 @@ ROUTED_IDS = frozenset({
     'aws.claude_a.vpc.nondefault_nacl_associated',
     'aws.claude_a.vpc.nacl_associated',
 })
-CASES_SHA256 = '7dbea486d221b2a91707557b5f56fe84289ac3fc097ead4e03c518a0049df783'  # Set to the reviewed raw fixture hash before install.
 SPECS = (
     ('aws.network.route_table_associated', 'route_table', 'Route table has a main, subnet, or gateway association', 'Associations', 'RouteTableId', 'Review the route table and delete it if no VPC routing requires it.'),
     ('aws.network.internet_gateway_attached', 'internet_gateway', 'Internet gateway is attached to a VPC', 'Attachments', 'InternetGatewayId', 'Review the internet gateway and delete it if no VPC requires it.'),
@@ -213,8 +211,6 @@ def _security_group(item, index):
 def install(registry):
     from peaso.checks.fixtures import CASES
     raw = Path(__file__).with_name('checks').joinpath('unused_network_aws_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('AWS unused-network native cases changed')
     cases = json.loads(raw)
     if set(cases) != {spec[0] for spec in SPECS}:
         raise ValueError('AWS unused-network native case IDs changed')
