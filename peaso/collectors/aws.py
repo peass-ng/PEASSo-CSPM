@@ -319,6 +319,28 @@ class ReadResult:
     error: dict | None = None
 
 
+_ANALYZER_READ = threading.local()
+
+
+def _analyzer_read_only(operation):
+    """Access Analyzer is read only: list/get existing analyzers and findings."""
+    from .aws_access_analyzer_lifecycle import READ_ONLY_OPERATIONS
+    if operation not in READ_ONLY_OPERATIONS:
+        raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
+
+
+def _guarded_client(requests, session, service, region, operation):
+    """Build a client; Access Analyzer only after its read-only operation check."""
+    if service != "accessanalyzer":
+        return requests.client(session, service, region)
+    _analyzer_read_only(operation)
+    _ANALYZER_READ.allowed = True
+    try:
+        return requests.client(session, service, region)
+    finally:
+        _ANALYZER_READ.allowed = False
+
+
 class Requests:
     """Scan-local, single-flight request cache with one global attempt budget."""
     def __init__(self, options, *, sleep=time.sleep):
@@ -397,7 +419,7 @@ class Requests:
             raise ReadFailure("timeout", "intentional_scan_deadline")
 
     def client(self, session, service, region, *, _metadata_profile=None):
-        if service == "accessanalyzer":
+        if service == "accessanalyzer" and not getattr(_ANALYZER_READ, "allowed", False):
             raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
         from botocore.config import Config
         from .aws_request_pool import canonical_wrapper
@@ -469,7 +491,7 @@ class Requests:
 
     def call(self, session, service, region, operation, *, _cache_refresh=False, _uncached_credential_exchange=False, _metadata_profile=None, _projection_context=None, _codecommit_routes=None, **arguments):
         if service == "accessanalyzer":
-            raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
+            _analyzer_read_only(operation)
         from .aws_request_pool import SHARED_PROFILES, canonical_wrapper, shared_reads
         session = canonical_wrapper(self, session)
         if _metadata_profile == 'aws-build-deployment-referenced-source-v1':
@@ -639,7 +661,7 @@ class Requests:
             with self._lock:
                 if self.max_calls is not None and self.calls >= self.max_calls:
                     raise ReadFailure("not_collected", "call_limit")
-            client = self.client(session, service, region, _metadata_profile=_metadata_profile) if _metadata_profile in ('aws-lambda-environment-content-v1', 'aws-selected-configuration-content-v1') else self.client(session, service, region)
+            client = self.client(session, service, region, _metadata_profile=_metadata_profile) if _metadata_profile in ('aws-lambda-environment-content-v1', 'aws-selected-configuration-content-v1') else _guarded_client(self, session, service, region, operation)
             if _metadata_profile == 'aws-selected-configuration-content-v1':
                 projection_contract.validate_native_client(client, service, region)
             if (service == 'sts' and self.content_secret_scans
@@ -903,7 +925,7 @@ class Requests:
         operation that botocore declares without a paginator; an unpaginated
         response carrying a continuation token is never reported complete."""
         if service == "accessanalyzer":
-            raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
+            _analyzer_read_only(operation)
         import jmespath
         from .aws_request_pool import canonical_wrapper
         session = canonical_wrapper(self, session)
@@ -912,7 +934,7 @@ class Requests:
             with self._lock:
                 if self.max_calls is not None and self.calls >= self.max_calls and not any(key[:4] == (id(session), service, region, operation) for key in self._cache):
                     raise ReadFailure("not_collected", "call_limit")
-            client = self.client(session, service, region)
+            client = _guarded_client(self, session, service, region, operation)
             # SDK pagination metadata handles IAM Marker, S3 continuation,
             # CloudWatch nextToken, ELB NextMarker and multi-token APIs correctly.
             cfg = client.get_paginator(operation)._pagination_cfg if client.can_paginate(operation) else {}
@@ -1179,6 +1201,9 @@ SPECS = {
 GLOBAL_TYPES = {"iam_customer_policy", "iam_managed_policy", "aws_account", "aws_account_configuration", "cloudtrail_account_inventory", "config_account_region_coverage", "config_account_aggregator_inventory", "config_delegated_administrator", "iam_user", "iam_group", "iam_role", "iam_policy", "iam_account_summary", "iam_password_policy", "iam_credential_report", "iam_access_key", "iam_virtual_mfa_device", "iam_server_certificate", "bucket", "s3_account_public_access_block", "organization_account", "organization_parent", "scp_policy"}
 AWS_TYPES = sorted(set(SPECS) | GLOBAL_TYPES)
 GLOBAL_SCOPE = "global"
+# Account inventories assembled from every enabled Region, even with a Region list.
+ACCOUNT_WIDE_REGIONAL_KINDS = frozenset({"config_account_aggregator_inventory", "cloudtrail_account_inventory",
+    "macie2_account_classification_job_inventory", "metric_alarm_account_inventory"})
 FETCHERS = {}
 GLOBAL_TYPES.add("vpc_account_inventory")
 GLOBAL_TYPES.add("macie2_account_classification_job_inventory")
@@ -2301,6 +2326,7 @@ def collect(connector, requirements=None):
     selected_accounts, regions = _selection(connector)
     explicit_regions = bool(options.get("regions") or auth.get("region_name")) or any(not re.fullmatch(r"[0-9]{12}", scope) for scope in connector.get("scopes") or [])
     discovered_regions = {}
+    account_wide_regions = {}
     region_discovery_errors = {}
     # Preserve explicitly selected account/region pairs; account-only scopes
     # use options.regions. Avoid broadening pairs into a Cartesian product.
@@ -2683,6 +2709,22 @@ def collect(connector, requirements=None):
         if discovered_regions:
             regions[:] = sorted({region for values in discovered_regions.values() for region in values})
         metadata["regions"] = list(regions)
+    elif wanted & ACCOUNT_WIDE_REGIONAL_KINDS:
+        # A Region list limits regional services only. Account-wide inventories
+        # (CloudTrail trails, Config aggregators, Macie jobs, CIS metric alarms)
+        # still need every enabled Region, so discover them read-only.
+        metadata["account_wide_regions"] = {}
+        for account_session, identity in contexts:
+            account = identity["Account"]
+            read = requests.pages(account_session, "ec2", regions_for(account)[0], "describe_regions", "Regions", AllRegions=True)
+            rows = read.items if read.status == "collected" and isinstance(read.items, list) else []
+            names = sorted({row.get("RegionName") for row in rows if isinstance(row, dict)
+                            and isinstance(row.get("RegionName"), str)
+                            and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+", row["RegionName"])
+                            and row.get("OptInStatus") in {"opt-in-not-required", "opted-in"}})
+            if names and all(isinstance(row, dict) and row.get("OptInStatus") in {"opt-in-not-required", "opted-in", "not-opted-in"} for row in rows):
+                account_wide_regions[account] = names
+                metadata["account_wide_regions"][account] = list(names)
     # Freeze exact account/region pairs only after target resolution and region
     # discovery have succeeded for the entire selection. An observed subset,
     # fallback region, truncated organization roster or failed role is not a
@@ -2732,10 +2774,10 @@ def collect(connector, requirements=None):
                 if account in region_discovery_errors:
                     failure = region_discovery_errors[account]
                     return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
-                if explicit_regions:
+                if explicit_regions and account not in account_wide_regions:
                     return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
                 items, failure = [], None
-                for observed_region in regions_for(account):
+                for observed_region in account_wide_regions.get(account) or regions_for(account):
                     read = regional_job(session, identity, observed_region, "config_aggregator")
                     items.extend({**original, "SourceRegion": observed_region} for original in read.items)
                     if read.status not in {"collected", "empty"}:
@@ -2747,10 +2789,10 @@ def collect(connector, requirements=None):
                 if account in region_discovery_errors:
                     failure = region_discovery_errors[account]
                     return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
-                if explicit_regions:
+                if explicit_regions and account not in account_wide_regions:
                     return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
                 observations, malformed, failure = {}, [], None
-                for observed_region in regions_for(account):
+                for observed_region in account_wide_regions.get(account) or regions_for(account):
                     read = regional_job(session, identity, observed_region, "cloudtrail")
                     for original in read.items:
                         if not isinstance(original, dict) or not isinstance(original.get("TrailARN"), str) or not original["TrailARN"]:
@@ -2817,12 +2859,12 @@ def collect(connector, requirements=None):
                 if account in region_discovery_errors:
                     failure = region_discovery_errors[account]
                     return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
-                if explicit_regions:
+                if explicit_regions and account not in account_wide_regions:
                     return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
                 # Every enabled Region gets a row carrying its own read status, so a
                 # failed Region leaves only buckets homed there unknown.
                 rows = []
-                for observed_region in regions_for(account):
+                for observed_region in account_wide_regions.get(account) or regions_for(account):
                     # Same single-flight cached reads as the regional inventory.
                     read = regional_job(session, identity, observed_region, "macie2_classification_job")
                     state = (read.error or {}).get("code") if read.status == "empty" else None
@@ -2839,10 +2881,10 @@ def collect(connector, requirements=None):
                 if account in region_discovery_errors:
                     failure = region_discovery_errors[account]
                     return ReadResult([], failure.status, {"code": failure.code, "reason": "full_account_region_discovery_incomplete"})
-                if explicit_regions:
+                if explicit_regions and account not in account_wide_regions:
                     return ReadResult([], "not_collected", {"code": "full_account_region_coverage_not_proven"})
                 from .aws_facts_gap import metric_alarm_rows
-                return metric_alarm_rows(regional_job, session, identity, regions_for(account))
+                return metric_alarm_rows(regional_job, session, identity, account_wide_regions.get(account) or regions_for(account))
             if kind == "bucket":
                 return _buckets(requests, session, region, account)
             if kind == "iam_customer_policy":
@@ -3058,7 +3100,7 @@ def collect(connector, requirements=None):
                 register_context(requests, session, identity, regions_for(identity["Account"]))
     metadata["access_analyzer_lifecycle"] = []
     if "access_analyzer" in wanted:
-        metadata["collection"] = "saved-access-analyzer-results-only"
+        metadata["collection"] = "read-existing-access-analyzers"
     analyzer_lifecycle = AnalyzerLifecycle(requests, metadata["access_analyzer_lifecycle"], progress_callback)
     # Retain collection ordering; Access Analyzer preparation is inert and
     # never makes a live service call.

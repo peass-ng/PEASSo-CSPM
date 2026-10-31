@@ -422,6 +422,35 @@ def principal_verdict(snapshot, entry, statement, path):
     return None, classification
 
 
+def _s3_public_policy_restricted(snapshot, resource):
+    """True when effective S3 Block Public Access (RestrictPublicBuckets) ignores
+    this bucket's public policy, so declared public/foreign principals stay context."""
+    if snapshot["provider"] != "aws":
+        return False
+    data = resource.get("data") if isinstance(resource.get("data"), dict) else {}
+    if resource.get("type") == "bucket":
+        from .common import native_id
+        name, policy = native_id(resource), data.get("Policy")
+    elif resource.get("type") == "aws_resource_policy":
+        arn = data.get("ResourceArn")
+        parts = arn.split(":", 5) if isinstance(arn, str) else []
+        if len(parts) != 6 or parts[2] != "s3" or not parts[5] or "/" in parts[5]:
+            return False
+        name, policy = parts[5], data.get("Policy")
+    else:
+        return False
+    from .internet_exposure import Inventory, _bucket_policy_restricted
+
+    def build():
+        from peaso.snapshot import resources
+        return Inventory(snapshot, [r for r in resources(snapshot)
+                                    if r["type"] in ("bucket", "s3_account_public_access_block")])
+    try:
+        return _bucket_policy_restricted(snapshot, _cache(snapshot, "s3_bpa_inventory", build), resource, name, policy)
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return False
+
+
 def principal_exposure(snapshot, resource, declared):
     """Turn principal declarations into one finding verdict for analysis.principal_exposure.
 
@@ -430,7 +459,7 @@ def principal_exposure(snapshot, resource, declared):
     from .common import source
     if snapshot["provider"] == "k8s" and _k8s_self_info_binding(snapshot, resource):
         return None
-    entries = []
+    entries, blocked = [], []
     for identity, path, fact, kind, tenant in declared:
         if kind == "Service":
             if snapshot["provider"] != "aws" or "AssumeRolePolicyDocument" in path or source_scoped(fact.get("Condition")):
@@ -460,6 +489,13 @@ def principal_exposure(snapshot, resource, declared):
             verdict, reason = "MANUAL", "public_network_bound"
         if verdict is None:
             continue
+        if (verdict == "FAIL" and classification in ("public", "external")
+                and _s3_public_policy_restricted(snapshot, resource)):
+            # RestrictPublicBuckets limits a bucket with a public policy to AWS
+            # service principals and the owner account. Keep the principal as context.
+            entry["blocked_by"] = "s3_block_public_access_restrict_public_buckets"
+            blocked.append(entry)
+            continue
         entry["verdict"], entry["reason"] = verdict, reason
         if classification == "external":
             from .common import principal_scope
@@ -474,6 +510,10 @@ def principal_exposure(snapshot, resource, declared):
                 entry["unknown_reason"] = "redacted_group_membership_unavailable"
                 entry["facts_needed"] = ["exact group identity and transitive membership outside ACL domain projection"]
         entries.append(entry)
+    if not entries and blocked:
+        return "PASS", "info", {"principals": [], "blocked_principals": blocked, "risk_state": "mitigated",
+            "effective_access": "blocked_by_s3_block_public_access",
+            "public_unconditional": False}
     if not entries:
         return None
     statuses = {e["verdict"] for e in entries}
@@ -494,6 +534,7 @@ def principal_exposure(snapshot, resource, declared):
         "default_trusted_scopes": trusted_sources,
         "external_scope_ids": sorted({str(e["external_scope_id"]) for e in entries if e.get("external_scope_id")}),
         "public_unconditional": any(e["reason"] == "public" for e in entries),
+        **({"blocked_principals": blocked} if blocked else {}),
         "uncertainty": "Deny statements, SCP/RCP guardrails, Block Public Access and session policies can still narrow declared access."}
     if status == "UNKNOWN":
         unknown = [e for e in entries if e["verdict"] == "UNKNOWN"]

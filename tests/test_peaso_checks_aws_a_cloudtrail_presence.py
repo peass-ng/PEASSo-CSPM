@@ -52,17 +52,37 @@ def test_account_global_fact_requires_complete_enabled_region_discovery(monkeypa
         for stub in stubs.values():stub.assert_no_pending_responses()
 
 
-def test_explicit_region_subset_does_not_fabricate_complete_account_absence(monkeypatch):
+def _explicit_region_collect(monkeypatch, regions_response, trail_reads):
     boto3=pytest.importorskip("boto3")
     from botocore.stub import Stubber
     from peaso.collectors import aws
     session=boto3.Session(aws_access_key_id="inert",aws_secret_access_key="inert",region_name="us-east-1")
-    client=session.client("sts",region_name="us-east-1");stub=Stubber(client)
-    monkeypatch.setattr(aws,"_session",lambda *args:(session,"inert"));monkeypatch.setattr(aws.Requests,"client",lambda *args:client)
-    stub.add_response("get_caller_identity",{"Account":"123456789012","Arn":"arn:aws:iam::123456789012:user/inert","UserId":"INERT"},{})
-    with stub:
+    clients={service:session.client(service,region_name="us-east-1") for service in ("sts","ec2","cloudtrail")};stubs={k:Stubber(v) for k,v in clients.items()}
+    monkeypatch.setattr(aws,"_session",lambda *args:(session,"inert"));monkeypatch.setattr(aws.Requests,"client",lambda self,context,service,region:clients[service])
+    stubs["sts"].add_response("get_caller_identity",{"Account":"123456789012","Arn":"arn:aws:iam::123456789012:user/inert","UserId":"INERT"},{})
+    if regions_response is None:
+        stubs["ec2"].add_client_error("describe_regions","UnauthorizedOperation",http_status_code=403)
+    else:
+        stubs["ec2"].add_response("describe_regions",{"Regions":regions_response},{"AllRegions":True})
+    for _ in range(trail_reads):
+        stubs["cloudtrail"].add_response("describe_trails",{"trailList":[]},{"includeShadowTrails":True})
+    with stubs["sts"],stubs["ec2"],stubs["cloudtrail"]:
         s=aws.collect({"provider":"aws","scopes":["us-east-1"]},["cloudtrail_account_inventory"])
-        env=next(c for c in s["collections"] if c["type"]=="cloudtrail_account_inventory")
-        assert env["status"]=="not_collected" and env["error"]["code"]=="full_account_region_coverage_not_proven"
-        assert s["metadata"]["calls"]==1
-        stub.assert_no_pending_responses()
+        for stub in stubs.values():stub.assert_no_pending_responses()
+    return s
+
+
+def test_explicit_region_list_still_reads_account_wide_trails_in_every_enabled_region(monkeypatch):
+    enabled=[{"RegionName":"us-east-1","OptInStatus":"opt-in-not-required"},{"RegionName":"eu-west-1","OptInStatus":"opt-in-not-required"},
+             {"RegionName":"ap-east-1","OptInStatus":"not-opted-in"}]
+    s=_explicit_region_collect(monkeypatch,enabled,2)
+    env=next(c for c in s["collections"] if c["type"]=="cloudtrail_account_inventory")
+    assert env["status"]=="empty" and env["global"] is True
+    assert s["metadata"]["account_wide_regions"]=={"123456789012":["eu-west-1","us-east-1"]}
+    assert not any(c["scope"].endswith("/eu-west-1") for c in s["collections"])
+
+
+def test_explicit_region_list_without_region_discovery_does_not_fabricate_absence(monkeypatch):
+    s=_explicit_region_collect(monkeypatch,None,0)
+    env=next(c for c in s["collections"] if c["type"]=="cloudtrail_account_inventory")
+    assert env["status"]=="not_collected" and env["error"]["code"]=="full_account_region_coverage_not_proven"

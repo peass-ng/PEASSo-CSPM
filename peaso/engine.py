@@ -278,6 +278,26 @@ def _selection(provider, categories, checks, frameworks, *, content_checks=None)
     return selected_categories, selected
 
 
+def _known_content_checks(provider):
+    from .content_scan_selection import known_content_checks
+    return known_content_checks(provider)
+
+
+def _drop_unrequested_content(provider, snapshot, selected, checks, content_checks):
+    """Leave out opt-in content checks the snapshot's collection did not request.
+
+    Only snapshots that record their requested content checks are filtered;
+    older snapshots keep their previous evaluation.
+    """
+    plan = (snapshot.get("metadata") or {}).get("collection_plan")
+    if not isinstance(plan, dict) or not isinstance(plan.get("content_checks"), list):
+        return selected, []
+    requested = set(plan["content_checks"]) | set(content_checks or []) | set(checks or [])
+    known = _known_content_checks(provider)
+    skipped = sorted({c.id for c in selected if c.id in known and c.id not in requested})
+    return [c for c in selected if c.id not in skipped], skipped
+
+
 def _string_list(value, name):
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(name + " must be a string list")
@@ -789,7 +809,8 @@ def collect_snapshot(request):
     with scope_plan_callback(request.get('_scope_plan_callback')):
         collected = collect_live(connector, requirements)
     snapshot = validate(collected, metadata_entry=("collection_plan", {"mode": "collect_all" if options.get("collect_all") else "explicit_inventories" if "inventories" in options else "full_default" if _full_selection(connector["provider"], *_selection(connector["provider"], request.get("categories"), request.get("checks"), request.get("frameworks"), content_checks=request.get("content_checks"))) else "dependencies", "requirements": requirements,
-        "categories": request.get("categories") or list(CATEGORIES), "checks": request.get("checks") or "all_selected", "frameworks": request.get("frameworks") or "all_selected"}))
+        "categories": request.get("categories") or list(CATEGORIES), "checks": request.get("checks") or "all_selected", "frameworks": request.get("frameworks") or "all_selected",
+        "content_checks": sorted(set(named_checks(request)) & _known_content_checks(connector["provider"]))}))
     if collection_callback is not None:
         # Finalizers and reviewed aliases may add or revise envelopes after their scheduler
         # emitted earlier settlements; the checkpoint deduplicates unchanged content. It gets
@@ -1440,6 +1461,7 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
     provider = snapshot["provider"]
     related = _related_snapshots(snapshot, related_snapshots)
     selected_categories, selected = _selection(provider, categories, checks, frameworks, content_checks=content_checks)
+    selected, skipped_opt_in = _drop_unrequested_content(provider, snapshot, selected, checks, content_checks)
     graph_only_checkpoint = completed_graph_sections is not None and checks == []
     if graph_only_checkpoint:
         selected = []
@@ -1823,6 +1845,10 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
             "coverage_complete": complete, "inventory_complete": inventory_complete, "categories": selected_categories,
             "limitations": ["Framework mappings retain reviewed source provenance; they are not compliance certification.", "Declared IAM relationships are not effective access.",
                 "Network inventory relationships are not proven reachability.", "Upstream hardening catalogs have not all been ported; only selected native checks ran."]}}
+    if skipped_opt_in:
+        report["skipped_opt_in_checks"] = {"reason": "content_scanning_not_requested",
+            "summary": "Content scanning was off for this scan, so content checks were not evaluated.",
+            "check_ids": skipped_opt_in}
     if collapse.enabled:
         # NOT_APPLICABLE / EMPTY results are per-check counts, not rows; stats.by_status still counts them.
         report["finding_aggregates"] = aggregates
