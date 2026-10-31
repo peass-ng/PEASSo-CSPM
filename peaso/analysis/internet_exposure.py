@@ -6439,6 +6439,44 @@ def _aws_ecr_template_pull(snapshot, inventory, resource):
 
 
 
+def _later_global_policy_copy(inventory, resource, account, arn):
+    """True when this account-global policy was also read in an earlier-sorted Region.
+
+    Global families (S3 buckets, IAM role trusts) are listed from every scanned
+    Region; only the first copy is assessed so one policy gives one result.
+    """
+    key = ("global_policy_first_scope", None)
+    if key not in inventory.network_cache:
+        first = {}
+        for item in inventory.items("aws_resource_policy"):
+            item_arn = item["data"].get("ResourceArn") if isinstance(item.get("data"), dict) else None
+            scope = item.get("scope")
+            if isinstance(item_arn, str) and isinstance(scope, str):
+                owner = (scope.split("/", 1)[0], item_arn)
+                if owner not in first or scope < first[owner]:
+                    first[owner] = scope
+        inventory.network_cache[key] = first
+    first = inventory.network_cache[key].get((account, arn))
+    return first is not None and first != resource.get("scope")
+
+
+def _bucket_policy_restricted(snapshot, inventory, resource, bucket_name, policy):
+    """True when effective S3 Block Public Access ignores this bucket's public policy."""
+    account = str(resource.get("scope", "")).split("/", 1)[0]
+    bucket = inventory.get("bucket", bucket_name)
+    if bucket is None or str(bucket.get("scope", "")).split("/", 1)[0] != account:
+        return False
+    settings, _ = effective_bucket_bpa(snapshot, inventory, bucket)
+    if not settings or settings.get("RestrictPublicBuckets") is not True:
+        return False
+    status = bucket["data"].get("PolicyStatus")
+    status = status.get("PolicyStatus") if isinstance(status, dict) else None
+    public = status.get("IsPublic") if isinstance(status, dict) else None
+    if public is None:
+        public, _ = _public_policy(policy)
+    return public is True
+
+
 def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
     """A source-attributed resource policy declaring access for a foreign AWS principal."""
     from .trust import trusted_scopes
@@ -6466,6 +6504,8 @@ def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
                                     for family in provenance["families"]):
         # PutResourcePolicy only authorizes AWS service principals. Destination
         # access policies have their own cross-account handler.
+        return None
+    if parts[3] == "" and _later_global_policy_copy(inventory, resource, account, arn):
         return None
     policy = data.get("Policy")
     statements = policy.get("Statement") if isinstance(policy, dict) else None
@@ -6743,6 +6783,11 @@ def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
             return a
         if identities[0]["Identity"]["VerifiedForSendingStatus"] is False:
             return None
+    if ((grants or candidate) and parts[2] == "s3" and "s3-buckets" in provenance["families"] and
+            _bucket_policy_restricted(snapshot, inventory, resource, parts[5], data.get("Policy"))):
+        # RestrictPublicBuckets limits a bucket with a public policy to AWS
+        # service principals and the owner account; the bucket handler reports it.
+        return None
     if grants and not uncertain:
         a.external_ids = sorted({grant["account"] for grant in grants})
         a.authenticated = True
