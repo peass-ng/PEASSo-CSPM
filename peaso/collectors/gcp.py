@@ -5940,8 +5940,9 @@ class GCPCollector:
                 for target in targets if isinstance(targets, list) else []:
                     if isinstance(target, dict) and isinstance(target.get("service"), str):
                         wanted.add(target["service"])
+            wanted = {name.casefold() for name in wanted}  # keep case variants: they make identity ambiguous
             kept = [row for row in collection["items"] if not isinstance(row, dict) or row.get("state") != "DISABLED"
-                    or not isinstance(row.get("name"), str) or row["name"].rsplit("/services/", 1)[-1] in wanted]
+                    or not isinstance(row.get("name"), str) or row["name"].rsplit("/services/", 1)[-1].casefold() in wanted]
             if len(kept) != len(collection["items"]):
                 collection["omitted_disabled_services"] = len(collection["items"]) - len(kept)
                 collection["items"] = kept
