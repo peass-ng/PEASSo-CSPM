@@ -2280,6 +2280,48 @@ def _retry_after(exc):
     return 2.0
 
 
+def _arm_error_code(exc):
+    """The ARM/Graph JSON ``error.code`` of an HTTP error, read once and memoised on the exception."""
+    for candidate in (exc, getattr(exc, "__cause__", None)):
+        if candidate is None:
+            continue
+        cached = getattr(candidate, "_peaso_error_code", False)
+        if cached is not False:
+            return cached
+        code = None
+        if callable(getattr(candidate, "read", None)) and getattr(candidate, "code", None) is not None:
+            try:
+                body = json.loads(candidate.read(65536) or b"{}")
+                error = body.get("error") or body.get("Error") if isinstance(body, dict) else None
+                value = error.get("code") or error.get("Code") if isinstance(error, dict) else None
+                code = value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,79}", value) else None
+            except Exception:
+                code = None
+            try:
+                candidate._peaso_error_code = code
+            except Exception:
+                pass
+            return code
+    return None
+
+
+# A resource provider that is not registered on a subscription cannot hold
+# resources there (registration happens on first create and blocks removal
+# while resources exist), so its list answer is a complete empty inventory.
+_PROVIDER_NOT_REGISTERED = frozenset(("SubscriptionNotRegistered", "MissingSubscriptionRegistration"))
+
+
+def _read_failure(exc, items):
+    """Collection status and safe error for a list job that raised."""
+    if (not items and _status_code(exc) in (404, 409, "404", "409")
+            and _arm_error_code(exc) in _PROVIDER_NOT_REGISTERED):
+        return "collected", None
+    status, error = _safe_error(exc)
+    if items or getattr(exc, "code", "") in ("resource_limit", "page_limit", "call_limit", "graph_truncated", "scope_limit", "collection_cancelled"):
+        status = "partial"
+    return status, error
+
+
 def _status_code(exc):
     for candidate in (exc, getattr(exc, "__cause__", None)):
         code = getattr(candidate, "status_code", None) or getattr(candidate, "status", None) or getattr(candidate, "code", None)
@@ -2698,9 +2740,7 @@ class _Reader:
                         raise ValueError('duplicate native policy assignment identity')
                     items.setdefault(normalized, projected)
         except Exception as exc:
-            status, error = _safe_error(exc)
-            if items or getattr(exc, "code", "") in ("resource_limit", "page_limit", "call_limit", "graph_truncated", "scope_limit", "collection_cancelled"):
-                status = "partial"
+            status, error = _read_failure(exc, items)
         if status == "collected" and not items:
             status = "empty"
         result = {"type": kind, "scope": scope, "service": service, "status": status, "items": list(items.values())}
@@ -2889,9 +2929,7 @@ class _ReaderExposure(_Reader):
                         raise ValueError('duplicate native policy assignment identity')
                     items.setdefault(normalized, projected)
         except Exception as exc:
-            status, error = _safe_error(exc)
-            if items or getattr(exc, "code", "") in ("resource_limit", "page_limit", "call_limit", "graph_truncated", "scope_limit", "collection_cancelled"):
-                status = "partial"
+            status, error = _read_failure(exc, items)
         if status == "collected" and not items:
             status = "empty"
         result = {"type": kind, "scope": scope, "service": service, "status": status, "items": list(items.values())}
