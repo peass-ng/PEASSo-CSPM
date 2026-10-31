@@ -323,6 +323,11 @@ _MULTILABEL_SERVICE_PREFIXES = {
     "apidestinations.events", "ops.apigateway",
     "application-signals.cloudwatch", "streams.metrics.cloudwatch",
     "monitoring.rds", "replicator.lambda", "logger.cloudfront",
+    # AWS-managed service-linked role trusts returned by live IAM reads.
+    "email.cognito-idp", "ops.emr-serverless", "malware-protection.guardduty",
+    "runtime-identity.bedrock-agentcore", "member.org.stacksets.cloudformation",
+    "vpcorigin.cloudfront", "replication.dynamodb", "settings.replication.dynamodb",
+    "delivery.logs", "systemtables.cloudwatch",
 }
 _BUILTIN_OIDC = {"cognito-identity.amazonaws.com", "www.amazon.com", "graph.facebook.com", "accounts.google.com"}
 

@@ -202,6 +202,10 @@ def test_mixed_principal_and_deny_ambiguity(monkeypatch):
     'monitoring.rds.amazonaws.com',
     'replicator.lambda.amazonaws.com',
     'logger.cloudfront.amazonaws.com',
+    'member.org.stacksets.cloudformation.amazonaws.com',
+    'settings.replication.dynamodb.amazonaws.com',
+    'malware-protection.guardduty.amazonaws.com',
+    'runtime-identity.bedrock-agentcore.amazonaws.com',
 ])
 def test_documented_multilabel_service_principal(monkeypatch, principal):
     row = run(monkeypatch, roles=[role(attached=True, trust=trust('Service', principal, 'sts:AssumeRole'))], count=1)
