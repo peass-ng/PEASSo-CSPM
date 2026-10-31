@@ -556,8 +556,12 @@ def test_hosted_fanout_refuses_unprotected_trust_and_continues(sdk, monkeypatch)
     original_session = boto3.Session
     assumed_keys = []
     def capture_session(*args, **kwargs):
-        assumed_keys.append(kwargs.get("aws_access_key_id"))
-        return original_session(*args, **kwargs)
+        # Record the key each constructed session signs with, whether given
+        # directly or through a renewable assumed-role credential object.
+        session = original_session(*args, **kwargs)
+        credentials = session.get_credentials()
+        assumed_keys.append(credentials.access_key if credentials is not None else None)
+        return session
     monkeypatch.setattr(boto3, "Session", capture_session)
     _, add, _ = sdk
     unsafe, safe = (f"arn:aws:iam::{account}:role/Audit" for account in ("222222222222", "333333333333"))

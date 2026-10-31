@@ -1047,13 +1047,39 @@ def _assume(requests, session, region, target, defaults):
     external = target.get("external_id", defaults.get("external_id"))
     if external:
         params["ExternalId"] = external
-    response = requests.call(session, "sts", region, "assume_role", **params)
-    credentials = response.get("Credentials", {})
-    if not all(credentials.get(k) for k in ("AccessKeyId", "SecretAccessKey", "SessionToken")):
-        raise ReadFailure("malformed", "malformed_assume_role")
-    return boto3.Session(aws_access_key_id=credentials["AccessKeyId"],
-        aws_secret_access_key=credentials["SecretAccessKey"],
-        aws_session_token=credentials["SessionToken"], region_name=region)
+
+    def exchange(fresh=False):
+        response = requests.call(session, "sts", region, "assume_role",
+            **({"_uncached_credential_exchange": True} if fresh else {}), **params)
+        credentials = response.get("Credentials", {})
+        if not all(credentials.get(k) for k in ("AccessKeyId", "SecretAccessKey", "SessionToken")):
+            raise ReadFailure("malformed", "malformed_assume_role")
+        return credentials
+
+    credentials = exchange()
+    expiration = credentials.get("Expiration")
+    if not isinstance(expiration, datetime) or expiration.tzinfo is None or expiration <= datetime.now(timezone.utc):
+        return boto3.Session(aws_access_key_id=credentials["AccessKeyId"],
+            aws_secret_access_key=credentials["SecretAccessKey"],
+            aws_session_token=credentials["SessionToken"], region_name=region)
+    # Role sessions last one hour by default. A longer scan re-assumes the
+    # same role from the same pinned source before the session expires,
+    # instead of reading every later call as denied (ExpiredToken).
+    from botocore.credentials import RefreshableCredentials
+    import botocore.session
+
+    def metadata(values):
+        expiry = values.get("Expiration")
+        if not isinstance(expiry, datetime) or expiry.tzinfo is None:
+            raise ReadFailure("malformed", "malformed_assume_role")
+        return {"access_key": values["AccessKeyId"], "secret_key": values["SecretAccessKey"],
+                "token": values["SessionToken"], "expiry_time": expiry.isoformat()}
+
+    refreshable = RefreshableCredentials.create_from_metadata(
+        metadata(credentials), lambda: metadata(exchange(fresh=True)), "assume-role")
+    core = botocore.session.Session()
+    core._credentials = refreshable
+    return boto3.Session(botocore_session=core, region_name=region)
 
 
 def _reject_unprotected_hosted_role(requests, session, region, target, defaults):
