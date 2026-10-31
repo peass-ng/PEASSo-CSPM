@@ -30,7 +30,8 @@ def guard(item):
 def get(item, path, expected=None):
     guard(item)
     value = item
-    for part in path.split("."):
+    parts = path.split(".")
+    for position, part in enumerate(parts):
         if not isinstance(value, dict):
             raise Unavailable("malformed parent of " + path)
         guard(value)
@@ -39,8 +40,24 @@ def get(item, path, expected=None):
         if part in coverage_entries and (not isinstance(coverage, dict) or coverage.get("status") not in ("collected", "empty")):
             raise Unavailable("fact unavailable or malformed coverage: " + path)
         if part not in value:
-            raise Unavailable("missing fact: " + path)
+            # ARM omits some properties that hold a documented default.
+            from .azure_platform_defaults import lookup
+            found, selected = lookup(item, ".".join(parts[:position + 1]))
+            if not found:
+                found, selected = lookup(item, path)
+                if not found:
+                    raise Unavailable("missing fact: " + path)
+                value = selected
+                break
+            value = selected
+            continue
         selected = value[part]
+        if selected is None and position == len(parts) - 1:
+            from .azure_platform_defaults import lookup
+            found, default = lookup(item, path, null=True)
+            if found:
+                value = default
+                break
         if coverage is not None and coverage["status"] == "empty" and not (
             selected is None or selected == "" or selected == [] or selected == {}
         ):

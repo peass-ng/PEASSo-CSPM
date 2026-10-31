@@ -343,6 +343,25 @@ def capture(monkeypatch, cid, mode='positive', mutate=None):
     return selected, snapshot, http
 
 
+DOCUMENTED_DEFAULT_FAILS = {
+    'azure.claude.storage_blob_and_container_soft_delete_7_365',
+    'azure.port.storage_account_blob_and_container_soft_delete_enabled',
+    'azure.port.storage_account_blob_soft_delete_enabled',
+    'azure.port.storage_account_blob_versioning_enabled',
+    'azure.port.storage_account_container_soft_delete_enabled',
+    'azure.port.storage_account_file_share_smb_channel_encryption_aes_256_gcm',
+    'azure.port.storage_account_file_share_smb_protocol_version_3_1_1',
+    'azure.port.storage_account_soft_delete_enabled',
+    'azure.storage.blob_soft_delete_retention',
+    'azure.storage.blob_versioning',
+    'azure.storage.container_soft_delete',
+    'azure.storage.default_oauth',
+    'azure.storage.infrastructure_encryption',
+    'azure.storage.no_public_network',
+    'azure.storage.no_shared_key',
+}
+
+
 def expected(cid, mode):
     if mode == 'denied': return 'DENIED'
     if cid in UNSUPPORTED and not (cid in NATIVE_SUCCESSOR_DECIDES and mode in ('positive','negative')): return 'UNKNOWN'
@@ -353,6 +372,7 @@ def expected(cid, mode):
         if cid in ('azure.claude.activity_log_storage_cmk','azure.claude.activity_log_storage_private'): return 'DENIED'
         if cid in ('azure.claude.storage_smb_channel_encryption_aes_256_gcm','azure.claude.storage_smb_version_3_1_1'): return 'FAIL'  # documented default permits all supported values
         if cid == 'azure.htbp.storage.sftp_local_users_disabled': return 'PASS'  # omitted SFTP flag is false
+        if cid in DOCUMENTED_DEFAULT_FAILS: return 'FAIL'  # omitted property takes its documented Azure default
         return 'UNKNOWN'
     return 'FAIL' if mode == 'negative' else 'PASS'
 
@@ -479,7 +499,8 @@ def test_storage_child_scope_binding(monkeypatch,cid,mode):
             return response
         api.open=opened
     fs,_,_=capture(monkeypatch,cid,mutate=change)
-    assert {f['status'] for f in fs} == {'UNKNOWN'}, fs
+    want = 'FAIL' if mode == 'child_missing' and cid in DOCUMENTED_DEFAULT_FAILS else 'UNKNOWN'
+    assert {f['status'] for f in fs} == {want}, fs
 
 
 def test_sibling_subscription_denial_does_not_contaminate_native_storage_child(monkeypatch):

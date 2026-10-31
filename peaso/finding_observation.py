@@ -2,6 +2,21 @@
 
 
 def evidence_summary(finding):
+    observation = _evidence_summary(finding)
+    if not isinstance(finding, dict) or finding.get('provider') != 'azure':
+        return observation
+    from peaso.checks.azure_platform_defaults import first_lines
+    # A property read as its documented Azure default is named first.
+    lines = first_lines(finding.get('evidence'))
+    if not lines:
+        return observation
+    rest = [line for line in (observation or '').split('\n') if line and line not in lines]
+    if len(rest) >= 3:
+        rest = rest[1:]  # Its first line restated the value the default line now names.
+    return '\n'.join([*lines, *rest][:5])
+
+
+def _evidence_summary(finding):
     if not isinstance(finding, dict):
         return None
     from peaso.provider_followup_observations_20261021 import evidence_summary as provider_followup

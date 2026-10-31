@@ -157,16 +157,26 @@ def register(id, provider, category, kind, title, severity, control, remediation
 
         def checked(item, index):
             from .facts import Unavailable, guard
+            from .azure_platform_defaults import finish, track
+            token = track()
             try:
                 guard(item)
                 status, evidence = function(item, index)
                 if status not in ("PASS", "FAIL", "UNKNOWN", "DENIED", "MANUAL", "NOT_APPLICABLE", "EMPTY") or not isinstance(evidence, dict):
                     raise ValueError("invalid evaluator result")
+                defaults = finish(token)
+                token = None
+                if defaults and status in ("PASS", "FAIL"):
+                    # Name each property that was absent and read as its documented default.
+                    evidence = {**evidence, "platform_defaults": defaults}
                 return status, evidence
             except Unavailable as exc:
                 return unknown(str(exc))
             except (ValueError, TypeError, KeyError, IndexError, AttributeError, OverflowError) as exc:
                 return unknown("malformed or missing native facts", error_type=type(exc).__name__)
+            finally:
+                if token is not None:
+                    finish(token)
         CHECKS.append(Check(id, provider, category, kind, title, severity, control, remediation, safe, target,
                             tuple(dependencies or ()), allow_incomplete_failure, tuple(empty_applicability_dependencies)))
         return function
