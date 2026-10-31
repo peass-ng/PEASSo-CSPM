@@ -3689,6 +3689,14 @@ def test_coverage_finding_lists_missing_inventory():
     assert gap and gap[0]["status"] == "UNKNOWN" and {"type": "instance", "status": "denied"} in gap[0]["evidence"]["gaps"]
 
 
+def test_every_evaluated_aws_inventory_is_requested_for_exposure():
+    from peaso.analysis.catalog import REQUIRED_TYPES
+    from peaso.analysis.internet_exposure import EVALUATED
+    from peaso.collectors.aws import SPECS
+    evaluated_with_collector = set(EVALUATED["aws"]) & set(SPECS)
+    assert evaluated_with_collector - set(REQUIRED_TYPES["aws"]["exposure"]) == set()
+
+
 @pytest.mark.parametrize("code, absent", [("unsupported_region_service", True),
                                           ("ecr_public_requires_us_east_1_scope", True),
                                           ("inventory_not_requested", False)])

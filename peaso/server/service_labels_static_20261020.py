@@ -140,7 +140,7 @@ EXPOSURE_KIND_SERVICES = {'aws': {'agentcore_gateway': 'bedrock-agentcore-contro
          'eventbridge_pipe_exposure': 'pipes',
          'flow_log': 'ec2',
          'gamelift_ec2_compute': 'gamelift',
-         'glacier_vault_notification': 'glacier',
+         'glacier_vault_notification': 'glacier', 'glacier_job_notification': 'glacier',
          'globalaccelerator_cross_account_attachment': 'globalaccelerator',
          'globalaccelerator_custom_routing_accelerator': 'globalaccelerator',
          'globalaccelerator_custom_routing_listener': 'globalaccelerator',
