@@ -274,3 +274,22 @@ def test_version_reuses_only_exact_native_metadata_without_object_history(state)
         assert actual['required_scope_authoritative'] is False
         assert actual['required_objects'] == {'collection_status': 'unavailable', 'items': []}
     assert native.required_types({native.VERSION_KIND}) == {'storage_account'}
+
+
+def test_account_without_lifecycle_policy_is_collected_with_zero_rules(monkeypatch):
+    import io
+    from urllib.error import HTTPError
+    body = json.dumps({'error': {'code': 'ManagementPolicyNotFound', 'message': 'No ManagementPolicy found'}}).encode()
+    missing = HTTPError(POLICY, 404, 'Not Found', {}, io.BytesIO(body))
+    _, collection, _ = capture(monkeypatch, missing)
+    assert collection['status'] == 'collected'
+    policy_row = collection['items'][0]['payload']['management_policy']
+    assert policy_row['read_complete'] is True and policy_row['properties']['policy']['rules'] == []
+
+
+def test_other_not_found_bodies_stay_unknown(monkeypatch):
+    import io
+    from urllib.error import HTTPError
+    body = json.dumps({'error': {'code': 'ResourceNotFound'}}).encode()
+    _, collection, _ = capture(monkeypatch, HTTPError(POLICY, 404, 'Not Found', {}, io.BytesIO(body)))
+    assert collection['status'] not in ('collected', 'empty') and not collection['items']
