@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from examples.benchmark_peaso_cloud_workloads import LinearCloudWorkloads
+from tests.synthetic.benchmark_peaso_cloud_workloads import LinearCloudWorkloads
 from peaso.analysis import cloud_workload_index as indexed
 from peaso.analysis.common import as_list
 from peaso.principal_exposure import project

@@ -6,8 +6,8 @@ import weakref
 
 import pytest
 
-from examples.benchmark_peaso_iam_action_profiles import run_stage
-from examples.benchmark_peaso_trust_domains import gcp_snapshot
+from tests.synthetic.benchmark_peaso_iam_action_profiles import run_stage
+from tests.synthetic.benchmark_peaso_trust_domains import gcp_snapshot
 from peaso.analysis import evidence_accumulator as indexed
 from peaso.principal_exposure import project
 from peaso.snapshot import digest, resources, seal, validate
@@ -87,7 +87,7 @@ def test_complete_shared_identity_iam_stage_matches_literal_evidence():
 
 
 def test_shared_runtime_role_keeps_every_recorded_workload_signal():
-    from examples.benchmark_peaso_cloud_workloads import synthetic_snapshot
+    from tests.synthetic.benchmark_peaso_cloud_workloads import synthetic_snapshot
     snapshot=synthetic_snapshot('aws',20)
     for collection in snapshot['collections']:
         if collection['type']=='ecs_task_definition':

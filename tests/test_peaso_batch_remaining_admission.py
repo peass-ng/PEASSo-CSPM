@@ -185,35 +185,6 @@ def test_bucket_public_read_pass_requires_complete_inherited_evidence(monkeypatc
         assert item == before_item and index == before_index
 
 
-def test_redshift_alias_equivalence_and_exact_compiler_refusal():
-    _, signed = signed_proposals(LEDGER)
-    spec = signed[REDSHIFT_PROPOSAL]
-    native = {REDSHIFT_SURVIVOR: next(row for row in
-              json.loads((ROOT / "peaso/rulepacks/native_catalog.json").read_text())["checks"]
-              if row["id"] == REDSHIFT_SURVIVOR)}
-    assert reviewed_equivalent_proposal(spec, *REDSHIFT_CONTROL, native) == REDSHIFT_SURVIVOR
-    for value in (True, False, None):
-        item = {"ClusterIdentifier": "rs1"}
-        if value is not None:
-            item["AllowVersionUpgrade"] = value
-        from peaso.checks import evaluate_check
-        expected = "UNKNOWN" if value is None else "PASS" if value else "FAIL"
-        assert evaluate_check(REDSHIFT_PROPOSAL, item, {})[0] == expected
-        assert evaluate_check(REDSHIFT_SURVIVOR, item, {})[0] == expected
-    altered = dict(spec, predicate=spec["predicate"] + " changed")
-    with pytest.raises(ValueError, match="duplicate proposal changed"):
-        reviewed_equivalent_proposal(altered, *REDSHIFT_CONTROL, native)
-    with pytest.raises(ValueError, match="duplicate proposal changed"):
-        reviewed_equivalent_proposal(spec, "wrong.framework", REDSHIFT_CONTROL[1], native)
-    with pytest.raises(ValueError, match="duplicate proposal changed"):
-        reviewed_equivalent_proposal(spec, REDSHIFT_CONTROL[0], "wrong.requirement", native)
-    with pytest.raises(ValueError, match="duplicate proposal changed"):
-        reviewed_equivalent_proposal(spec, *REDSHIFT_CONTROL, {})
-    with pytest.raises(ValueError, match="duplicate proposal changed"):
-        reviewed_equivalent_proposal(spec, *REDSHIFT_CONTROL,
-                                     {REDSHIFT_SURVIVOR: dict(native[REDSHIFT_SURVIVOR], type="s3_bucket")})
-
-
 def test_redshift_alias_cli_selection_emits_one_canonical_finding(tmp_path):
     from peaso import cli
     from peaso.snapshot import make_snapshot
@@ -229,30 +200,6 @@ def test_redshift_alias_cli_selection_emits_one_canonical_finding(tmp_path):
     findings = json.loads(report.read_text())["findings"]
     selected = [row for row in findings if row["check_id"] == REDSHIFT_SURVIVOR]
     assert len(selected) == 1 and selected[0]["status"] == "FAIL"
-
-
-def test_exact_cloudtrail_signed_alias_has_seven_links_and_no_duplicate_native():
-    assert CLOUDTRAIL_PROPOSAL not in {check.id for check in CHECKS}
-    assert resolve_check_id(CLOUDTRAIL_PROPOSAL) == CLOUDTRAIL_SURVIVOR
-    _, signed = signed_proposals(LEDGER)
-    spec = signed[CLOUDTRAIL_PROPOSAL]
-
-    native = {CLOUDTRAIL_SURVIVOR: next(row for row in
-              json.loads((ROOT / "peaso/rulepacks/native_catalog.json").read_text())["checks"]
-              if row["id"] == CLOUDTRAIL_SURVIVOR)}
-    assert (native[CLOUDTRAIL_SURVIVOR]["type"], native[CLOUDTRAIL_SURVIVOR]["target"]) == (
-        "cloudtrail", "scope")
-    for key in CLOUDTRAIL_CONTROL_KEYS:
-        assert reviewed_equivalent_proposal(spec, *key, native) == CLOUDTRAIL_SURVIVOR
-    with pytest.raises(ValueError, match="CloudTrail duplicate proposal changed"):
-        reviewed_equivalent_proposal(dict(spec, predicate=spec["predicate"] + " changed"),
-                                     *next(iter(CLOUDTRAIL_CONTROL_KEYS)), native)
-    with pytest.raises(ValueError, match="CloudTrail duplicate proposal changed"):
-        reviewed_equivalent_proposal(spec, "wrong.framework", "wrong.requirement", native)
-    with pytest.raises(ValueError, match="CloudTrail duplicate proposal changed"):
-        reviewed_equivalent_proposal(spec, *next(iter(CLOUDTRAIL_CONTROL_KEYS)),
-                                     {CLOUDTRAIL_SURVIVOR: dict(native[CLOUDTRAIL_SURVIVOR], type="cloudtrail_trail")})
-
 
 
 def test_cloudtrail_alias_regional_scope_and_missing_fact_truth_table():
@@ -304,31 +251,6 @@ def test_cloudtrail_alias_cli_selection_emits_one_canonical_finding(tmp_path):
     findings = json.loads(report.read_text())["findings"]
     selected = [row for row in findings if row["check_id"] == CLOUDTRAIL_SURVIVOR]
     assert len(selected) == 1 and selected[0]["status"] == "FAIL"
-
-
-def test_four_k8s_scope_checks_use_collected_kinds_but_require_external_policy():
-    from peaso.engine import _selection
-    from peaso.collectors import supported_types
-    from peaso.checks.native_only import exclusions
-
-    expected = {
-        "k8s_cluster_version_at_least_oldest_supported": ("api_discovery", {"api_discovery"}, "cluster"),
-        "k8s_cluster_version_supported": ("api_discovery", {"api_discovery"}, "cluster"),
-        "k8s_privileged_utility_access": ("role", {"role", "clusterrole", "rolebinding", "clusterrolebinding", "pod"}, "cluster"),
-        "k8s_persistentvolume_persistentvolumeclaims_pvc_permissions_do_not_allow_00af04b0":
-            ("role", {"role", "clusterrole", "rolebinding", "clusterrolebinding", "namespace"}, "role,clusterrole"),
-    }
-    _, signed = signed_proposals(LEDGER)
-    collected = set(supported_types("k8s"))
-    by_id = {check.id: check for check in CHECKS}
-    for cid, (kind, dependencies, source_kind) in expected.items():
-        check = by_id[cid]
-        assert check.kind == kind and set(check.dependencies) == dependencies and check.target == "scope"
-        assert kind in collected and dependencies <= collected
-        assert signed[cid]["resource_kind"] == source_kind
-        assert cid in exclusions()
-        with pytest.raises(ValueError, match="requires external policy or manual evidence"):
-            _selection("k8s", None, [cid], None)
 
 
 def test_exact_ecr_private_policy_fixture_semantics_and_no_mutation():

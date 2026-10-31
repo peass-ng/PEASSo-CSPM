@@ -8,7 +8,7 @@ import pytest
 from peaso.analysis import iam
 from peaso.analysis.common import analysis_context
 from peaso.snapshot import FrozenDict, freeze, resources, digest
-from examples.benchmark_peaso_trust_policy_reuse import synthetic_snapshot, run_stage
+from tests.synthetic.benchmark_peaso_trust_policy_reuse import synthetic_snapshot, run_stage
 
 
 def text(marker='same'):

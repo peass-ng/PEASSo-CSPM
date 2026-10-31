@@ -62,7 +62,7 @@ def current_cases(check, historical):
         result.update(deepcopy(native[check.id]))
     if check.id == JOB_IMAGE:
         witnesses = json.loads(gzip.decompress(checked(
-            'docs/check-review/gcp-cloudrun-job-image-current-native-witnesses-20261020.json.gz')))
+            'tests/fixtures/native_witnesses/gcp-cloudrun-job-image-current-native-witnesses-20261020.json.gz')))
         assert witnesses['check_id'] == check.id
         for captured in witnesses['witnesses']:
             branch = captured['status'].lower()
@@ -110,7 +110,7 @@ def assert_workload_native_behavior(check, monkeypatch):
         finally:
             next(fixture, None)
     witness = json.loads(gzip.decompress(checked(
-        'docs/check-review/aws-workload-commands-current-native-witnesses-20261020.json.gz')))
+        'tests/fixtures/native_witnesses/aws-workload-commands-current-native-witnesses-20261020.json.gz')))
     assert witness['check_id'] == check.id and witness['witnesses']
     from peaso.engine import evaluate_snapshot
     for captured in witness['witnesses']:

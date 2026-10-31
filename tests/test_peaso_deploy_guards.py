@@ -639,7 +639,7 @@ class DeploymentGuards(unittest.TestCase):
             "frontend/vite.config.ts", "frontend/index.html", "infra/aws/main.tf",
             "infra/aws/Dockerfile.worker", "infra/aws/sdk-constraints.txt", "infra/aws/customer-role.json",
             "infra/aws/.terraform.lock.hcl",
-            "scripts/peaso_deploy.py", "scripts/peaso_test_resources/fixture.py", "docs/peaso-aws.md",
+            "scripts/peaso_deploy.py", "scripts/peaso_test_resources/fixture.py", "docs/hosted-deployment.md",
             "tests/test_peaso_privesc.py", "bluepeass/__init__.py", "bluepeass/k8s.py",
             "bluepeass/k8s_risks.py", "scripts/cloud_permission_risks.py",
             "LICENSE", "README.md", "pyproject.toml", "Dockerfile.peaso",
@@ -696,7 +696,7 @@ class DeploymentGuards(unittest.TestCase):
                 root = Path(folder).resolve()
                 (root / "peaso").mkdir()
                 (root / "peaso/__init__.py").write_text("# offline fixture\n")
-                ledger = root / "docs/compliance-ledgers/aws-cis.json"
+                ledger = root / "risk_rules/hacktricks-source.json"
                 ledger.parent.mkdir(parents=True)
                 if case == "symlink":
                     target = root / "outside.json"

@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 import pytest
 
-from examples.benchmark_peaso_decoded_policies import literal_documents, synthetic_snapshot, run_stage
+from tests.synthetic.benchmark_peaso_decoded_policies import literal_documents, synthetic_snapshot, run_stage
 from peaso.analysis import iam, trust
 from peaso.analysis.common import analysis_context
 from peaso.snapshot import FrozenDict, FrozenList, digest, freeze, resources

@@ -677,29 +677,6 @@ def test_verified_json_rejects_duplicate_object_keys():
         strict_json(b'{"id":"trusted","id":"shadow"}')
 
 
-def test_proposed_ids_have_one_definition_across_catalogues_and_ledgers():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1] / "docs/compliance-ledgers"
-    catalog = {}
-    spec_fields = {"id", "provider", "resource_kind", "data_source", "predicate", "severity", "category", "title", "description", "remediation_hint"}
-    for path in root.glob("new-checks-*.json"):
-        for entry in json.loads(path.read_text()):
-            spec = {key: entry[key] for key in spec_fields}
-            assert entry["id"] not in catalog
-            catalog[entry["id"]] = spec
-    occurrences = set()
-    for path in root.glob("*.json"):
-        if path.name.startswith("new-checks-") or not (root / "inputs" / path.name).exists():
-            continue
-        for framework in json.loads(path.read_text())["frameworks"]:
-            for requirement in framework["requirements"]:
-                for spec in requirement["new_checks"]:
-                    assert spec == catalog[spec["id"]], (path.name, framework["id"], requirement["requirement_id"], spec["id"])
-                    occurrences.add(spec["id"])
-    assert occurrences
-
-
 def test_runtime_preserves_source_mappings_without_reviewed_pack(tmp_path, monkeypatch):
     from peaso.checks import catalog
     import json

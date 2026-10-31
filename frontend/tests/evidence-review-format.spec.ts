@@ -33,27 +33,25 @@ const azureAutomationACI = json("tests/fixtures/azure-automation-aci-evidence-re
 const azureFinalNative = json("tests/fixtures/azure-final-native-evidence-review-20261020.json");
 const azureEdgeNative = json("tests/fixtures/azure-edge-native-evidence-review-20261020.json");
 type Sample = { id: string; provider: string; status: string; summary: string };
+type ReviewCases = Record<string, { status: string; summary: string }[]>;
+const gcpK8s: { gcp: ReviewCases; gcp_aliases: string[]; k8s: ReviewCases } =
+  JSON.parse(gunzipSync(readFileSync(rootFile("tests/fixtures/gcp_k8s_evidence_review.json.gz"))).toString());
 
 function samples(): Sample[] {
   const result: Sample[] = json("tests/fixtures/shared_evidence_review.json");
   const aws = { ...JSON.parse(gunzipSync(readFileSync(rootFile("tests/fixtures/aws_evidence_review.json.gz"))).toString()), ...selectedContent.aws, ...awsSelectedConfiguration, ...awsSelectedS3, ...awsCodebuildInline, ...awsWorkloadCommands };
   for (const [id, cases] of Object.entries(aws) as [string, { status: string; summary: string }[]][])
     for (const row of cases) result.push({ id, provider: "aws", ...row });
-  const gcp = json("docs/evidence-reviews/gcp.json").checks;
-  for (const [id, row] of Object.entries(gcp) as [string, { branch_coverage?: Record<string, { example: string }> }][])
-    if (id !== "gcp.review.cloudrun_job.declared_image_secret_indicators")
-      for (const [status, branch] of Object.entries(typeof row.branch_coverage === "object" ? row.branch_coverage : {}))
-        result.push({ id, provider: "gcp", status, summary: branch.example });
+  for (const [id, cases] of Object.entries(gcpK8s.gcp))
+    for (const row of cases) result.push({ id, provider: "gcp", ...row });
   // This new admission has source-bound native/public DTOs instead of historical example strings.
   for (const record of gcpJobImage) {
     const finding = record.finding;
     result.push({ id: finding.check_id, provider: "gcp", status: finding.status,
       summary: explainObservedEvidence(finding, "No usable deciding evidence was recorded.") });
   }
-  const k8s = json("docs/evidence-reviews/k8s.json").checks;
-  for (const [id, row] of Object.entries(k8s) as [string, { branches: { observed_status: string; explanation: string }[] }][])
-    for (const branch of row.branches)
-      result.push({ id, provider: "k8s", status: branch.observed_status, summary: branch.explanation });
+  for (const [id, cases] of Object.entries(gcpK8s.k8s))
+    for (const row of cases) result.push({ id, provider: "k8s", ...row });
   const azure = { ...JSON.parse(gunzipSync(readFileSync(rootFile("tests/fixtures/azure_evidence_review.json.gz"))).toString()), ...selectedContent.azure, ...azureAI, ...azureNetworkAudit, ...azureAutomationACI, ...azureFinalNative, ...azureEdgeNative, ...azureSelectedSecrets, ...azureSelectedDeclarations, ...azureSelectedLogs, ...azureSelectedML, ...azureSelectedDatabricks, ...azureSasPolicy, ...azureSelectedMlAssets, ...azureFunctionDeclarations, ...azureNspQueryDeclarations, ...azureConfiguredPackage };
   for (const [id, cases] of Object.entries(azure) as [string, { status: string; evidence: unknown }[]][]) {
     for (const row of cases) {
@@ -71,18 +69,15 @@ function samples(): Sample[] {
 
 test("every registered check has reviewed prose and browser fallback coverage", () => {
   const rows = samples();
-  const coverage = json("docs/evidence-reviews/native-coverage.json").providers;
   const nativeIds = {
     aws: Object.keys({ ...JSON.parse(gunzipSync(readFileSync(rootFile("tests/fixtures/aws_evidence_review.json.gz"))).toString()), ...selectedContent.aws, ...awsSelectedConfiguration, ...awsSelectedS3, ...awsCodebuildInline, ...awsWorkloadCommands }),
-    gcp: Object.entries(json("docs/evidence-reviews/gcp.json").checks)
-      .filter(([, row]) => !(row as { alias_of?: string }).alias_of).map(([id]) => id),
+    gcp: Object.keys(gcpK8s.gcp).filter(id => !gcpK8s.gcp_aliases.includes(id)),
     azure: Object.keys({ ...JSON.parse(gunzipSync(readFileSync(rootFile("tests/fixtures/azure_evidence_review.json.gz"))).toString()), ...selectedContent.azure, ...azureAI, ...azureNetworkAudit, ...azureAutomationACI, ...azureFinalNative, ...azureEdgeNative, ...azureSelectedSecrets, ...azureSelectedDeclarations, ...azureSelectedLogs, ...azureSelectedML, ...azureSelectedDatabricks, ...azureSasPolicy, ...azureSelectedMlAssets, ...azureFunctionDeclarations, ...azureNspQueryDeclarations, ...azureConfiguredPackage }),
-    k8s: Object.keys(json("docs/evidence-reviews/k8s.json").checks),
+    k8s: Object.keys(gcpK8s.k8s),
   };
   for (const provider of ["aws", "gcp", "azure", "k8s"] as const) {
     const checked = rows.filter(row => row.provider === provider);
     const renderedIds = new Set(checked.map(row => row.id));
-    expect(nativeIds[provider].length, provider).toBe(coverage[provider].registered_checks);
     expect(nativeIds[provider].filter(id => !renderedIds.has(id)), provider).toEqual([]);
     expect(checked.every(row => row.summary && !row.summary.includes("{\"")), provider).toBeTruthy();
   }

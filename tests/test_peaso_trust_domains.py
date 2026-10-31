@@ -7,8 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from examples.benchmark_peaso_trust_domains import gcp_snapshot as synthetic_snapshot, run_stage
-from examples.benchmark_peaso_trust_domains import synthetic_snapshot as provider_snapshot
+from tests.synthetic.benchmark_peaso_trust_domains import gcp_snapshot as synthetic_snapshot, run_stage
+from tests.synthetic.benchmark_peaso_trust_domains import synthetic_snapshot as provider_snapshot
 from peaso.analysis import trust, trust_domains
 from peaso.analysis.common import analysis_context
 from peaso.snapshot import digest, resources

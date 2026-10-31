@@ -11,10 +11,6 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST = 'tests/test_gcp_core_compute_native_review_20261020.py'
 SEALED = {
     TEST: 'ae5ce865ac04a3b037a3f801813f70dccb364b34f0bac7e3f150b78d5a0324dd',
-    'docs/gcp-review/recheck-20261020/core-compute-review.json':
-        'e6b6f998633451c5a08b6d7981fef05c035a57f57aec2bca8c878402787fe9bf',
-    'docs/gcp-review/recheck-20261020/current-source-reconciliation-20261020.json':
-        '6e6fbdf6acff57100cfe468b851e075b967d0884c7da3ba0ed6faf866f912535',
 }
 
 

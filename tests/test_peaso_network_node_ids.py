@@ -5,10 +5,10 @@ import json
 
 import pytest
 
-from examples.benchmark_peaso_network import synthetic_snapshot as provider_snapshot
-from examples.benchmark_peaso_gcp_lb_workloads import run_stage
-from examples.benchmark_peaso_network_node_ids import fingerprint, synthetic_snapshot
-from examples.reference_peaso_network_node_ids import original_builder
+from tests.synthetic.benchmark_peaso_network import synthetic_snapshot as provider_snapshot
+from tests.synthetic.benchmark_peaso_gcp_lb_workloads import run_stage
+from tests.synthetic.benchmark_peaso_network_node_ids import fingerprint, synthetic_snapshot
+from tests.synthetic.reference_peaso_network_node_ids import original_builder
 from peaso.analysis import common, network
 from peaso.snapshot import digest, resources
 

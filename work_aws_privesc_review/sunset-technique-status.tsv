@@ -1,2 +1,0 @@
-id	status	prior_manifest_sha256	review_evidence
-aws-finspace-passrole-createkxcluster	excluded_verified	2d85f83a0367d243011a00f1b176bfea9f96464a6518b99db1db8acb592271ca	AWS states Amazon FinSpace Managed kdb Insights became inaccessible after October 7, 2026. The executable route is retired; the exact prior catalog binding is retained. https://docs.aws.amazon.com/finspace/latest/userguide/amazon-finspace-end-of-support.html

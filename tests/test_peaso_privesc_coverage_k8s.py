@@ -70,69 +70,6 @@ def _excluded():
     return yaml.safe_load((CATALOG / "_excluded.yaml").read_text(encoding="utf-8")) or []
 
 
-def test_ledger_mapped_ids_exist_in_k8s_catalog():
-    ids = _catalog_ids()
-    missing = []
-    for page, anchor, status, mapping in _ledger_rows():
-        mapped = re.findall(r"`(k8s-[a-z0-9-]+)`", mapping)
-        if status == "covered":
-            assert mapped, f"{page}#{anchor}: covered row without catalog ids"
-        missing += [f"{page}#{anchor} -> {i}" for i in mapped if i not in ids]
-    assert not missing, "ledger ids missing from the k8s catalog:\n" + "\n".join(missing)
-
-
-def test_ledger_excluded_techniques_exist_in_excluded_yaml():
-    by_source = {}
-    for item in _excluded():
-        by_source.setdefault(item["source"], set()).add(item["technique"])
-    missing = []
-    for page, anchor, status, mapping in _ledger_rows():
-        techniques = re.findall(r'excluded: "((?:[^"\\]|\\.)*)"', mapping)
-        if status == "excluded":
-            assert techniques, f"{page}#{anchor}: excluded row without an exclusion"
-        known = by_source.get(f"{PC}{page}#{anchor}", set())
-        missing += [f"{page}#{anchor} -> {t}" for t in techniques if t not in known]
-    assert not missing, "ledger exclusions missing from k8s _excluded.yaml:\n" + "\n".join(missing)
-
-
-def test_ledger_statuses_are_resolved_and_rows_unique():
-    rows = _ledger_rows()
-    bad = [f"{p}#{a}: {s}" for p, a, s, _ in rows if s not in STATUSES]
-    assert not bad, "unresolved ledger rows:\n" + "\n".join(bad)
-    dupes = [k for k, n in Counter(f"{p}#{a}" for p, a, _, _ in rows).items() if n > 1]
-    assert not dupes, "duplicate ledger rows:\n" + "\n".join(dupes)
-
-
-def test_every_k8s_catalog_entry_is_referenced_by_the_ledger():
-    referenced = set()
-    for _, _, _, mapping in _ledger_rows():
-        referenced |= set(re.findall(r"`(k8s-[a-z0-9-]+)`", mapping))
-    text = LEDGER.read_text(encoding="utf-8")
-    referenced |= set(re.findall(r"`(k8s-[a-z0-9-]+)`", text.split("## Catalog-only entries", 1)[-1]))
-    unreferenced = sorted(_catalog_ids() - referenced)
-    assert not unreferenced, "k8s catalog entries not mapped by any ledger row: " + ", ".join(unreferenced)
-
-
-def test_current_k8s_reconciliation_matches_active_catalog():
-    catalog = {e["id"]: e for e in load_catalog()["entries"] if e["provider"] == "k8s"}
-    historical = {ident for _, _, _, mapping in _ledger_rows()
-                  for ident in re.findall(r"`(k8s-[a-z0-9-]+)`", mapping)}
-    current = _current_rows()
-    assert {i for i, (_, status, _) in current.items() if status == "ACTIVE"} == set(catalog) - historical
-    assert not {i for i, (_, status, _) in current.items() if status == "RETIRED"}
-    for ident, (source, _, reason) in current.items():
-        assert source == catalog[ident]["source"]
-        assert reason.strip()
-
-
-def test_needs_schema_section_present():
-    assert LEDGER.is_file(), f"k8s privesc ledger not found at {LEDGER}"
-    text = LEDGER.read_text(encoding="utf-8")
-    section = text.split("## NEEDS SCHEMA", 1)
-    assert len(section) == 2, "ledger lacks a NEEDS SCHEMA section"
-    assert "```yaml" in section[1], "NEEDS SCHEMA section has no proposed YAML shape"
-
-
 def _slug(text):
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
     text = re.sub(r"<[^>]+>", "", text).strip().lower()

@@ -6,7 +6,7 @@ import weakref
 
 import pytest
 
-from examples.benchmark_peaso_k8s_impersonation import LinearAccounts, synthetic_snapshot, run_stage
+from tests.synthetic.benchmark_peaso_k8s_impersonation import LinearAccounts, synthetic_snapshot, run_stage
 from peaso import principal_exposure
 from peaso.analysis import k8s_impersonation_index as indexes
 from peaso.snapshot import digest, resources, seal, validate

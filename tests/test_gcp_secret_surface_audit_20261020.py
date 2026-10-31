@@ -22,8 +22,7 @@ from tests.test_gcp_secret_integration_acceptance_review import selected_options
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SURFACES = json.loads((ROOT / 'docs/gcp-review/secret-surfaces.json').read_text())['surfaces']
-BASELINE_IDS = {cid for surface in SURFACES for cid in surface.get('implementation', {}).get('check_ids', [])}
+BASELINE_IDS = set(json.loads((ROOT / 'tests/fixtures/gcp_secret_surface_check_ids.json').read_text()))
 NEW_SELECTED_IDS = {'gcp.review.cloudtasks.selected_payload_secret_indicators',
                     'gcp.review.bigquery.selected_routine_secret_indicators'}
 ADMITTED_SOURCE_IDS = {

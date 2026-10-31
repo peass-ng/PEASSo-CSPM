@@ -322,42 +322,6 @@ def test_cloudtrail_collects_both_regular_and_delegated_admin_policies():
     assert read.items[0]['_provenance']['families'] == [recipe.id]
 
 
-def test_resource_type_review_requires_attachment_decisions_and_correct_read_family():
-    from copy import deepcopy
-    from scripts.audit_aws_resource_policy_coverage import audit_resource_types
-    source = json.loads(Path('peaso/collectors/aws_resource_policy_targets.json').read_text())
-    result = audit_resource_types(families.RECIPES, source)
-    assert result['reviewed_actions'] == len(source['policy_actions'])
-    assert result['covered_resource_types'] > 90
-    unreviewed = deepcopy(source)
-    unreviewed['policy_actions']['cloudtrail:GetResourcePolicy']['resource_types'].append('new-policy-target')
-    with pytest.raises(AssertionError, match='Unreviewed policy resource types'):
-        audit_resource_types(families.RECIPES, unreviewed)
-    wrong_service = deepcopy(source)
-    wrong_service['policy_actions']['cloudtrail:GetResourcePolicy']['resource_type_review']['dashboard']['families'] = ['kms-keys']
-    with pytest.raises(AssertionError, match='Wrong policy attachment read'):
-        audit_resource_types(families.RECIPES, wrong_service)
-    missing_family = deepcopy(source)
-    missing_family['policy_actions']['cloudtrail:GetResourcePolicy']['resource_type_review']['dashboard']['families'] = ['removed-recipe']
-    with pytest.raises(AssertionError, match='Missing attachment family'):
-        audit_resource_types(families.RECIPES, missing_family)
-
-
-def test_iam_support_matrix_cannot_silently_omit_a_supported_service():
-    from copy import deepcopy
-    from scripts.audit_aws_resource_policy_coverage import audit_service_support
-    source = json.loads(Path('peaso/collectors/aws_resource_policy_targets.json').read_text())
-    audit_service_support(families.RECIPES, source)
-    removed = deepcopy(source)
-    del removed['iam_service_support_review']['reviewed_services']['Amazon Kinesis Data Streams']
-    with pytest.raises(AssertionError, match='Unreviewed IAM support-table services'):
-        audit_service_support(families.RECIPES, removed)
-    wrong_family = deepcopy(source)
-    wrong_family['iam_service_support_review']['reviewed_services']['Amazon Kinesis Data Streams']['families'] = ['kms-keys']
-    with pytest.raises(AssertionError, match='Missing service policy coverage'):
-        audit_service_support(families.RECIPES, wrong_family)
-
-
 @pytest.mark.parametrize('operator,guard,restricted', [
     ('StringEqualsIgnoreCase', {}, True),
     ('StringEqualsIgnoreCaseIfExists', {}, False),

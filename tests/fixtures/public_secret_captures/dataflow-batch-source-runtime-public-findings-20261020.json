@@ -1,0 +1,410 @@
+{
+  "dataflow": {
+    "pass": [
+      {
+        "id": "sha256:e437e545eb37586e442a15e50793bd437ed45df30c3841cd1d777dd98b5239ea",
+        "check_id": "gcp.review.dataflow.selected_package_referenced_source_secret_indicators",
+        "provider": "gcp",
+        "resource_id": "sha256:16fa8ae487419bbba06c117af78d9e387b646d953eae4d7a1521cab45ea2ca74",
+        "scope": "projects/review",
+        "status": "PASS",
+        "evidence": {
+          "complete": true,
+          "secret_leaks": [],
+          "parts": [
+            {
+              "path": "dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52.part-1",
+              "bytes": 11,
+              "engines": [
+                {
+                  "engine": "kingfisher",
+                  "version": "1.4.0",
+                  "status": "complete"
+                },
+                {
+                  "engine": "trufflehog",
+                  "version": "3.92.5",
+                  "status": "complete"
+                }
+              ],
+              "complete": true
+            }
+          ],
+          "executed_bytes_proven": false,
+          "credential_validation": "not_attempted",
+          "coverage": "selected_current_referenced_package_only",
+          "observed": "Both offline detectors completed without a supported secret detection in the selected captured Dataflow package bytes. This does not establish the original executed or deployed code."
+        },
+        "native_resource_id": "//gcp/projects/review/global/dataflow_selected_package_source/dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52",
+        "resource_name": "dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52"
+      }
+    ],
+    "fail": [
+      {
+        "id": "secret-e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "check_id": "gcp.review.dataflow.selected_package_referenced_source_secret_indicators",
+        "provider": "gcp",
+        "resource_id": "secret:e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "scope": "projects/review",
+        "status": "FAIL",
+        "evidence": {
+          "secret_leaks": [
+            {
+              "fingerprint": "e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+              "detectors": [
+                {
+                  "engine": "kingfisher",
+                  "rule": "betterleaks.github-pat"
+                },
+                {
+                  "engine": "trufflehog",
+                  "rule": "Github"
+                }
+              ],
+              "locations": [
+                {
+                  "path": "dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52.part-1",
+                  "line": 1,
+                  "resource_id": "//gcp/projects/review/global/dataflow_selected_package_source/dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52",
+                  "scope": "projects/review"
+                }
+              ]
+            }
+          ],
+          "credential_validation": "not_attempted",
+          "observed": "The same secret was detected in 1 scanned location(s). Its value is hidden."
+        },
+        "resource_name": "Exposed secret",
+        "secret_fingerprint": "e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "linked_check_ids": [
+          "gcp.review.dataflow.selected_package_referenced_source_secret_indicators"
+        ],
+        "evidence_summary": "The same secret was detected in 1 scanned location(s). Its value is hidden."
+      }
+    ],
+    "unknown": [
+      {
+        "id": "sha256:e437e545eb37586e442a15e50793bd437ed45df30c3841cd1d777dd98b5239ea",
+        "check_id": "gcp.review.dataflow.selected_package_referenced_source_secret_indicators",
+        "provider": "gcp",
+        "resource_id": "sha256:16fa8ae487419bbba06c117af78d9e387b646d953eae4d7a1521cab45ea2ca74",
+        "scope": "projects/review",
+        "status": "UNKNOWN",
+        "evidence": {
+          "complete": false,
+          "observed": "The selected current referenced package was unavailable, unbound or incompletely inspected.",
+          "reason": "unknown_reason_not_supplied"
+        },
+        "native_resource_id": "//gcp/projects/review/global/dataflow_selected_package_source/dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52",
+        "resource_name": "dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52"
+      }
+    ],
+    "partial": [
+      {
+        "id": "secret-e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "check_id": "gcp.review.dataflow.selected_package_referenced_source_secret_indicators",
+        "provider": "gcp",
+        "resource_id": "secret:e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "scope": "projects/review",
+        "status": "FAIL",
+        "evidence": {
+          "secret_leaks": [
+            {
+              "fingerprint": "e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+              "detectors": [
+                {
+                  "engine": "trufflehog",
+                  "rule": "Github"
+                }
+              ],
+              "locations": [
+                {
+                  "path": "dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52.part-1",
+                  "line": 1,
+                  "resource_id": "//gcp/projects/review/global/dataflow_selected_package_source/dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52",
+                  "scope": "projects/review"
+                }
+              ]
+            }
+          ],
+          "credential_validation": "not_attempted",
+          "complete": false,
+          "coverage": "incomplete",
+          "observed": "The same secret was detected in 1 scanned location(s). Its value is hidden. Coverage is incomplete."
+        },
+        "resource_name": "Exposed secret",
+        "secret_fingerprint": "e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "linked_check_ids": [
+          "gcp.review.dataflow.selected_package_referenced_source_secret_indicators"
+        ],
+        "evidence_summary": "The same secret was detected in 1 scanned location(s). Its value is hidden. Coverage is incomplete."
+      }
+    ]
+  },
+  "batch": {
+    "pass": [
+      {
+        "id": "sha256:77819a7a96a8f0ded7ad63448e4b19a26634dcfa9e3cd892528368e8325d0445",
+        "check_id": "gcp.review.batch.selected_mounted_script_source_secret_indicators",
+        "provider": "gcp",
+        "resource_id": "sha256:9a48503db606607ac5474241d93f4eb3069742ac79d5d780daf90c7b4d438a7b",
+        "scope": "projects/review",
+        "status": "PASS",
+        "evidence": {
+          "observed": "Both offline detectors completed without detecting a supported secret in the captured selected Batch mounted script source. This capture does not establish the bytes executed by the job.",
+          "secret_leaks": [],
+          "complete": true,
+          "coverage": "selected_captured_mounted_script_source_only",
+          "executed_bytes_proven": false,
+          "credential_validation": "not_attempted",
+          "parts": [
+            {
+              "bytes": 11,
+              "complete": true,
+              "engines": [
+                {
+                  "engine": "kingfisher",
+                  "version": "1.4.0",
+                  "status": "complete"
+                },
+                {
+                  "engine": "trufflehog",
+                  "version": "3.92.5",
+                  "status": "complete"
+                }
+              ]
+            }
+          ]
+        },
+        "native_resource_id": "//gcp/projects/review/global/batch_selected_mounted_script_source/batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816",
+        "resource_name": "batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816"
+      }
+    ],
+    "fail": [
+      {
+        "id": "secret-e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "check_id": "gcp.review.batch.selected_mounted_script_source_secret_indicators",
+        "provider": "gcp",
+        "resource_id": "secret:e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "scope": "projects/review",
+        "status": "FAIL",
+        "evidence": {
+          "secret_leaks": [
+            {
+              "fingerprint": "e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+              "detectors": [
+                {
+                  "engine": "kingfisher",
+                  "rule": "betterleaks.github-pat"
+                },
+                {
+                  "engine": "trufflehog",
+                  "rule": "Github"
+                }
+              ],
+              "locations": [
+                {
+                  "path": "batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816.source",
+                  "line": 1,
+                  "resource_id": "//gcp/projects/review/global/batch_selected_mounted_script_source/batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816",
+                  "scope": "projects/review"
+                }
+              ]
+            }
+          ],
+          "credential_validation": "not_attempted",
+          "observed": "The same secret was detected in 1 scanned location(s). Its value is hidden."
+        },
+        "resource_name": "Exposed secret",
+        "secret_fingerprint": "e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "linked_check_ids": [
+          "gcp.review.batch.selected_mounted_script_source_secret_indicators"
+        ],
+        "evidence_summary": "The same secret was detected in 1 scanned location(s). Its value is hidden."
+      }
+    ],
+    "unknown": [
+      {
+        "id": "sha256:77819a7a96a8f0ded7ad63448e4b19a26634dcfa9e3cd892528368e8325d0445",
+        "check_id": "gcp.review.batch.selected_mounted_script_source_secret_indicators",
+        "provider": "gcp",
+        "resource_id": "sha256:9a48503db606607ac5474241d93f4eb3069742ac79d5d780daf90c7b4d438a7b",
+        "scope": "projects/review",
+        "status": "UNKNOWN",
+        "evidence": {
+          "complete": false,
+          "observed": "Selected Batch mounted script source was unavailable, unbound or incompletely inspected.",
+          "reason": "unknown_reason_not_supplied"
+        },
+        "native_resource_id": "//gcp/projects/review/global/batch_selected_mounted_script_source/batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816",
+        "resource_name": "batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816"
+      }
+    ],
+    "partial": [
+      {
+        "id": "secret-e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "check_id": "gcp.review.batch.selected_mounted_script_source_secret_indicators",
+        "provider": "gcp",
+        "resource_id": "secret:e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "scope": "projects/review",
+        "status": "FAIL",
+        "evidence": {
+          "secret_leaks": [
+            {
+              "fingerprint": "e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+              "detectors": [
+                {
+                  "engine": "trufflehog",
+                  "rule": "Github"
+                }
+              ],
+              "locations": [
+                {
+                  "path": "batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816.source",
+                  "line": 1,
+                  "resource_id": "//gcp/projects/review/global/batch_selected_mounted_script_source/batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816",
+                  "scope": "projects/review"
+                }
+              ]
+            }
+          ],
+          "credential_validation": "not_attempted",
+          "complete": false,
+          "coverage": "incomplete",
+          "observed": "The same secret was detected in 1 scanned location(s). Its value is hidden. Coverage is incomplete."
+        },
+        "resource_name": "Exposed secret",
+        "secret_fingerprint": "e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+        "linked_check_ids": [
+          "gcp.review.batch.selected_mounted_script_source_secret_indicators"
+        ],
+        "evidence_summary": "The same secret was detected in 1 scanned location(s). Its value is hidden. Coverage is incomplete."
+      }
+    ]
+  },
+  "combined_clean": [
+    {
+      "id": "sha256:77819a7a96a8f0ded7ad63448e4b19a26634dcfa9e3cd892528368e8325d0445",
+      "check_id": "gcp.review.batch.selected_mounted_script_source_secret_indicators",
+      "provider": "gcp",
+      "resource_id": "sha256:9a48503db606607ac5474241d93f4eb3069742ac79d5d780daf90c7b4d438a7b",
+      "scope": "projects/review",
+      "status": "PASS",
+      "evidence": {
+        "observed": "Both offline detectors completed without detecting a supported secret in the captured selected Batch mounted script source. This capture does not establish the bytes executed by the job.",
+        "secret_leaks": [],
+        "complete": true,
+        "coverage": "selected_captured_mounted_script_source_only",
+        "executed_bytes_proven": false,
+        "credential_validation": "not_attempted",
+        "parts": [
+          {
+            "bytes": 11,
+            "complete": true,
+            "engines": [
+              {
+                "engine": "kingfisher",
+                "version": "1.4.0",
+                "status": "complete"
+              },
+              {
+                "engine": "trufflehog",
+                "version": "3.92.5",
+                "status": "complete"
+              }
+            ]
+          }
+        ]
+      },
+      "native_resource_id": "//gcp/projects/review/global/batch_selected_mounted_script_source/batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816",
+      "resource_name": "batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816"
+    },
+    {
+      "id": "sha256:e437e545eb37586e442a15e50793bd437ed45df30c3841cd1d777dd98b5239ea",
+      "check_id": "gcp.review.dataflow.selected_package_referenced_source_secret_indicators",
+      "provider": "gcp",
+      "resource_id": "sha256:16fa8ae487419bbba06c117af78d9e387b646d953eae4d7a1521cab45ea2ca74",
+      "scope": "projects/review",
+      "status": "PASS",
+      "evidence": {
+        "complete": true,
+        "secret_leaks": [],
+        "parts": [
+          {
+            "path": "dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52.part-1",
+            "bytes": 11,
+            "engines": [
+              {
+                "engine": "kingfisher",
+                "version": "1.4.0",
+                "status": "complete"
+              },
+              {
+                "engine": "trufflehog",
+                "version": "3.92.5",
+                "status": "complete"
+              }
+            ],
+            "complete": true
+          }
+        ],
+        "executed_bytes_proven": false,
+        "credential_validation": "not_attempted",
+        "coverage": "selected_current_referenced_package_only",
+        "observed": "Both offline detectors completed without a supported secret detection in the selected captured Dataflow package bytes. This does not establish the original executed or deployed code."
+      },
+      "native_resource_id": "//gcp/projects/review/global/dataflow_selected_package_source/dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52",
+      "resource_name": "dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52"
+    }
+  ],
+  "combined_hit": [
+    {
+      "id": "secret-e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+      "check_id": "gcp.review.dataflow.selected_package_referenced_source_secret_indicators",
+      "provider": "gcp",
+      "resource_id": "secret:e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+      "scope": "projects/review",
+      "status": "FAIL",
+      "evidence": {
+        "secret_leaks": [
+          {
+            "fingerprint": "e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+            "detectors": [
+              {
+                "engine": "kingfisher",
+                "rule": "betterleaks.github-pat"
+              },
+              {
+                "engine": "trufflehog",
+                "rule": "Github"
+              }
+            ],
+            "locations": [
+              {
+                "path": "batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816.source",
+                "line": 1,
+                "resource_id": "//gcp/projects/review/global/batch_selected_mounted_script_source/batch_selected_mounted_script_source:a3d2dfc589379de333a30aec9daa9917e014132e3feadbf8fbcf8259f811f816",
+                "scope": "projects/review"
+              },
+              {
+                "path": "dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52.part-1",
+                "line": 1,
+                "resource_id": "//gcp/projects/review/global/dataflow_selected_package_source/dataflow-source:a83cd5e20213258052364e1e651b6bb94ba7969d061489651b86680d41acae52",
+                "scope": "projects/review"
+              }
+            ]
+          }
+        ],
+        "credential_validation": "not_attempted",
+        "observed": "The same secret was detected in 2 scanned location(s). Its value is hidden."
+      },
+      "resource_name": "Exposed secret",
+      "secret_fingerprint": "e7d17704005c1fec4d62c584d84ef4cb39e590c475359241ec04cac1b29b1f5a",
+      "linked_check_ids": [
+        "gcp.review.batch.selected_mounted_script_source_secret_indicators",
+        "gcp.review.dataflow.selected_package_referenced_source_secret_indicators"
+      ],
+      "evidence_summary": "The same secret was detected in 2 scanned location(s). Its value is hidden."
+    }
+  ]
+}

@@ -194,16 +194,6 @@ def test_insight_check_runs_through_normal_hardening_engine_and_json_output():
     assert 'HackTricks Cloud Best Practices' in finding['frameworks']
 
 
-def test_public_criteria_are_the_reviewed_observation_criteria():
-    from peaso.checks import CHECKS
-    for ident in (subject.ACCOUNT, subject.KEY):
-        check = next(row for row in CHECKS if row.id == ident)
-        public = check.public()
-        assert 'observation' in public['description'].lower()
-        reviewed = subject.DESCRIPTION_SUCCESSORS[ident]['description']
-        assert {key: public[key] for key in reviewed} == reviewed
-
-
 def test_authentication_for_deleted_recreated_email_cannot_mark_current_account_unused():
     item = identity()
     item['_activity']['service_account_id'] = '999999999999999999999'

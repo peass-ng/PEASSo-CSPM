@@ -20,7 +20,7 @@ def findings(value):
 
 PUBLIC=[]
 for name in ['workbench-source-runtime-public-findings-20261020.json','dataflow-batch-source-runtime-public-findings-20261020.json']:
-    PUBLIC.extend(findings(json.loads((Path('docs/gcp-review/recheck-20261020')/name).read_text())))
+    PUBLIC.extend(findings(json.loads((Path('tests/fixtures/public_secret_captures')/name).read_text())))
 
 
 @pytest.mark.parametrize('finding',PUBLIC)

@@ -21,7 +21,7 @@ from peaso.checks import CHECKS
 from peaso.collectors import k8s
 from peaso.engine import evaluate_snapshot
 
-QUEUE = json.loads((Path(__file__).resolve().parents[1] / 'docs/check-review/k8s-review-queue-20261020.json').read_text())
+QUEUE = json.loads((Path(__file__).resolve().parents[1] / 'tests/fixtures/k8s_review_batches.json').read_text())
 BATCHES = {b['name']: b['ids'] for b in QUEUE['batches'] if b['name'] in ('workloads_1', 'workloads_2', 'workloads_3')}
 IDS = tuple(cid for rows in BATCHES.values() for cid in rows)
 REGISTRY = {c.id: c for c in CHECKS if c.id in IDS}

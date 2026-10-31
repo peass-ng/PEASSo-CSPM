@@ -113,7 +113,7 @@ def test_explicit_content_checks_can_keep_all_privilege_techniques_in_same_scan(
 
 @pytest.mark.parametrize('scenario', ['full', 'summary', 'frameworks', 'scans', 'scan_create', 'setup', 'lookups', 'full_max'])
 def test_fresh_mangum_blocks_all_native_imports_and_outbound_calls(scenario):
-    result = subprocess.run([sys.executable, str(ROOT / 'scripts/peaso_api_catalog_cold_probe_20261020.py'), scenario],
+    result = subprocess.run([sys.executable, str(ROOT / 'tests/api_catalog_cold_probe.py'), scenario],
                             cwd=ROOT, env=dict(os.environ, PYTHONDONTWRITEBYTECODE='1'), capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     proof = json.loads(result.stdout)

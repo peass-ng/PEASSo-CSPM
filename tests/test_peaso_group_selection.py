@@ -2,8 +2,8 @@
 import importlib
 from unittest.mock import patch
 
-from examples.benchmark_peaso_finding_pages import api_fixture
-from examples.benchmark_peaso_group_selection import reference_client
+from tests.synthetic.benchmark_peaso_finding_pages import api_fixture
+from tests.synthetic.benchmark_peaso_group_selection import reference_client
 
 
 def test_grouped_list_summary_and_members_match_eager_selection():

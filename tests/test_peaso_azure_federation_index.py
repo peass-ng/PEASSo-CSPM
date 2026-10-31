@@ -7,7 +7,7 @@ import weakref
 
 import pytest
 
-from examples.benchmark_peaso_azure_federation import LinearFederation, synthetic_snapshot, run_stage
+from tests.synthetic.benchmark_peaso_azure_federation import LinearFederation, synthetic_snapshot, run_stage
 from peaso import principal_exposure
 from peaso.analysis import azure_federation_index, cloud_workload_index
 from peaso.snapshot import digest, freeze, resources, seal, validate

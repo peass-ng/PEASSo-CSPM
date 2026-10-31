@@ -4,16 +4,7 @@ import type { Finding } from "../src/types";
 import { publicSourceSecretObservation } from "../src/publicSourceSecretEvidence";
 import { explainObservedEvidence } from "../src/observedEvidenceExplanation";
 const read=(p:string)=>JSON.parse(readFileSync(new URL("../../"+p,import.meta.url),"utf8"));
-const azure=read("docs/check-review/azure-function-package-integrated-public-native-20261020.json");
-const gcp=read("docs/check-review/gcp-function-paired-native-dtos-20261020.json");
-const current=read("docs/check-review/gcp-function-paired-native-current-dtos-20261020.json");
-const two=read("docs/check-review/azure-function-package-integrated-two-secret-native-20261020.json");
-const samples:{name:string;finding:Finding}[]=[
-  ...azure.captures.flatMap((r:{name:string;findings:Finding[]})=>r.findings.map((finding,i)=>({name:`azure-${r.name}-${i}`,finding}))),
-  ...gcp.records.flatMap((r:{case:string;public_findings:Finding[]})=>r.public_findings.map((finding,i)=>({name:`gcp-${r.case}-${i}`,finding}))),
-  ...current.records.flatMap((r:{case:string;public_findings:Finding[]})=>r.public_findings.map((finding,i)=>({name:`gcp-current-${r.case}-${i}`,finding}))),
-  ...two.capture.findings.map((finding:Finding,i:number)=>({name:`azure-two-${i}`,finding})),
-];
+const samples:{name:string;finding:Finding}[]=read("tests/fixtures/public_secret_captures/function_source_findings.json").map(([name,finding]:[string,Finding])=>({name,finding}));
 for (const {name,finding} of samples) test(`actual public source ${name} is brief and scoped`,()=>{
   const before=structuredClone(finding),text=publicSourceSecretObservation(finding);
   if (finding.status==="FAIL") {

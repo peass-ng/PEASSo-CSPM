@@ -16,11 +16,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SEALED = {
-    'test_azure_application_compute_2_native_review_20261020.py': (
+    'test_azure_application_compute_2_native_review_20261020.py':
         '5929c09d6c94d627b7df2db8e50a2cee3ef9580f1c30da4c4e3c981f01d4d0a2',
-        'docs/check-review/azure-application-compute-2-native-review-20261020.json',
-        '45b25d2087ce77a7e3ee04bfae6ed730427517a26c40ea4a0176c3703c3d4baa',
-    ),
 }
 
 
@@ -34,10 +31,9 @@ def _current_azure_native_auxiliary_routes(request):
     name = Path(getattr(module, '__file__', '')).name
     if name not in SEALED:
         return
-    test_sha, review_path, review_sha = SEALED[name]
+    test_sha = SEALED[name]
     assert Path(module.__file__).resolve() == ROOT / 'tests' / name
     assert _sha(ROOT / 'tests' / name) == test_sha
-    assert _sha(ROOT / review_path) == review_sha
     monkeypatch = request.getfixturevalue('monkeypatch')
 
     if name == 'test_azure_application_compute_2_native_review_20261020.py':

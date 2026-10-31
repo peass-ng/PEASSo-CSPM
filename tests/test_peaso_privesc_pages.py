@@ -1,7 +1,7 @@
 """Ordered graph queries keep complete totals with bounded result selection."""
 import copy
 import pytest
-from examples.benchmark_peaso_privesc_pages import fixture, reference
+from tests.synthetic.benchmark_peaso_privesc_pages import fixture, reference
 from peaso.privesc import queries
 
 

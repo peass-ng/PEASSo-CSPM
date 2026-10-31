@@ -9,7 +9,7 @@ import pytest
 from peaso.checks.aws_evidence_explanations import evidence_summary
 from peaso.checks.selected_configuration_content_observed_20261020 import observation
 
-PROOF = Path('docs/check-review/aws-codebuild-buildspec-runtime-public-native-20261020.json')
+PROOF = Path('tests/fixtures/public_secret_captures/aws-codebuild-buildspec-runtime-public-native-20261020.json')
 
 
 @pytest.mark.parametrize('branch', ['pass', 'fail', 'partial', 'unknown', 'malformed'])

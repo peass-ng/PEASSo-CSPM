@@ -433,7 +433,7 @@ def test_native_session_disables_ambient_proxy_auth_and_cookie(monkeypatch):
 
 def test_immutable_native_proof_replays_through_actual_pure_consumer():
     root = Path(__file__).resolve().parents[1]
-    proof = json.loads(gzip.decompress((root / 'docs/gcp-review/recheck-20261020/gcp_batch_referenced_source_20261020_proof.json.gz').read_bytes()))
+    proof = json.loads(gzip.decompress((root / 'tests/fixtures/native_witnesses/gcp_batch_referenced_source_20261020_proof.json.gz').read_bytes()))
     for case in proof['cases']:
         assert case['all_responses_closed'] and case['scanner_matches_cleared']
         evidence = case['evidence']

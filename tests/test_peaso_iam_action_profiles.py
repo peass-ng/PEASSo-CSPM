@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from examples.benchmark_peaso_iam_action_profiles import literal_text, run_stage, synthetic_snapshot
+from tests.synthetic.benchmark_peaso_iam_action_profiles import literal_text, run_stage, synthetic_snapshot
 from peaso.analysis import finding_clarity, iam
 from peaso.analysis.common import analysis_context
 from peaso.snapshot import resources

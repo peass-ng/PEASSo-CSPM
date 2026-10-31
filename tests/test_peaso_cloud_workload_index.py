@@ -7,7 +7,7 @@ import weakref
 
 import pytest
 
-from examples.benchmark_peaso_cloud_workloads import LinearCloudWorkloads, synthetic_snapshot
+from tests.synthetic.benchmark_peaso_cloud_workloads import LinearCloudWorkloads, synthetic_snapshot
 from peaso.analysis import cloud_workload_index as indexed
 from peaso.principal_exposure import project
 from peaso.snapshot import resources, seal, validate

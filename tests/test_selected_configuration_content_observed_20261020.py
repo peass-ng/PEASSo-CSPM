@@ -152,7 +152,7 @@ def test_actual_consolidated_metadata_hit_has_scope_bound_brief_summary():
 
 @pytest.mark.parametrize('scenario',['pass','fail','unknown','partial_trusted_fail'])
 def test_workbench_actual_public_engine_evidence_remains_brief(scenario):
-    proof=json.loads(Path('docs/gcp-review/recheck-20261020/workbench-source-runtime-public-findings-20261020.json').read_text())
+    proof=json.loads(Path('tests/fixtures/public_secret_captures/workbench-source-runtime-public-findings-20261020.json').read_text())
     record=next(r for r in proof['records']if r['scenario']==scenario)
     from peaso.finding_observation import evidence_summary
     for finding in record['public_findings']:

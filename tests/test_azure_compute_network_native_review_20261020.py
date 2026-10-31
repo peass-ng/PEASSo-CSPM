@@ -5,7 +5,6 @@ the responses. CSV selects the assigned cohort only; native fixtures below set
 the security facts. Red assertions intentionally preserve genuine counterexamples.
 """
 from copy import deepcopy
-import csv
 import json
 import socket
 from urllib.parse import parse_qs, urlsplit
@@ -31,10 +30,8 @@ VAULT = BASE + 'Microsoft.RecoveryServices/vaults/native-vault'
 WATCHER = BASE + 'Microsoft.Network/networkWatchers/native-watcher'
 WORKSPACE = BASE + 'Microsoft.OperationalInsights/workspaces/native-workspace'
 REGISTRY = {check.id: check for check in CHECKS}
-with open('docs/check-review/checks.csv') as stream:
-    ASSIGNED = tuple(row['check_id'] for row in csv.DictReader(stream)
-                     if row['provider'] == 'azure' and row['active'] == 'True'
-                     and row['resource_kind'] in ('vm', 'nsg'))
+with open('tests/fixtures/azure_vm_nsg_check_ids.json') as stream:
+    ASSIGNED = tuple(json.load(stream))
 
 GUEST = {
     'vm_linux_no_passwordless_accounts': ('Linux', 'PasswordPolicy_msid232'),

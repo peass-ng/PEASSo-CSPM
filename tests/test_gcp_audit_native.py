@@ -19,7 +19,6 @@ from peaso.checks.gcp_audit_native import ELIGIBLE, SPEC_SHA256
 
 SCOPE='projects/audit-fixture'
 START='2026-10-13T00:00:00Z'; END='2026-10-13T01:00:00Z'
-SPECS={row['id']:row for row in json.loads(Path('docs/compliance-ledgers/new-checks-gcp.json').read_text()) if row['id'].startswith('gcp_logging_detect_t')}
 
 def intake_module(monkeypatch):
     from peaso.server import validation

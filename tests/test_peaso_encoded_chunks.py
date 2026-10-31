@@ -145,7 +145,7 @@ def test_raw_json_failure_is_sticky_and_prevents_manifest():
 
 
 def test_complete_finding_chunk_and_detail_publication_matches_previous_path(monkeypatch):
-    from examples.benchmark_peaso_publication import content_digest
+    from tests.synthetic.benchmark_peaso_publication import content_digest
 
     monkeypatch.setattr(reports, 'CHUNK_BYTES', 1024)
     rows = [{'id': f'{i:03d}', 'check_id': 'fixture', 'evidence': {
@@ -185,8 +185,8 @@ def test_complete_finding_chunk_and_detail_publication_matches_previous_path(mon
 
 @pytest.mark.parametrize('compact', [False, True])
 def test_complete_publisher_retains_native_artifacts_and_private_output_boundaries(monkeypatch, compact):
-    from examples.benchmark_peaso_publication import SimulatedS3
-    from examples.benchmark_peaso_report_publication import fixture
+    from tests.synthetic.benchmark_peaso_publication import SimulatedS3
+    from tests.synthetic.benchmark_peaso_report_publication import fixture
 
     monkeypatch.setattr(reports, 'CHUNK_BYTES', 1024)
     report, snapshot = fixture(12, compact)

@@ -19,6 +19,6 @@ def test_changed_record_rejected_even_for_historical_catalog(tmp_path):
 
 
 def test_exact_reviewed_record_is_accepted(tmp_path):
-    source = Path(__file__).resolve().parents[1] / 'docs/compliance-ledgers' / RELATIVE
+    source = Path(__file__).resolve().parent / 'fixtures' / RELATIVE
     (tmp_path / RELATIVE).write_bytes(source.read_bytes())
     verify_source_errata(tmp_path, CURRENT)

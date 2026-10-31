@@ -5,7 +5,7 @@ import tracemalloc
 
 import pytest
 
-from examples.reference_peaso_ordered_matches import OriginalOrderedMatchIndex
+from tests.synthetic.reference_peaso_ordered_matches import OriginalOrderedMatchIndex
 from peaso.analysis.resource_index import OrderedMatchIndex
 
 

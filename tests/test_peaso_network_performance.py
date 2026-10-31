@@ -3,7 +3,7 @@ import copy
 
 import pytest
 
-from examples.benchmark_peaso_network import run_stage, synthetic_snapshot
+from tests.synthetic.benchmark_peaso_network import run_stage, synthetic_snapshot
 from peaso.analysis import network, internet_exposure
 
 

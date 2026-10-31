@@ -8,14 +8,8 @@ from peaso.checks.public_source_secret_observed_20261020 import observation
 
 
 def captures():
-    azure=json.loads(Path('docs/check-review/azure-function-package-integrated-public-native-20261020.json').read_text())
-    gcp=json.loads(Path('docs/check-review/gcp-function-paired-native-dtos-20261020.json').read_text())
-    current=json.loads(Path('docs/check-review/gcp-function-paired-native-current-dtos-20261020.json').read_text())
-    two=json.loads(Path('docs/check-review/azure-function-package-integrated-two-secret-native-20261020.json').read_text())
-    return [pytest.param(f,id='azure-'+r['name']+'-'+str(i)) for r in azure['captures'] for i,f in enumerate(r['findings'])] + [
-        pytest.param(f,id='gcp-'+r['case']+'-'+str(i)) for r in gcp['records'] for i,f in enumerate(r['public_findings'])] + [
-        pytest.param(f,id='gcp-current-'+r['case']+'-'+str(i)) for r in current['records'] for i,f in enumerate(r['public_findings'])] + [
-        pytest.param(f,id='azure-two-'+str(i)) for i,f in enumerate(two['capture']['findings'])]
+    rows=json.loads(Path('tests/fixtures/public_secret_captures/function_source_findings.json').read_text())
+    return [pytest.param(finding,id=name) for name,finding in rows]
 
 
 @pytest.mark.parametrize('finding',captures())

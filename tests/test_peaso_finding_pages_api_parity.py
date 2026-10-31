@@ -1,5 +1,5 @@
 """Full owned API responses retain paging, facets, counts and isolation."""
-from examples.benchmark_peaso_finding_pages import api_fixture, implementation
+from tests.synthetic.benchmark_peaso_finding_pages import api_fixture, implementation
 
 
 def test_complete_large_api_pages_match_original_algorithms():

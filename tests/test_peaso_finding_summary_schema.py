@@ -5,7 +5,7 @@ import random
 
 import pytest
 
-from examples.benchmark_peaso_finding_pages import literal_summary
+from tests.synthetic.benchmark_peaso_finding_pages import literal_summary
 from peaso.storage.reports import finding_summary
 
 

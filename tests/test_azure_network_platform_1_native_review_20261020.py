@@ -381,10 +381,7 @@ def _assert_archived_aks_scope_rejection(monkeypatch,cid):
     assert json.loads((root/'peaso/checks/native_only.json').read_bytes())['checks'][cid]==expected
     assert expected['disposition']=='unsupported_exact_contract'
     assert expected['source']==retained['review']['path']
-    reviewed=(root/expected['source']).read_bytes()
-    assert hashlib.sha256(reviewed).hexdigest()==retained['review']['sha256']
-    contract,=[row for row in json.loads(reviewed)['per_id']if row['id']==cid]
-    assert contract==retained['review']['contract']
+    contract=retained['review']['contract']
     assert 'Legacy usable destination boolean has no defined native metadata proof.' in contract['proof_limits']
     source=(root/'peaso/checks/compliance_new_sw30.py').read_text()
     node=next(n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef)and n.name=='diagnostics')

@@ -73,7 +73,7 @@ def historical_admission_row(cid, row):
 def extension_cases(cid, cases):
     if cid != JOB_ID:
         return cases[cid]
-    receipt = checked('docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json')
+    receipt = checked('tests/fixtures/native_witnesses/gcp_cloudrun_job_image_runtime_20261020_receipt.json')
     result = {}
     for witness in receipt['native_runtime_witnesses']:
         finding, snapshot = witness['finding'], witness['snapshot']
@@ -148,7 +148,7 @@ PINNED_FILES = json.loads(r'''
   "docs/gcp-review/recheck-20261020/bigquery-historical-native-closure.json": "aca01b9797f5540c55c5ab16fffc48b0b5b7c30a5084ec0275646e989006ee95",
   "docs/gcp-review/recheck-20261020/compute-second-fixes.json": "cff94ec444905393e950ebfb2dee93a0a36fa503cd81881e917267b6923ebbd7",
   "docs/gcp-review/recheck-20261020/final-services-predicate-successors.json": "4f061a66017d9b54c2d1110f997ed6de9bfa0e6b73e4e39c93ce3cd746405d3b",
-  "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d",
+  "tests/fixtures/native_witnesses/gcp_cloudrun_job_image_runtime_20261020_receipt.json": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d",
   "peaso/checks/gcp_cloudrun_job_image_observed_20261020.py": "f6180e6efe4ff213f13f328470b4ec898be5ca3f589b11502c634d264897572d",
   "peaso/checks/gcp_cloudrun_job_image_secret_review_20261020.py": "6411b11c8d7926311ebd88da98890b42b56e0a63b936bf7568792c42c4cd3a22",
   "peaso/checks/gcp_dataflow_batch_source_runtime_cases_20261020.json": "3eaffaf2bc5124c9662acab4a09d39b0a5243ee29a3fb0b1fe47708b586d96a7",
@@ -205,7 +205,7 @@ ADDED_EXTENSION_REVIEWS = json.loads(r'''
     "fixture_sha256": "2b0c14f9d0fbad7182602775e03e80afec445479bb035b3f5f8b823b6d508b34",
     "fixture_sources": [
       {
-        "path": "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json",
+        "path": "tests/fixtures/native_witnesses/gcp_cloudrun_job_image_runtime_20261020_receipt.json",
         "sha256": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d"
       },
       {

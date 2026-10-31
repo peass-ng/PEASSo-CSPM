@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from examples.benchmark_peaso_gcp_lb_workloads import FormerGcpWorkloads, run_stage, synthetic_snapshot
+from tests.synthetic.benchmark_peaso_gcp_lb_workloads import FormerGcpWorkloads, run_stage, synthetic_snapshot
 from peaso.analysis import cloud_workload_index as indexed
 from peaso.principal_exposure import project
 from peaso.snapshot import resources, seal, validate

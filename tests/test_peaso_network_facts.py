@@ -6,9 +6,9 @@ import weakref
 
 import pytest
 
-from examples.benchmark_peaso_network import run_stage as network_stage, synthetic_snapshot as network_snapshot
-from examples.benchmark_peaso_network_facts import RepeatedNetworkFacts
-from examples.benchmark_peaso_gcp_lb_workloads import run_stage, synthetic_snapshot
+from tests.synthetic.benchmark_peaso_network import run_stage as network_stage, synthetic_snapshot as network_snapshot
+from tests.synthetic.benchmark_peaso_network_facts import RepeatedNetworkFacts
+from tests.synthetic.benchmark_peaso_gcp_lb_workloads import run_stage, synthetic_snapshot
 from peaso.analysis import network, network_facts, network_observations as observations, network_services
 from peaso.analysis.network_catalog_refs import references as catalog_references
 from peaso.snapshot import make_snapshot, resources

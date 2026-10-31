@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from examples.benchmark_peaso_permission_prefilter import run_stage, synthetic_snapshot
-from examples.benchmark_peaso_gcp_permissions import ReferenceGcpModel
+from tests.synthetic.benchmark_peaso_permission_prefilter import run_stage, synthetic_snapshot
+from tests.synthetic.benchmark_peaso_gcp_permissions import ReferenceGcpModel
 from peaso.privesc.effective_permissions import AllTargets, Node
 from peaso.privesc.effective_permissions.gcp import GcpModel
 

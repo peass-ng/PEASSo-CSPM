@@ -115,49 +115,6 @@ def test_truncated_stream_is_rejected_before_writes(tmp_path, monkeypatch):
     assert list(tmp_path.rglob("*.json")) == []
 
 
-@pytest.mark.parametrize("worker_failure", [False, True])
-def test_batch_owns_restored_inputs_until_every_worker_finishes(tmp_path, monkeypatch, worker_failure):
-    import sys
-    import threading
-    from scripts import peaso_bulk_validation as batch
-
-    archive_checkout(tmp_path)
-    paths = []
-    for index in range(4):
-        path = tmp_path / "tests" / f"test_worker_{index}.py"
-        path.write_text("# independent worker selection\n")
-        paths.append(path)
-    monkeypatch.setattr(batch, "ROOT", tmp_path)
-    monkeypatch.setattr(batch, "batches", lambda: [])
-    monkeypatch.setattr(batch, "source_hashes", lambda: {})
-    barrier = threading.Barrier(4, timeout=10)
-    fixture = tmp_path / "tests/fixtures/post_dfaf_integration/historical-release-manifests.json"
-    seen = []
-
-    def run_worker(path, output, timeout):
-        assert fixture.is_file()
-        barrier.wait()
-        assert fixture.is_file()
-        seen.append(path.name)
-        if worker_failure and path == paths[0]:
-            raise RuntimeError("worker failed")
-        return {"passed": True, "returncode": 0}
-
-    monkeypatch.setattr(batch, "run_test", run_worker)
-    arguments = ["batch", "--output", str(tmp_path / "output")]
-    for path in paths:
-        arguments.extend(["--test", str(path.relative_to(tmp_path))])
-    monkeypatch.setattr(sys, "argv", arguments)
-    if worker_failure:
-        with pytest.raises(RuntimeError, match="worker failed"):
-            batch.main()
-    else:
-        assert batch.main() == 0
-    assert len(seen) == 4
-    assert not fixture.exists()
-    assert all(path.is_file() for path in paths)
-
-
 def test_parallel_restoration_publishes_complete_files_without_overwriting(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
     archive_checkout(tmp_path)

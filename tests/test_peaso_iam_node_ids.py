@@ -5,10 +5,10 @@ import json
 
 import pytest
 
-from examples.benchmark_peaso_iam_action_profiles import synthetic_snapshot as role_snapshot, run_stage
-from examples.benchmark_peaso_iam_node_ids import synthetic_snapshot
-from examples.benchmark_peaso_trust_domains import synthetic_snapshot as trust_snapshot
-from examples.reference_peaso_iam_node_ids import original_builder
+from tests.synthetic.benchmark_peaso_iam_action_profiles import synthetic_snapshot as role_snapshot, run_stage
+from tests.synthetic.benchmark_peaso_iam_node_ids import synthetic_snapshot
+from tests.synthetic.benchmark_peaso_trust_domains import synthetic_snapshot as trust_snapshot
+from tests.synthetic.reference_peaso_iam_node_ids import original_builder
 from peaso import analysis
 from peaso.analysis import common, iam
 from peaso.snapshot import digest, make_snapshot, resources

@@ -1,0 +1,309 @@
+{
+  "cases": {
+    "fail": {
+      "auth_resolution": "explicit_offline_native_sdk_session",
+      "findings": [
+        {
+          "check_id": "aws.review.codebuild.selected_inline_buildspec_secret_indicators",
+          "evidence": {
+            "credential_validation": "not_attempted",
+            "observed": "The same secret was detected in 1 scanned location(s). Its value is hidden.",
+            "secret_leaks": [
+              {
+                "detectors": [
+                  {
+                    "engine": "kingfisher",
+                    "rule": "betterleaks.github-pat"
+                  },
+                  {
+                    "engine": "trufflehog",
+                    "rule": "Github"
+                  }
+                ],
+                "fingerprint": "8cdc798fd408d733c33355008ca71e4158871a4aafa336137f8b3c6083902a50",
+                "locations": [
+                  {
+                    "line": 8,
+                    "path": "codebuild_selected_inline_buildspec:23589fd9a8488982a731d38260425c30e59104618e3ad683f3828b0cfab0d91f.source.buildspec",
+                    "resource_id": "codebuild_selected_inline_buildspec:23589fd9a8488982a731d38260425c30e59104618e3ad683f3828b0cfab0d91f",
+                    "scope": "123456789012/us-east-1"
+                  }
+                ]
+              }
+            ]
+          },
+          "evidence_summary": "The same secret was detected in 1 scanned location(s). Its value is hidden.",
+          "id": "secret-8cdc798fd408d733c33355008ca71e4158871a4aafa336137f8b3c6083902a50",
+          "linked_check_ids": [
+            "aws.review.codebuild.selected_inline_buildspec_secret_indicators"
+          ],
+          "provider": "aws",
+          "region": "us-east-1",
+          "resource_id": "secret:8cdc798fd408d733c33355008ca71e4158871a4aafa336137f8b3c6083902a50",
+          "resource_name": "Exposed secret",
+          "scope": "123456789012/us-east-1",
+          "secret_fingerprint": "8cdc798fd408d733c33355008ca71e4158871a4aafa336137f8b3c6083902a50",
+          "status": "FAIL"
+        }
+      ],
+      "native_operations": [
+        {
+          "arguments_locator": "63f3f14b2aaf3054a5d7888aa11f0b8a505f0d12f4693b6fe3cb3fa8e63a5929",
+          "operation": "GetCallerIdentity",
+          "service": "sts"
+        },
+        {
+          "arguments_locator": "63f3f14b2aaf3054a5d7888aa11f0b8a505f0d12f4693b6fe3cb3fa8e63a5929",
+          "operation": "GetCallerIdentity",
+          "service": "sts"
+        },
+        {
+          "arguments_locator": "2d5ed09936edf0420404ccd5911376eae5ae024d5dd69b5c88f734179146ba64",
+          "operation": "BatchGetProjects",
+          "service": "codebuild"
+        }
+      ],
+      "snapshot_id": "sha256:f28912bbcc25ba489980fc48685eb795db0b5eb96a9acc61a12f4955d5a72a21",
+      "source": "Actual engine collect_snapshot -> aws.collect -> sealed producer adapter -> botocore Stubber -> installed real offline detector(s) -> registered consumer -> public evaluate_snapshot"
+    },
+    "malformed": {
+      "auth_resolution": "explicit_offline_native_sdk_session",
+      "findings": [
+        {
+          "check_id": "aws.review.codebuild.selected_inline_buildspec_secret_indicators",
+          "evidence": {
+            "collection_status": "partial",
+            "reason": "no collected resources",
+            "semantics": "Inventory coverage, not a resource security pass."
+          },
+          "id": "sha256:e272bdaa1195f35f56b4360f64db660e2493203e6d22c19d0d45e7131f3fc758",
+          "provider": "aws",
+          "resource_id": "inventory:codebuild_selected_inline_buildspec",
+          "scope": "123456789012/us-east-1",
+          "status": "UNKNOWN"
+        },
+        {
+          "check_id": "aws.review.codebuild.selected_inline_buildspec_secret_indicators",
+          "evidence": {
+            "observed": "The selected inline CodeBuild buildspec was unavailable, a reference, incomplete or unbound. Secret absence could not be assessed.",
+            "reason": "unknown_reason_not_supplied"
+          },
+          "id": "sha256:260681a97d7d7c84e1d72225bfdd6ebee167a14adfdfb7a17cb9acd8eb99284a",
+          "native_resource_id": "codebuild_selected_inline_buildspec:23589fd9a8488982a731d38260425c30e59104618e3ad683f3828b0cfab0d91f",
+          "provider": "aws",
+          "region": "us-east-1",
+          "resource_id": "sha256:dbdf34e372f7fbb086c570eb7b351f852622563ca5d1344e06b9ea3f9e86f00c",
+          "resource_name": "codebuild_selected_inline_buildspec:23589fd9a8488982a731d38260425c30e59104618e3ad683f3828b0cfab0d91f",
+          "scope": "123456789012/us-east-1",
+          "status": "UNKNOWN"
+        }
+      ],
+      "native_operations": [
+        {
+          "arguments_locator": "63f3f14b2aaf3054a5d7888aa11f0b8a505f0d12f4693b6fe3cb3fa8e63a5929",
+          "operation": "GetCallerIdentity",
+          "service": "sts"
+        },
+        {
+          "arguments_locator": "63f3f14b2aaf3054a5d7888aa11f0b8a505f0d12f4693b6fe3cb3fa8e63a5929",
+          "operation": "GetCallerIdentity",
+          "service": "sts"
+        },
+        {
+          "arguments_locator": "2d5ed09936edf0420404ccd5911376eae5ae024d5dd69b5c88f734179146ba64",
+          "operation": "BatchGetProjects",
+          "service": "codebuild"
+        }
+      ],
+      "snapshot_id": "sha256:cc4362c71c4f10c46cd0d92ecc3f95a34e13d35ff18139d8721e6e0996ea0710",
+      "source": "Actual engine collect_snapshot -> aws.collect -> sealed producer adapter -> botocore Stubber -> installed real offline detector(s) -> registered consumer -> public evaluate_snapshot"
+    },
+    "partial": {
+      "auth_resolution": "explicit_offline_native_sdk_session",
+      "findings": [
+        {
+          "check_id": "aws.review.codebuild.selected_inline_buildspec_secret_indicators",
+          "evidence": {
+            "collection_status": "partial",
+            "reason": "no collected resources",
+            "semantics": "Inventory coverage, not a resource security pass."
+          },
+          "id": "sha256:e272bdaa1195f35f56b4360f64db660e2493203e6d22c19d0d45e7131f3fc758",
+          "provider": "aws",
+          "resource_id": "inventory:codebuild_selected_inline_buildspec",
+          "scope": "123456789012/us-east-1",
+          "status": "UNKNOWN",
+          "title": "Selected inline CodeBuild buildspec has no detected secrets"
+        },
+        {
+          "check_id": "aws.review.codebuild.selected_inline_buildspec_secret_indicators",
+          "evidence": {
+            "complete": false,
+            "coverage": "incomplete",
+            "credential_validation": "not_attempted",
+            "observed": "The same secret was detected in 1 scanned location(s). Its value is hidden. Coverage is incomplete.",
+            "secret_leaks": [
+              {
+                "detectors": [
+                  {
+                    "engine": "kingfisher",
+                    "rule": "betterleaks.github-pat"
+                  }
+                ],
+                "fingerprint": "8cdc798fd408d733c33355008ca71e4158871a4aafa336137f8b3c6083902a50",
+                "locations": [
+                  {
+                    "line": 8,
+                    "path": "codebuild_selected_inline_buildspec:23589fd9a8488982a731d38260425c30e59104618e3ad683f3828b0cfab0d91f.source.buildspec",
+                    "resource_id": "codebuild_selected_inline_buildspec:23589fd9a8488982a731d38260425c30e59104618e3ad683f3828b0cfab0d91f",
+                    "scope": "123456789012/us-east-1"
+                  }
+                ]
+              }
+            ]
+          },
+          "evidence_summary": "The same secret was detected in 1 scanned location(s). Its value is hidden. Coverage is incomplete.",
+          "id": "secret-8cdc798fd408d733c33355008ca71e4158871a4aafa336137f8b3c6083902a50",
+          "linked_check_ids": [
+            "aws.review.codebuild.selected_inline_buildspec_secret_indicators"
+          ],
+          "provider": "aws",
+          "region": "us-east-1",
+          "resource_id": "secret:8cdc798fd408d733c33355008ca71e4158871a4aafa336137f8b3c6083902a50",
+          "resource_name": "Exposed secret",
+          "scope": "123456789012/us-east-1",
+          "secret_fingerprint": "8cdc798fd408d733c33355008ca71e4158871a4aafa336137f8b3c6083902a50",
+          "status": "FAIL"
+        }
+      ],
+      "native_operations": [
+        {
+          "arguments_locator": "63f3f14b2aaf3054a5d7888aa11f0b8a505f0d12f4693b6fe3cb3fa8e63a5929",
+          "operation": "GetCallerIdentity",
+          "service": "sts"
+        },
+        {
+          "arguments_locator": "63f3f14b2aaf3054a5d7888aa11f0b8a505f0d12f4693b6fe3cb3fa8e63a5929",
+          "operation": "GetCallerIdentity",
+          "service": "sts"
+        },
+        {
+          "arguments_locator": "2d5ed09936edf0420404ccd5911376eae5ae024d5dd69b5c88f734179146ba64",
+          "operation": "BatchGetProjects",
+          "service": "codebuild"
+        }
+      ],
+      "snapshot_id": "sha256:2a985bbad41d2e2c6e63fd5081be7667bda2fb9e17746216cecb8ff09ecdffa7",
+      "source": "Actual engine collect_snapshot -> aws.collect -> sealed producer adapter -> botocore Stubber -> installed real offline detector(s) -> registered consumer -> public evaluate_snapshot"
+    },
+    "pass": {
+      "auth_resolution": "explicit_offline_native_sdk_session",
+      "findings": [
+        {
+          "check_id": "aws.review.codebuild.selected_inline_buildspec_secret_indicators",
+          "evidence": {
+            "complete": true,
+            "coverage": "selected_returned_inline_buildspec_only",
+            "credential_validation": "not_attempted",
+            "engines": [
+              {
+                "engine": "kingfisher",
+                "status": "complete",
+                "version": "1.4.0"
+              },
+              {
+                "engine": "trufflehog",
+                "status": "complete",
+                "version": "3.92.5"
+              }
+            ],
+            "field": "projects[0].source.buildspec",
+            "observed": "Both offline detectors completed without detecting a supported secret in the selected inline CodeBuild buildspec. Coverage is limited to the returned inline bytes.",
+            "secret_leaks": []
+          },
+          "id": "sha256:260681a97d7d7c84e1d72225bfdd6ebee167a14adfdfb7a17cb9acd8eb99284a",
+          "native_resource_id": "codebuild_selected_inline_buildspec:23589fd9a8488982a731d38260425c30e59104618e3ad683f3828b0cfab0d91f",
+          "provider": "aws",
+          "region": "us-east-1",
+          "resource_id": "sha256:dbdf34e372f7fbb086c570eb7b351f852622563ca5d1344e06b9ea3f9e86f00c",
+          "resource_name": "codebuild_selected_inline_buildspec:23589fd9a8488982a731d38260425c30e59104618e3ad683f3828b0cfab0d91f",
+          "scope": "123456789012/us-east-1",
+          "status": "PASS"
+        }
+      ],
+      "native_operations": [
+        {
+          "arguments_locator": "63f3f14b2aaf3054a5d7888aa11f0b8a505f0d12f4693b6fe3cb3fa8e63a5929",
+          "operation": "GetCallerIdentity",
+          "service": "sts"
+        },
+        {
+          "arguments_locator": "63f3f14b2aaf3054a5d7888aa11f0b8a505f0d12f4693b6fe3cb3fa8e63a5929",
+          "operation": "GetCallerIdentity",
+          "service": "sts"
+        },
+        {
+          "arguments_locator": "2d5ed09936edf0420404ccd5911376eae5ae024d5dd69b5c88f734179146ba64",
+          "operation": "BatchGetProjects",
+          "service": "codebuild"
+        }
+      ],
+      "snapshot_id": "sha256:9e2580b875a9461c45cdf192deb717e1249599ddfd1af5afd5ab150743ce93e5",
+      "source": "Actual engine collect_snapshot -> aws.collect -> sealed producer adapter -> botocore Stubber -> installed real offline detector(s) -> registered consumer -> public evaluate_snapshot"
+    },
+    "unknown": {
+      "auth_resolution": "explicit_offline_native_sdk_session",
+      "findings": [
+        {
+          "check_id": "aws.review.codebuild.selected_inline_buildspec_secret_indicators",
+          "evidence": {
+            "collection_status": "partial",
+            "reason": "no collected resources",
+            "semantics": "Inventory coverage, not a resource security pass."
+          },
+          "id": "sha256:e272bdaa1195f35f56b4360f64db660e2493203e6d22c19d0d45e7131f3fc758",
+          "provider": "aws",
+          "resource_id": "inventory:codebuild_selected_inline_buildspec",
+          "scope": "123456789012/us-east-1",
+          "status": "UNKNOWN"
+        },
+        {
+          "check_id": "aws.review.codebuild.selected_inline_buildspec_secret_indicators",
+          "evidence": {
+            "observed": "The selected inline CodeBuild buildspec was unavailable, a reference, incomplete or unbound. Secret absence could not be assessed.",
+            "reason": "unknown_reason_not_supplied"
+          },
+          "id": "sha256:260681a97d7d7c84e1d72225bfdd6ebee167a14adfdfb7a17cb9acd8eb99284a",
+          "native_resource_id": "codebuild_selected_inline_buildspec:23589fd9a8488982a731d38260425c30e59104618e3ad683f3828b0cfab0d91f",
+          "provider": "aws",
+          "region": "us-east-1",
+          "resource_id": "sha256:dbdf34e372f7fbb086c570eb7b351f852622563ca5d1344e06b9ea3f9e86f00c",
+          "resource_name": "codebuild_selected_inline_buildspec:23589fd9a8488982a731d38260425c30e59104618e3ad683f3828b0cfab0d91f",
+          "scope": "123456789012/us-east-1",
+          "status": "UNKNOWN"
+        }
+      ],
+      "native_operations": [
+        {
+          "arguments_locator": "63f3f14b2aaf3054a5d7888aa11f0b8a505f0d12f4693b6fe3cb3fa8e63a5929",
+          "operation": "GetCallerIdentity",
+          "service": "sts"
+        },
+        {
+          "arguments_locator": "63f3f14b2aaf3054a5d7888aa11f0b8a505f0d12f4693b6fe3cb3fa8e63a5929",
+          "operation": "GetCallerIdentity",
+          "service": "sts"
+        },
+        {
+          "arguments_locator": "2d5ed09936edf0420404ccd5911376eae5ae024d5dd69b5c88f734179146ba64",
+          "operation": "BatchGetProjects",
+          "service": "codebuild"
+        }
+      ],
+      "snapshot_id": "sha256:2f81534a07fc773698215819a018c119bd78b3d765b9d3a02afde9b02e93eebe",
+      "source": "Actual engine collect_snapshot -> aws.collect -> sealed producer adapter -> botocore Stubber -> installed real offline detector(s) -> registered consumer -> public evaluate_snapshot"
+    }
+  },
+  "check_id": "aws.review.codebuild.selected_inline_buildspec_secret_indicators",
+  "schema": "aws-codebuild-native-public-dto-20261020-v1"
+}

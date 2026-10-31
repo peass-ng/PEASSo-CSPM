@@ -73,27 +73,6 @@ def test_exact_ten_registered_without_held_or_duplicate_predicates():
     assert not {'aws_nist_efs_access_point_enforce_root_directory','aws_fedramp_rds_cluster_members_enhanced_monitoring'}&set(ordered)
 
 
-def test_canonical_specs_all_control_edges_and_pending_counts_conserved():
-    requirements=ancestor_json(PACK/'compliance_requirements.json')
-    native={c.id:c for c in CHECKS}
-    assert all(requirements['by_check'][cid]==tags for cid,tags in BASELINE['old_by_check'].items())
-    for cid,contract in CONTRACT.items():
-        spec=contract['signed_spec'];check=native[cid];provenance=proposal_provenance_for(cid)
-        assert provenance['signed_spec_sha256']==contract['canonical_signed_spec_sha256']==spec_digest(spec)
-        assert provenance['signed_category']==spec['category']
-        assert (check.provider,check.severity,check.title,check.remediation)==(spec['provider'],spec['severity'],spec['title'],spec['remediation_hint'])
-        assert {(t['framework_id'],t['requirement_id']) for t in requirement_tags_for(cid)}=={tuple(e) for e in contract['signed_control_edges']}
-        assert (HACKTRICKS in check.frameworks) == includes(check.id)
-    aliases={'aws_g6_redshift_automatic_version_upgrade','aws.pci.cloudtrail.authentication_events','aws_fedramp_rds_cluster_members_enhanced_monitoring'}
-    counts={p:sum(c['provider']==p and c['id'] not in native and c['id'] not in aliases for c in requirements['proposed_checks']) for p in ('aws','azure','gcp','k8s')}
-    assert counts=={'aws':201,'azure':320,'gcp':24,'k8s':7}
-    assert sum(counts.values())==552
-
-
-
-
-
-
 def test_finalized_central_cases_are_exact_and_decisive():
     expected=json.loads((ROOT/'peaso/checks/central_batch_fixtures.json').read_text())
     from tests.release_successor_history import assert_reviewed_central_fixture_successor

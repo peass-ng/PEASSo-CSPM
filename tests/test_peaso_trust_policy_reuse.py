@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 import pytest
 
-from examples.benchmark_peaso_decoded_policies import synthetic_snapshot, run_stage
+from tests.synthetic.benchmark_peaso_decoded_policies import synthetic_snapshot, run_stage
 from peaso.analysis import iam, trust
 from peaso.analysis.common import analysis_context, node_id
 from peaso.snapshot import FrozenDict, digest, freeze, resources
@@ -105,7 +105,7 @@ def test_mutable_trust_source_is_read_once():
 
 
 def test_complete_workflow_decodes_each_trust_policy_once(monkeypatch):
-    from examples import benchmark_peaso_trust_policy_reuse as benchmark
+    from tests.synthetic import benchmark_peaso_trust_policy_reuse as benchmark
     from peaso import principal_exposure
     snapshot = benchmark.synthetic_snapshot(2, 2, 'percent')
     inventory = resources(snapshot)
@@ -133,7 +133,7 @@ def test_complete_workflow_decodes_each_trust_policy_once(monkeypatch):
 @pytest.mark.parametrize('policy_format', ['dict', 'json', 'percent'])
 @pytest.mark.parametrize('mode', ['pinned', 'wildcard', 'missing-subject', 'cognito-guest', 'malformed'])
 def test_complete_federation_stage_retains_conditions_verdicts_and_uncertainty(monkeypatch, policy_format, mode):
-    from examples import benchmark_peaso_trust_policy_reuse as benchmark
+    from tests.synthetic import benchmark_peaso_trust_policy_reuse as benchmark
     from peaso import principal_exposure
     from peaso.snapshot import seal, validate
     snapshot = benchmark.synthetic_snapshot(3, 3, 'dict')

@@ -5,7 +5,7 @@ import runpy
 
 def test_registered_automatic_environment_33_scope_and_denied_sibling():
     root = Path(__file__).resolve().parents[1]
-    runpy.run_path(str(root / 'scripts/verify_automatic_batch_consumer_candidate.py'))
+    runpy.run_path(str(root / 'tests/automatic_batch_consumer_candidate.py'))
 
 
 """Real aws.collect assembly with fake SDK responses; no cloud access or scanners."""

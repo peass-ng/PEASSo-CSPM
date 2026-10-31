@@ -1,0 +1,72 @@
+{
+  "admission": "Pinned source correction registered in catalog proposal provenance and materialized native catalog after private-path authorization; frozen proposal and ledgers stay byte-identical.",
+  "check_id": "gcp.apikeys.active_service_restrictions",
+  "corrected_spec": {
+    "category": "least_privilege",
+    "data_source": "Existing API Keys keys.list restrictions.apiTargets[].service and key name; new read-only Service Usage services.list name/state for the owning project. Service Usage Service.name has projects/{consumer}/services/{DNS service}, with optional config.name and parent consistency checks; all same-scope DNS names, including marketplace domains, remain in the complete inventory.",
+    "description": "On api key resources, detects when a key restrictions.apiTargets[].service names a project service whose Service Usage state is DISABLED; this matters because it can lead to excessive access or misuse of credentials.",
+    "id": "gcp.apikeys.active_service_restrictions",
+    "predicate": "FAIL if a key restrictions.apiTargets[].service names a project service whose Service Usage state is DISABLED. UNKNOWN for unrestricted keys, missing service inventory or whether a key is still used; an ENABLED service does not establish active use.",
+    "provider": "gcp",
+    "remediation_hint": "In APIs & Services > Credentials, edit the key's API restrictions to remove disabled services; delete unused keys.",
+    "resource_kind": "api_key",
+    "severity": "medium",
+    "title": "API keys target only active enabled services"
+  },
+  "current_canonical_spec_sha256": "0cae3df2c44dcab5f9ce736977ff4a191d83dba2406161be7fb1cdb1a959dd31",
+  "decision_boundaries": [
+    "A fully resolved disabled explicit target may FAIL even with unrelated valid marketplace services.",
+    "Any absent explicit target remains UNKNOWN before disabled-target decision.",
+    "Only enabled explicit targets remain UNKNOWN because active key use is unproven.",
+    "Foreign, duplicate casefold, malformed, contradicted config/parent/alias, and incomplete inventories remain UNKNOWN."
+  ],
+  "frameworks": [],
+  "frozen_source_file": "docs/compliance-ledgers/new-checks-gcp.json",
+  "frozen_source_file_sha256": "6d7937b1bc0f2045e18dfcd9863ad3fc97122a6559904cedbf271cab4fd0f71f",
+  "official_references": [
+    {
+      "supports": "Service.name and optional Service.config.name/parent structure; states ENABLED/DISABLED.",
+      "url": "https://docs.cloud.google.com/service-usage/docs/reference/rest/v1/services"
+    },
+    {
+      "supports": "Complete list covers visible services; an absent target has no explicit disabled state.",
+      "url": "https://docs.cloud.google.com/service-usage/docs/reference/rest/v1/services/list"
+    },
+    {
+      "supports": "ApiTarget.service is a case-insensitive canonical DNS service name.",
+      "url": "https://docs.cloud.google.com/api-keys/docs/reference/rest/v2/projects.locations.keys"
+    },
+    {
+      "supports": "Private service visibility can vary, so absence cannot be synthesized as DISABLED.",
+      "url": "https://docs.cloud.google.com/service-usage/docs/public-vs-private"
+    }
+  ],
+  "prior_frozen_signed_spec_sha256": "7c91d652644f5e1644dacb522fc4fd15d2f30eabdbe7ec4c9481e87fa85c69db",
+  "prior_frozen_spec": {
+    "category": "least_privilege",
+    "data_source": "Existing API Keys keys.list restrictions.apiTargets[].service and key name; new read-only Service Usage services.list name/state for the owning project.",
+    "description": "On api key resources, detects when a key restrictions.apiTargets[].service names a project service whose Service Usage state is DISABLED; this matters because it can lead to excessive access or misuse of credentials.",
+    "id": "gcp.apikeys.active_service_restrictions",
+    "predicate": "FAIL if a key restrictions.apiTargets[].service names a project service whose Service Usage state is DISABLED. UNKNOWN for unrestricted keys, missing service inventory or whether a key is still used; an ENABLED service does not establish active use.",
+    "provider": "gcp",
+    "remediation_hint": "In APIs & Services > Credentials, edit the key's API restrictions to remove disabled services; delete unused keys.",
+    "resource_kind": "api_key",
+    "severity": "medium",
+    "title": "API keys target only active enabled services"
+  },
+  "prior_frozen_status": "historical_superseded_for_this_check",
+  "sealed_native_counterexample": {
+    "historical_output_preserved": true,
+    "original_finding_statuses": [
+      "UNKNOWN",
+      "UNKNOWN"
+    ],
+    "same_scope_service_rows": 12924,
+    "snapshot_path": "native-wave23/gcp-api-alias-live-attempt2/snapshot-sealed.json",
+    "snapshot_sha256": "5275f43a023c1079832cff9a22ec12b11d9dbbb7c5496e1b81e62db2bffeca97",
+    "valid_non_googleapis_dns_rows": 12378
+  },
+  "source_relationship": "Native provider resource-schema interpretation correction only; the signed disabled-service predicate and all-target-resolution precedence are unchanged.",
+  "status": "source_erratum_successor",
+  "version": "peaso-gcp-api-key-service-name-source-correction-v1"
+}

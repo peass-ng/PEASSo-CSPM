@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from examples.benchmark_peaso_cloud_workloads import synthetic_snapshot
+from tests.synthetic.benchmark_peaso_cloud_workloads import synthetic_snapshot
 from peaso.analysis import internet_exposure as exposure
 from peaso.principal_exposure import project
 from peaso.snapshot import resources, seal, validate

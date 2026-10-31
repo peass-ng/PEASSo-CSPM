@@ -3,7 +3,7 @@ import random
 
 import pytest
 
-from examples.benchmark_peaso_finding_pages import LiteralStatusCounts
+from tests.synthetic.benchmark_peaso_finding_pages import LiteralStatusCounts
 from peaso.finding_status_counts import FindingStatusCounts
 
 

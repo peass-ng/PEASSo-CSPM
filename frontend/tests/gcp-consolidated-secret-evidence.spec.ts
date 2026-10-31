@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import type { Finding } from "../src/types";
 import { gcpConsolidatedSecretObservation } from "../src/gcpConsolidatedSecretEvidence";
 import { selectedConfigurationContentObservation } from "../src/selectedConfigurationContentEvidence";
-const read = (name: string) => JSON.parse(readFileSync(new URL(`../../docs/gcp-review/recheck-20261020/${name}`, import.meta.url), "utf8"));
+const read = (name: string) => JSON.parse(readFileSync(new URL(`../../tests/fixtures/public_secret_captures/${name}`, import.meta.url), "utf8"));
 function* findings(value: unknown): Generator<Finding> {
   if (Array.isArray(value)) { for (const row of value) yield* findings(row); }
   else if (value && typeof value === "object") {

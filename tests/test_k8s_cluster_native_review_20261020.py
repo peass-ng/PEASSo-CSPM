@@ -24,7 +24,7 @@ from peaso.collectors import k8s
 from peaso.engine import evaluate_snapshot, plan_collection
 
 ROOT = Path(__file__).resolve().parents[1]
-QUEUE = json.loads((ROOT / 'docs/check-review/k8s-review-queue-20261020.json').read_text())
+QUEUE = json.loads((ROOT / 'tests/fixtures/k8s_review_batches.json').read_text())
 BATCHES = {b['name']: b['ids'] for b in QUEUE['batches'] if b['name'].startswith('cluster_and_native_')}
 IDS = tuple(cid for rows in BATCHES.values() for cid in rows)
 TEST_IDS = BATCHES.get(os.environ.get('K8S_CLUSTER_BATCH'), IDS)

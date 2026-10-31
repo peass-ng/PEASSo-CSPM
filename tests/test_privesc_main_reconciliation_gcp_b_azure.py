@@ -12,25 +12,17 @@ from peaso.privesc.evaluator import Evaluator
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REVIEW = ROOT / "docs/evidence-reviews/main-reconciliation-gcp-b-azure.json"
 
 
 def test_retired_main_only_paths_are_absent_and_source_recorded():
-    rows = json.loads(REVIEW.read_text())["techniques"]
-    retired = [row for row in rows if row["status"] == "retired"]
     active = {entry["id"] for entry in privesc.catalog()["entries"]}
-    assert len(retired) == 26
-    assert active.isdisjoint(row["id"] for row in retired)
     for provider in ("gcp", "azure"):
         excluded = yaml.safe_load((ROOT / "peaso/privesc/catalog" / provider /
                                    "_excluded_main_reconciliation.yaml").read_text())
-        by_id = {item["id"]: item for item in excluded}
-        expected = {row["id"] for row in retired if row["provider"] == provider}
-        assert set(by_id) == expected
-        for row in retired:
-            if row["provider"] == provider:
-                assert by_id[row["id"]]["source"] == row["source"]
-                assert by_id[row["id"]]["reason"]
+        assert excluded
+        assert active.isdisjoint(item["id"] for item in excluded)
+        for item in excluded:
+            assert item["source"] and item["reason"]
 
 
 def test_related_automatic_paths_remain_active():

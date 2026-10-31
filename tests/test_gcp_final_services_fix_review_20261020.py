@@ -12,7 +12,6 @@ from peaso.collectors import gcp
 from peaso.engine import evaluate_snapshot, get_catalog
 from tests import test_gcp_final_services_review_20261020 as native
 
-ROOT=Path(__file__).resolve().parents[1] / '.wave2-receipts/final-services-fixes'
 HISTORY = Path(__file__).parent / 'fixtures/gcp-wave2-final-services-history-20261020'
 RECEIPTS=[]
 ARCHIVED=('gcp_certificate_renewal_30_days','gcp_certificate_rotation_180_days',
@@ -29,12 +28,6 @@ def no_network_or_auth(monkeypatch):
         monkeypatch.setattr(target,attr,blocked)
     yield
     assert not calls,calls
-
-@pytest.fixture(scope='session',autouse=True)
-def receipts():
-    ROOT.mkdir(parents=True,exist_ok=True)
-    yield
-    (ROOT/'fix-native-cases.json').write_text(json.dumps(RECEIPTS,indent=2)+'\n')
 
 def check(case,scenario,expected,mutate=None,branch='good',deny=None):
     snap,tr=native.capture(case,branch,mutate=mutate,deny=deny)

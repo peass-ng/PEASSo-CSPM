@@ -25,8 +25,7 @@ NOW = datetime.now(timezone.utc).replace(microsecond=0)
 def days_ago(days):
     return (NOW - timedelta(days=days)).isoformat().replace('+00:00', 'Z')
 REGISTRY = {c.id: c for c in engine._registry()}
-INPUT = json.loads(Path('docs/aws-review/identity-closure-review.json').read_text())
-INPUT_IDS = [r['id'] for r in INPUT['checks'] if r['disposition'] == 'unproved_contract']
+INPUT_IDS = json.loads(Path('tests/fixtures/aws_identity_closure_check_ids.json').read_text())
 IAM_KINDS = {'iam_policy', 'iam_user', 'iam_role', 'iam_group'}
 IAM_IDS = [cid for cid in INPUT_IDS if REGISTRY[cid].kind in IAM_KINDS]
 SERVICE_USAGE_IDS = ['aws.claude_a.iam.user_long_lived_keys_only_iam_sts',

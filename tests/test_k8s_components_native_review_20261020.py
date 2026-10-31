@@ -19,7 +19,7 @@ from peaso.collectors import k8s
 from peaso.engine import evaluate_snapshot
 
 ROOT = Path(__file__).resolve().parents[1]
-QUEUE = json.loads((ROOT / 'docs/check-review/k8s-review-queue-20261020.json').read_text())
+QUEUE = json.loads((ROOT / 'tests/fixtures/k8s_review_batches.json').read_text())
 BATCHES = {b['name']: b['ids'] for b in QUEUE['batches'] if b['name'].startswith('components_')}
 ASSIGNED = [(batch, cid) for batch, ids in BATCHES.items() for cid in ids]
 CAPTURES = {}

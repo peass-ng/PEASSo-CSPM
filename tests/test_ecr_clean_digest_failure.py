@@ -11,7 +11,7 @@ spec = importlib.util.spec_from_file_location('peaso.collectors._digest_resume_t
 native = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
 spec = importlib.util.spec_from_file_location('resume_digest_fixture',
-    ROOT/'examples/benchmark_peaso_ecr_resume.py')
+    ROOT/'tests/synthetic/benchmark_peaso_ecr_resume.py')
 fixture = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixture)
 

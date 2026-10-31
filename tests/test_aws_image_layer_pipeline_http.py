@@ -20,7 +20,7 @@ def load(name,path):
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     return module
 pipeline=load('peaso.collectors._pipeline_http_test',ROOT/'peaso/collectors/aws_image_layer_pipeline_20261022.py')
-bench=load('_pipeline_http_fixture',ROOT/'examples/benchmark_peaso_ecr_layer_pipeline.py')
+bench=load('_pipeline_http_fixture',ROOT/'tests/synthetic/benchmark_peaso_ecr_layer_pipeline.py')
 
 
 def bodies():

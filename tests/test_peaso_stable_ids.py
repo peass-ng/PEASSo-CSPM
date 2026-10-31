@@ -4,8 +4,8 @@ import random
 
 import pytest
 
-from examples.benchmark_peaso_stable_ids import id_factory, literal_id, network_stage, iam_stage, iam_snapshot, network_snapshot as lb_snapshot
-from examples.benchmark_peaso_network import synthetic_snapshot as network_snapshot
+from tests.synthetic.benchmark_peaso_stable_ids import id_factory, literal_id, network_stage, iam_stage, iam_snapshot, network_snapshot as lb_snapshot
+from tests.synthetic.benchmark_peaso_network import synthetic_snapshot as network_snapshot
 from peaso.analysis import common
 from peaso.snapshot import digest, make_snapshot, resources
 

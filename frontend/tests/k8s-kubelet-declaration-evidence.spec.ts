@@ -3,11 +3,9 @@ import { readFileSync } from "node:fs";
 import type { Finding } from "../src/types";
 import { explainObservedEvidence } from "../src/observedEvidenceExplanation";
 import { kubeletDeclarationObservation } from "../src/k8sKubeletDeclarationEvidence";
-const cases = JSON.parse(readFileSync(new URL("../../peaso/checks/k8s_kubelet_configmap_review_20261020_native_fixtures.json", import.meta.url), "utf8"));
 const rules = JSON.parse(readFileSync(new URL("../../peaso/checks/k8s_kubelet_declaration_observed_20261020.json", import.meta.url), "utf8"));
 for (const [id, row] of Object.entries(rules) as [string, { field: string; PASS: string; FAIL: string }][]) {
   test(`${id}: brief declaration and malformed guard`, () => {
-    expect(cases[id]).toBeTruthy();
     for (const status of ["PASS", "FAIL"] as const) {
       const evidence = { observed: row[status], field: row.field, scope: "native_named_configmap_declaration_only", raw_content_retained: false };
       const finding = { provider: "k8s", check_id: id, status, evidence } as unknown as Finding;

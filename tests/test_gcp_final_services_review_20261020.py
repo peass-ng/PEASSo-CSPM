@@ -19,7 +19,6 @@ from peaso.engine import evaluate_snapshot
 from peaso.snapshot import validate
 from tests.test_peaso_collectors_gcp import FixtureTransport, connector
 
-ROOT = Path(__file__).resolve().parents[1] / '.wave2-receipts/final-services-review'
 P = 'projects/native-one'
 C = 'https://compute.googleapis.com/compute/v1/' + P
 CRM = 'https://cloudresourcemanager.googleapis.com/v3/' + P
@@ -54,12 +53,6 @@ def no_network_or_auth(monkeypatch):
         monkeypatch.setattr(target, attr, blocked)
     yield
     assert not forbidden,forbidden
-
-@pytest.fixture(scope='session', autouse=True)
-def receipts():
-    ROOT.mkdir(parents=True, exist_ok=True)
-    yield
-    (ROOT/'native-cases.json').write_text(json.dumps(RECEIPTS, indent=2)+'\n')
 
 def spec(cid, kind, path, good, bad, missing='UNKNOWN', expected=('PASS','FAIL')):
     return dict(id=cid, kind=kind, path=path, good=good, bad=bad, missing=missing, expected=expected)

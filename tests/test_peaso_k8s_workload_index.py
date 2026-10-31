@@ -7,7 +7,7 @@ import weakref
 
 import pytest
 
-from examples.benchmark_peaso_k8s_workloads import LinearK8sWorkloads, synthetic_snapshot
+from tests.synthetic.benchmark_peaso_k8s_workloads import LinearK8sWorkloads, synthetic_snapshot
 from peaso.analysis import k8s_workload_index as indexed
 from peaso.principal_exposure import _cluster, project
 from peaso.snapshot import resources, seal, validate

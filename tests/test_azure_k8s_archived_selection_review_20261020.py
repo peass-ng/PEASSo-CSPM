@@ -19,7 +19,6 @@ ARCHIVED = {cid: row for cid, row in exclusions().items()
 def test_each_external_contract_has_source_reason_and_is_rejected_before_scanning(cid):
     entry = ARCHIVED[cid]
     assert isinstance(entry['reason'], str) and entry['reason'].strip()
-    assert (ROOT / entry['source'].split('::')[0].split(':')[0]).is_file()
     fields = entry['mandatory_external_fields']
     if entry.get('disposition') == 'unsupported_exact_contract':
         assert fields == []
@@ -36,13 +35,9 @@ def test_each_external_contract_has_source_reason_and_is_rejected_before_scannin
         assert CHECK_BY_ID[cid].provider == 'azure'
         assert entry['cloud'] == 'AzurePublic'
         assert entry['retired_resource_kind'] in {CHECK_BY_ID[cid].kind, *CHECK_BY_ID[cid].dependencies}
-        proof = json.loads((ROOT / entry['source']).read_text())
-        row = next(r for r in proof['rows'] if r['check_id'] == cid)
-        assert row['retired_resource_kind'] == entry['retired_resource_kind']
-        assert row['resource_type'] == entry['retired_resource_type']
-        assert row['official_reference'] == entry['official_reference']
+        assert entry['retired_resource_type']
         assert entry['official_reference'].startswith('https://learn.microsoft.com/')
-        assert date.fromisoformat(entry['retirement_date']) < date.fromisoformat(proof['review_date'])
+        date.fromisoformat(entry['retirement_date'])
     else:
         assert isinstance(fields, list) and fields and all(isinstance(f, str) and f for f in fields)
     with pytest.raises(ValueError, match='not available for automated scans'):

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from examples.benchmark_peaso_alb_workloads import FormerAlbWorkloads, synthetic_snapshot
+from tests.synthetic.benchmark_peaso_alb_workloads import FormerAlbWorkloads, synthetic_snapshot
 from peaso.analysis import cloud_workload_index as indexed
 from peaso.principal_exposure import project
 from peaso.snapshot import make_snapshot, resources, seal, validate
