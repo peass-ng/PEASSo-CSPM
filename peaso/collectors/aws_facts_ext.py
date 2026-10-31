@@ -2380,10 +2380,23 @@ def _auditmanager_framework_shares(requests, session, region, account):
 
 def _workdocs_document_shares(requests, session, region, account):
     """Walk active user roots once and retain only folder/document IDs and grant types."""
-    users = requests.pages(session, "workdocs", region, "describe_users", "Users", Include="ALL")
-    failure = _cause(users) if users.status not in OK else None
+    # IAM-signed DescribeUsers requires the WorkDocs site's directory ID
+    # (organizationId); a Region without directories holds no WorkDocs sites.
+    directories = requests.pages(session, "ds", region, "describe_directories", "DirectoryDescriptions")
+    failure = _cause(directories) if directories.status not in OK else None
+    user_rows = []
+    for directory in directories.items:
+        directory_id = directory.get("DirectoryId") if isinstance(directory, dict) else None
+        if not isinstance(directory_id, str) or not re.fullmatch(r"d-[0-9a-f]{10}", directory_id):
+            failure = failure or ("malformed", {"code": "malformed_directory_id"})
+            continue
+        users = requests.pages(session, "workdocs", region, "describe_users", "Users",
+                               OrganizationId=directory_id, Include="ALL")
+        if users.status not in OK:
+            failure = failure or _cause(users)
+        user_rows.extend(users.items)
     folders, visited, documents = [], set(), set()
-    for user in users.items:
+    for user in user_rows:
         root = user.get("RootFolderId") if isinstance(user, dict) else None
         if not isinstance(root, str) or not re.fullmatch(r"[\w+\-.@]{1,128}", root):
             failure = failure or ("malformed", {"code": "malformed_workdocs_root"})
