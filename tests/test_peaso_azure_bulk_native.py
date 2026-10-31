@@ -219,3 +219,15 @@ def test_sql_subscription_join_requires_exact_full_native_roster(mutation):
     assert not authorized_database_scopes(snapshot, SCOPE)
     snapshot.pop('snapshot_id')
     assert verdict(snapshot, PITR) == 'UNKNOWN'
+
+
+def test_user_assigned_identity_gets_no_diagnostic_settings_read():
+    identity = BASE + 'Microsoft.ManagedIdentity/userAssignedIdentities/uami'
+    mapping = routes('managed_identity', identity, {'principalId': 'p', 'clientId': 'c'})
+    mapping[SCOPE + '/resources'] = {'value': [{'id': identity, 'type': 'Microsoft.ManagedIdentity/userAssignedIdentities'}]}
+    api = Transport(mapping)
+    snapshot = collect(['managed_identity', 'diagnostic_setting'], api)
+    assert envelope(snapshot, 'managed_identity')['status'] == 'collected'
+    assert not any('diagnosticsettings' in urlsplit(url).path.casefold() and 'userassignedidentities' in url.casefold()
+                   for url in api.calls)
+    assert not any(c['type'] == 'diagnostic_setting' and c['status'] not in ('collected', 'empty') for c in snapshot['collections'])

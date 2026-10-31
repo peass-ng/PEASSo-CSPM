@@ -230,7 +230,9 @@ ENDPOINTS.update(azure_network_catalog.ENDPOINTS)
 # Microsoft.Insights/diagnosticSettings (HTTP 400 on every item in live tenants).
 # Requesting them only produced UNKNOWN coverage noise and wall time.
 NO_DIAGNOSTIC_KINDS = frozenset({"resource_group", "security_pricing", "security_contact", "security_setting", "security_assessment",
-                                 "jit_network_access_policy", "resource_link", "policy_assignment", "network_watcher", "defender_auto_provisioning_setting"})
+                                 "jit_network_access_policy", "resource_link", "policy_assignment", "network_watcher", "defender_auto_provisioning_setting",
+                                 # Azure rejects diagnostic settings on this type (ResourceTypeNotSupported).
+                                 "managed_identity"})
 # Kinds that are not tracked resources, so the subscription-wide ARM resource
 # list (GET /subscriptions/{id}/resources) cannot prove they are absent.
 RESOURCE_INDEX_EXEMPT = frozenset({"resource_group", "security_pricing", "security_contact", "security_setting", "security_assessment",
