@@ -51,3 +51,18 @@ def test_refused_exec_kubeconfig_yields_unique_envelopes_and_one_node_clock(inve
     native = [c for c in snap["collections"] if c["type"] != "node_clock"]
     assert (inventories == ["node_clock"] or native) and all(c["status"] not in ("collected", "empty") and c["items"] == [] for c in native)
     evaluate_snapshot(snap)  # The engine accepts the snapshot.
+
+
+def test_refused_exec_kubeconfig_names_the_unsupported_credential_helper():
+    # A plain GKE/EKS kubeconfig is the common case; its envelopes must say why nothing was read
+    # instead of a generic read failure.
+    snap = k8s.collect({"provider": "k8s", "auth": {"kubeconfig_data": KUBECONFIG, "cluster_id": "c"},
+                        "options": {"inventories": ["pod", "namespace"]}})
+    codes = {c["error"]["code"] for c in snap["collections"] if c["type"] in ("pod", "namespace")}
+    assert codes == {"kubeconfig_exec_or_file_credentials_unsupported"}
+
+
+def test_missing_kubeconfig_file_is_reported_as_invalid_auth(tmp_path):
+    snap = k8s.collect({"provider": "k8s", "auth": {"method": "kubeconfig", "kubeconfig": str(tmp_path / "absent")},
+                        "options": {"inventories": ["pod"]}})
+    assert {c["error"]["code"] for c in snap["collections"] if c["type"] == "pod"} == {"kubernetes_auth_invalid"}

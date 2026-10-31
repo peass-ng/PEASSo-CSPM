@@ -31,6 +31,20 @@ class K8sReadError(AzureReadError):
     """Kubernetes read failures retain the shared scheduler's safe error shape."""
 
 
+class KubeconfigHelperError(ValueError):
+    """The kubeconfig user needs an exec/auth-provider helper or a referenced file."""
+
+
+def _open_api(auth):
+    """Name why local credentials could not be used instead of a generic read failure."""
+    try:
+        return _new_api(auth)
+    except KubeconfigHelperError as exc:
+        raise K8sReadError("kubeconfig_exec_or_file_credentials_unsupported") from exc
+    except (ValueError, OSError) as exc:
+        raise K8sReadError("kubernetes_auth_invalid") from exc
+
+
 class K8sReader(_Reader):
     def __init__(self, options):
         runtime = dict(options)
@@ -405,7 +419,7 @@ def validate_inline_kubeconfig(data, context=None):
     for entry in data["users"]:
         user = entry.get("user")
         if not isinstance(user, dict) or set(user) - {"token", "client-certificate-data", "client-key-data"}:
-            raise ValueError("inline kubeconfig cannot execute helpers or read files")
+            raise KubeconfigHelperError("inline kubeconfig cannot execute helpers or read files")
         if any(not isinstance(value, str) or not value or len(value) > 1_000_000 for value in user.values()):
             raise ValueError("kubeconfig requires embedded token or certificate strings")
     for entry in data["clusters"]:
@@ -1746,9 +1760,9 @@ def collect(connector, requirements=None, *, api=None):
         if owned:
             if selected_metadata.KIND in wanted and selected_metadata.enabled(options, scopes):
                 with log_samples.private_native_logs():
-                    api = _new_api(auth)
+                    api = _open_api(auth)
             else:
-                api = _new_api(auth)
+                api = _open_api(auth)
         if selected_metadata.KIND in wanted and selected_metadata.enabled(options, scopes):
             selected_metadata.assert_private_transport(api)
         from .k8s_response_cache import install as install_response_cache
