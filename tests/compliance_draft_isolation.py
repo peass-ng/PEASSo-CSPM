@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 from contextlib import contextmanager
 import sys
 from functools import lru_cache
@@ -127,16 +126,6 @@ CHILD_FILE_ENV = "PEASO_COMPLIANCE_DRAFT_CHILD_FILE"
 INACTIVE_REGISTRAR_MODULES = frozenset(DRAFT_TEST_MODULES.values())
 PUBLISHED_CHECK_MODULES = frozenset(name.rsplit(".", 1)[-1] for name in sys.modules
                                     if name.startswith("peaso.checks."))
-# A successor can replace an initializer import without loading its immutable
-# historical admission helper. Permit only this reviewed predecessor, and only
-# when its exact successor was admitted at runtime startup. Pin the historical
-# source to the predecessor digest in that successor's reviewed receipt.
-PUBLISHED_HISTORICAL_SUCCESSORS = {
-    "azure_nsp_query_cmk_production_admission_20261020": (
-        "azure_nsp_query_cmk_production_tde_successor_20261020",
-        "283aca5fe2cb53b01a2d0109b74c006072c447920b4b44398d10f14607781bb9",
-    ),
-}
 CHECKS_DIR = Path(__file__).resolve().parents[1] / "peaso" / "checks"
 
 
@@ -200,11 +189,6 @@ def _unpublished_module(name: str) -> bool:
         return True
     if name in PUBLISHED_CHECK_MODULES or name in PUBLISHED_MODULES:
         return False
-    if name in PUBLISHED_HISTORICAL_SUCCESSORS:
-        successor, digest = PUBLISHED_HISTORICAL_SUCCESSORS[name]
-        source = CHECKS_DIR / (name + ".py")
-        return not (successor in PUBLISHED_CHECK_MODULES and source.is_file()
-                    and hashlib.sha256(source.read_bytes()).hexdigest() == digest)
     if name.startswith("compliance_new_"):
         return True
     source = CHECKS_DIR / (name + ".py")

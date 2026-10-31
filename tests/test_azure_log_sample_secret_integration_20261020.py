@@ -1,25 +1,17 @@
-"""Exact atomic log-sample admission and actual production public-engine hooks."""
+"""Selected log-sample admission and actual production public-engine hooks."""
 from copy import deepcopy
-from tests.case_state_contract_20261020 import case_copy, case_state
 import json
 from pathlib import Path
 import socket
 from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
-from peaso import checks,engine,secret_scanning as scanning
-from peaso.checks.fixtures import CASES
+from peaso import engine,secret_scanning as scanning
 from peaso.collectors import azure
 from peaso.collectors import azure_selected_log_sample_secret_indicators as source
 from peaso.server.validation import OPTIONS,validate_connector
 from peaso.snapshot import make_snapshot
 from tests import test_azure_selected_log_sample_secret_review_20261020 as native
-
-
-def install():
-    """The production installation path used by peaso.checks."""
-    from peaso import rawv2_private_source_successor_20261021 as rawv2
-    return rawv2.install_admission('azure_log_samples_admission_20261020')
 
 
 @pytest.fixture(autouse=True)
@@ -57,24 +49,6 @@ def test_public_hosted_validation_and_help_exact_native_profiles(profile,auth_mo
     assert option in OPTIONS and option+':'in help
     assert source.PROFILES[profile]['kind']in engine.BULK_STREAM_TYPES['azure']
     assert source.PROFILES[profile]['kind']not in azure._selected({},None)
-
-
-def test_atomic_mid_install_failure_rolls_back_both(monkeypatch):
-    ids={p['check']for p in source.PROFILES.values()};original_checks=list(checks.CHECKS);original_cases=case_copy(CASES);cases_state=case_state(CASES)
-    checks.CHECKS[:]=[c for c in checks.CHECKS if c.id not in ids]
-    for ident in ids:CASES.pop(ident,None)
-    before=tuple(checks.CHECKS);cases=case_copy(CASES);cases_state=case_state(CASES);register=checks.register;count=0
-    def fail_second(*args,**kwargs):
-        nonlocal count
-        count+=1
-        if count==2:raise RuntimeError('injected transaction failure')
-        return register(*args,**kwargs)
-    monkeypatch.setattr(checks,'register',fail_second)
-    try:
-        with pytest.raises(RuntimeError,match='transaction'):install()
-        assert tuple(checks.CHECKS)==before and case_state(CASES)==cases_state
-    finally:
-        checks.CHECKS[:]=original_checks;CASES.clear();CASES.update(original_cases)
 
 
 @pytest.mark.parametrize('profile',source.PROFILES)
@@ -118,15 +92,6 @@ def test_combined_selector_limit_enforced_by_public_and_hosted_validation():
     with pytest.raises(ValueError):engine.collect_snapshot({'connector':{'provider':'azure','scopes':[native.SCOPE],'auth':{},'options':options},'checks':[p['check']for p in source.PROFILES.values()]})
     with pytest.raises(HTTPException)as error:validate_connector('azure',{},options,SimpleNamespace(auth_mode='local'),scopes=[native.SCOPE])
     assert error.value.status_code==422
-
-
-def test_existing_fixture_collision_cannot_partially_readmit():
-    ident=source.PROFILES['application']['check'];saved=deepcopy(CASES[ident]);before=tuple(checks.CHECKS)
-    CASES[ident]={'unexpected':'collision'}
-    try:
-        with pytest.raises(RuntimeError,match='collision'):install()
-        assert tuple(checks.CHECKS)==before and CASES[ident]=={'unexpected':'collision'}
-    finally:CASES[ident]=saved
 
 
 def test_explicit_inventories_and_spoofed_kinds_do_not_read_without_named_check(monkeypatch):

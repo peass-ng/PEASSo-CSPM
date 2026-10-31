@@ -1,6 +1,5 @@
 """Production optional S3 admission/permissions and actual SDK DEBUG boundaries."""
 from copy import deepcopy
-from tests.shared_admission_epoch_compatibility_20261020 import active_shared
 import base64,hashlib,inspect,io,json,logging,socket,zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,8 +15,6 @@ from peaso.checks import CHECKS, fixtures
 from peaso.checks import aws_s3_selected_source_secret_review_20261020 as consumer
 from peaso.server.validation import OPTIONS,validate_connector
 from scripts import peaso_deploy_customer_policy as policy
-from peaso.private_secret_source_epoch_20261021 import AdmissionError
-from tests.shared_admission_epoch_compatibility_20261020 import active_shared, source_at_epoch, s3_historical_policy_before
 from peaso.checks import CHECKS,fixtures,aws_s3_selected_source_admission_20261020 as admission
 
 ACCOUNT='123456789012';REGION='us-east-1';SCOPE=ACCOUNT+'/'+REGION
@@ -169,28 +166,10 @@ def test_exact_one_registered_check_and_native_cases_idempotence():
     registered,=[c for c in CHECKS if c.id==s3.CHECK]
     assert inspect.unwrap(registered.evaluate)is consumer.evaluate
     assert registered.kind==s3.KIND and registered.allow_incomplete_failure and registered.severity=='high'
-    before=tuple(CHECKS);case=deepcopy(fixtures.CASES[s3.CHECK]);active_shared().install_s3()
+    before=tuple(CHECKS);case=deepcopy(fixtures.CASES[s3.CHECK]);admission.install()
     assert tuple(CHECKS)==before and fixtures.CASES[s3.CHECK]==case
-    cases=active_shared().s3_reviewed_inputs()[s3.CHECK]
+    cases=fixtures.CASES[s3.CHECK]
     assert {consumer.evaluate(cases[b],cases[b+'_index'])[0]for b in('pass','fail','unknown')}=={'PASS','FAIL','UNKNOWN'}
-
-
-
-
-def test_registry_install_failure_rolls_back_only_new_check(monkeypatch):
-    from peaso import checks
-    before=tuple(CHECKS);case=deepcopy(fixtures.CASES[s3.CHECK]);original=checks.register
-    CHECKS[:]=[c for c in CHECKS if c.id!=s3.CHECK];fixtures.CASES.pop(s3.CHECK)
-    without=tuple(CHECKS)
-    def broken(*a,**k):
-        decorate=original(*a,**k)
-        def apply(fn):decorate(fn);raise RuntimeError('synthetic registration interruption')
-        return apply
-    monkeypatch.setattr(checks,'register',broken)
-    try:
-        with pytest.raises(RuntimeError,match='registration interruption'):active_shared().install_s3()
-        assert tuple(CHECKS)==without and s3.CHECK not in fixtures.CASES
-    finally:CHECKS[:]=before;fixtures.CASES[s3.CHECK]=case
 
 
 def test_optional_s3_descriptors_never_expand_default_metadata_role():

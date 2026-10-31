@@ -1,18 +1,15 @@
 from copy import deepcopy
 import pytest
-import sys
-from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as configmap_successor
 from peaso.checks import k8s_kubelet_configmap_review_20261020 as native
+from peaso.checks.fixtures import CASES
 from peaso.checks.k8s_kubelet_declaration_observed_20261020 import observation
 from peaso.checks.k8s_evidence_explanations import evidence_summary
 
-# Production replays the historical ConfigMap admission from archived sources.
-reviewed_inputs=sys.modules[configmap_successor.PRIVATE_NAME].reviewed_inputs
 
 @pytest.mark.parametrize('cid',native.IDS)
 @pytest.mark.parametrize('branch',['pass','fail'])
 def test_exact_native_declaration_brief(cid,branch):
-    cases=reviewed_inputs()[1][cid]
+    cases=CASES[cid]
     status,evidence=native.evaluate(cid,cases[branch],cases[branch+'_index'])
     finding={'provider':'k8s','check_id':cid,'status':status,'evidence':evidence}
     assert observation(finding)==evidence['observed']
@@ -28,7 +25,7 @@ def test_exact_native_declaration_brief(cid,branch):
 @pytest.mark.parametrize('cid',native.IDS)
 @pytest.mark.parametrize('branch',['unknown','empty'])
 def test_exact_native_unknown_declaration_stays_uncertain_and_brief(cid,branch):
-    cases=reviewed_inputs()[1][cid]
+    cases=CASES[cid]
     status,evidence=(native.evaluate_empty({}, {}) if branch=='empty' else
                      native.evaluate(cid,cases['unknown'],cases['unknown_index']))
     assert status=='UNKNOWN'

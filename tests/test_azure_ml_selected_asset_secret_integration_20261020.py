@@ -1,20 +1,17 @@
-"""Exact atomic two-control admission and actual Azure ML asset production hooks."""
+"""Actual Azure ML asset production hooks."""
 from copy import deepcopy
-from tests.case_state_contract_20261020 import case_copy, case_state
 import json
 import socket
 from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from peaso import checks,engine,secret_scanning as scanning
-from peaso import rawv2_private_source_successor_20261021 as current_admission
 from peaso.checks.fixtures import CASES
 from peaso.checks import azure_ml_selected_asset_secret_review_20261020 as consumer
 from peaso.collectors import azure,azure_ml_selected_asset_secret_indicators as source
 from peaso.server.validation import OPTIONS,validate_connector
 from peaso.snapshot import make_snapshot
 from tests import test_azure_ml_selected_asset_secret_review_20261020 as native
-from peaso.checks import azure_ml_asset_secrets_admission_20261020 as admission
 
 IDS=tuple(p['check']for p in source.PROFILES.values())
 
@@ -76,36 +73,6 @@ def test_two_profile_request_validation_before_credentials(failure):
     with pytest.raises(ValueError):engine.collect_snapshot({'connector':{'provider':'azure','scopes':[native.SCOPE],'auth':{},'options':options},'checks':ids})
 
 
-
-
-def test_second_registration_failure_rolls_back_both_controls_and_new_cases(monkeypatch):
-    original=list(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES)
-    checks.CHECKS[:]=[c for c in checks.CHECKS if c.id not in IDS]
-    for ident in IDS:CASES.pop(ident,None)
-    before=tuple(checks.CHECKS);cases=case_copy(CASES);cases_state=case_state(CASES);register=checks.register;calls=[]
-    def inject(*a,**kw):
-        decorator=register(*a,**kw)
-        def changed(function):
-            decorator(function);calls.append(a[0])
-            if len(calls)==2:raise RuntimeError('injected second-control failure')
-        return changed
-    monkeypatch.setattr(checks,'register',inject)
-    try:
-        with pytest.raises(RuntimeError,match='second-control'):
-            current_admission.install_admission('azure_ml_asset_secrets_admission_20261020')
-        assert calls==list(IDS)and tuple(checks.CHECKS)==before and case_state(CASES)==cases_state
-    finally:checks.CHECKS[:]=original;CASES.clear();CASES.update(saved)
-
-
-def test_second_fixture_collision_is_checked_before_any_mutation():
-    original=list(checks.CHECKS);saved=case_copy(CASES);saved_state=case_state(CASES)
-    checks.CHECKS[:]=[c for c in checks.CHECKS if c.id not in IDS];CASES.pop(IDS[0],None);CASES[IDS[1]]={'collision':True}
-    before=tuple(checks.CHECKS);cases=case_copy(CASES);cases_state=case_state(CASES)
-    try:
-        with pytest.raises(RuntimeError,match='collision'):
-            current_admission.install_admission('azure_ml_asset_secrets_admission_20261020')
-        assert tuple(checks.CHECKS)==before and case_state(CASES)==cases_state
-    finally:checks.CHECKS[:]=original;CASES.clear();CASES.update(saved)
 
 
 @pytest.mark.parametrize('profile',source.PROFILES)

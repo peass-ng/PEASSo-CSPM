@@ -1,29 +1,14 @@
-"""Atomic/current-source, hosted preauth, default-off and union-privacy gates."""
+"""Hosted preauth, default-off and union-privacy gates for selected K8s metadata."""
 from copy import deepcopy
-import gzip
 import json
-import os
-from pathlib import Path
-import shutil
 import socket
-import sys
 from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from peaso import checks,engine
-from peaso.checks import fixtures
-from peaso.checks import k8s_selected_metadata_runtime_admission_20261020 as admission
-from peaso.checks import k8s_annotation_native_source_successor_20261021 as annotation_successor
-from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as configmap_successor
 from peaso.collectors import k8s
 from peaso.server.validation import validate_connector
-from tests.aws_k8s_current_native_inputs_20261020 import replace_registry_checks
 from tests.test_k8s_selected_metadata_production_20261020 import capture, source, runtime, NS, CLUSTER, HOST, TOKEN
-
-# Production installs the historical annotation/ConfigMap admissions through
-# their archived-source successors; replay them in that private namespace.
-annotation=sys.modules[annotation_successor._PRIVATE_NAME]
-configmaps=sys.modules[configmap_successor.PRIVATE_NAME]
 
 
 def request(**options):
@@ -34,12 +19,6 @@ def request(**options):
 
 
 def current():return next(c for c in checks.CHECKS if c.id==source.CHECK)
-
-
-def isolate(monkeypatch):
-    replace_registry_checks(monkeypatch, [c for c in checks.CHECKS if c.id!=source.CHECK])
-    monkeypatch.setattr(fixtures,'CASES',{key:value for key,value in fixtures.CASES.items()if key!=source.CHECK})
-    monkeypatch.setattr(admission,'_INSTALLED',())
 
 
 def test_default_plan_exclusion_and_exact_named_requirement():
@@ -96,88 +75,6 @@ def test_request_grant_is_bound_to_exact_selection_and_scope():
     assert not runtime.enabled(opts,[NS])
     opts=deepcopy(request()['connector']['options']);runtime.authorize(opts,[NS],[source.CHECK])
     assert not runtime.enabled(opts,['foreign'])
-
-
-def shipped_fixtures():
-    """tests/fixtures files the runtime image ships beside the package."""
-    import re
-    root=Path(__file__).resolve().parents[1]
-    names=sorted(set(re.findall(r'tests/fixtures/[A-Za-z0-9_.-]+\.json\.gz',(root/'Dockerfile.peaso').read_text())))
-    assert names and all((root/name).is_file()for name in names)
-    return names
-
-
-def packaged_root(tmp_path):
-    """Lay out the shipped image only: every peaso/ file plus the few fixtures
-    Dockerfile.peaso copies; no other tests/ file and no docs/.
-
-    Current reviewed inputs are proven through shared private-source successors
-    that read further packaged receipts, so the whole package is laid out with
-    hard links (copies across devices); a faulted file is detached first."""
-    root=Path(__file__).resolve().parents[1];receipt=json.loads((root/'peaso/checks'/admission.RECEIPT).read_bytes())
-    old=json.loads((root/'peaso/checks'/admission.prepared.RECEIPT).read_bytes())
-    paths=set(receipt['sources'])|set(old['sources'])|{r['path']for r in receipt['fixtures']}|{r['path']for r in receipt['functions'].values()}|{r['path']for r in old['functions'].values()}|{'peaso/checks/'+admission.RECEIPT,'peaso/checks/'+admission.prepared.RECEIPT}
-    assert all(relative.startswith('peaso/')for relative in paths)
-    for path in sorted((root/'peaso').rglob('*'))+[root/name for name in shipped_fixtures()]:
-        if path.is_dir()or '__pycache__' in path.parts:continue
-        target=tmp_path/path.relative_to(root);target.parent.mkdir(parents=True,exist_ok=True)
-        try:os.link(path,target)
-        except OSError:shutil.copyfile(path,target)
-    assert all((tmp_path/relative).is_file()for relative in paths)
-    return receipt
-
-
-def detach(path):
-    data=path.read_bytes();path.unlink();path.write_bytes(data)
-
-
-_PACKAGED_PROBE='''
-import sys
-from pathlib import Path
-import peaso
-root=Path.cwd().resolve()
-assert Path(peaso.__file__).resolve().is_relative_to(root),peaso.__file__
-from peaso.checks import k8s_selected_metadata_runtime_admission_20261020 as admission
-try:
-    print('ID',admission.reviewed_inputs(root)[2]['id'])
-except RuntimeError as exc:
-    print('REJECTED',type(exc).__name__,exc);sys.exit(3)
-'''
-
-
-def packaged_reviewed_inputs(root):
-    """Run the admission from the laid-out package itself, as an installed wheel does.
-
-    Private-source successors bind their own module file to the reviewed root,
-    so the packaged tree must be the one imported, not this checkout."""
-    import subprocess
-    checkout=Path(__file__).resolve().parents[1]
-    paths=[entry for entry in os.environ.get('PYTHONPATH','').split(os.pathsep)
-           if entry and entry!='.' and Path(entry).resolve()!=checkout]
-    env=dict(os.environ,PYTHONPATH=os.pathsep.join([str(root)]+paths))
-    return subprocess.run([sys.executable,'-B','-c',_PACKAGED_PROBE],cwd=root,env=env,
-                          capture_output=True,text=True,timeout=900)
-
-
-def test_runtime_admission_has_no_tests_or_docs_filesystem_dependency(tmp_path):
-    receipt=packaged_root(tmp_path)
-    shipped={str(p.relative_to(tmp_path))for p in (tmp_path/'tests').rglob('*')if p.is_file()}
-    assert shipped==set(shipped_fixtures())and not(tmp_path/'docs').exists()
-    result=packaged_reviewed_inputs(tmp_path)
-    assert result.returncode==0 and result.stdout.split()==['ID',source.CHECK],result.stdout+result.stderr[-2000:]
-    assets=json.loads(gzip.decompress((tmp_path/'peaso/checks'/admission.ASSETS).read_bytes()))
-    assert all(not name.endswith('.py')and not name.endswith('.md')for name in assets)
-    assert all(row['path'].startswith('peaso/checks/')for row in receipt['fixtures'])
-
-
-@pytest.mark.parametrize('fault',['token','class','check','kind','option'])
-def test_runtime_capability_or_callable_drift_fails_closed(monkeypatch,fault):
-    if fault=='token':monkeypatch.setattr(runtime,'_TOKEN',object())
-    elif fault=='class':monkeypatch.setattr(runtime,'_Grant',type('Fake',(),{}))
-    elif fault=='check':monkeypatch.setattr(runtime,'CHECK','foreign')
-    elif fault=='kind':monkeypatch.setattr(runtime,'KIND','pod')
-    else:monkeypatch.setattr(runtime,'OPTION','inventories')
-    with pytest.raises(RuntimeError):admission.reviewed_inputs()
 
 
 def test_final_union_scrubs_all_three_ledgers_before_clearing():

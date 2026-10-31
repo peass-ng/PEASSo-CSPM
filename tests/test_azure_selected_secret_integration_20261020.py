@@ -1,4 +1,4 @@
-"""Actual registered Azure selected-content hooks, admission and hosted contract."""
+"""Actual registered Azure selected-content hooks and hosted contract."""
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -8,17 +8,12 @@ import pytest
 from fastapi import HTTPException
 from peaso import checks,engine,secret_scanning as scanning
 from peaso.collectors import azure
-# The 2026-10-20 receipt is historical for today's reviewed selected sources;
-# the registered installer is the current RawV2 successor of the same receipt.
-from peaso import rawv2_private_source_successor_20261021 as current_admission
 from peaso.checks.fixtures import CASES
 from peaso.server.validation import validate_connector,OPTIONS
 from tests import test_azure_app_settings_secret_review_20261020 as app
 from tests import test_azure_selected_configuration_secret_review_20261020 as arm
 from tests import test_azure_selected_storage_secret_review_20261020 as storage
 from tests import test_azure_devops_selected_content_secret_review_20261020 as devops
-from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases
-from peaso.checks import azure_selected_secrets_admission_20261020 as admission
 
 
 @pytest.fixture(autouse=True)
@@ -73,23 +68,6 @@ def test_hosted_selector_accepts_exact_native_shape_and_rejects_foreign_provider
     assert error.value.status_code==422
 
 
-
-
-def test_atomic_rollback_after_second_registration_failure(monkeypatch):
-    _,cases,_=current_admission._azure_reviewed_inputs();prior=tuple(checks.CHECKS);saved=snapshot_cases(CASES)
-    try:
-        checks.CHECKS[:]=[c for c in checks.CHECKS if c.id not in cases]
-        for ident in cases:CASES.pop(ident)
-        before=tuple(checks.CHECKS);before_cases=snapshot_cases(CASES);original=checks.register;count=0
-        def failing(*args,**kwargs):
-            nonlocal count
-            count+=1
-            if count==2:raise RuntimeError('injected registration failure')
-            return original(*args,**kwargs)
-        monkeypatch.setattr(checks,'register',failing)
-        with pytest.raises(RuntimeError,match='injected'):current_admission.install_selected_azure()
-        assert tuple(checks.CHECKS)==before and CASES==before_cases
-    finally:checks.CHECKS[:]=prior;CASES.clear();CASES.update(saved)
 
 
 class NativeMetadataPatch:

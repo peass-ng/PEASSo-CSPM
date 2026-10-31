@@ -13,17 +13,14 @@ CALLER={'Account':A,'Arn':f'arn:aws:iam::{A}:user/fixture','UserId':'fixture'}
 def load(name,path):
     spec=importlib.util.spec_from_file_location(name,P/path);m=importlib.util.module_from_spec(spec);sys.modules[name]=m;spec.loader.exec_module(m);return m
 import peaso.checks
-from peaso import private_secret_source_epoch_20261021 as epoch
-import types
 ROOT=Path(__file__).resolve().parents[2]
 assert len(peaso.checks.CHECKS)==4179
-for fn in[canonical.collect_selected,canonical.project_response]:epoch.trusted_definition(fn,ROOT)
-transition=epoch._receipt()[0]['current_reviewed_files']['peaso/collectors/aws_selected_configuration_secret_indicators.py']
-retained=next(before for before,after in transition['exact_replacements']if hashlib.sha256(before.encode()).hexdigest()=='c3246adda900a7c342bfe3f2effa640d2b22379fd0c6b71ec04f05b58f513692')
-baseline=types.ModuleType('peaso.collectors._ecs_phase_retained_baseline')
-baseline.__file__=str(ROOT/'tests/ecs_phase_retained_native_comparison.py');baseline.__package__='peaso.collectors'
+# Comparison baseline: the retained pre-two-phase module kept with the tests.
+_spec=importlib.util.spec_from_file_location('peaso.collectors._ecs_phase_retained_baseline',
+    ROOT/'tests/ecs_selected_configuration_retained_baseline_20261027.py')
+baseline=importlib.util.module_from_spec(_spec)
 sys.modules[baseline.__name__]=baseline
-exec(compile(retained,baseline.__file__,'exec'),vars(baseline))
+_spec.loader.exec_module(baseline)
 candidate=canonical
 key=rsa.generate_private_key(public_exponent=65537,key_size=2048).private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()).decode()
 scanner._trufflehog();scanner._kingfisher()
@@ -85,4 +82,4 @@ for name,pos in [('allunique_clean',False),('mixed_rsa',True)]:
     assert a['response_counters']==b['response_counters']
     results.append({'case':name,'memo_state':'cold_both','baseline':a,'candidate':b})
     print(json.dumps({'completed_case':results[-1]},sort_keys=True),flush=True)
-print(json.dumps({'results':results,'real_detectors':True,'private_capture_stubs':False,'actual_requests_profile_and_native_client':True,'network':'none','candidate_is_canonical_admitted_module':True,'baseline_is_exact_retained_comparison':True,'pinned_TH':scanner.TRUFFLEHOG_VERSION},sort_keys=True))
+print(json.dumps({'results':results,'real_detectors':True,'private_capture_stubs':False,'actual_requests_profile_and_native_client':True,'network':'none','candidate_is_canonical_module':True,'baseline_is_retained_comparison':True,'pinned_TH':scanner.TRUFFLEHOG_VERSION},sort_keys=True))

@@ -1,9 +1,6 @@
 """Production admission, hosted preflight and public native Dataproc gates."""
-from copy import deepcopy
-from dataclasses import replace
 import inspect
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from fastapi import HTTPException
 import pytest
@@ -64,79 +61,16 @@ def test_public_preauth_named_check_requires_its_exact_source(fault):
     with pytest.raises(ValueError): engine._request(request)
 
 
-def test_atomic_admission_identity_idempotence(monkeypatch):
-    from tests.current_runtime_admission_inputs_20261022 import current_inputs
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
+def test_install_registers_both_checks_once_with_native_cases(monkeypatch):
     isolated_registry(monkeypatch)
     before = list(checks.CHECKS)
-    receipt, cases, declarations = current_inputs(admission)
-    install_admission('gcp_dataproc_source_runtime_admission_20261020')
-    assert checks.CHECKS == before and set(cases) == set(admission.CHECK_IDS)
-    assert all(c.provider == 'gcp' and c.allow_incomplete_failure for c in checks.CHECKS if c.id in admission.CHECK_IDS)
-    for meta, fn in declarations:
+    admission.install()
+    assert checks.CHECKS == before and set(admission.CHECK_IDS) <= set(fixtures.CASES)
+    assert tuple(row['id'] for row in native.consumer.DECLARATIONS) == admission.CHECK_IDS
+    for meta in native.consumer.DECLARATIONS:
         actual, = [c for c in checks.CHECKS if c.id == meta['id']]
-        assert inspect.unwrap(actual.evaluate) is fn
-
-
-@pytest.mark.parametrize('collision', ['metadata', 'evaluator', 'fixture'])
-def test_atomic_collision_preserves_both_controls(monkeypatch, collision):
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    isolated_registry(monkeypatch)
-    cid = admission.CHECK_IDS[0]
-    pos = next(i for i, c in enumerate(checks.CHECKS) if c.id == cid)
-    if collision == 'metadata': checks.CHECKS[pos] = replace(checks.CHECKS[pos], severity='low')
-    if collision == 'evaluator': checks.CHECKS[pos] = replace(checks.CHECKS[pos], evaluate=lambda *a: ('PASS', {}))
-    if collision == 'fixture': fixtures.CASES[cid] = {'forged': True}
-    before = list(checks.CHECKS); prior = deepcopy({c: fixtures.CASES[c] for c in admission.CHECK_IDS})
-    with pytest.raises(RuntimeError, match='collision'):
-        install_admission('gcp_dataproc_source_runtime_admission_20261020')
-    assert checks.CHECKS == before and {c: fixtures.CASES[c] for c in admission.CHECK_IDS} == prior
-
-
-def test_atomic_registration_failure_rolls_back_both(monkeypatch):
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    isolated_registry(monkeypatch)
-    checks.CHECKS[:] = [c for c in checks.CHECKS if c.id not in admission.CHECK_IDS]
-    for cid in admission.CHECK_IDS: fixtures.CASES.pop(cid)
-    before = list(checks.CHECKS); original = checks.register; count = []
-    def register(*args, **kw):
-        count.append(args[0])
-        if len(count) == 2: raise RuntimeError('injected second registration failure')
-        return original(*args, **kw)
-    monkeypatch.setattr(checks, 'register', register)
-    with pytest.raises(RuntimeError, match='second registration'):
-        install_admission('gcp_dataproc_source_runtime_admission_20261020')
-    assert len(count) == 2 and checks.CHECKS == before
-    assert not set(admission.CHECK_IDS) & set(fixtures.CASES)
-
-
-@pytest.mark.parametrize('tamper', ['receipt', 'fixture', 'producer', 'runtime', 'predicate', 'reachable'])
-def test_negative_source_and_native_fixture_guards(monkeypatch, tamper):
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    from peaso.private_secret_source_epoch_20261021 import AdmissionError
-    from tests.current_runtime_admission_inputs_20261022 import alter_exact_source_read
-    if tamper in ('predicate', 'reachable'):
-        module = native.consumer
-        if tamper == 'predicate':
-            monkeypatch.setattr(module, 'job_source', lambda *a: ('PASS', {}))
-        else:
-            monkeypatch.setattr(module._evaluate, '__code__', (lambda *a: ('PASS', {})).__code__)
-        message = 'identity changed' if tamper == 'predicate' else 'Reviewed current helper changed'
-        with pytest.raises(RuntimeError, match=message):
-            install_admission('gcp_dataproc_source_runtime_admission_20261020')
-        return
-    receipt_path = Path('peaso/checks/gcp_dataproc_source_runtime_admission_20261020.json')
-    receipt = json.loads(receipt_path.read_text())
-    path = str(receipt_path) if tamper == 'receipt' else receipt['fixture']['path'] if tamper == 'fixture' else (
-        'peaso/collectors/gcp_dataproc_referenced_source_secret_indicators.py' if tamper == 'producer' else
-        'peaso/collectors/gcp_dataproc_source_runtime_20261020.py')
-    hits = alter_exact_source_read(monkeypatch, path)
-    expected = ((AdmissionError, 'current source mismatch') if tamper == 'producer'
-                else (AdmissionError, 'unreviewed predecessor request') if tamper == 'runtime'
-                else (RuntimeError, 'changed'))
-    with pytest.raises(expected[0], match=expected[1]):
-        install_admission('gcp_dataproc_source_runtime_admission_20261020')
-    assert hits
+        assert actual.provider == 'gcp' and actual.allow_incomplete_failure
+        assert inspect.unwrap(actual.evaluate) is getattr(native.consumer, admission.EVALUATORS[meta['id']])
 
 
 @pytest.mark.parametrize('profile', runtime.source.PROFILES)

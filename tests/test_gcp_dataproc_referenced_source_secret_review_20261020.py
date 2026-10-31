@@ -417,8 +417,8 @@ def test_actual_runner_offline_flags_and_no_temp_content(monkeypatch, tmp_path):
 
 def test_native_fixture_verdicts():
     import gzip
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    install_admission('gcp_dataproc_source_runtime_admission_20261020')
+    from peaso.checks import gcp_dataproc_source_runtime_admission_20261020 as admission
+    admission.install()
     frozen = json.loads(gzip.decompress(Path('peaso/checks/gcp_dataproc_referenced_source_native_cases_20261020.json.gz').read_bytes()))
     for cid, outcomes in frozen['cases'].items():
         assert set(outcomes) == {'PASS', 'FAIL', 'UNKNOWN'}

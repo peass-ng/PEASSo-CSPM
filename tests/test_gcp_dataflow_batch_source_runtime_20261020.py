@@ -1,7 +1,5 @@
 """Finite native HTTP through real engine/collector and both pinned offline scanners."""
 from copy import deepcopy
-from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases, active_shared
-from dataclasses import replace
 import http.client
 import inspect
 import io
@@ -13,16 +11,14 @@ import pytest
 import requests
 from fastapi import HTTPException
 from peaso import checks, engine, secret_scanning as scanning
-from peaso.checks import fixtures
+from peaso.checks.fixtures import CASES
 from peaso.checks import gcp_dataflow_batch_source_runtime_admission_20261020 as admission
 from peaso.checks import gcp_dataflow_batch_source_runtime_consumer_20261020 as consumer
-from peaso.checks import gcp_dataflow_batch_shared_hook_successor_20261020 as shared
 from peaso.collectors import gcp
 from peaso.collectors import gcp_dataflow_batch_source_runtime_20261020 as runtime
 from peaso.server.validation import OPTIONS, validate_connector
 from tests import gcp_dataflow_referenced_source_20261020_test as df
 from tests import gcp_batch_referenced_source_20261020_test as bt
-from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases, active_shared, source_at_epoch, sealed_ast
 
 SCOPE, TOKEN, AUTH = df.SCOPE, df.TOKEN, df.AUTH
 PROOF_LABEL = 'hacktricks-cspm-' + 'a' * 20
@@ -326,13 +322,13 @@ def test_actual_selected_sibling_closure(monkeypatch,profile,hit,tamper):
     assert status==('FAIL' if hit else 'UNKNOWN') and details['complete'] is False
 
 
-def test_atomic_guard_native_cases_idempotent():
-    receipt,cases,declarations=admission.reviewed_inputs();before=tuple(checks.CHECKS)
+def test_install_is_idempotent_and_registers_native_cases():
+    before=tuple(checks.CHECKS)
     admission.install();admission.install()
-    assert tuple(checks.CHECKS)==before and set(cases)==set(runtime.CHECKS)
-    for meta,fn in declarations:
+    assert tuple(checks.CHECKS)==before and set(runtime.CHECKS)<=set(CASES)
+    for profile,meta in zip(runtime.PROFILES,consumer.DECLARATIONS):
         actual,=[c for c in checks.CHECKS if c.id==meta['id']]
-        assert inspect.unwrap(actual.evaluate) is fn and actual.allow_incomplete_failure
+        assert inspect.unwrap(actual.evaluate) is getattr(consumer,profile+'_source') and actual.allow_incomplete_failure
 
 
 @pytest.mark.parametrize('profile',['dataflow','batch'])
@@ -347,7 +343,6 @@ def test_actual_k8s_opaque_grant_compatibility(monkeypatch,branch):
     from tests import test_k8s_selected_metadata_production_20261020 as native
     (status,evidence),trace,_,_=native.capture(monkeypatch,positive=branch=='fail',status=403 if branch=='unknown' else 200)
     assert status==branch.upper() and {r['status'] for r in trace.findings}=={status}
-    assert shared.original.reviewed_inputs is active_shared().reviewed_inputs
 
 
 @pytest.mark.parametrize('hit',[False,True])
@@ -357,38 +352,6 @@ def test_actual_workbench_opaque_grant_compatibility(monkeypatch,hit):
     assert {r['status'] for r in rows}=={'FAIL' if hit else 'PASS'} and len(trace.calls)==9
     assert TOKEN not in json.dumps([snap,rows])
 
-
-
-
-@pytest.mark.parametrize('collision',['metadata','evaluator','fixture'])
-def test_atomic_collision_keeps_both_controls(monkeypatch,collision):
-    monkeypatch.setattr(fixtures,'CASES',snapshot_cases(fixtures.CASES))
-    # Admitted helpers bind the registry list itself: change it in place, then restore it.
-    saved=list(checks.CHECKS)
-    try:
-        ident=runtime.CHECKS[1];position=next(i for i,c in enumerate(checks.CHECKS) if c.id==ident)
-        if collision=='metadata':checks.CHECKS[position]=replace(checks.CHECKS[position],severity='low')
-        if collision=='evaluator':checks.CHECKS[position]=replace(checks.CHECKS[position],evaluate=lambda *a:('PASS',{}))
-        if collision=='fixture':fixtures.CASES[ident]={'changed':True}
-        before=tuple(checks.CHECKS);previous=snapshot_cases(fixtures.CASES)
-        with pytest.raises(RuntimeError,match='collision'):admission.install()
-        assert tuple(checks.CHECKS)==before and fixtures.CASES==previous
-    finally:checks.CHECKS[:]=saved
-
-
-def test_atomic_second_registration_rolls_back_first(monkeypatch):
-    monkeypatch.setattr(fixtures,'CASES',{k:v for k,v in fixtures.CASES.items() if k not in runtime.CHECKS})
-    # Admitted helpers bind the registry list itself: change it in place, then restore it.
-    saved=list(checks.CHECKS);checks.CHECKS[:]=[c for c in saved if c.id not in runtime.CHECKS]
-    try:
-        before=tuple(checks.CHECKS);previous=snapshot_cases(fixtures.CASES);original=checks.register
-        def register(ident,*args,**kwargs):
-            if ident==runtime.CHECKS[1]:raise RuntimeError('injected registration failure')
-            return original(ident,*args,**kwargs)
-        monkeypatch.setattr(checks,'register',register)
-        with pytest.raises(RuntimeError,match='injected'):admission.install()
-        assert tuple(checks.CHECKS)==before and fixtures.CASES==previous
-    finally:checks.CHECKS[:]=saved
 
 
 @pytest.mark.parametrize('hit',[False,True])

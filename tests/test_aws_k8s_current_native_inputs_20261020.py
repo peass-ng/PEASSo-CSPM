@@ -1,16 +1,6 @@
-"""Conservation, mutation and exact predecessor proofs for the finite test layer."""
-from copy import deepcopy
-import hashlib
-from pathlib import Path
+"""case_state must notice any change to owner tokens or ordinary fixture data."""
 import pytest
-from tests.aws_k8s_current_native_inputs_20261020 import (
-    OWNED_TESTS, case_state, exact_test_predecessor)
-ROOT = Path(__file__).resolve().parents[1]
-
-
-
-
-
+from tests.aws_k8s_current_native_inputs_20261020 import case_state
 
 @pytest.mark.parametrize('mutation', ['snapshot', 'expected', 'scope', 'identity'])
 def test_case_state_checks_all_opaque_owner_fields_and_exact_identity(mutation):

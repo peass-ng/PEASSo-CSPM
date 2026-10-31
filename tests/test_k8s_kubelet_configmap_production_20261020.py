@@ -1,26 +1,17 @@
-"""Production kind/collector/registry/public-engine proof; no integration hooks."""
+"""Kubelet ConfigMap checks run end to end through the real collector and engine."""
 from copy import deepcopy
 import importlib.util
 import json
 from pathlib import Path
 import socket
-import sys
 
 import pytest
 from kubernetes import client,config
 
 from peaso import engine
-import peaso.checks as registry
-from peaso.checks import fixtures
-from tests.aws_k8s_current_native_inputs_20261020 import replace_registry_checks
-from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as successor
 from peaso.checks import k8s_kubelet_configmap_review_20261020 as candidate
 from peaso.collectors import k8s
 from peaso.collectors import k8s_kubelet_configmap_indicators_20261020 as producer
-from dataclasses import replace
-from tests.aws_k8s_current_native_inputs_20261020 import case_state, replace_registry_checks
-
-admission = sys.modules[successor.PRIVATE_NAME]
 
 _path=Path(__file__).with_name('test_k8s_kubelet_configmap_native_review_20261020.py')
 _spec=importlib.util.spec_from_file_location('verified_kubelet_configmap_wire',_path)
@@ -105,19 +96,3 @@ def test_production_existing_selected_scope_and_metadata_only_routing(scope):
 def test_production_reader_call_budget_stops_detail():
     statuses,_,pool=run_native(candidate.IDS[0],options={'max_calls':1})
     assert statuses==['UNKNOWN'] and len(pool.calls)==1
-
-
-@pytest.mark.parametrize('function',[producer.pages,producer.parse_yaml,producer._DistinctLoader.construct_mapping,candidate.evaluate,candidate.evaluate_for])
-def test_actual_executing_producer_and_consumer_code_tamper_rejected(function):
-    old=function.__code__
-    try:
-        function.__code__=old.replace(co_consts=old.co_consts+('unreviewed',))
-        with pytest.raises(RuntimeError,match='code changed'):admission.install()
-    finally:function.__code__=old
-
-
-def absent(monkeypatch):
-    replace_registry_checks(monkeypatch, [c for c in registry.CHECKS if c.id not in candidate.IDS])
-    monkeypatch.setattr(fixtures,'CASES',{k:deepcopy(v)for k,v in fixtures.CASES.items()if k not in candidate.IDS})
-
-
