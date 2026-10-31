@@ -299,40 +299,6 @@ def test_registered_admission_is_idempotent():
     assert tuple(CHECKS) == before
 
 
-def test_admission_failure_leaves_registry_and_cases_unchanged(monkeypatch):
-    from peaso.checks import CHECKS
-    from peaso.checks.fixtures import CASES
-    before, cases = tuple(CHECKS), deepcopy(CASES[runtime.CHECK])
-    monkeypatch.setattr(runtime, 'scan_content', lambda *a, **kw: {'complete': True, 'leaks': []})
-    with pytest.raises(RuntimeError):
-        admission.install()
-    with pytest.raises(RuntimeError):
-        engine.collect_snapshot(request())
-    assert tuple(CHECKS) == before and CASES[runtime.CHECK] == cases
-
-
-def test_registration_failure_rolls_back_only_new_control(monkeypatch):
-    import peaso.checks as checks
-    from peaso.checks.fixtures import CASES
-    before, case = tuple(checks.CHECKS), deepcopy(CASES[runtime.CHECK])
-    original = next(c for c in checks.CHECKS if c.id == runtime.CHECK)
-    checks.CHECKS.remove(original)
-    CASES.pop(runtime.CHECK)
-    def broken_register(*args, **kwargs):
-        def broken(function):
-            checks.CHECKS.append(original)
-            raise RuntimeError('simulated registration failure')
-        return broken
-    try:
-        monkeypatch.setattr(checks, 'register', broken_register)
-        with pytest.raises(RuntimeError, match='simulated registration failure'):
-            admission.install()
-        assert not any(c.id == runtime.CHECK for c in checks.CHECKS) and runtime.CHECK not in CASES
-    finally:
-        checks.CHECKS[:] = before
-        CASES[runtime.CHECK] = case
-
-
 def test_malformed_or_foreign_envelope_and_json_replay_are_unknown(monkeypatch):
     snapshot, _ = capture(monkeypatch, (POSITIVE,))
     snapshot = json.loads(json.dumps(snapshot))

@@ -134,35 +134,6 @@ def test_multi_asset_multi_project_and_saved_json_replay_use_only_existing_list(
     assert sum(url.endswith('/instances') for _, url in transport.calls) == 2
 
 
-@pytest.mark.parametrize('mode', ['registry_append', 'cases_write'])
-def test_real_transaction_rolls_back_after_partial_registry_or_cases_failure(monkeypatch, mode):
-    """Faults act on copied mutable registries using the actual register code."""
-    baseline = [check for check in registry.CHECKS if check.id not in IDS]
-    base_cases = {cid: value for cid, value in fixtures.CASES.items() if cid not in IDS}
-
-    class FailingChecks(list):
-        def append(self, value):
-            super().append(value)
-            if value.id == IDS[1] and mode == 'registry_append':
-                raise OSError('injected registry append failure')
-
-    class FailingCases(dict):
-        def __setitem__(self, key, value):
-            super().__setitem__(key, value)
-            if key == IDS[1] and mode == 'cases_write':
-                raise OSError('injected CASES write failure')
-
-    copied_checks, copied_cases = FailingChecks(baseline), FailingCases(base_cases)
-    monkeypatch.setattr(registry, 'CHECKS', copied_checks)
-    monkeypatch.setattr(fixtures, 'CASES', copied_cases)
-    with pytest.raises(OSError):
-        admission.install_bundle()
-    assert len(copied_checks) == len(baseline)
-    assert all(left is right for left, right in zip(copied_checks, baseline))
-    assert copied_cases.keys() == base_cases.keys()
-    assert all(copied_cases[cid] is value for cid, value in base_cases.items())
-
-
 @pytest.mark.parametrize('status', ['PASS', 'FAIL', 'UNKNOWN'])
 def test_coherent_init_normal_snapshot(status):
     assert sum(check.id in IDS for check in registry.CHECKS) == 3

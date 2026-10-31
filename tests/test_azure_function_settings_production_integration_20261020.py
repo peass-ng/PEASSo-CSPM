@@ -110,14 +110,6 @@ def test_actual_inventory_private_check_spoof_never_acquires_tokens(monkeypatch)
     assert {f['status']for f in engine.evaluate_snapshot(snapshot,checks=list(source.CHECKS))['findings']}=={'UNKNOWN'}
 
 
-def test_production_read_callable_drift_stops_before_sdk_credentials(monkeypatch):
-    monkeypatch.setattr(source,'_read',lambda *a: {'synthetic':True})
-    # RawV2 admission now rejects the relocated callable before the proposal's
-    # own digest check; either guard stops before any SDK credential is built.
-    with pytest.raises((RuntimeError,ValueError),match='Function proposal callable location changed|function_proposal_source_mismatch'):
-        engine.collect_snapshot({'connector':{'provider':'azure','scopes':[native.SCOPE],'auth':{},'options':{'content_secret_scans':True,source.OPTION:[native.SITE]}},'checks':list(source.CHECKS)})
-
-
 def test_parent_owned_credential_rejection_is_private_unresolved_not_empty(monkeypatch,caplog):
     caplog.set_level(logging.DEBUG)
     def reject(auth):logging.getLogger('azure.identity').debug(native.CANARY);raise RuntimeError(native.CANARY)

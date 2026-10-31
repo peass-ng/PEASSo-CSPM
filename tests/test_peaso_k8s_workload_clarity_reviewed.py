@@ -1,6 +1,5 @@
 """Kubernetes workload and RBAC checks evaluate real pod and binding inputs correctly."""
 from copy import deepcopy
-import sys
 
 import pytest
 
@@ -17,12 +16,9 @@ def test_every_reviewed_actual_predicate_and_failure_evidence(check_id):
     # Current native annotation indicators replace caller annotations_complete
     # attestations only for these five admitted IDs; historical CASES stay intact.
     from peaso.checks.k8s_annotation_native_admission_20261020 import IDS as ANNOTATION_IDS
-    from peaso.checks import k8s_annotation_native_source_successor_20261021 as annotation_source
     if check_id in ANNOTATION_IDS:
-        # The installed successor attests the current collector and reconstructs
-        # the exact historical source that these archived cases describe.
-        _, native_annotation_cases = sys.modules[annotation_source._PRIVATE_NAME]._reviewed_inputs()
-        cases = native_annotation_cases[check_id]
+        from tests.generic_k8s_behavior_successors_20261020 import annotation_native_cases
+        cases = annotation_native_cases()[check_id]
     if cases is None:
         if check_id in ("k8s.rbac.no_wildcards", "k8s.rbac.role_no_wildcards"):
             cases = {"pass": {"rules": [{"apiGroups": [""], "resources": ["pods"], "verbs": ["get"]}]},

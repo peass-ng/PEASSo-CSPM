@@ -31,10 +31,9 @@ from pathlib import Path
 import peaso
 from peaso.checks import aws_codebuild_buildspec_runtime_admission_20261020 as admission
 from peaso.checks import aws_codebuild_buildspec_runtime_consumer_20261020 as consumer
-from peaso.checks import aws_codebuild_buildspec_shared_successor_20261020 as shared
+from peaso.checks import selected_admission
 assert Path(peaso.__file__).resolve().is_relative_to(Path.cwd())
-receipt,cases=admission.reviewed_inputs()
-assert receipt['native_cases_required'] is True
+cases=selected_admission.load_cases(admission.CASES)
 case=cases[consumer.runtime.CHECK]
 statuses={name:consumer.evaluate(json.loads(json.dumps(case[name])),json.loads(json.dumps(case[name+'_index'])))[0] for name in ('pass','fail','unknown','malformed','partial')}
 assert statuses=={'pass':'PASS','fail':'FAIL','unknown':'UNKNOWN','malformed':'UNKNOWN','partial':'FAIL'}

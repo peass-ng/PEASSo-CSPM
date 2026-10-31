@@ -12,7 +12,6 @@ import json
 import os
 from pathlib import Path
 import socket
-import subprocess
 import sys
 import time
 from types import SimpleNamespace
@@ -43,23 +42,6 @@ def load(name, relative):
 
 
 source = load('workload_command_proof_producer', 'peaso/collectors/aws_workload_command_source_20261020.py')
-_SUCCESSOR_BINDING = []
-
-
-def successor_reviewed_sources():
-    """Production replaces the historical docs drift receipt with the packaged
-    successor binding (runtime.install_source_successor). Verify that binding in
-    a child process so this proof still never imports either shared registry."""
-    if not _SUCCESSOR_BINDING:
-        out = subprocess.run([sys.executable, '-B', '-c',
-            'from peaso.collectors import aws_workload_command_runtime_20261020 as r; print(r.reviewed_sources())'],
-            cwd=ROOT, env={**os.environ, 'PYTHONPATH': os.pathsep.join([str(ROOT)] + [p for p in [os.environ.get('PYTHONPATH')] if p])}, capture_output=True, text=True,
-            timeout=900, check=True)
-        _SUCCESSOR_BINDING.append(out.stdout.strip().splitlines()[-1])
-    return _SUCCESSOR_BINDING[0]
-
-
-source.reviewed_sources = successor_reviewed_sources
 consumer = load('workload_command_proof_consumer', 'peaso/checks/aws_workload_command_source_20261020.py')
 ACCOUNT, REGION = '123456789012', 'us-east-1'
 SCOPE = ACCOUNT + '/' + REGION

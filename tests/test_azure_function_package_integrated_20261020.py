@@ -495,7 +495,7 @@ def test_native_owner_budgets(monkeypatch, limit):
 
 
 def test_native_saved_branches_and_registration_idempotence():
-    receipt, cases = admission.reviewed_inputs()
+    cases = admission.native_cases()
     for case in cases:
         item, index = admission.native_case(case)
         assert consumer.evaluate(item, index)[0] == case['expected_status']
