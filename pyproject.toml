@@ -29,23 +29,14 @@ hacktricks-cspm = "peaso.cli:main"
 peaso = "peaso.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["peaso*", "bluepeass*", "scripts*", "risk_rules*", "tests.fixtures"]
+include = ["peaso*", "bluepeass*", "scripts*", "risk_rules*"]
 
 [tool.setuptools.package-data]
 "peaso.ai._vendor.chack" = ["config/thinking_effort.yaml", "LICENSE", "provenance.json"]
-peaso = ["*.yaml", "ai/agents/*.yaml", "ai/*.json", "server/*.json", "check_services.json", "collection_job_kinds_20261029.json", "private_secret_source_epoch_20261021.json", "private_secret_source_epoch_20261021.zip", "private_reviewed_collector_successor_20261022.json", "private_secret_current_source_successor_20261028.json", "rulepacks/*.json", "rulepacks/*.json.gz", "rulepacks/licenses/*.txt", "risk_catalog/*.yaml", "checks/*.json", "checks/*.json.gz", "checks/provider_group_witnesses_20261021/spec-successor.json", "checks/provider_group_witnesses_20261021/spec.json", "checks/provider_group_witnesses_20261021/test_gcp_job_image_vulnerability_product_20261021.py", "checks/provider_group_witnesses_20261021/test_runtime_existing_transport.py", "checks/provider_group_witnesses_20261021/test_runtime_native.py", "checks/provider_group_witnesses_20261021/test_storage_immutability_native_successor.py", "checks/provider_group_witnesses_20261021/test_storage_immutability_presentation.py", "collectors/*.json", "privesc/*.json", "privesc/*.yaml", "privesc/catalog_versions/*.json", "privesc/catalog_versions/*.tar.gz", "privesc/catalog_versions/*.zip", "privesc/catalog/*/*.yaml"]
+peaso = ["*.yaml", "ai/agents/*.yaml", "ai/*.json", "server/*.json", "check_services.json", "collection_job_kinds_20261029.json", "rulepacks/*.json", "rulepacks/*.json.gz", "rulepacks/licenses/*.txt", "risk_catalog/*.yaml", "checks/*.json", "checks/*.json.gz", "checks/provider_group_witnesses_20261021/spec-successor.json", "checks/provider_group_witnesses_20261021/spec.json", "checks/provider_group_witnesses_20261021/test_gcp_job_image_vulnerability_product_20261021.py", "checks/provider_group_witnesses_20261021/test_runtime_existing_transport.py", "checks/provider_group_witnesses_20261021/test_runtime_native.py", "checks/provider_group_witnesses_20261021/test_storage_immutability_native_successor.py", "checks/provider_group_witnesses_20261021/test_storage_immutability_presentation.py", "collectors/*.json", "privesc/*.json", "privesc/*.yaml", "privesc/catalog_versions/*.json", "privesc/catalog_versions/*.tar.gz", "privesc/catalog_versions/*.zip", "privesc/catalog/*/*.yaml"]
 bluepeass = ["*.yaml", "*.json"]
 
 risk_rules = ["*.yaml", "*.json", "hacktricks-privesc/azure-challenge-removals-ledger.json"]
-
-# Required runtime admission data at immutable receipt-pinned logical paths.
-# This namespace contains only these four data files, not the test suite.
-"tests.fixtures" = [
-    "azure_nsp_query_cmk_metadata_proposal_20261020.json.gz",
-    "azure_nsp_query_cmk_runtime_native_20261020.json.gz",
-    "azure_nsp_query_cmk_production_native_20261020.json.gz",
-    "azure_sql_tde_parent_identity_predecessor_20261020.json.gz",
-]
 
 [tool.pytest.ini_options]
 # Runtime admission witnesses under peaso/ are package data, not test modules.
