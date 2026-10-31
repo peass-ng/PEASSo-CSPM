@@ -25,11 +25,6 @@ COPY --chown=10001:10001 bluepeass/ ./bluepeass/
 COPY --chown=10001:10001 scripts/ ./scripts/
 COPY --chown=10001:10001 risk_rules/ ./risk_rules/
 COPY --chown=10001:10001 infra/aws/sdk-constraints.txt ./infra/aws/sdk-constraints.txt
-COPY --chown=10001:10001 tests/fixtures/azure_nsp_query_cmk_metadata_proposal_20261020.json.gz \
-    tests/fixtures/azure_nsp_query_cmk_runtime_native_20261020.json.gz \
-    tests/fixtures/azure_nsp_query_cmk_production_native_20261020.json.gz \
-    tests/fixtures/azure_sql_tde_parent_identity_predecessor_20261020.json.gz \
-    ./tests/fixtures/
 RUN python -c 'import json,pathlib; [json.loads(path.read_text()) for path in pathlib.Path("peaso").rglob("*.json")]'
 COPY --from=codex-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=codex-runtime /usr/local/lib/node_modules/ /usr/local/lib/node_modules/

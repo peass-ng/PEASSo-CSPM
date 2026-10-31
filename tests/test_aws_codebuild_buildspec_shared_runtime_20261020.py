@@ -14,17 +14,6 @@ def test_independent_package_data_normal_import_and_cross_process_json_replay(tm
     """Copy installable package bytes, not a wheel build or a source-read mock."""
     installed = tmp_path / 'installed'
     shutil.copytree(ROOT / 'peaso', installed / 'peaso', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-    # Existing Azure package data uses this deliberately packaged namespace.
-    fixture_names = ('azure_nsp_query_cmk_metadata_proposal_20261020.json.gz',
-        'azure_nsp_query_cmk_runtime_native_20261020.json.gz',
-        'azure_nsp_query_cmk_production_native_20261020.json.gz',
-        'azure_sql_tde_parent_identity_predecessor_20261020.json.gz')
-    namespace = installed / 'tests/fixtures'
-    namespace.mkdir(parents=True)
-    (installed / 'tests/__init__.py').write_text('')
-    (namespace / '__init__.py').write_text('')
-    for name in fixture_names:
-        shutil.copyfile(ROOT / 'tests/fixtures' / name, namespace / name)
     script = '''
 import json
 from pathlib import Path

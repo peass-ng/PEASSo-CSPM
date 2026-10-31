@@ -12,14 +12,8 @@ import zipfile
 import pytest
 
 
-# Immutable admission receipts read these exact paths at runtime. Stage only
-# their data so the isolated build cannot accidentally package the test suite.
-ADMISSION_RUNTIME_DATA = (
-    'tests/fixtures/azure_nsp_query_cmk_metadata_proposal_20261020.json.gz',
-    'tests/fixtures/azure_nsp_query_cmk_runtime_native_20261020.json.gz',
-    'tests/fixtures/azure_nsp_query_cmk_production_native_20261020.json.gz',
-    'tests/fixtures/azure_sql_tde_parent_identity_predecessor_20261020.json.gz',
-)
+# No runtime code reads test data, so the wheel must not ship anything under tests/.
+ADMISSION_RUNTIME_DATA = ()
 
 
 @pytest.fixture(scope='module')

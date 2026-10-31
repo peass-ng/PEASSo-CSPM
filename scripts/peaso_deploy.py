@@ -40,13 +40,8 @@ REPOSITORY = f"{ACCOUNT}.dkr.ecr.us-east-1.amazonaws.com/hacktricks-cspm-worker"
 ZERO_IMAGE = REPOSITORY + "@sha256:" + "0" * 64
 CUSTOMER_ROLE_DOWNLOAD_KEY = "aws/customer-role.json"
 API_PACKAGE_PREFIX = "runtime-packages/"
-# Immutable data consumed by the source-bound native registry at import time.
-RUNTIME_ADMISSION_INPUTS = (
-    "tests/fixtures/azure_nsp_query_cmk_metadata_proposal_20261020.json.gz",
-    "tests/fixtures/azure_nsp_query_cmk_runtime_native_20261020.json.gz",
-    "tests/fixtures/azure_nsp_query_cmk_production_native_20261020.json.gz",
-    "tests/fixtures/azure_sql_tde_parent_identity_predecessor_20261020.json.gz",
-)
+# Runtime code reads no test data; the worker image ships none.
+RUNTIME_ADMISSION_INPUTS = ()
 # Exact public inputs needed to reproduce the shipped compiler, provenance and
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
@@ -1332,7 +1327,10 @@ REPRODUCTION_INPUT_PATTERNS = (
     'tests/test_selected_configuration_content_observed_20261020.py',
     'tests/test_selected_content_observed_20261020.py',
 
-    *RUNTIME_ADMISSION_INPUTS,
+    "tests/fixtures/azure_nsp_query_cmk_metadata_proposal_20261020.json.gz",
+    "tests/fixtures/azure_nsp_query_cmk_runtime_native_20261020.json.gz",
+    "tests/fixtures/azure_nsp_query_cmk_production_native_20261020.json.gz",
+    "tests/fixtures/azure_sql_tde_parent_identity_predecessor_20261020.json.gz",
     "tests/test_provider_container_admission_inputs_20261020.py",
     "docs/evidence-reviews/*.json", "docs/finding-groups.md", "docs/check-scope-review.csv",
     "scripts/audit_observed_evidence.py", "scripts/sync_evidence_explanation_copy.py",
