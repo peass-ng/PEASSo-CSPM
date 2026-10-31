@@ -1173,6 +1173,16 @@ def split_policy(policy):
             documents.append({"Version": "2012-10-17", "Statement": list(current)})
             current.clear()
 
+    def config_sid():
+        # IAM rejects a policy whose statements repeat a Sid, so a second
+        # partitioned statement in the same document gets its own suffix.
+        base = "ConfigRead" + str(len(documents) + 1)
+        used = {item.get("Sid") for item in current}
+        sid, number = base, 2
+        while sid in used:
+            sid, number = base + "S" + str(number), number + 1
+        return sid
+
     for statement in policy["Statement"]:
         actions = statement["Action"]
         if isinstance(actions, str) or len(actions) <= 1:
@@ -1186,16 +1196,16 @@ def split_policy(policy):
         for action in actions:
             # New allocations use a short statement ID so the exact read actions
             # fit within the existing customer role's managed-policy quota.
-            candidate = {**statement, "Sid": "ConfigRead" + str(len(documents) + 1), "Action": chunk + [action]}
+            candidate = {**statement, "Sid": config_sid(), "Action": chunk + [action]}
             if not fits(current + [candidate]):
                 if chunk:
-                    current.append({**statement, "Sid": "ConfigRead" + str(len(documents) + 1), "Action": chunk})
+                    current.append({**statement, "Sid": config_sid(), "Action": chunk})
                 flush()
                 chunk = [action]
             else:
                 chunk.append(action)
         if chunk:
-            current.append({**statement, "Sid": "ConfigRead" + str(len(documents) + 1), "Action": chunk})
+            current.append({**statement, "Sid": config_sid(), "Action": chunk})
     flush()
     if len(documents) > IAM_MANAGED_POLICIES_PER_ROLE:
         raise ValueError("Customer policy exceeds the attached managed-policy quota")
