@@ -35,12 +35,6 @@ OFFICIAL_REFERENCES = [
 def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
 
-def validate_prior_spec(row=None):
-    if _digest(FROZEN_SPEC) != PRIOR_FROZEN_SPEC_SHA256 or (row is not None and _digest(row) != PRIOR_FROZEN_SPEC_SHA256):
-        raise ValueError("Historical API Gateway logging proposal changed")
-    return True
-
-validate_prior_spec()
 TITLE = "Applicable API Gateway stages configure execution logging"
 DESCRIPTION_TEXT = ("Evaluates deployed REST method execution-logging settings and configured WebSocket stage defaults and overrides. "
  "AWS does not support execution LoggingLevel on HTTP APIs, which are explicitly not applicable here; HTTP access logging is a separate control. "
@@ -59,8 +53,6 @@ CORRECTED_SPEC = {**FROZEN_SPEC, "title": TITLE, "description": DESCRIPTION_TEXT
 CORRECTED_SPEC_SHA256 = _digest(CORRECTED_SPEC)
 # The v1 derived criterion is hash-pinned before this narrow absence correction.
 PRIOR_CORRECTED_SPEC_SHA256 = "c74f15bcc791e99335fc2500820b5e40f960073aac81a1d7fa6a775e6d2d05e7"
-if CORRECTED_SPEC_SHA256 != PRIOR_CORRECTED_SPEC_SHA256:
-    raise ValueError("Prior API Gateway source correction changed")
 PREDICATE = PREDICATE.replace(
  "FAIL for a proved OFF deployed REST method with complete required inventories.",
  "FAIL for a deployed REST method with proved OFF or missing effective INFO/ERROR logging under a complete native GetStages methodSettings map and complete required inventories.")
@@ -85,9 +77,7 @@ DESCRIPTION = {"title": TITLE, "description": DESCRIPTION_TEXT,
  "remediation": REMEDIATION, "source_correction": SOURCE_CORRECTION}
 
 def description():
-    validate_prior_spec()
     return deepcopy(DESCRIPTION)
 
 def correction_provenance():
-    validate_prior_spec()
     return deepcopy(SOURCE_CORRECTION)

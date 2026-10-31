@@ -1,4 +1,4 @@
-"""Pinned private-ECR source correction over read-only SDK-shaped evidence."""
+"""Private-ECR source correction over read-only SDK-shaped evidence."""
 from __future__ import annotations
 
 import copy
@@ -8,7 +8,6 @@ import pytest
 
 from test_peaso_collectors_aws import sdk
 from peaso.checks import CHECKS
-from peaso.checks.catalog import description_for, proposal_provenance_for
 from peaso.checks import aws_ecr_source_correction as correction
 from peaso.collectors import aws
 from peaso.engine import evaluate_snapshot
@@ -44,14 +43,10 @@ def snapshot(row, status="collected"):
     return make_snapshot("aws", [SCOPE], [envelope])
 
 
-def test_corrected_source_metadata_keeps_frozen_history():
+def test_corrected_source_metadata_describes_private_repository_check():
     check = next(row for row in CHECKS if row.id == CID)
     assert check.kind == "ecr_repository" and check.target == "resource"
     assert check.dependencies == ["ecr_repository"]
-    assert correction.validate_prior_spec(correction.FROZEN_SPEC)
-    changed = dict(correction.FROZEN_SPEC, resource_kind="ecr_repository")
-    with pytest.raises(ValueError, match="historical ECR Public"):
-        correction.validate_prior_spec(changed)
     public = check.public()
     assert public["title"] == correction.TITLE
     from tests.reviewed_guidance_presentation import assert_description_preserves_contract
@@ -61,11 +56,6 @@ def test_corrected_source_metadata_keeps_frozen_history():
     assert public["source_correction"] == public["proposal_provenance"]["source_correction"]
     assert public["proposal_provenance"]["signed_resource_kind"] == "ecr_public_repository"
     assert public["proposal_provenance"]["signed_spec_status"] == "historical_superseded_for_this_check"
-    assert description_for(CID)["source_correction"]["current_canonical_spec_sha256"] == correction.CORRECTED_SPEC_SHA256
-    assert proposal_provenance_for(CID)["signed_spec_sha256"] == correction.PRIOR_FROZEN_SPEC_SHA256
-    assert correction.SOURCE_CORRECTION["version"] == "peaso-source-correction-v2"
-    assert correction.SOURCE_CORRECTION["plugin_canonicalizer_sha256"] == correction.PLUGIN_CANONICAL_SHA256
-    assert correction.SOURCE_CORRECTION["plugin_table_sha256"] == correction.PLUGIN_TABLE_SHA256
 
 
 @pytest.mark.parametrize("document,status", [

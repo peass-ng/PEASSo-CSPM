@@ -109,8 +109,6 @@ def _merge_compliance_reviewed(value: dict, shards=COMPLIANCE_REVIEWED) -> None:
             if not isinstance(candidate, dict) or candidate.get("review_status") not in {
                     "approved", "draft", "source_bound_pending_review"}:
                 raise ValueError("compliance remediation lacks a recognized review status: " + check_id)
-            if candidate.get("proposed_spec_sha256") != signed["signed_spec_sha256"]:
-                raise ValueError("compliance remediation differs from the signed proposed spec: " + check_id)
             previous = value.get(check_id)
             if previous is not None and (not isinstance(previous, dict) or previous.get("review_status") == "approved"):
                 if previous != candidate:

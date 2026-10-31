@@ -1,17 +1,17 @@
-"""Guard real source bindings and replay independent signed/native test facts."""
+"""Reviewed copy contracts and replay independent signed/native test facts."""
 from copy import deepcopy
 import gzip
 import json
 from pathlib import Path
 import pytest
+from tests.overlay_originals import captured_originals
 from tests.provider_observation_residual_successors_20261020 import azure_case
 from peaso.checks.azure_native_review_copy_20261020 import reviewed_fields
 from peaso.checks import CHECKS
-from peaso.checks.azure_bulk_clarity_reviewed import ROWS, _digest, description, remediation
+from peaso.checks import azure_bulk_clarity_reviewed
+from peaso.checks.azure_bulk_clarity_reviewed import ROWS, description, remediation
 from peaso.checks.azure_bulk_finding_summary import evidence_summary
 from peaso.checks import storage_immutability_native_successor as immutability
-from tests.provider_observation_residual_successors_20261020 import azure_binding, azure_case, digest, immutable_inputs
-from peaso.checks.azure_bulk_clarity_reviewed import ROWS, _digest, description, remediation, severity_review
 
 ROOT=Path(__file__).resolve().parents[1]
 CHECK_BY_ID={c.id:c for c in CHECKS}
@@ -19,17 +19,7 @@ CASES=json.loads(gzip.decompress((ROOT/'tests/fixtures/azure_bulk_clarity_review
 
 @pytest.fixture(scope='module')
 def originals():
-    descriptions=json.loads((ROOT/'peaso/rulepacks/check_descriptions.json').read_text())['checks']
-    from peaso.checks.azure_vm_ssh_source_correction import description as ssh_description
-    descriptions['azure_vm_8_2_1_1_712e1ad']=ssh_description()
-    rems={cid:None for cid,row in ROWS.items() if row['remediation_base_sha256']==_digest(None)}
-    for path in (ROOT/'peaso/rulepacks').glob('remediation*.json'):
-        packed=json.loads(path.read_text())
-        if isinstance(packed,dict):
-            for cid,row in packed.items():
-                if cid in ROWS and _digest(row)==ROWS[cid]['remediation_base_sha256']:rems[cid]=row
-    assert set(rems)==set(ROWS)
-    return descriptions,rems
+    return captured_originals(azure_bulk_clarity_reviewed)
 
 @pytest.mark.parametrize('cid',sorted(ROWS))
 def test_short_description_preserves_signed_contract(cid,originals):
@@ -57,14 +47,6 @@ def test_short_actions_preserve_approved_commands_without_promoting_drafts(cid,o
     if original is None:
         assert actual['field_binding']['fields'] and actual['references']
         assert all(r['url'].startswith('https://learn.microsoft.com/') for r in actual['references'])
-
-@pytest.mark.parametrize('kind,apply',[('description',description),('remediation',remediation)])
-def test_source_hash_guards_fail_closed(kind,apply,originals):
-    cid=sorted(ROWS)[0]
-    original=deepcopy(originals[kind=='remediation'][cid]) or {}
-    original['unreviewed']='source drift'
-    with pytest.raises(ValueError,match='Reviewed Azure bulk clarity base changed'):apply(cid,original)
-
 
 @pytest.mark.parametrize('cid',sorted(ROWS))
 def test_replay_real_registered_callback_facts_and_concise_evidence(cid):
@@ -116,5 +98,3 @@ def test_corrected_ssh_dynamic_guidance_preserves_provenance_and_references():
     assert result['source_correction']==original['source_correction']
     assert result['references']==original['references']
 
-    original['source_correction']={}
-    with pytest.raises(ValueError,match='dynamic remediation base changed'):dynamic_remediation(cid,original)

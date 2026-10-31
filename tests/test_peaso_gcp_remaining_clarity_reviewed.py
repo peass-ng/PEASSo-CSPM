@@ -7,13 +7,12 @@ from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.checks.gcp_remaining_clarity_reviewed import ROWS, description
 from peaso.checks.gcp_remaining_finding_summary import evidence_summary
-from peaso.checks.gcp_remaining_clarity_reviewed import NATIVE_EXTENSION_REVIEWS as HISTORICAL_EXTENSION_REVIEWS
+from peaso.checks.gcp_remaining_clarity_reviewed import NATIVE_EXTENSION_REVIEWS
 from peaso.checks.facts import MemoIndex
-from peaso.checks.gcp_remaining_clarity_reviewed import ROWS, _digest, description, remediation, severity_review
 from tests.gcp_clarity_combined_successor_20261020 import (
-    cases_fingerprint, current_extension_reviews, extension_cases)
+    ADDED_EXTENSION_REVIEWS, cases_fingerprint, extension_cases)
 
-NATIVE_EXTENSION_REVIEWS = current_extension_reviews(HISTORICAL_EXTENSION_REVIEWS)
+EXTENSION_IDS = sorted(NATIVE_EXTENSION_REVIEWS.keys() | ADDED_EXTENSION_REVIEWS.keys())
 
 CHECK_BY_ID={c.id:c for c in CHECKS}
 # Current source-produced cases are a test-local overlay. CENTRAL stays historical.
@@ -247,7 +246,7 @@ def test_current_native_overlay_preserves_status_evidence_and_summary(case):
     assert cases_fingerprint(CASES)==before
 
 
-@pytest.mark.parametrize('cid',sorted(NATIVE_EXTENSION_REVIEWS))
+@pytest.mark.parametrize('cid',EXTENSION_IDS)
 def test_admitted_extension_cases_evaluate_with_typed_summary(cid):
     from peaso.checks.gcp_evidence_explanations import evidence_summary as natural_summary
     spec=extension_cases(cid, CASES)

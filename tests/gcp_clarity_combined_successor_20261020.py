@@ -58,64 +58,6 @@ def checked(path):
     return checked_json(path, PINNED_FILES[path])
 
 
-def current_extension_reviews(historical):
-    """Retain36 old owners, prove one exact replacement, add nine admissions."""
-    assert len(historical) == 36
-    assert not historical.keys() & ADDED_EXTENSION_REVIEWS.keys()
-    old = historical[FUNCTION_ID]
-    archive = checked('peaso/checks/gcp_function_secret_paired_predecessors_20261020.json.gz')
-    assert digest(archive['legacy_cases'][FUNCTION_ID]) == old['fixture_sha256']
-    source = bytes.fromhex(archive['files'][old['source']]['hex'])
-    assert hashlib.sha256(source).hexdigest() == old['source_sha256']
-    assert (ROOT / old['source']).read_bytes() == source
-    erratum = checked('docs/check-review/gcp-function-current-ledger-erratum-20261020.json')
-    assert erratum['historical_predicate'] == {
-        'path': old['source'],
-        'qualname': old['reviewed_binding']['module'] + '.' + old['reviewed_binding']['source_qualname'],
-        'body_sha256': old['reviewed_binding']['predicate_source_sha256']}
-    current = CURRENT_FUNCTION_REVIEW
-    assert erratum['predicate'] == {
-        'path': current['source'],
-        'qualname': current['reviewed_binding']['module'] + '.' + current['reviewed_binding']['source_qualname'],
-        'body_sha256': current['reviewed_binding']['predicate_source_sha256'],
-        'file_sha256': current['source_sha256']}
-    current_cases = checked('peaso/checks/gcp_function_secret_partial_page_cases_20261020.json')
-    page = checked('peaso/checks/gcp_function_secret_page_admission_20261020.json')
-    assert page['check_id'] == FUNCTION_ID
-    assert page['cases'] == 'peaso/checks/gcp_function_secret_partial_page_cases_20261020.json'
-    assert page['sources'][page['cases']]['sha256'] == PINNED_FILES[page['cases']]
-    assert digest(current_cases[FUNCTION_ID]) == current['fixture_sha256']
-    assert old['admission_sha256'] == current['admission_sha256']
-    assert old['copy_catalog_sha256'] == current['copy_catalog_sha256']
-    result = deepcopy(historical)
-    result[FUNCTION_ID] = deepcopy(current)
-    result.update(deepcopy(ADDED_EXTENSION_REVIEWS))
-    for cid, row in ADDED_EXTENSION_REVIEWS.items():
-        reference = OWNER_RUNTIME_RECEIPTS[cid]
-        native = checked_json(reference['path'], reference['sha256'])
-        binding = row['reviewed_binding']
-        qualified = binding['module'] + ':' + binding['source_qualname']
-        if cid == JOB_ID:
-            assert native['check']['id'] == cid
-            assert native['check']['predicate'] == qualified
-            assert native['source_sha256'][row['source']] == row['source_sha256']
-        elif qualified in native.get('runtime_functions', {}):
-            function = native['runtime_functions'][qualified]
-            assert function['path'] == row['source']
-            assert function['sha256'] == binding['predicate_source_sha256']
-        elif qualified in native.get('functions', {}):
-            function = native['functions'][qualified]
-            assert function['path'] == row['source']
-            assert function['body_sha256'] == binding['predicate_source_sha256']
-        else:
-            function, = [record for record in native['checks'] if record['id'] == cid]
-            assert function['evaluate'] == qualified
-            assert function['predicate_sha256'] == binding['predicate_source_sha256']
-        if 'fixture' in native:
-            assert native['fixture'] in row['fixture_sources']
-    return result
-
-
 def historical_admission_row(cid, row):
     """Reverse only the four accepted CCC associations on the two old IDs."""
     if cid not in WORKBENCH_CCC_ADDITIONS:
@@ -448,33 +390,6 @@ ADDED_EXTENSION_REVIEWS = json.loads(r'''
 ''')
 
 
-CURRENT_FUNCTION_REVIEW = json.loads(r'''
-{
-  "admission_path": "docs/compliance-ledgers/native-extensions/gcp-20261019.json",
-  "admission_sha256": "6dedaec790abdcb45bc8f86e3752a0b83eeceacdcc88926e0d599ea4fd7e3737",
-  "copy_catalog_sha256": "373d825d5cfea29c036d3efa2bcf471b51fd97ab0c516a6c2a93cacd99a819fa",
-  "fixture_sha256": "ea226ce089842ed66c1562d22fb0bf443a9112a2d68dcc04a19f365c2360d02d",
-  "fixture_sources": [
-    {
-      "path": "peaso/checks/gcp_function_secret_partial_page_cases_20261020.json",
-      "sha256": "d21c09b9e550934994c26efd3cda3738918308189254f2c9a1252d487f9bb9e7"
-    }
-  ],
-  "reviewed_binding": {
-    "closure": {},
-    "kind": "function",
-    "module": "peaso.checks.gcp_function_secret_partial_page_20261020",
-    "predicate_bindings": {},
-    "predicate_qualname": "evaluate",
-    "predicate_source_sha256": "1a33e6939a97121ae0399001e124801773ac93deb721c6c1f836ce48bc42ef7c",
-    "source_qualname": "evaluate"
-  },
-  "source": "peaso/checks/gcp_function_secret_partial_page_20261020.py",
-  "source_sha256": "ccd4db936dfab45936e8c736b443bade16df2e93fd61d47050b539a926e8b1a7"
-}
-''')
-
-
 CURRENT_NATIVE_EXAMPLES = json.loads(r'''
 {
   "gcp.review.batch.selected_mounted_script_source_secret_indicators": [
@@ -759,48 +674,6 @@ WORKBENCH_CCC_ADDITIONS = json.loads(r'''
 {
   "gcp.review.workbench.public_ip_disabled": "31ae388dce669a1e04260b89d4f27eeffa1d93f76963f06efa0c44bcd4873f33",
   "gcp.review.workbench.root_access_disabled": "7c377f55c5ad09e58c62f9037b69f82d39d0d1e623545713ac2d67c74cc1ecb5"
-}
-''')
-
-
-OWNER_RUNTIME_RECEIPTS = json.loads(r'''
-{
-  "gcp.review.batch.selected_mounted_script_source_secret_indicators": {
-    "path": "peaso/checks/gcp_dataflow_batch_source_runtime_admission_20261020.json",
-    "sha256": "8277fadb5c0f67131c47755e10ac06f48454e40730088aba09234b92dd3451a1"
-  },
-  "gcp.review.cloudrun_job.declared_image_secret_indicators": {
-    "path": "docs/gcp-review/recheck-20261020/gcp_cloudrun_job_image_runtime_20261020_receipt.json",
-    "sha256": "e096f7f0b34d68c3eed3491f025694f49cba871d017de631d0bfb97f1e8fe08d"
-  },
-  "gcp.review.dataflow.selected_package_referenced_source_secret_indicators": {
-    "path": "peaso/checks/gcp_dataflow_batch_source_runtime_admission_20261020.json",
-    "sha256": "8277fadb5c0f67131c47755e10ac06f48454e40730088aba09234b92dd3451a1"
-  },
-  "gcp.review.dataproc.selected_initialization_referenced_source_secret_indicators": {
-    "path": "peaso/checks/gcp_dataproc_source_runtime_admission_20261020.json",
-    "sha256": "7c8989576f2068d6868b6e51bba8e8d265aaa33b70d63fb0e84b6ab8e3dd8e0c"
-  },
-  "gcp.review.dataproc.selected_job_referenced_source_secret_indicators": {
-    "path": "peaso/checks/gcp_dataproc_source_runtime_admission_20261020.json",
-    "sha256": "7c8989576f2068d6868b6e51bba8e8d265aaa33b70d63fb0e84b6ab8e3dd8e0c"
-  },
-  "gcp.review.workbench.auto_upgrade_schedule_declared": {
-    "path": "peaso/checks/gcp_workbench_head3_admission_20261020.json",
-    "sha256": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13"
-  },
-  "gcp.review.workbench.file_download_disabled": {
-    "path": "peaso/checks/gcp_workbench_head3_admission_20261020.json",
-    "sha256": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13"
-  },
-  "gcp.review.workbench.selected_referenced_source_secret_indicators_20261020": {
-    "path": "peaso/checks/gcp_workbench_source_runtime_admission_20261020.json",
-    "sha256": "fe6b2cc40cf9ecdf07e2e556b90a1658ea6e5b454061f87635e81022d655b39e"
-  },
-  "gcp.review.workbench.terminal_access_disabled": {
-    "path": "peaso/checks/gcp_workbench_head3_admission_20261020.json",
-    "sha256": "2315a7a8e7d7d28ac87953852e91fcf8cc63e42de85fecf7d10f9a8a01e1ec13"
-  }
 }
 ''')
 

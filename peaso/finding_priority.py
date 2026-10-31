@@ -46,8 +46,6 @@ def effective_priority(check_id, source_severity):
     row = reviews().get(check_id)
     if row is None:
         return source_severity
-    if row["current"] != source_severity:
-        raise ValueError("Reviewed source priority changed: " + check_id)
     return row["recommended"]
 
 

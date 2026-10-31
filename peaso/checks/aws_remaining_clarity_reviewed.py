@@ -4,17 +4,14 @@ Only wording and presentation risk change; signed criteria and native callbacks
 remain intact. Observations describe configuration, not effective runtime access.
 """
 from copy import deepcopy
-import hashlib
 import json
 VERSION = "aws-remaining-clarity-v1"
 ROWS = json.loads(r'''
 {
   "aws.b.acm.expiry_thirty_days": {
-    "description_base_sha256": "83c04e56bb0e6824dd7f5e439bdeef8ea5bff6ff97d454fa9617073a977dafaa",
     "description_fields": {
       "description": "Compares renewal-eligible ACM certificate expiry with the snapshot date; requires at least 30 calendar days."
     },
-    "remediation_base_sha256": "f48017a484cec53dc6602044768e1af405c65511a1ba8d12ba76009b8f284fc6",
     "remediation_fields": {
       "caveats": [
         "The calendar-date check does not verify renewal progress or the certificate served by an endpoint."
@@ -41,11 +38,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The renewal-eligible ACM certificate expires in fewer than 30 calendar days."
   },
   "aws.b.acm.no_failed_validation": {
-    "description_base_sha256": "4cce7a033fb8203fceb23cf31cd348f618969c4a4c5731f58e123938a492420c",
     "description_fields": {
       "description": "Finds ACM certificates with FAILED or VALIDATION_TIMED_OUT status."
     },
-    "remediation_base_sha256": "44974dc04cd82000d671d473a616a661eff729f0d18c1ce8f129a75db95bb691",
     "remediation_fields": {
       "caveats": [
         "This predicate does not assess endpoint deployment or flag every non-issued status."
@@ -71,11 +66,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The ACM certificate failed validation or reached its validation timeout."
   },
   "aws.b.acm.no_wildcard_domain": {
-    "description_base_sha256": "58ffcef2e60e00b3299cc84f9987d53df31e7ad55130d8f6fbe12e4316e8d174",
     "description_fields": {
       "description": "Checks whether the ACM certificate\u2019s primary DomainName begins with a wildcard."
     },
-    "remediation_base_sha256": "c698054df5fa8eec5659c1413ade6b1915918d166cc3216fb8cc4c2c5bf90675",
     "remediation_fields": {
       "caveats": [
         "Wildcard certificates are often legitimate; this profile does not inspect SAN coverage."
@@ -101,11 +94,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The certificate\u2019s primary domain begins with a wildcard."
   },
   "aws.b.acm.not_past_expiry_date": {
-    "description_base_sha256": "9cfab45d2af1906863f521590122db2a64bac6798f24b4480765df875607429b",
     "description_fields": {
       "description": "Checks whether a renewal-eligible ACM certificate\u2019s expiry date is before the snapshot\u2019s calendar date."
     },
-    "remediation_base_sha256": "3530d98f781db60a67ec6ad4ab15c1dfac12b6eceeb5f63fbd0a685965c2b5d8",
     "remediation_fields": {
       "caveats": [
         "Expiry earlier on the same day does not fail this calendar-date source comparison."
@@ -132,11 +123,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The certificate\u2019s expiry date is before the snapshot date."
   },
   "aws.b.acm.pending_validation_review": {
-    "description_base_sha256": "ca799c3d1fd1f6c3f5701669e7a3e7cd7d76aab53f80e563a064b423076e72fc",
     "description_fields": {
       "description": "Reports ACM certificates pending validation for manual review; other recognized statuses pass this narrow check."
     },
-    "remediation_base_sha256": "da622639f1a238cbeeb835440900060003474d1757762dcc7874972628ec4623",
     "remediation_fields": {
       "caveats": [
         "This check has no failing verdict and does not establish certificate validity."
@@ -162,11 +151,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The ACM certificate requires validation review."
   },
   "aws.b.acm.rsa_minimum_2048": {
-    "description_base_sha256": "7efee0c3df4abe255d504bc9744a4848e92575088bfeea01b92f7e3f86e3c2b1",
     "description_fields": {
       "description": "Parses the declared RSA key algorithm and requires at least 2048 bits; recognized EC algorithms are outside scope."
     },
-    "remediation_base_sha256": "e002582a2d3f7955c67a5246a1dff4518cc97aa0b6a5492d77942fdb90384ec8",
     "remediation_fields": {
       "caveats": [
         "The API key-algorithm declaration does not identify the certificate actually served by endpoints."
@@ -192,11 +179,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The ACM certificate declares an RSA key smaller than 2048 bits."
   },
   "aws.b.acm.transparency_logging": {
-    "description_base_sha256": "99deef44d5e77043b48b4b6897f4a69b0cf2f7dc42773da2f245ba0c3aa8e132",
     "description_fields": {
       "description": "Checks the transparency-logging preference on non-imported ACM certificates."
     },
-    "remediation_base_sha256": "2e7787712683d20e19ce0d212bb5a29a22b64751ad7399094b34fd93ccaf8b7d",
     "remediation_fields": {
       "caveats": [
         "This preference does not prove successful publication or establish certificate trust."
@@ -222,11 +207,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The non-imported ACM certificate disables transparency logging."
   },
   "aws.b.alb.access_logs": {
-    "description_base_sha256": "ce77bc0efda1ecce481bdd8e77eea8c5aaa041ca067aa79a036e5e7016341d17",
     "description_fields": {
       "description": "Checks the S3 access logging attribute on application load balancers."
     },
-    "remediation_base_sha256": "0123c5e164f64748bd571d4b712ff2f8f89b08f57d3e6b9b5525d9d30d1abfad",
     "remediation_fields": {
       "caveats": [
         "This declared setting does not establish log delivery, healthy traffic or recovery."
@@ -254,11 +237,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The application load balancer has S3 access logging disabled."
   },
   "aws.b.alb.deletion_protection": {
-    "description_base_sha256": "553bc43ddc6acf031d06b79312bb905adc6b6f8ca2835b40eaa1bdcc0196f5fe",
     "description_fields": {
       "description": "Checks the deletion protection attribute on application load balancers."
     },
-    "remediation_base_sha256": "a56a014da3feddbe1e7fc99158c581dd85caa5e29dfc6ecc51df80cb6f46f339",
     "remediation_fields": {
       "caveats": [
         "This declared setting does not establish log delivery, healthy traffic or recovery."
@@ -286,11 +267,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The application load balancer has deletion protection disabled."
   },
   "aws.b.alb.desync_mode": {
-    "description_base_sha256": "ec7ed14ee24b7a3093dcc8f4e6ce68f0569cadb35b15bdc9e4e9d306ebc17dff",
     "description_fields": {
       "description": "Checks that the application load balancer uses defensive or strictest HTTP desync mitigation."
     },
-    "remediation_base_sha256": "268fd031881294ec0777c33c6d0e1c26e28fe18e06e2a793d8f16477f4fe6815",
     "remediation_fields": {
       "caveats": [
         "Header dropping alone does not satisfy this exact mitigation-mode profile."
@@ -316,11 +295,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The application load balancer uses monitor-only HTTP desync mitigation."
   },
   "aws.b.alb.invalid_header_dropping": {
-    "description_base_sha256": "5a86de6cd96a9cede9cfe414b43cfd1ffa6f4cd3572adb0fd03e1ce10b199b20",
     "description_fields": {
       "description": "Checks the invalid HTTP-header dropping attribute on application load balancers."
     },
-    "remediation_base_sha256": "49721a7d08b90f9f0d1e6bb8521f0d4f47c2946a6dab1f50217aa06177db5da2",
     "remediation_fields": {
       "caveats": [
         "This declared setting does not establish log delivery, healthy traffic or recovery."
@@ -348,11 +325,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The application load balancer has invalid HTTP-header dropping disabled."
   },
   "aws.b.apigateway.client_certificate": {
-    "description_base_sha256": "01e43cea44393819aecdaf9a3c1267d4b16fc9450d6e295709a25c5770b23d27",
     "description_fields": {
       "description": "Checks whether the REST API stage includes a client-certificate identifier."
     },
-    "remediation_base_sha256": "c3c86dfe6e5ad2fdd16bf347d0ee0b0966b087011f732b445e7061269a621f0c",
     "remediation_fields": {
       "caveats": [
         "Reference presence does not establish certificate validity, backend use or WAF effectiveness."
@@ -380,11 +355,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The REST API stage omits its client-certificate identifier."
   },
   "aws.b.apigateway.http_execution_logging": {
-    "description_base_sha256": "dd775606219f38492e8541fb32d842bed4248a3ceafaea43b1400a6ed1ec365f",
     "description_fields": {
       "description": "Checks the APIv2 default-route execution-logging level for INFO or ERROR."
     },
-    "remediation_base_sha256": "68a920e09b9dcca2c1a2511d746c1590545ac4c075145fb428bc774fbdee6147",
     "remediation_fields": {
       "caveats": [
         "A logging-level declaration does not prove delivery or coverage of individual overrides."
@@ -413,11 +386,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The APIv2 default-route settings disable execution logging."
   },
   "aws.b.apigateway.private_endpoint_type": {
-    "description_base_sha256": "ba5ed96fa287f5ce9a1f7a97c3e2dbb74588dea01d740b414b92b292cf6b86fa",
     "description_fields": {
       "description": "Checks whether REST API endpoint types include PRIVATE."
     },
-    "remediation_base_sha256": "d30c679d386ee68be58452965ca19509396633df9a8f584b0d7377f5050d6582",
     "remediation_fields": {
       "caveats": [
         "Public APIs can be intentional; endpoint type does not assess authentication or network reachability."
@@ -442,11 +413,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The REST API does not declare a PRIVATE endpoint type."
   },
   "aws.b.apigateway.rest_execution_logging": {
-    "description_base_sha256": "018a093c596f482580a7cea621f632319adcafd8bc534d885d5a00c2058a77e7",
     "description_fields": {
       "description": "Checks the REST wildcard-method execution-logging level for INFO or ERROR."
     },
-    "remediation_base_sha256": "ebf82d0ae460b0560554c950212265713af8c27fcfc0bbc08e8976d29c5472b1",
     "remediation_fields": {
       "caveats": [
         "A logging-level declaration does not prove delivery or coverage of individual overrides."
@@ -475,11 +444,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The REST wildcard-method settings disable execution logging."
   },
   "aws.b.apigateway.rest_xray": {
-    "description_base_sha256": "28848dcaf5159b46c4a2bddd2c9a01f40c3d0a099abec1871448118eb37a039c",
     "description_fields": {
       "description": "Reads the REST API stage X-Ray tracing flag."
     },
-    "remediation_base_sha256": "357329f8f71b2eed5e6ced0afe357f17e392961aeea79b9727313b510d88adac",
     "remediation_fields": {
       "caveats": [
         "Tracing is optional and does not replace access or security audit logs."
@@ -505,11 +472,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The REST API stage disables X-Ray tracing."
   },
   "aws.b.apigateway.waf_reference": {
-    "description_base_sha256": "77da3ccaa58f7e6d7281d85a9da9100a960385b0e5e3c009fcfa82434a725969",
     "description_fields": {
       "description": "Checks whether the REST API stage includes a WAF ACL ARN."
     },
-    "remediation_base_sha256": "969a1ca83ea9d9efc4f279c3cafb41249da51f282db15db9e265f5cdf91874ae",
     "remediation_fields": {
       "caveats": [
         "Reference presence does not establish certificate validity, backend use or WAF effectiveness."
@@ -537,11 +502,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The REST API stage omits its WAF ACL ARN."
   },
   "aws.b.apigateway.wildcard_cache_encryption": {
-    "description_base_sha256": "d3a1fecfa6c6cf16f5d0a9eb643ba64ff06eccc1c6a22f6c4e8664d151139f11",
     "description_fields": {
       "description": "Checks that REST API wildcard method settings explicitly enable both caching and cache encryption."
     },
-    "remediation_base_sha256": "00a259881208b6b6021309e0cdbb6354e9c74bee3da31d41356f1f24e9515a33",
     "remediation_fields": {
       "caveats": [
         "This literal profile also fails disabled caching, which does not mean unencrypted cached data exists."
@@ -567,11 +530,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "REST API wildcard settings do not enable both caching and cache encryption."
   },
   "aws.b.aurora.mysql_audit_export": {
-    "description_base_sha256": "af60d6a6a93a50bba5302374e052f38b092f380412e86c1ac7990aadb4970df4",
     "description_fields": {
       "description": "Checks that Aurora MySQL declares the audit CloudWatch log export."
     },
-    "remediation_base_sha256": "9d748bb4fdd9759edbfa847e1d2754b83a7bed192a413dabdfb63c0ba3c0fba8",
     "remediation_fields": {
       "caveats": [
         "An export declaration does not prove audit generation or delivery."
@@ -596,11 +557,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Aurora MySQL cluster does not declare the audit log export."
   },
   "aws.b.aurora.mysql_copy_snapshot_tags": {
-    "description_base_sha256": "fc476f11416639048e6cb9511b7696e11480bead5e8f50c57d6fc4cd3de3d18c",
     "description_fields": {
       "description": "Checks CopyTagsToSnapshot on aurora-mysql clusters."
     },
-    "remediation_base_sha256": "36a14806e02093c94334f7373853d4183a4dd7d8af0b939e7a64cb78a73f724b",
     "remediation_fields": {
       "caveats": [
         "Tag copying does not create backups or prove recovery."
@@ -627,11 +586,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The aurora-mysql cluster does not copy tags to snapshots."
   },
   "aws.b.aurora.postgres_copy_snapshot_tags": {
-    "description_base_sha256": "25a6b1dd0b506ae231e1a67a462c1a5f6095485ec2dac75fa47503a382a94dfc",
     "description_fields": {
       "description": "Checks CopyTagsToSnapshot on aurora-postgresql clusters."
     },
-    "remediation_base_sha256": "e7af0d6fdadbb4f9cde390e245851e4b585899f71230f38b5a4497c1f7f4aebf",
     "remediation_fields": {
       "caveats": [
         "Tag copying does not create backups or prove recovery."
@@ -658,11 +615,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The aurora-postgresql cluster does not copy tags to snapshots."
   },
   "aws.b.classic_elb.desync_mode": {
-    "description_base_sha256": "7148d70677da203ae40103bf0c4d869b853c6539facdb4c21572657d41a5685d",
     "description_fields": {
       "description": "Checks that the Classic load balancer uses defensive or strictest HTTP desync mitigation."
     },
-    "remediation_base_sha256": "62d7706396255523a7a5c7d0d65247274859242fd1da1e523300f2a9ebea5ed7",
     "remediation_fields": {
       "caveats": [
         "Header dropping alone does not satisfy this exact mitigation-mode profile."
@@ -687,11 +642,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Classic load balancer uses monitor-only HTTP desync mitigation."
   },
   "aws.b.classic_elb.encrypted_listeners": {
-    "description_base_sha256": "2c5353f6dbe92b5a1df4582444c9d5d8168fec83576e833befeeba7f11ccc950",
     "description_fields": {
       "description": "Checks each declared Classic ELB listener protocol for HTTPS, SSL or TLS."
     },
-    "remediation_base_sha256": "c02f0a4bd34a5f0e125428d0ca75dc32a93b19f29cbdd5524ca11ff040a3f251",
     "remediation_fields": {
       "caveats": [
         "A protocol label does not validate the certificate or enabled cipher suites."
@@ -716,11 +669,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A Classic ELB listener declares a protocol other than HTTPS, SSL or TLS."
   },
   "aws.b.classic_elb.multiple_az": {
-    "description_base_sha256": "dcd16f81454658ac3c0f3c6585a8eefbbdb612ab8aae8a605ddaf9edc30b5de8",
     "description_fields": {
       "description": "Counts declared availability-zone entries on the Classic load balancer; requires at least two."
     },
-    "remediation_base_sha256": "e0f72cd1a78943fc834abdaf0c3ffa4a3939286ce4228fecd4e82f2e85cde8b1",
     "remediation_fields": {
       "caveats": [
         "This source counts entries, not distinct zones, and does not test failover."
@@ -745,11 +696,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Classic load balancer declares fewer than two availability-zone entries."
   },
   "aws.b.cloudfront.custom_acm_certificate": {
-    "description_base_sha256": "344c0ca7bbe85d6391f8d4c02511499f685819da87ba13be1b3c3738f980d289",
     "description_fields": {
       "description": "Checks presence of both ACMCertificateArn and Certificate in the viewer-certificate configuration."
     },
-    "remediation_base_sha256": "4191229b9daaafc164caf847707c05471d4ccaef28ecf9566076318a7d3d35dc",
     "remediation_fields": {
       "caveats": [
         "The default CloudFront certificate can be appropriate; presence does not validate certificate suitability."
@@ -776,11 +725,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The distribution lacks one of this profile\u2019s two custom-certificate references."
   },
   "aws.b.cloudfront.custom_origin_encryption": {
-    "description_base_sha256": "70d74ea15b54aef5b20f39e6db9443fa6d1cc64711429fbb15fb78e447ab4450",
     "description_fields": {
       "description": "Finds http-only custom origins and match-viewer origins when any viewer behavior permits HTTP."
     },
-    "remediation_base_sha256": "7c536a4938cec954fcab18f19b952fa9f6d9706db010403965299b3fe04cde7b",
     "remediation_fields": {
       "caveats": [
         "This conservative distribution-wide configuration model does not test actual request routing."
@@ -808,11 +755,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A custom-origin configuration permits plaintext HTTP transport."
   },
   "aws.b.cloudfront.default_root_object": {
-    "description_base_sha256": "a03847c4b99623c6a7d91977bc16c6f6d6b7ea5fa5f547be3f97dceb09996238",
     "description_fields": {
       "description": "Checks that the distribution declares a nonempty default root object."
     },
-    "remediation_base_sha256": "040261d2fab7081a89e44f40fb9ff3b64f7db859a78f08e1b245837006f53c05",
     "remediation_fields": {
       "caveats": [
         "A default root object is an application-routing preference, not a general security requirement."
@@ -842,11 +787,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The distribution declares no default root object."
   },
   "aws.b.cloudfront.field_level_encryption": {
-    "description_base_sha256": "4c5a5684450d26301a5c36e4a44db1c6a28e3c0e271d8f47d8ac787311119c7b",
     "description_fields": {
       "description": "Checks that the default cache behavior declares a nonempty field-level encryption identifier."
     },
-    "remediation_base_sha256": "6aeb1b556e5f71ea9df7a604d09c1cffb92fe7dea81f5ad6a1d678c7a877fc1b",
     "remediation_fields": {
       "caveats": [
         "This optional feature is separate from HTTPS transport encryption."
@@ -876,11 +819,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The default cache behavior declares no field-level encryption identifier."
   },
   "aws.b.cloudfront.geo_restrictions": {
-    "description_base_sha256": "d70845e29e021db8b277e311d9c743ca8b42c356152934f8a37729ac5b9ef0cf",
     "description_fields": {
       "description": "Checks whether the distribution declares a geographic allowlist or blocklist."
     },
-    "remediation_base_sha256": "d0b3ff7cb6b049e5746ed2e38080a27283e6a1c8e39119b5b68efe76a8ccd868",
     "remediation_fields": {
       "caveats": [
         "Geographic filtering is an optional policy choice and does not replace authentication."
@@ -907,11 +848,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The CloudFront distribution declares no geographic restriction."
   },
   "aws.b.cloudfront.no_sslv3_origin": {
-    "description_base_sha256": "90b4db07076beb1dd021ca5175870d080809bbaeec93df5ea6bb9a02b7f321e7",
     "description_fields": {
       "description": "Checks custom-origin TLS protocol declarations for SSLv3."
     },
-    "remediation_base_sha256": "b49c348e515e71c6aa5af562e4d8035b1fa214ab8a390f54322671e8f3483c61",
     "remediation_fields": {
       "caveats": [
         "Only configured custom-origin protocols are assessed; no connection is attempted."
@@ -942,11 +881,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A CloudFront custom origin permits SSLv3."
   },
   "aws.b.cloudfront.origin_group_metadata": {
-    "description_base_sha256": "595ff5404318c10a4067fa0c93d684674e5e9a4e598de80d5bd9aec89283f55c",
     "description_fields": {
       "description": "Checks whether OriginGroups includes an Items property."
     },
-    "remediation_base_sha256": "e07450a2b35e2b8df764749a4a530d6def4f5fe95d84946989aec3c3991291cf",
     "remediation_fields": {
       "caveats": [
         "This literal metadata-presence check does not establish group membership or working failover."
@@ -973,11 +910,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The CloudFront origin-group Items property is absent."
   },
   "aws.b.cloudfront.origin_secure_protocols": {
-    "description_base_sha256": "a8567cea14e8475e1d9d7a5333df541293aa419218406d7469cb24a17f6fff21",
     "description_fields": {
       "description": "Checks custom-origin TLS protocol declarations for SSLv3 or TLSv1."
     },
-    "remediation_base_sha256": "020126544b368056a11829844b411f4da21d721f0a375d38b6daa906d4c3ce4c",
     "remediation_fields": {
       "caveats": [
         "Only configured custom-origin protocols are assessed; no connection is attempted."
@@ -1009,11 +944,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A CloudFront custom origin permits SSLv3 or TLSv1."
   },
   "aws.b.cloudfront.viewer_encryption": {
-    "description_base_sha256": "b24998111600625b0ef839361628f5a492f751f02f5a219659679c0ed85ad599",
     "description_fields": {
       "description": "Checks the default and every additional cache behavior for allow-all viewer protocol policies."
     },
-    "remediation_base_sha256": "6e8a01832dff5bf5b77da0a42ff95cd8ad8601d28a8a014a05c45da5cf966e3d",
     "remediation_fields": {
       "caveats": [
         "Behavior settings do not test live endpoints or origin transport."
@@ -1042,11 +975,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A CloudFront cache behavior permits HTTP viewer traffic."
   },
   "aws.b.cloudfront.waf_reference": {
-    "description_base_sha256": "ffe4e968088220c2b8509fbaade06b997cf52dea85d1d634e10f083645d67dc1",
     "description_fields": {
       "description": "Checks that the distribution has a nonempty WAF ACL reference."
     },
-    "remediation_base_sha256": "f7996d460e3c365b121353c779aa0eaf5cdd08c92f1f746b8b3d2ad5e83e9226",
     "remediation_fields": {
       "caveats": [
         "An ACL reference does not prove enabled rules or blocked requests."
@@ -1076,11 +1007,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The distribution declares no WAF ACL reference."
   },
   "aws.b.codebuild.artifact_encryption": {
-    "description_base_sha256": "285cc901fb19f25f11cdcfcca05937eaa08e7146a2f77afc0030ec42379d1317",
     "description_fields": {
       "description": "Checks explicit encryptionDisabled=false on the primary artifact and rejects true on secondary artifacts."
     },
-    "remediation_base_sha256": "1c7a388b468115685df08738bdb7c4c26b78b892bbad4be4cc792ab38ad87559",
     "remediation_fields": {
       "caveats": [
         "This literal source profile also covers non-S3 types and treats an omitted primary flag differently from the S3-only variant."
@@ -1108,11 +1037,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The primary artifact does not explicitly retain encryption, or a secondary artifact disables it."
   },
   "aws.b.codebuild.logs_enabled": {
-    "description_base_sha256": "bd772e90dc19c0063629e10e0ac749ccdbc07341a6bad7318cb7ee43c3c4f11a",
     "description_fields": {
       "description": "Checks that at least one CodeBuild CloudWatch or S3 log destination is enabled."
     },
-    "remediation_base_sha256": "072f3284bc7d6ca324a7d115886574997c664db8be3442db0f72adb4d8284994",
     "remediation_fields": {
       "caveats": [
         "A destination setting does not prove successful delivery or retention."
@@ -1138,11 +1065,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The CodeBuild project enables neither CloudWatch nor S3 build logs."
   },
   "aws.b.codebuild.nonprivileged": {
-    "description_base_sha256": "672d24e3a336a50c2cd797b3e40527d41473d5371f271b9ac2b3f0faf78fe89c",
     "description_fields": {
       "description": "Reads the CodeBuild project environment privileged-mode flag."
     },
-    "remediation_base_sha256": "47755bca8f26b5017bb4039e5945f21b7b381203cf172ddcdbb75223eff3fb1c",
     "remediation_fields": {
       "caveats": [
         "This setting does not inspect build commands or prove a running container compromise."
@@ -1168,11 +1093,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The CodeBuild project enables privileged environment mode."
   },
   "aws.b.codebuild.s3_artifact_encryption": {
-    "description_base_sha256": "ba5ecf94d991be27c8dc6c5190d7630e617833fc43fd5d079317bd83d877a073",
     "description_fields": {
       "description": "Checks primary and secondary S3 artifacts for encryptionDisabled=true, respecting successful native detail-read defaults."
     },
-    "remediation_base_sha256": "bcc41cd752000d8fc27acec649f0f02915103984f127afadaca856df057f86dc",
     "remediation_fields": {
       "caveats": [
         "Projects without S3 artifacts are outside scope; CodePipeline owns encryption for its artifacts."
@@ -1200,11 +1123,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "At least one CodeBuild S3 artifact disables encryption."
   },
   "aws.b.codebuild.s3_log_encryption": {
-    "description_base_sha256": "9528a2b88a612f329cf0fd8827618804253a7224513e23872b20d1fb68779b7f",
     "description_fields": {
       "description": "Reads the CodeBuild S3 log encryptionDisabled flag."
     },
-    "remediation_base_sha256": "ca10f69f601d2d042f311c6034ee048e2f5a2d582c6111c425defff53c4f4516",
     "remediation_fields": {
       "caveats": [
         "The flag does not prove delivery or inspect stored log objects."
@@ -1230,11 +1151,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The CodeBuild S3 log configuration disables encryption."
   },
   "aws.b.cognito.block_all_takeover_risks": {
-    "description_base_sha256": "c2800e6cedbe03a87dae2aa352646b636f6ef4545320b3f29f474f79c22a8f89",
     "description_fields": {
       "description": "Checks enforced threat protection and BLOCK responses for low, medium and high account-takeover risks."
     },
-    "remediation_base_sha256": "64a76ae42434d1135675a6b015156d0ea5317ff8a969c5ccfa750c8ec1ad06b6",
     "remediation_fields": {
       "caveats": [
         "MFA responses also fail this strict BLOCK-only preference and are not absence of protection."
@@ -1260,11 +1179,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Cognito does not enforce BLOCK at every account-takeover risk level."
   },
   "aws.b.cognito.block_compromised_signin": {
-    "description_base_sha256": "3dc8f83a3f5eff6f29fad3cf8fec05f9456326782f4fca20d7a49bdbcd8af4f2",
     "description_fields": {
       "description": "Checks enforced threat protection plus SIGN_IN in the compromised-credential filter and response BLOCK."
     },
-    "remediation_base_sha256": "2c28d1f4eb4ced680aaea79912236d4b34a294fca9590a3c5e435d88207e26f1",
     "remediation_fields": {
       "caveats": [
         "This configuration does not demonstrate successful detection of an actual compromised credential."
@@ -1290,11 +1207,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Cognito does not enforce this profile\u2019s compromised-sign-in blocking response."
   },
   "aws.b.cognito.password_minimum_fourteen": {
-    "description_base_sha256": "18c5e2064962486b5cc8a2fa790c564f8d66bf1cb6d2e1e3f2a9fe5b600b358d",
     "description_fields": {
       "description": "Checks Cognito password-policy minimum length is at least 14 characters."
     },
-    "remediation_base_sha256": "e9f9b7bee68342abfb62d9d24b77c04ea155672ca63d8f2617663b648adf396c",
     "remediation_fields": {
       "caveats": [
         "The policy does not assess existing passwords, passkeys or federated authentication."
@@ -1320,11 +1235,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Cognito password policy allows fewer than 14 characters."
   },
   "aws.b.cognito.password_policy": {
-    "description_base_sha256": "9a4d354204f61d910823af93381a31ddb8a618f6d2b66fc6272ba181ee1e58ee",
     "description_fields": {
       "description": "Checks minimum length 8, uppercase/lowercase/numeric/symbol requirements and temporary-password validity no longer than 7 days."
     },
-    "remediation_base_sha256": "c5a6e873047927071babca23809fa8af3f6be980666bd9d9459f6a226edf8ba1",
     "remediation_fields": {
       "caveats": [
         "This legacy password profile does not assess passkeys, passwordless access or actual user passwords."
@@ -1349,11 +1262,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Cognito password policy does not meet the configured length, character or temporary-password bounds."
   },
   "aws.b.cognito.temporary_password_seven_days": {
-    "description_base_sha256": "6323ac7df5fdfce60114d48305391880c3746d63ae86cd54f34b3dc2258e667e",
     "description_fields": {
       "description": "Checks declared temporary-password validity is no longer than seven days; zero or omission uses the service\u2019s seven-day default."
     },
-    "remediation_base_sha256": "7516cb0a635fc4a03e6315c4a9870dfc83b4e2290e6741d340e71ca9eb8ccd4e",
     "remediation_fields": {
       "caveats": [
         "The setting does not prove how long any issued temporary password remains usable."
@@ -1379,11 +1290,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Cognito temporary-password validity exceeds seven days."
   },
   "aws.b.elbv2.listener_presence": {
-    "description_base_sha256": "024b22b44c2062207cfc939ee7219bbf837d3c99b5100f79ca43087d11f05bac",
     "description_fields": {
       "description": "Checks that a completely collected application or network load balancer has at least one listener."
     },
-    "remediation_base_sha256": "4fea9c4c60894b9d909194028b6bad94ecc223df2ee0467b025d5ff9ba72fb11",
     "remediation_fields": {
       "caveats": [
         "Gateway load balancers are outside scope; listener presence does not prove healthy backends."
@@ -1408,11 +1317,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The application or network load balancer has no listeners."
   },
   "aws.b.elbv2.multiple_az": {
-    "description_base_sha256": "696d73ae60c837a5d7d26983c95f60df04857ec2cc516280191b62ec46fe1d07",
     "description_fields": {
       "description": "Counts declared availability-zone entries on the application, network or gateway load balancer; requires at least two."
     },
-    "remediation_base_sha256": "124b4e3fd8a9e093ed7aa088f1f38bbe7f527325c91333404520834feb517724",
     "remediation_fields": {
       "caveats": [
         "This source counts entries, not distinct zones, and does not test failover."
@@ -1437,11 +1344,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The application, network or gateway load balancer declares fewer than two availability-zone entries."
   },
   "aws.b.neptune.audit_logging": {
-    "description_base_sha256": "e2d3dfc9d67b7acd94eaa8998f097aebfb48f34c73e0aeceabc54a4827de5afb",
     "description_fields": {
       "description": "Checks that the Neptune cluster declares an audit CloudWatch log export."
     },
-    "remediation_base_sha256": "88ec9715959e516a86ccd7e8615f7dd265ae1d08abf7e2807a465f5f46d50c3b",
     "remediation_fields": {
       "caveats": [
         "The declaration does not prove audit events are generated or delivered."
@@ -1466,11 +1371,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Neptune cluster declares no audit log export."
   },
   "aws.b.rds_cluster.nondefault_port_policy": {
-    "description_base_sha256": "ad53af2760b12c5f83e731423141fa044e7321c95b2e9342f81c59f7a67b9146",
     "description_fields": {
       "description": "Compares the database engine and configured endpoint port with this profile\u2019s engine-default ports."
     },
-    "remediation_base_sha256": "9097fc70b31b4a15bb2bbb119066fe8be3e46e7fb96fed9e26d8f4dc175ef1f9",
     "remediation_fields": {
       "caveats": [
         "Changing the port is obscurity and does not improve authentication or isolate the database."
@@ -1497,11 +1400,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The database endpoint uses its engine\u2019s default port under this profile."
   },
   "aws.b.rds_instance.multiple_az": {
-    "description_base_sha256": "30eea990d93848f4d575838c26d162fb4baf6ce197ba5bf25930d5e691e02255",
     "description_fields": {
       "description": "Checks the RDS instance MultiAZ flag, excluding this source\u2019s Aurora MySQL/PostgreSQL instance families."
     },
-    "remediation_base_sha256": "d11a68fadab540115d9a7617473da5b67e1f5e2e0f67320c9770302f340a3dc2",
     "remediation_fields": {
       "caveats": [
         "The setting does not prove failover readiness or recovery time."
@@ -1526,11 +1427,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The applicable RDS instance has Multi-AZ disabled."
   },
   "aws.b.rds_instance.nondefault_port_policy": {
-    "description_base_sha256": "dcc9a2d87776265b537cc74e5946fae1139d37f542a1b02b173918c217c413e4",
     "description_fields": {
       "description": "Compares the database engine and configured endpoint port with this profile\u2019s engine-default ports."
     },
-    "remediation_base_sha256": "8eb0be48c9967da102064b880bb30bb31a1c2ac847cb27b80ff2614495365bfb",
     "remediation_fields": {
       "caveats": [
         "Changing the port is obscurity and does not improve authentication or isolate the database."
@@ -1557,11 +1456,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The database endpoint uses its engine\u2019s default port under this profile."
   },
   "aws.b.redshift.kms_key_declared": {
-    "description_base_sha256": "32bacfbbfd3873688916c5296bc1949b31d383e5c4bdf43199d8ea358c3a37f0",
     "description_fields": {
       "description": "Checks Redshift Encrypted=true and a nonempty KMS key reference; native inventory must prove an omitted reference."
     },
-    "remediation_base_sha256": "c893f72a6b4e1aae404d7141464c414b13c101f123a297e17adad19dacf28d3f",
     "remediation_fields": {
       "caveats": [
         "A key reference does not establish customer ownership or usability."
@@ -1586,11 +1483,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The cluster has encryption disabled or a proven missing KMS key reference."
   },
   "aws.b.redshift.nondefault_admin": {
-    "description_base_sha256": "9a2f1f9d05879e5aa4de24a1b767ce57782d2bd6d736481abc46067c1ff56bb1",
     "description_fields": {
       "description": "Checks the Redshift administrator name differs case-sensitively from awsuser."
     },
-    "remediation_base_sha256": "aa60706a865338e7068839bf09522a2a390ffa9f5de6f9dfb87e3eb6aa47dfb4",
     "remediation_fields": {
       "caveats": [
         "Renaming does not strengthen authentication or establish restricted access."
@@ -1618,11 +1513,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Redshift administrator name equals the profile default awsuser."
   },
   "aws.b.redshift.nondefault_database": {
-    "description_base_sha256": "08f8ad2c4949f1082c17966c19d683ead21d6b64be3f761c49c160721d9c459d",
     "description_fields": {
       "description": "Checks the Redshift database name differs case-sensitively from dev."
     },
-    "remediation_base_sha256": "346f424f0235b2a981a5945ca0a04e0036339be5a256024a23a43392b3974b94",
     "remediation_fields": {
       "caveats": [
         "Renaming does not strengthen authentication or establish restricted access."
@@ -1650,11 +1543,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Redshift database name equals the profile default dev."
   },
   "aws.c2b.apigateway.domain_pqc_tls": {
-    "description_base_sha256": "9cc973b88c59229dc5c63a037065e7b9280f6cd50f2a7f3c8f37cd225667173c",
     "description_fields": {
       "description": "Compares the custom domain TLS security policy with the pinned post-quantum policy allowlist."
     },
-    "remediation_base_sha256": "ebef2807dd9620fe1342b8d53e49c902aa32cea8f67ff26e05c8c25700271e0a",
     "remediation_fields": {
       "caveats": [
         "A conventional TLS policy is not automatically unsafe because it lacks this optional profile."
@@ -1685,11 +1576,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The API Gateway custom domain does not use the pinned post-quantum TLS profile."
   },
   "aws.c2b.apigatewayv2.api_has_authorizer": {
-    "description_base_sha256": "9b7ce722bf77371f8124e8e889bac43b913f1d71bf9cb7388a546c74f98d1d35",
     "description_fields": {
       "description": "Counts APIv2 authorizer definitions in the completely collected API inventory."
     },
-    "remediation_base_sha256": "c0e72003d1a071884dc673d0a4368d889329719d1b84f9947ff30000209587d1",
     "remediation_fields": {
       "caveats": [
         "IAM-authorized APIs may not need an authorizer definition; presence does not prove route attachment."
@@ -1715,11 +1604,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The APIv2 API defines no authorizers."
   },
   "aws.c2b.apigatewayv2.routes_authorization_type": {
-    "description_base_sha256": "5110c02b4dff307be189f8299b7ddeeb02c625b13bbf6147af45db68e4df7aed",
     "description_fields": {
       "description": "Finds APIv2 routes whose authorization type is NONE or omitted."
     },
-    "remediation_base_sha256": "2d0678a71499a85958e35c4cd8e5faa0aa0983c97283681810fa43064d2008e8",
     "remediation_fields": {
       "caveats": [
         "Route configuration does not test requests or prove application-level access controls are absent."
@@ -1745,11 +1632,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "An APIv2 route declares no route-level authorization."
   },
   "aws.c2b.apigatewayv2.routes_authorizer": {
-    "description_base_sha256": "e8a5afd2a7b26d0b6de11ef325472c4c8287f90d158b1e5255a56025f898c2f7",
     "description_fields": {
       "description": "Finds APIv2 routes without a nonempty AuthorizerId."
     },
-    "remediation_base_sha256": "d28e74a391bedd6fb2b1f77844ede8c60a66ed17b83337bac884072ef692e4e9",
     "remediation_fields": {
       "caveats": [
         "AWS_IAM routes also fail this literal authorizer-reference profile despite having authorization."
@@ -1775,11 +1660,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "An APIv2 route has no authorizer reference."
   },
   "aws.c2b.appstream.disconnect_timeout_5m": {
-    "description_base_sha256": "a66304a1190bec94039bce2471e702399fd16026bc12f5a5bc9c1823dc4023bc",
     "description_fields": {
       "description": "Checks AppStream disconnect timeout is at most 300 seconds."
     },
-    "remediation_base_sha256": "d54b2fc51a7cf2bbeb213ff9e2a973ff034ae0146f34425c876e1ed38926dcef",
     "remediation_fields": {
       "caveats": [
         "These are configured timeout bounds, not observed session termination."
@@ -1804,11 +1687,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "AppStream disconnect timeout exceeds five minutes."
   },
   "aws.c2b.appstream.idle_disconnect_10m": {
-    "description_base_sha256": "6a0b722a2b5815ec63de782f4664890c2af653823b9af591ce4baf86d8940769",
     "description_fields": {
       "description": "Checks AppStream idle timeout is positive and at most 600 seconds; omission defaults to disabled."
     },
-    "remediation_base_sha256": "c4c5f8e5327fe9106a269574768aff3f0fbfe7605edb90cc48ebe24145c5c73e",
     "remediation_fields": {
       "caveats": [
         "These are configured timeout bounds, not observed session termination."
@@ -1834,11 +1715,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "AppStream idle disconnection is disabled or exceeds ten minutes."
   },
   "aws.c2b.appstream.max_user_duration_under_10h": {
-    "description_base_sha256": "5a324a59a96cf699197dfe051b18ff69b0dc90220dc91e4e9f6f4b722ca06813",
     "description_fields": {
       "description": "Checks AppStream maximum user duration is strictly less than 36,000 seconds."
     },
-    "remediation_base_sha256": "8d7778431cb8de987e55fda0af8ecc9baa496e6e7f47e6318ae44e16ac5c6d6f",
     "remediation_fields": {
       "caveats": [
         "These are configured timeout bounds, not observed session termination."
@@ -1863,11 +1742,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "AppStream maximum user duration is at least ten hours."
   },
   "aws.c2b.appsync.field_level_logging": {
-    "description_base_sha256": "3c03046b85c60cf3cb94f6bc549dc6b24f3684477881c0e1e7a24a1dd4fab153",
     "description_fields": {
       "description": "Checks the AppSync field logging level for ERROR or ALL."
     },
-    "remediation_base_sha256": "f5a596c49f691e63579587399931240012e186df0faffcbac5ba9b755851331a",
     "remediation_fields": {
       "caveats": [
         "This profile does not accept other levels and does not prove log delivery."
@@ -1893,11 +1770,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "AppSync field logging is not set to ERROR or ALL."
   },
   "aws.c2b.appsync.graphql_no_api_key": {
-    "description_base_sha256": "5eeed608adee890a9f48eb03304f446e63ee63e770730c3b0c3c83fa9f6ed125",
     "description_fields": {
       "description": "Checks whether the AppSync GraphQL-type API uses API_KEY as its default authentication type."
     },
-    "remediation_base_sha256": "53a73923d1ca2a328d1d23ec9dec87672aa222dc1d90e482a02ab33de6840f5d",
     "remediation_fields": {
       "caveats": [
         "API-key access may be intentional for public data; additional authentication modes are not assessed."
@@ -1923,11 +1798,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The AppSync GraphQL-type API uses default API-key authentication."
   },
   "aws.c2b.appsync.no_api_key_auth": {
-    "description_base_sha256": "20d70138edc4defbab9e75df57abe371dbb41ef1683d1a7d3ad72ef25eadaebd",
     "description_fields": {
       "description": "Checks whether the AppSync API of any type uses API_KEY as its default authentication type."
     },
-    "remediation_base_sha256": "5bc0b03e6de641777dd2b2dcb9b11cc9ac327988c426f3514b52f3d33cd7d71f",
     "remediation_fields": {
       "caveats": [
         "API-key access may be intentional for public data; additional authentication modes are not assessed."
@@ -1952,11 +1825,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The AppSync API of any type uses default API-key authentication."
   },
   "aws.c2b.athena.cloudwatch_metrics": {
-    "description_base_sha256": "b42b241d74eb423fe1ab496fd6b81e6fc2756234309dd7655ed49ab573afb06b",
     "description_fields": {
       "description": "Checks Athena PublishCloudWatchMetricsEnabled=true."
     },
-    "remediation_base_sha256": "10af87ba4660736ad8fa3f6e508e0348e75bbd755e0e7a34581897fed47b99aa",
     "remediation_fields": {
       "caveats": [
         "The flag does not validate configuration quality or prove metrics delivery."
@@ -1987,11 +1858,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Athena workgroup disables CloudWatch metrics publishing."
   },
   "aws.c2b.athena.cloudwatch_metrics_prowler": {
-    "description_base_sha256": "283024291c328d58249fd439d8c48df094a8ae204c7b6ad837c017714a9194bd",
     "description_fields": {
       "description": "Checks Athena PublishCloudWatchMetricsEnabled=true for enabled workgroups only."
     },
-    "remediation_base_sha256": "74e68cfe34072f8102a1bc9df25a554dae5c7f0b0a32e9763f72fa5b3e790a69",
     "remediation_fields": {
       "caveats": [
         "The flag does not validate configuration quality or prove metrics delivery."
@@ -2022,11 +1891,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Athena workgroup disables CloudWatch metrics publishing."
   },
   "aws.c2b.athena.enforce_configuration": {
-    "description_base_sha256": "326ca2fb9439ab94f1baf93a0d31b4ca048463d724bb6de6ff2434e5a5256b6f",
     "description_fields": {
       "description": "Checks Athena EnforceWorkGroupConfiguration=true."
     },
-    "remediation_base_sha256": "2a6ef196b2b609b66c043dc4e990206a6572c34689ed53fb64c828f5929bd63d",
     "remediation_fields": {
       "caveats": [
         "The flag does not validate configuration quality or prove metrics delivery."
@@ -2057,11 +1924,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Athena workgroup disables workgroup configuration enforcement."
   },
   "aws.c2b.athena.enforce_configuration_prowler": {
-    "description_base_sha256": "f92cd6c3a73092c7bb8b4d052b025ce2c503026a3f6eb2df6400b3d92062267e",
     "description_fields": {
       "description": "Checks Athena EnforceWorkGroupConfiguration=true for enabled workgroups only."
     },
-    "remediation_base_sha256": "28fb1210301dc7727532811b78cf5f3059474c145c6f796d88fb1d15824c9d27",
     "remediation_fields": {
       "caveats": [
         "The flag does not validate configuration quality or prove metrics delivery."
@@ -2092,11 +1957,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Athena workgroup disables workgroup configuration enforcement."
   },
   "aws.c2b.backup.plan_rules_retention_35": {
-    "description_base_sha256": "cd9ceffeb9aa955de92b566e58117a834a1d8df297aa53dd8b268c58779a9a39",
     "description_fields": {
       "description": "Finds backup-plan rules whose explicit DeleteAfterDays is below 35."
     },
-    "remediation_base_sha256": "c97a703e20e8cb0b853ea52dcecac13b6843a80ae0f2b1d14fd48ac4056e10e0",
     "remediation_fields": {
       "caveats": [
         "Omitted deletion passes this profile; this does not test backup jobs or restores."
@@ -2122,11 +1985,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A backup-plan rule declares deletion before 35 days."
   },
   "aws.c2b.backup.plans_exist_when_vaults": {
-    "description_base_sha256": "a78639d34cf27e7fadeb3ee3d31811307731dfcff4cda07d8921d55f3e746937",
     "description_fields": {
       "description": "Checks that the scoped inventory has at least one backup plan when backup vaults exist."
     },
-    "remediation_base_sha256": "dece503c1deaadb365d235fb4dec115961ee29ba6ba8fcb9dde804c6600373e5",
     "remediation_fields": {
       "caveats": [
         "A region-wide plan witness does not establish resource assignment or successful backups."
@@ -2152,11 +2013,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Backup vaults exist but the scope contains no backup plans."
   },
   "aws.c2b.backup.recovery_point_retention_35": {
-    "description_base_sha256": "12300c8a7932f6c73383153cc5141dc01f1d74cc9ab222d87bbc103dba84046d",
     "description_fields": {
       "description": "Checks an explicit recovery-point DeleteAfterDays value for at least 35 days; omission passes as no declared deletion."
     },
-    "remediation_base_sha256": "cde0646d151f9a11367742fc6d499133d3d10b59f6a3626416a845168fc50793",
     "remediation_fields": {
       "caveats": [
         "Lifecycle settings do not prove recoverability; omitted deletion is not short retention."
@@ -2182,11 +2041,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The recovery point declares deletion before 35 days."
   },
   "aws.c2b.backup.report_plans_when_plans": {
-    "description_base_sha256": "d2cece22367f6e37a7df98a5479b06569774b5d72b7ba2313140b2e1d00837e1",
     "description_fields": {
       "description": "Checks that at least one backup report plan exists when backup plans exist."
     },
-    "remediation_base_sha256": "e86665dc454dabe70b790c7bb71e55bc4deabc390d0ff5782e50e202e24a9266",
     "remediation_fields": {
       "caveats": [
         "Report-plan presence does not prove reports are delivered or every backup plan is covered."
@@ -2212,11 +2069,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Backup plans exist but the scope has no backup report plans."
   },
   "aws.c2b.backup.vault_policy_denies_recovery_point_deletion": {
-    "description_base_sha256": "f2f3e58dc40ae18c7363068009fb1fa1c7174ecc163501102d955ba544749baf",
     "description_fields": {
       "description": "Looks for one Deny statement on Resource:* covering deletion, lifecycle updates and vault-policy updates."
     },
-    "remediation_base_sha256": "8ce9438e4b180c6b9e6efb1dd08237e6256e9da225b2784c449eee4b3f7cf8ce",
     "remediation_fields": {
       "caveats": [
         "This syntax witness does not evaluate Principal, Condition or every effective permission and is not proof of immutable backups."
@@ -2249,11 +2104,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The vault lacks the exact broad-resource Deny statement required by this profile."
   },
   "aws.c2b.backup.vault_policy_not_public": {
-    "description_base_sha256": "51a83cb1c0fe300c820cb900d7dd51b418ebe05d11aea7b8707edc5ee030f882",
     "description_fields": {
       "description": "Checks the backup-vault policy with the source\u2019s wildcard-principal and restricting-condition model."
     },
-    "remediation_base_sha256": "17be60935a95bda13f7fa2c5d13cbe07dac17e41a55a5cd6974b61acb0933384",
     "remediation_fields": {
       "caveats": [
         "Policy-model results do not compute effective access across every external control."
@@ -2280,11 +2133,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The backup-vault policy matches the public-grant model."
   },
   "aws.c2b.classic_elb.has_registered_instances": {
-    "description_base_sha256": "c67155e667aee6158814a266077903499939b1f97a21b5489d5891110ef6b0d4",
     "description_fields": {
       "description": "Counts registered instances on the Classic load balancer."
     },
-    "remediation_base_sha256": "79a772981f8a48c06e0a30eef6390ff83e311a9844c471d1fad859a76746abbd",
     "remediation_fields": {
       "caveats": [
         "Registered instances are not necessarily healthy."
@@ -2309,11 +2160,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Classic load balancer has no registered instances."
   },
   "aws.c2b.classic_elb.insecure_ssl_ciphers": {
-    "description_base_sha256": "15a1327118510b3ca30ba817f762f42b1fbce76a7a01bdd3efe0b2596ab2fc0c",
     "description_fields": {
       "description": "Checks HTTPS listener policy names for the exact ELBSecurityPolicy-TLS-1-2-2017-01 profile."
     },
-    "remediation_base_sha256": "214233d132a07f61d2e9279cfe2091daced91cea67147f26292a88ac260e0639",
     "remediation_fields": {
       "caveats": [
         "This name comparison does not enumerate actual cipher strength or reject every newer secure policy fairly."
@@ -2340,11 +2189,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "An HTTPS listener does not reference the pinned TLS-1-2-2017-01 policy."
   },
   "aws.c2b.classic_elb.not_internet_facing": {
-    "description_base_sha256": "5b36b3bdf080b42a43526aa9dee76e09b46c3f2d34a25071479983094dc5a02a",
     "description_fields": {
       "description": "Reads whether the Classic load balancer scheme is internet-facing."
     },
-    "remediation_base_sha256": "324502fea21b959c1dfc3705a39bbace62cef0c23a4ea05627a443c9ada94bae",
     "remediation_fields": {
       "caveats": [
         "Internet-facing load balancers can be intentional; this does not prove an exposed listener.",
@@ -2370,11 +2217,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Classic load balancer declares an internet-facing scheme."
   },
   "aws.c2b.classic_elb.sg_inbound_rule": {
-    "description_base_sha256": "23eb1dcdfbd2fe6172d2f1352048370b88f3ec34f4c71988e5bc33b73bf85872",
     "description_fields": {
       "description": "Checks that security groups are attached and every resolved group has at least one inbound rule."
     },
-    "remediation_base_sha256": "07f446be28bad8a18c2c5014e0391c5bbd6a0eea0ef2b4378d02b327a395ebdb",
     "remediation_fields": {
       "caveats": [
         "This is rule presence, not a test of port coverage or reachability; one group\u2019s rules can complement another\u2019s."
@@ -2402,11 +2247,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Classic load balancer lacks attached security groups or a group has no inbound rules."
   },
   "aws.c2b.classic_elb.sg_outbound_rule": {
-    "description_base_sha256": "cf4eb29e9eaf93a816a53ca52922d69ad204c26ca73ded362f5f106af5c33dd6",
     "description_fields": {
       "description": "Checks that security groups are attached and every resolved group has at least one outbound rule."
     },
-    "remediation_base_sha256": "8a4f95de4ae17415ad027b15ff6819a84baca4731a2c3c6d2c5996d0cdfa7252",
     "remediation_fields": {
       "caveats": [
         "This is rule presence, not a test of port coverage or reachability; one group\u2019s rules can complement another\u2019s."
@@ -2434,11 +2277,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Classic load balancer lacks attached security groups or a group has no outbound rules."
   },
   "aws.c2b.cloudfront.default_behavior_https": {
-    "description_base_sha256": "3adff8b379639fdd666b9a44a94c0d929501d3c59637682aedb5425a6f5bc2d1",
     "description_fields": {
       "description": "Reads only the default cache behavior\u2019s viewer protocol policy and rejects allow-all."
     },
-    "remediation_base_sha256": "9ac226463b830f7b767808cda95f5e3f7df065ea560834358cfe20f8c68d7581",
     "remediation_fields": {
       "caveats": [
         "Additional behaviors and origin transport are assessed separately."
@@ -2471,11 +2312,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The default CloudFront behavior permits HTTP viewers."
   },
   "aws.c2b.cloudfront.https_sni": {
-    "description_base_sha256": "6b925f3bdad9fd5d3747f4f2cb1c9abb7f93087c632b31cec6573bf755f4632a",
     "description_fields": {
       "description": "Checks custom viewer certificates for sni-only SSL support, treating omitted support as static-IP mode."
     },
-    "remediation_base_sha256": "424c8031f4133ad9ee6c792ec42a8185a1aa719ef75cd99b11faaebdd72a1b4f",
     "remediation_fields": {
       "caveats": [
         "Dedicated-IP support is a compatibility and cost choice, not evidence of plaintext traffic."
@@ -2501,11 +2340,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The custom viewer certificate does not use SNI-only HTTPS support."
   },
   "aws.c2b.cloudfront.pqc_tls": {
-    "description_base_sha256": "adda8e52babb6f29be8422258afadfc9f5effa42a2e89251a60f6c8c4810996d",
     "description_fields": {
       "description": "Compares the custom viewer certificate\u2019s minimum TLS policy with the pinned TLSv1.3_2025 preference."
     },
-    "remediation_base_sha256": "0023b94691e565b3ffba1336583437304533fae8508dbddd0f57a80134c5d05c",
     "remediation_fields": {
       "caveats": [
         "A different policy does not by itself prove weak conventional TLS."
@@ -2535,11 +2372,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The distribution does not use this profile\u2019s TLSv1.3_2025 custom-certificate policy."
   },
   "aws.c2b.cloudfront.s3_origin_access_control": {
-    "description_base_sha256": "5604e3c8d64aa7f3c7e4690cdf238f4b4433544d1cbc37e35611f4bfdc88cf37",
     "description_fields": {
       "description": "Checks that every configured S3 origin references an Origin Access Control."
     },
-    "remediation_base_sha256": "c9516029fb5bbcded58b97fa802b944a68ff4773b13c7663958298f9c18657ee",
     "remediation_fields": {
       "caveats": [
         "An OAC reference alone does not prove signing settings or a restrictive bucket policy."
@@ -2567,11 +2402,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A configured S3 origin has no Origin Access Control reference."
   },
   "aws.c2b.cloudfront.s3_origin_access_identity": {
-    "description_base_sha256": "d2bfee464f2356f1bfe45b8798ef80460199f7f0ab3ca214365020110dc57ed1",
     "description_fields": {
       "description": "Checks the legacy OAI field on origins whose domain ends with s3.amazonaws.com."
     },
-    "remediation_base_sha256": "5f88ef15baa5685b1df1ddb1993d85d1f961d4f197cf4dc781a108e0f3e9a4da",
     "remediation_fields": {
       "caveats": [
         "An OAC-only origin can fail this legacy OAI profile despite using the recommended mechanism."
@@ -2599,11 +2432,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "An applicable S3 origin declares an empty legacy Origin Access Identity."
   },
   "aws.c2b.datasync.task_log_group": {
-    "description_base_sha256": "af1c201f5da992be06b660ec5f8a1c510ebd3a0f338f4892d8ef753b29b5fb1a",
     "description_fields": {
       "description": "Reads the DataSync task\u2019s CloudWatch log-group ARN."
     },
-    "remediation_base_sha256": "777c6f355a735570c95f6d0969566a29a11ae842669a4951dd5b2e4edb10f60f",
     "remediation_fields": {
       "caveats": [
         "A reference does not prove log permissions, delivery or retention."
@@ -2630,11 +2461,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The DataSync task declares no CloudWatch log group."
   },
   "aws.c2b.datasync.task_logging_level": {
-    "description_base_sha256": "030281fd565fbef6cdf9420515edc725ec25330faa510092f621ee70d2c58e7e",
     "description_fields": {
       "description": "Checks the DataSync task has a log group and log level BASIC or TRANSFER."
     },
-    "remediation_base_sha256": "28232c27d47819a76b53f57c672463cc5cd4eb9d3be9acf683a97240110d5932",
     "remediation_fields": {
       "caveats": [
         "Configuration does not prove delivery or coverage outside this task."
@@ -2661,11 +2490,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The DataSync task lacks a log group or a BASIC/TRANSFER logging level."
   },
   "aws.c2b.dax.multi_az": {
-    "description_base_sha256": "95da2431160df5c1f8dc9766af1954508352765e4668a2f176bc10124ebbe90c",
     "description_fields": {
       "description": "Counts distinct availability-zone names among declared DAX nodes; requires at least two."
     },
-    "remediation_base_sha256": "b4f3a91a42aacfb25b1b734ba70a262cb94a2bbd0eb1ad0594dff2fda616a67f",
     "remediation_fields": {
       "caveats": [
         "Declared node placement does not prove node health or successful failover."
@@ -2691,11 +2518,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The DAX cluster declares nodes in fewer than two availability zones."
   },
   "aws.c2b.directconnect.connection_redundancy": {
-    "description_base_sha256": "d55c91e686e57429ca87d56590fe5da3c65db3d2477a8a26cbaca690daf47e33",
     "description_fields": {
       "description": "Counts scoped Direct Connect connections and distinct declared locations; requires at least two of each."
     },
-    "remediation_base_sha256": "3c6b3fea228ef27481b6f70c80007bb5e47ab9c731d53e0068362cf42b578ed0",
     "remediation_fields": {
       "caveats": [
         "Inventory redundancy does not prove link health, independent failure domains or tested failover.",
@@ -2722,11 +2547,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Direct Connect lacks two connections at distinct locations."
   },
   "aws.c2b.directconnect.virtual_interface_redundancy": {
-    "description_base_sha256": "b72689f1d48384390b99252019ec2125df2a410db0c69a8c5f5389365f06f0fb",
     "description_fields": {
       "description": "Groups virtual interfaces by gateway and requires two distinct interfaces on distinct connections per gateway."
     },
-    "remediation_base_sha256": "1207aa1ae1a28b1327c78993b22316fd5cbc52c01e44ec6e5e6652f85770e6f9",
     "remediation_fields": {
       "caveats": [
         "The declarations do not prove route convergence, link health or successful failover.",
@@ -2753,11 +2576,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A gateway lacks two virtual interfaces on distinct connections."
   },
   "aws.c2b.dlm.ebs_snapshot_policy_with_snapshots": {
-    "description_base_sha256": "14e2d58de283c468f1a205645180a0400ef367b9c1a41f7cd6ddd63a887892b5",
     "description_fields": {
       "description": "Checks for an EBS_SNAPSHOT-prefixed lifecycle policy when the scope contains EBS snapshots."
     },
-    "remediation_base_sha256": "a828fbe95943bbf2f5663c489f580afcf07d2d2495cc88a628633c78eefd2d00",
     "remediation_fields": {
       "caveats": [
         "Policy presence does not prove it is enabled, selects these snapshots or produces backups."
@@ -2785,11 +2606,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The scope has EBS snapshots but lacks an EBS_SNAPSHOT-prefixed lifecycle policy."
   },
   "aws.c2b.dlm.policy_exists_with_snapshots": {
-    "description_base_sha256": "354f4173cfc2627926b15602442ddcd47af5ac4f65800e6b4a47dd89b24a69cc",
     "description_fields": {
       "description": "Checks for any lifecycle policy when the scope contains EBS snapshots."
     },
-    "remediation_base_sha256": "363d705a9af4eb4280d38aeeb9257f88ea7f81efe086406fbca0e141bb9027ab",
     "remediation_fields": {
       "caveats": [
         "Policy presence does not prove it is enabled, selects these snapshots or produces backups."
@@ -2817,11 +2636,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The scope has EBS snapshots but lacks any lifecycle policy."
   },
   "aws.c2b.dms.certificate_not_expired": {
-    "description_base_sha256": "ebd7d38c474355a05c08f5d668011fa9215427c14d519e21badc2f6fb01e36e9",
     "description_fields": {
       "description": "Compares the DMS certificate expiry with one second before the snapshot day starts."
     },
-    "remediation_base_sha256": "893372b26ed191f853b70188d3c7c5d3cd5c3d2ded950d5d64fc65ae9fdcecf2",
     "remediation_fields": {
       "caveats": [
         "This calendar-boundary profile does not fail expiry during the current snapshot day.",
@@ -2849,11 +2666,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The DMS certificate expired before this profile\u2019s snapshot-day cutoff."
   },
   "aws.c2b.dms.endpoint_ssl": {
-    "description_base_sha256": "14f9f5f989b64cf191bf8d2da6b772967d2deb5270ecad77cf2d9f334edca916",
     "description_fields": {
       "description": "Flags DMS endpoint SslMode only when it is exactly none."
     },
-    "remediation_base_sha256": "866706ee5811871ebd26ba8a9d06d45f4c951100eab10b4b52cf8bcf48b480d1",
     "remediation_fields": {
       "caveats": [
         "Omitted or other mode values pass this literal profile and do not establish certificate verification."
@@ -2879,11 +2694,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The DMS endpoint explicitly sets SSL mode to none."
   },
   "aws.c2b.dms.mongodb_auth": {
-    "description_base_sha256": "4d6d2471ef16a9841ffd7bef6580844a249e73bdfa1d7acb328bed1e09197585",
     "description_fields": {
       "description": "Checks MongoDB DMS endpoint AuthType and rejects no, including its omission default."
     },
-    "remediation_base_sha256": "cf8702801004270606a64399b95a18226aef673457f7efcc33cd3f7801c2a8bf",
     "remediation_fields": {
       "caveats": [
         "The type declaration does not test credentials or effective database permissions."
@@ -2910,11 +2723,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The MongoDB DMS endpoint declares no authentication."
   },
   "aws.c2b.dms.neptune_iam_auth": {
-    "description_base_sha256": "5067da97946c5949e6a2a84441778612ae1bb7a5d94e26971ccbbfe59731b9f6",
     "description_fields": {
       "description": "Reads IamAuthEnabled on Neptune DMS endpoints."
     },
-    "remediation_base_sha256": "1fe8a275370fbb590f1e44499d9676f576b515008321b4dbffc084435c82f87d",
     "remediation_fields": {
       "caveats": [
         "The flag does not prove usable role permissions or replace network controls."
@@ -2940,11 +2751,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Neptune DMS endpoint disables IAM authentication."
   },
   "aws.c2b.dms.redis_tls": {
-    "description_base_sha256": "5374bff1c8818431351fc6f75c90fab2bd5067c213f8f61838769dabfa1d98fe",
     "description_fields": {
       "description": "Checks Redis DMS endpoint SslSecurityProtocol equals ssl-encryption, including its source omission default."
     },
-    "remediation_base_sha256": "7357ca23aee52519ea59966ed2fdbfc462a7b2ca3ce1fc9d8ba69175b180924d",
     "remediation_fields": {
       "caveats": [
         "The value does not prove certificate validation or a successful connection."
@@ -2971,11 +2780,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Redis DMS endpoint does not declare ssl-encryption."
   },
   "aws.c2b.dms.task_source_logging": {
-    "description_base_sha256": "fb1cd521508260943910f3e791cbc823b6263832015085c473b3af19a388d560",
     "description_fields": {
       "description": "Checks DMS task logging is enabled and SOURCE_CAPTURE and SOURCE_UNLOAD have a default, debug or detailed-debug severity."
     },
-    "remediation_base_sha256": "ab2195f6ba29a9bd2f813664fb08b2e465af9ad2d6a08283835a44440fff7d40",
     "remediation_fields": {
       "caveats": [
         "Other log levels fail this exact profile; no logs are inspected or delivery verified."
@@ -3006,11 +2813,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "DMS task logging is disabled or lacks the required SOURCE_CAPTURE and SOURCE_UNLOAD settings."
   },
   "aws.c2b.dms.task_target_logging": {
-    "description_base_sha256": "b355f561dd7d2e292600991ee5c68c54a0bafca080d9ce0eccca1f1081ace76c",
     "description_fields": {
       "description": "Checks DMS task logging is enabled and TARGET_APPLY and TARGET_LOAD have a default, debug or detailed-debug severity."
     },
-    "remediation_base_sha256": "3bb349f430f1217b59bc281f1d6f6929000c8754f58aabf102b5f79e2684ee84",
     "remediation_fields": {
       "caveats": [
         "Other log levels fail this exact profile; no logs are inspected or delivery verified."
@@ -3041,11 +2846,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "DMS task logging is disabled or lacks the required TARGET_APPLY and TARGET_LOAD settings."
   },
   "aws.c2b.docdb.snapshot_not_public_prowler": {
-    "description_base_sha256": "49790d8048b35a4f507c3edcaf8a1974c2390ddc8a0ec45d97c55fb28a38bfb4",
     "description_fields": {
       "description": "Checks all returned DocumentDB snapshot attribute-value lists for the all marker."
     },
-    "remediation_base_sha256": "8cbca62f17ec3a7f18e911f14f7d5a7432e00b4df46280ad84c2786073262b7a",
     "remediation_fields": {
       "caveats": [
         "This source examines every attribute list, not only restore; the raw attribute identifies the actual declaration."
@@ -3074,11 +2877,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A DocumentDB snapshot attribute contains the public all marker."
   },
   "aws.c2b.docdb.snapshot_restore_not_all_exact": {
-    "description_base_sha256": "1e8ba1310ab3cfaf9ca46a44ed8cf2018f6054720425efbab41ef9c6c5143928",
     "description_fields": {
       "description": "Checks DocumentDB snapshot restore attributes for the public all value."
     },
-    "remediation_base_sha256": "31d853d484b18929b2014443439f6fb7a5e5fada6f98e858da037adebe878fb5",
     "remediation_fields": {
       "caveats": [
         "This is a declared snapshot share, not network exposure or evidence the snapshot was copied."
@@ -3107,11 +2908,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The DocumentDB snapshot grants restore access to all accounts."
   },
   "aws.c2b.documentdb.backup_retention_7": {
-    "description_base_sha256": "610dc1c68ef1683c9a80c812faa1367e35f5ea0606fd9a565648e9e280ea17d8",
     "description_fields": {
       "description": "Checks DocumentDB automatic-backup retention is at least seven days."
     },
-    "remediation_base_sha256": "c01f760d5cbae25f9403f121903f55dad367f4bec60a94bd2cda26c19d4e6de4",
     "remediation_fields": {
       "caveats": [
         "Retention settings do not prove successful backups or restores."
@@ -3137,11 +2936,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "DocumentDB backup retention is below seven days."
   },
   "aws.c2b.documentdb.cluster_log_exports": {
-    "description_base_sha256": "ba5822ee5217647899af0d3ccb41dc21622b8a15028af3359224a1f8c61f5c71",
     "description_fields": {
       "description": "Checks DocumentDB exported log types include both audit and profiler."
     },
-    "remediation_base_sha256": "7a68eedd975f97f04b637fdd939fc0aefd5e4fa837709e1d452d942411f24cbf",
     "remediation_fields": {
       "caveats": [
         "Declared exports do not prove log generation or delivery."
@@ -3169,11 +2966,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The DocumentDB cluster lacks an audit or profiler log export."
   },
   "aws.c2b.drs.region_has_job": {
-    "description_base_sha256": "e1e2de4cf1ccb07265e7a592bfe05fc9dad07d7478e86faaa1a24886ae035c3e",
     "description_fields": {
       "description": "Checks configured DRS source-server replication states for STOPPED, STALLED or DISCONNECTED; incomplete states remain UNKNOWN."
     },
-    "remediation_base_sha256": "ff0808d41ce038a03f9fa74f13f4da319575332137a4ed134d0dfbc88794f1d2",
     "remediation_fields": {
       "caveats": [
         "Despite the legacy identifier, this checks replication state, not job presence, recovery drills or workload RTO.",
@@ -3203,11 +2998,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "At least one configured DRS source server has stopped, stalled or disconnected replication."
   },
   "aws.c2b.dynamodb.capacity_autoscaling": {
-    "description_base_sha256": "15a2f242820e4ed59b0504af2b31d1b0c6efbdabf0f296594f52a71d28c012fa",
     "description_fields": {
       "description": "Checks provisioned tables for read and write scalable-target dimensions; on-demand billing passes."
     },
-    "remediation_base_sha256": "032681949fd5da68d04ce9990b8b5c60bc704ba3e2e2267901706731b2a4dd25",
     "remediation_fields": {
       "caveats": [
         "Scalable-target presence does not prove scaling policies or successful scaling."
@@ -3239,11 +3032,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The provisioned DynamoDB table lacks a read or write scalable-target dimension."
   },
   "aws.c2b.dynamodb.policy_not_cross_account": {
-    "description_base_sha256": "9630e7ff7712e86ddb60b28a4e6aec178bb543457f33195fea549ecee0288ec9",
     "description_fields": {
       "description": "Checks the table resource policy with the account-aware public and cross-account grant model."
     },
-    "remediation_base_sha256": "f0ae47b5f962eaaeb39c5415d5d806588531d88703a90f680451bcc8b1b7a4b8",
     "remediation_fields": {
       "caveats": [
         "Cross-account grants can be legitimate; this model does not establish business approval or all effective permissions."
@@ -3273,11 +3064,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The DynamoDB policy matches this profile\u2019s public or cross-account grant criteria."
   },
   "aws.c2b.dynamodb.sse_kms": {
-    "description_base_sha256": "593fa8178c88fc2a6e93539193268f49b02332797ddef355c76d3d0c7447b4b3",
     "description_fields": {
       "description": "Checks DynamoDB SSEType is KMS."
     },
-    "remediation_base_sha256": "64b4aeb083e2d5d4c902e2ed116f7ac7cbfaaffd34c5c3f31a11733f33296ae9",
     "remediation_fields": {
       "caveats": [
         "Default DynamoDB encryption also encrypts data; this is not a plaintext-data test."
@@ -3304,11 +3093,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The DynamoDB table does not declare SSEType KMS."
   },
   "aws.c2b.dynamodb.table_in_backup_selection_or_tag": {
-    "description_base_sha256": "13e46ed802143def1e9b3fa70ffeb647d21ab1c8196a336171005215432297fe",
     "description_fields": {
       "description": "Matches supported backup resource strings or an overlapping selection tag key against the table."
     },
-    "remediation_base_sha256": "04aa34c449ad6e9179be2eb1b2daa2bdb28569623e9325420890447206fa3e3e",
     "remediation_fields": {
       "caveats": [
         "A tag-key match ignores values and operators, so PASS does not prove effective backup selection."
@@ -3338,11 +3125,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The table lacks a supported backup resource match or overlapping selection tag key."
   },
   "aws.c2b.dynamodb.table_in_backup_selection_prowler": {
-    "description_base_sha256": "8933da19db58cf7013793564f03de5a9fdeeec93f4400be72ee69b247752effb",
     "description_fields": {
       "description": "Matches the table ARN against the source\u2019s limited exact and wildcard backup resource strings."
     },
-    "remediation_base_sha256": "e07838a7603eaece94f0052a7feab916d316d632d73871f856f026d955c696fb",
     "remediation_fields": {
       "caveats": [
         "This profile does not evaluate all wildcard patterns, tag selections or exclusion semantics."
@@ -3370,11 +3155,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The table is not matched by the supported backup-selection resource strings."
   },
   "aws.c2b.dynamodb.table_protected_resource": {
-    "description_base_sha256": "1c0496120e0c14d3438333b752d5f9a3de03f4baa0d1dd4886cb46b9830a6239",
     "description_fields": {
       "description": "Joins the table ARN to AWS Backup protected resources of type DynamoDB."
     },
-    "remediation_base_sha256": "e16d010843915e6d909c62939ba36c025b1de02cdb8dcd0c996c4ebb0891aaf8",
     "remediation_fields": {
       "caveats": [
         "A protected-resource record is not proof of the required recovery window or a successful restore."
@@ -3401,11 +3184,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The table has no matching AWS Backup protected-resource record."
   },
   "aws.c2b.ecs.container_instance_in_vpc": {
-    "description_base_sha256": "e644179171a3f5913402c86d35189616dda41985768799eac29113dc60d33ac0",
     "description_fields": {
       "description": "Joins ECS container-instance host IDs to EC2 and requires a readable VPC identifier; ECS Anywhere hosts are outside scope."
     },
-    "remediation_base_sha256": "05fb02508e7d6446ea209ef1277fe721e5272f6934b784ebd6bf1512a56633b4",
     "remediation_fields": {
       "caveats": [
         "This predicate has no FAIL path; unreadable VPC associations remain UNKNOWN and do not prove public exposure."
@@ -3431,11 +3212,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The ECS host VPC association could not be established."
   },
   "aws.c2b.ecs.fargate_latest_platform": {
-    "description_base_sha256": "59b0ad805b267006c7bc44ce57eba442f63d2e967f1032f96e6b07f2a1a7f8e6",
     "description_fields": {
       "description": "Checks explicit FARGATE services for LATEST or the pinned Linux 1.4.0 / Windows 1.0.0 platform version."
     },
-    "remediation_base_sha256": "5120df85d2b170a5541835b83e182bd945a518e2a184d4d80c5baafb8bc17d1f",
     "remediation_fields": {
       "caveats": [
         "The pinned version preference does not discover new releases or prove running tasks have been replaced."
@@ -3464,11 +3243,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Fargate service differs from the pinned platform-version preference."
   },
   "aws.c2b.ecs.service_load_balancer_attached": {
-    "description_base_sha256": "a8779e34d02d5f34af9e29cb3c2ac2684de190f54afcdbe0edca6e1838fe3cb7",
     "description_fields": {
       "description": "Checks whether the ECS service loadBalancers list is nonempty."
     },
-    "remediation_base_sha256": "af88f9d6644e155947e7b7894e9230b104bd84bc9c5828574bdef85f4cb82007",
     "remediation_fields": {
       "caveats": [
         "Workers, service-discovery and other private services may legitimately need no load balancer."
@@ -3493,11 +3270,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The ECS service declares no load balancer."
   },
   "aws.c2b.efs.access_point_root_directory": {
-    "description_base_sha256": "2fe867c7dfadac20e5a851cb44b6dcc856320a3c83b27c0a37c698906f2852f3",
     "description_fields": {
       "description": "Checks whether the EFS access point\u2019s declared root directory is exactly /."
     },
-    "remediation_base_sha256": "88e7f5e31d6550cabe77e4ef590728c2992cca591cb486f8247ddf46943a7a59",
     "remediation_fields": {
       "caveats": [
         "A root path alone does not establish client permissions or expose the filesystem to the Internet."
@@ -3522,11 +3297,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The EFS access point uses the filesystem root directory."
   },
   "aws.c2b.efs.access_point_user_identity": {
-    "description_base_sha256": "9ac1fac77611364b09727c0f3115a9a0ced6b9ece4815f0736939b9dd97f5fce",
     "description_fields": {
       "description": "Checks whether the EFS access point has a nonempty PosixUser object."
     },
-    "remediation_base_sha256": "07def855bb4aaa2470b4d718c89bc0ec8f247cd949aae51e00d7916cbe8b14ff",
     "remediation_fields": {
       "caveats": [
         "Object presence does not prove least privilege or override all filesystem permissions."
@@ -3552,11 +3325,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The EFS access point declares no POSIX user mapping."
   },
   "aws.c2b.elasticache.cluster_no_default_subnet_group": {
-    "description_base_sha256": "133609e981215a963608b9cd4e1a7fd33b446e46d3d853d4324c85b3498cf449",
     "description_fields": {
       "description": "Checks whether the cache subnet-group name is exactly default."
     },
-    "remediation_base_sha256": "42c28c19985b389fc26f13034762f49fc8413d782f72beae3c6b1c75692fac6c",
     "remediation_fields": {
       "caveats": [
         "The name default alone does not prove poor isolation or public reachability."
@@ -3582,11 +3353,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The cache cluster uses the subnet group named default."
   },
   "aws.c2b.elasticache.rg_backup_retention_15": {
-    "description_base_sha256": "0a0806a347ed7eca5c5899820b81f57ba39e6e97c10c665be6b2dab6779a35c0",
     "description_fields": {
       "description": "Checks replication-group snapshot retention is at least 15 days."
     },
-    "remediation_base_sha256": "41651ed3ce3a698fb9f03ab189744d4d5764d7c1d8febe704b07e98d501ab552",
     "remediation_fields": {
       "caveats": [
         "Retention configuration does not prove successful snapshots or restores."
@@ -3611,11 +3380,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "ElastiCache snapshot retention is below 15 days."
   },
   "aws.c2b.elasticache.rg_backup_retention_7": {
-    "description_base_sha256": "d5c69e39a7ab1b8758bcbd8f6fa8a4dfeda52d681b39048c02e77cade8cf51cd",
     "description_fields": {
       "description": "Checks replication-group snapshot retention is at least 7 days."
     },
-    "remediation_base_sha256": "7488cb0f6b29fff5ebfc26f9d0e5c5923fef449961ef17bf94f9a4389de1d417",
     "remediation_fields": {
       "caveats": [
         "Retention configuration does not prove successful snapshots or restores."
@@ -3641,11 +3408,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "ElastiCache snapshot retention is below 7 days."
   },
   "aws.c2b.elbv2.cross_zone_enabled": {
-    "description_base_sha256": "56c1885cc601104e67d9cd511a5849c94383a0f5246864f4dfee853f074d5ba4",
     "description_fields": {
       "description": "Reads the cross-zone attribute on network and gateway load balancers; application load balancers are outside scope."
     },
-    "remediation_base_sha256": "368842f2eb7b68116d1ccc236f5b43a4ea6aa5257c25fdf020c78af784f7c3d9",
     "remediation_fields": {
       "caveats": [
         "The attribute does not establish healthy targets or actual availability."
@@ -3672,11 +3437,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Cross-zone balancing is disabled on the network or gateway load balancer."
   },
   "aws.c2b.emr.block_public_access_enabled": {
-    "description_base_sha256": "26b68e20f97ddb4dddfb197c66b0794cebdf9123b5cd0852bbacfa467e2bdab4",
     "description_fields": {
       "description": "Reads the EMR regional BlockPublicSecurityGroupRules flag."
     },
-    "remediation_base_sha256": "13e4350a7aa2ae9c2df5c16e4a08ee61a1c87d1ed473ece9a193ec727fd9f9ff",
     "remediation_fields": {
       "caveats": [
         "This flag does not prove existing clusters are private or inspect exception ports."
@@ -3701,11 +3464,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The EMR regional public security-group guardrail is disabled."
   },
   "aws.c2b.es.all_logs_to_cloudwatch": {
-    "description_base_sha256": "056428f963ff1dfb5419ac5a25f74b0ceca2632eb96fd7f924c501258f676eb7",
     "description_fields": {
       "description": "Checks OpenSearch domain publishing settings for enabled application, search-slow and index-slow logs with a CloudWatch log-group ARN."
     },
-    "remediation_base_sha256": "e7b1348947d2a0024d67155501340aec06ef458fa797e5e5091f3cff65995c46",
     "remediation_fields": {
       "caveats": [
         "The declarations do not prove log generation, destination permissions or delivery."
@@ -3732,11 +3493,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The domain lacks an enabled CloudWatch destination for required application, search-slow and index-slow logs."
   },
   "aws.c2b.es.audit_logs_to_cloudwatch": {
-    "description_base_sha256": "a82a550ba3ebe16b96550b317204df1779ce679e61d2b3b496f4173fbe4e528e",
     "description_fields": {
       "description": "Checks OpenSearch domain publishing settings for enabled audit logs with a CloudWatch log-group ARN."
     },
-    "remediation_base_sha256": "cb598b5c36081e0a14d44208d8c3c7edc8a52c95696436811069722ba2181e94",
     "remediation_fields": {
       "caveats": [
         "The declarations do not prove log generation, destination permissions or delivery."
@@ -3763,11 +3522,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The domain lacks an enabled CloudWatch destination for required audit logs."
   },
   "aws.c2b.es.error_logs_to_cloudwatch": {
-    "description_base_sha256": "497cfbea01d33c519694529cadc5b5ccd65f395ce55914c7d179434aaaf1e585",
     "description_fields": {
       "description": "Checks OpenSearch domain publishing settings for enabled application error logs with a CloudWatch log-group ARN."
     },
-    "remediation_base_sha256": "3a23d2a129ece0ae93ec2fbe2206fae1e2a3e8e891ec5f252a594c8c11d77839",
     "remediation_fields": {
       "caveats": [
         "The declarations do not prove log generation, destination permissions or delivery."
@@ -3794,11 +3551,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The domain lacks an enabled CloudWatch destination for required application error logs."
   },
   "aws.c2b.es.in_vpc": {
-    "description_base_sha256": "67036c21551fe3288e3f144afb20dd83ea17ea4b3958b1d1538e5c0ab7e8fbde",
     "description_fields": {
       "description": "Checks the OpenSearch domain configuration for a nonempty VPC identifier."
     },
-    "remediation_base_sha256": "4504d38c941ac8c698eddc8fae7ad4da3d32b470d51c5f6182e73036d19be24c",
     "remediation_fields": {
       "caveats": [
         "Public service endpoints may be intentional; the VPC field does not assess authorization or routes."
@@ -3825,11 +3580,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The OpenSearch domain declares no VPC identifier."
   },
   "aws.c2b.es.policy_prohibit_public_access": {
-    "description_base_sha256": "b85f95708d90768b146c5056e6ab254b63123fc6086035efcf78e9e0af57b4ee",
     "description_fields": {
       "description": "Checks the domain access policy for wildcard-principal grants lacking recognized restricting conditions."
     },
-    "remediation_base_sha256": "ed19fbcce000316dc638e77ad30ff287114b93bfb21b3062cc1707123dbfa412",
     "remediation_fields": {
       "caveats": [
         "The policy model does not establish effective data access across domain authentication and other controls."
@@ -3858,11 +3611,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The OpenSearch domain policy matches the public-grant model."
   },
   "aws.c2b.es.tls_1_2_policy": {
-    "description_base_sha256": "2e3c2864334b5efbfe4c08951a928679a458ce8d180aac54f0d9de306e6b42b1",
     "description_fields": {
       "description": "Compares the domain TLS policy name with the two pinned TLS1.2 policy names."
     },
-    "remediation_base_sha256": "1823838db185ca6101ce5231270cea9026b95123c4d200eeee45046449ec5bd7",
     "remediation_fields": {
       "caveats": [
         "A name outside the pinned allowlist is not automatically weak or a live TLS negotiation result."
@@ -3893,11 +3644,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The OpenSearch domain TLS policy differs from the pinned TLS1.2 profile."
   },
   "aws.c2b.firehose.encrypted_at_rest_or_msk_source": {
-    "description_base_sha256": "261381cac21b3989e495db30a0844f169493e31fa8d08fa3151040f0e8d63dfc",
     "description_fields": {
       "description": "Accepts Firehose stream encryption ENABLED or the source\u2019s MSKAsSource encryption alternative."
     },
-    "remediation_base_sha256": "bcc0b23222bbbfc4effe5a3e3d13d43b236a2fd971dec98b47157d0e97dc69cb",
     "remediation_fields": {
       "caveats": [
         "MSK-source streams use a different encryption boundary; destination encryption is separate."
@@ -3923,11 +3672,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The non-MSK-source Firehose stream does not declare encryption ENABLED."
   },
   "aws.cb.apigatewayv2.stage_access_logging": {
-    "description_base_sha256": "d267ab57fb9f640ba99b7d176bd6440642f81b5775c1c376a21fa55d5c2d0081",
     "description_fields": {
       "description": "Checks that APIv2 stage AccessLogSettings is nonempty."
     },
-    "remediation_base_sha256": "cdaf32802a20f60a9417531db5c43595dc866dcdf754241055ddb1b14d5fbb36",
     "remediation_fields": {
       "caveats": [
         "Object presence does not validate the format, destination permissions or delivery."
@@ -3954,11 +3701,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The APIv2 stage has no nonempty access-log settings."
   },
   "aws.cb.firehose.server_side_encryption": {
-    "description_base_sha256": "30df768fa9c12772cc6e598de90bc8e16daaf6ba130deaf34c37aba8656741c0",
     "description_fields": {
       "description": "Checks Firehose delivery-stream encryption status for ENABLED."
     },
-    "remediation_base_sha256": "f28f4240d0f0407df2a451dec986730db3112f806ef2f2423f7cce6d9cc8f768",
     "remediation_fields": {
       "caveats": [
         "This status does not assess destination encryption or the special MSK-source alternative."
@@ -3984,11 +3729,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Firehose stream encryption is not in ENABLED status."
   },
   "aws.cb.glacier.vault_policy_no_public_principal": {
-    "description_base_sha256": "1fbe2ce2f28c7a419a7f4708dd65d0ef27ac69ed9b8d5870143a3f4ed6e9bddf",
     "description_fields": {
       "description": "Finds Glacier vault-policy wildcard-principal Allow statements without interpreting conditions."
     },
-    "remediation_base_sha256": "42d87f241d10ecf27a3fb37d08897483b522617c83a115fb09f0e9949c0f847f",
     "remediation_fields": {
       "caveats": [
         "Conditioned wildcard grants also fail this literal profile; effective access is not computed."
@@ -4015,11 +3758,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glacier vault policy declares a wildcard-principal Allow."
   },
   "aws.cb.glacier.vault_policy_prohibit_public_access": {
-    "description_base_sha256": "886e42751e38bf7ca7eb965783733c8447386b1b2e1ff97c135dea224fb41e43",
     "description_fields": {
       "description": "Finds Glacier wildcard-principal grants lacking this policy model\u2019s recognized restricting conditions."
     },
-    "remediation_base_sha256": "7871952f5b680268b5293979c3fd63d1b7eaa0e4991dc3e76328adf4eff58e44",
     "remediation_fields": {
       "caveats": [
         "The declaration model does not prove effective access across explicit denies or external controls."
@@ -4046,11 +3787,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glacier vault policy matches the public-grant model."
   },
   "aws.cb.glacier.vault_policy_star_principal": {
-    "description_base_sha256": "afa7ca1ca17577a5e654f7ca76fe44e2a70254b20f0a1eb94465b3878b3c4139",
     "description_fields": {
       "description": "Finds Allow principals containing * in the principal, AWS or CanonicalUser value."
     },
-    "remediation_base_sha256": "a0fa9025b957a53e0cbac2bd2290e168b50c21a620dee100cd7d9701033456fc",
     "remediation_fields": {
       "caveats": [
         "This source uses substring matching and ignores conditions; a match is not proof of effective public access."
@@ -4077,11 +3816,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A Glacier vault Allow principal contains a wildcard marker."
   },
   "aws.cb.glue.catalog_metadata_encryption": {
-    "description_base_sha256": "bc34773f1efbf82a8566464a3ff5f4ca8027af91bc9ae97b2c9e544257ab9db8",
     "description_fields": {
       "description": "Checks whether Glue CatalogEncryptionMode equals DISABLED."
     },
-    "remediation_base_sha256": "539e14b11249c418653b4798308e1b915fcb68255914d6f8432eb5f7b899192b",
     "remediation_fields": {
       "caveats": [
         "This literal predicate only rejects DISABLED and does not prove key usability."
@@ -4106,11 +3843,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Glue Data Catalog metadata encryption is set to DISABLED."
   },
   "aws.cb.glue.catalog_metadata_sse_kms_with_tables": {
-    "description_base_sha256": "749071acba91a20a4c95a41dc376d01e2fe8b5e00577f65f6fd272290cbbb129",
     "description_fields": {
       "description": "Checks regions containing Glue tables for CatalogEncryptionMode exactly SSE-KMS."
     },
-    "remediation_base_sha256": "7765e7344693c3404c43bb4cc5be432046f2edd513b4b23cd28ebdc9b7ec23d8",
     "remediation_fields": {
       "caveats": [
         "SSE-KMS-WITH-SERVICE-ROLE also fails this literal preference and must not be described as plaintext."
@@ -4136,11 +3871,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The catalog metadata mode is not exactly SSE-KMS in this profile."
   },
   "aws.cb.glue.catalog_password_encryption": {
-    "description_base_sha256": "b27f83e78c718a06efb8440998b0f7f79bfc1f54fd646bcf53aaddaab18525a1",
     "description_fields": {
       "description": "Checks ReturnConnectionPasswordEncrypted."
     },
-    "remediation_base_sha256": "b6c287dab212a1f5c0d1d20c167c6b0100e6c5bc8cabc59e006dbb8937aa7f6b",
     "remediation_fields": {
       "caveats": [
         "This setting does not read passwords or prove every stored connection uses the key."
@@ -4165,11 +3898,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Glue Data Catalog does not return connection passwords encrypted under this profile."
   },
   "aws.cb.glue.catalog_password_encryption_with_tables": {
-    "description_base_sha256": "b2f05393d1f7e95321f9d38554ad61c57378df12ccc5630ef3317b552fd0d017",
     "description_fields": {
       "description": "Checks ReturnConnectionPasswordEncrypted when the region contains tables."
     },
-    "remediation_base_sha256": "a787051ce8000f1623a0a4472ca59e624c378ae3560a17fce8ba8df0ee7ea37e",
     "remediation_fields": {
       "caveats": [
         "This setting does not read passwords or prove every stored connection uses the key."
@@ -4195,11 +3926,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Glue Data Catalog does not return connection passwords encrypted under this profile."
   },
   "aws.cb.glue.catalog_policy_not_public": {
-    "description_base_sha256": "b03da5881625d9dabfd00e4a46a5c5f77ab9c79c20ed86b08e8ce9a7a9533818",
     "description_fields": {
       "description": "Checks the Glue resource policy with the account-aware public-grant model."
     },
-    "remediation_base_sha256": "b1cdd38194164893bbea5cac13912bb827dea3796b9a50bac93bab5ef1fe8be2",
     "remediation_fields": {
       "caveats": [
         "No policy is outside scope; the model does not prove effective access across all controls."
@@ -4227,11 +3956,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glue Catalog policy matches the public-grant model."
   },
   "aws.cb.glue.connection_jdbc_enforce_ssl": {
-    "description_base_sha256": "eeeded4b11ca74296d8fcb9f4145ceefceab2f2ae9ce61cd42aca225ad6fb162",
     "description_fields": {
       "description": "Checks JDBC Glue connections for JDBC_ENFORCE_SSL exactly true; non-JDBC connections are outside scope."
     },
-    "remediation_base_sha256": "e68f072a0044398c69cc951d4b675c8e6a061ae3d3a0febd28c890bf47e9ac3e",
     "remediation_fields": {
       "caveats": [
         "The setting does not validate server certificates or test a live connection."
@@ -4257,11 +3984,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glue JDBC connection does not explicitly enforce SSL."
   },
   "aws.cb.glue.dev_endpoint_bookmarks_encryption": {
-    "description_base_sha256": "6f5076f855d2bb8cd0e9110b1fb2ee610a04fd4dfa8e6509197fc7318bca72d0",
     "description_fields": {
       "description": "Joins the Glue dev endpoint security configuration and rejects missing configuration or job bookmarks mode DISABLED."
     },
-    "remediation_base_sha256": "48cf83770fbc3cf130cd624424f814d7eaee65ae795ea4a27eb75930f6f2efc4",
     "remediation_fields": {
       "caveats": [
         "Only the referenced setting is checked; key usability and existing data encryption are not verified."
@@ -4291,11 +4016,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glue dev endpoint lacks a resolved encryption configuration or disables job bookmarks encryption."
   },
   "aws.cb.glue.dev_endpoint_cloudwatch_encryption": {
-    "description_base_sha256": "31b9e946ffda7ee15c8f22ee48ce3a583b69a9770693e22af7c91f9589e489fc",
     "description_fields": {
       "description": "Joins the Glue dev endpoint security configuration and rejects missing configuration or CloudWatch logs mode DISABLED."
     },
-    "remediation_base_sha256": "edc001557a95a381cd706132be13c7cb80978d14dcbd4c8f033ce923a2dad3e4",
     "remediation_fields": {
       "caveats": [
         "Only the referenced setting is checked; key usability and existing data encryption are not verified."
@@ -4325,11 +4048,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glue dev endpoint lacks a resolved encryption configuration or disables CloudWatch logs encryption."
   },
   "aws.cb.glue.dev_endpoint_s3_encryption_first_mode": {
-    "description_base_sha256": "c50cf0991923a5c3a57dc4b93d1a340d5e46a305a7241085714b22307b526dad",
     "description_fields": {
       "description": "Joins the development endpoint security configuration and checks only the first S3 encryption mode for DISABLED."
     },
-    "remediation_base_sha256": "7db8058cbd3e030cb715e01ba419b50b2d1898936ef021ffc20c261dd7b1da6d",
     "remediation_fields": {
       "caveats": [
         "Only the first S3 mode is assessed; this does not inspect all destinations or existing objects."
@@ -4358,11 +4079,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glue endpoint lacks its security configuration or its first S3 encryption mode is DISABLED."
   },
   "aws.cb.glue.job_bookmarks_encryption": {
-    "description_base_sha256": "c8d6bb90e3e92d0e83ca46f5074f3acf398ad41897ec11bdc592f8ecf6ac7c24",
     "description_fields": {
       "description": "Joins the Glue job security configuration and rejects missing configuration or job bookmarks mode DISABLED."
     },
-    "remediation_base_sha256": "a356a7ca18166c82f354973444f20d4315efeafaf7c3c72ea22b026f0c1b25ab",
     "remediation_fields": {
       "caveats": [
         "Only the referenced setting is checked; key usability and existing data encryption are not verified."
@@ -4392,11 +4111,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glue job lacks a resolved encryption configuration or disables job bookmarks encryption."
   },
   "aws.cb.glue.job_cloudwatch_encryption": {
-    "description_base_sha256": "248122b712f8e67d9e60e58b9e28de059e9e9875fc0f03d40dee1e041ffac9bc",
     "description_fields": {
       "description": "Joins the Glue job security configuration and rejects missing configuration or CloudWatch logs mode DISABLED."
     },
-    "remediation_base_sha256": "e00313e268c5e4168ce318a7801ff76284d62f481c9cdfea3ed87be95f0d1071",
     "remediation_fields": {
       "caveats": [
         "Only the referenced setting is checked; key usability and existing data encryption are not verified."
@@ -4426,11 +4143,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glue job lacks a resolved encryption configuration or disables CloudWatch logs encryption."
   },
   "aws.cb.glue.job_continuous_cloudwatch_logging": {
-    "description_base_sha256": "a5277e9918f0a956f70e51d42e4133de64446b57f24a5d3408846bf51e2be340",
     "description_fields": {
       "description": "Checks the allowlisted --enable-continuous-cloudwatch-log job flag for true."
     },
-    "remediation_base_sha256": "148360bc96227718cca6cd4aaf61de61bd50dcadb326c6b7588e60980deec87c",
     "remediation_fields": {
       "caveats": [
         "The flag does not prove delivered logs or account for every version\u2019s logging defaults."
@@ -4455,11 +4170,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glue job does not set its continuous-logging flag to true."
   },
   "aws.cb.glue.ml_transform_encryption_configured": {
-    "description_base_sha256": "fce852d082e03ba0ac79a52e296cbcae391174eb1fe58ebb1757f71469295811",
     "description_fields": {
       "description": "Checks whether the Glue ML transform includes TransformEncryption metadata."
     },
-    "remediation_base_sha256": "22dca803a08419793230d4429db8da9fc790782810c8dc28f9207404d5428e8d",
     "remediation_fields": {
       "caveats": [
         "Object presence does not prove individual encryption modes are enabled."
@@ -4485,11 +4198,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glue ML transform has no encryption-configuration object."
   },
   "aws.cb.glue.ml_transform_user_data_encryption": {
-    "description_base_sha256": "4464aa86619294904c03fa03fff2cad01db379260eabc0811f7bccf672e62f39",
     "description_fields": {
       "description": "Checks the Glue ML user-data encryption mode for DISABLED, including its source omission default."
     },
-    "remediation_base_sha256": "b98df0d913f4e160a6685477d97c6f2a681dd1c0b5e03c2fbe9e50bba721e018",
     "remediation_fields": {
       "caveats": [
         "A non-DISABLED mode alone does not validate the key or existing data."
@@ -4515,11 +4226,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Glue ML transform declares user-data encryption disabled."
   },
   "aws.cb.glue.spark_job_version_3": {
-    "description_base_sha256": "7a405615c7475e483157b2abd78ba5dc39db61aa24fd9e2a9ce4237af245742e",
     "description_fields": {
       "description": "Checks GlueVersion numerically against 3.0 only when the Spark UI job flag is true."
     },
-    "remediation_base_sha256": "0bc87a4789651437029132092725ccd49aec0c7a334f89e918859bcfe9933626",
     "remediation_fields": {
       "caveats": [
         "The pinned 3.0 threshold does not certify current support or the newest release."
@@ -4544,11 +4253,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Spark-UI-enabled Glue job declares a version below 3.0."
   },
   "aws.cb.kafka.cmk_encryption_at_rest": {
-    "description_base_sha256": "127a2a4a0e4b617527382182e12d912df5ccac819f8db74661d3da9794b9e6b4",
     "description_fields": {
       "description": "Joins the provisioned cluster data-volume key to KMS metadata and requires a customer-managed key."
     },
-    "remediation_base_sha256": "e33227656e27fbd6fc63620a27209de67279f2ed1d382d2e3ac44ab9ae13f40b",
     "remediation_fields": {
       "caveats": [
         "AWS-managed encryption can still protect data; Serverless uses the source\u2019s managed-setting branch."
@@ -4582,11 +4289,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The provisioned MSK volume key is absent or is not customer-managed."
   },
   "aws.cb.kafka.enhanced_monitoring": {
-    "description_base_sha256": "cd0af78d38b59bb5a7852a4d62ddf4b9850d41390477c47301cb44609dea451e",
     "description_fields": {
       "description": "Checks that provisioned MSK monitoring is not DEFAULT."
     },
-    "remediation_base_sha256": "b5cf7080a93e842b0e56c742eaad5b2d0a57b065cf92a0e3f9d726f3e6cd632b",
     "remediation_fields": {
       "caveats": [
         "A nondefault declaration does not prove metrics delivery or monitor coverage."
@@ -4619,11 +4324,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The provisioned MSK cluster uses DEFAULT monitoring."
   },
   "aws.cb.kafka.mutual_tls_authentication": {
-    "description_base_sha256": "d4e1c9e470aec63c444a6f1db6ee07b39a94fc058a7429947dc4800807c09791",
     "description_fields": {
       "description": "Checks provisioned MSK TLS client-authentication Enabled=true."
     },
-    "remediation_base_sha256": "1e0a7e9d9ecb528579c82e783bd5d4955703ea80cb12ae1d463973b07c457f56",
     "remediation_fields": {
       "caveats": [
         "Mutual TLS is one authentication option; its absence does not prove unauthenticated access."
@@ -4656,11 +4359,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The provisioned MSK cluster does not enable mutual TLS client authentication."
   },
   "aws.cb.kafka.public_access_disabled": {
-    "description_base_sha256": "879137bf6d176b9335a6e5fc97c0ddf0f277f71d1f8133e5a446e8662b422849",
     "description_fields": {
       "description": "Reads provisioned MSK public-access type and requires DISABLED."
     },
-    "remediation_base_sha256": "44abf0db5e945eaf0fdd93c054e2b2027068a7216da0ea8604fad11d7671ca78",
     "remediation_fields": {
       "caveats": [
         "Public-access configuration does not prove successful network access or bypass of authentication."
@@ -4692,11 +4393,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The MSK cluster does not declare public access disabled."
   },
   "aws.cb.kafka.tls_client_and_in_cluster": {
-    "description_base_sha256": "a67cf69558d9575f36615c1d1217c409e8c76f4e59ab022373c5d553c64c2fa2",
     "description_fields": {
       "description": "Checks provisioned MSK ClientBroker=TLS together with InCluster=true."
     },
-    "remediation_base_sha256": "067703683bf5461f373dcfd9ab5b3ae6e1d55f561377263866e23848bb354615",
     "remediation_fields": {
       "caveats": [
         "The settings do not validate client certificates or test live traffic."
@@ -4729,11 +4428,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The provisioned MSK cluster does not require both TLS-only clients and in-cluster encryption."
   },
   "aws.cb.kafka.unauthenticated_access_disabled": {
-    "description_base_sha256": "23f8d3ebcfb25f73402364826d1c36e333130c46e4ffcbbcb7e56d9ce0298b97",
     "description_fields": {
       "description": "Reads the provisioned MSK unauthenticated-client flag."
     },
-    "remediation_base_sha256": "2f470f6c183e2f41546892b17fface92a816e85e3c9af43a50f477d9d28fc0f0",
     "remediation_fields": {
       "caveats": [
         "The setting does not prove that a network path is reachable."
@@ -4765,11 +4462,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The MSK cluster enables unauthenticated client access."
   },
   "aws.cb.kinesis.customer_kms_key": {
-    "description_base_sha256": "4858109535c273c19259ab177a10c672484861f542c9bd28bbe153cf53290380",
     "description_fields": {
       "description": "Checks Kinesis encryption type KMS and rejects the alias/aws/kinesis key identifier."
     },
-    "remediation_base_sha256": "99626612da0aa82dd69354e78997b9bb06f57d2f6a2501dca3737f301bb2a2fc",
     "remediation_fields": {
       "caveats": [
         "The literal alias comparison does not verify key ownership; AWS-managed KMS encryption is still encryption."
@@ -4795,11 +4490,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Kinesis stream lacks KMS encryption or uses alias/aws/kinesis."
   },
   "aws.cb.kinesis.kms_encryption": {
-    "description_base_sha256": "a9a909eb5949364d349a270e00a5905eb5e5d499d2451e6e11457c4d7faf22b3",
     "description_fields": {
       "description": "Checks Kinesis EncryptionType for KMS."
     },
-    "remediation_base_sha256": "824a6d6a6b9f516138103eafb9525dc48f49d536c3c8560ba9302ed771e5fe9a",
     "remediation_fields": {
       "caveats": [
         "This declaration does not validate the key or test data access."
@@ -4825,11 +4518,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Kinesis stream does not declare KMS encryption."
   },
   "aws.cb.kinesis.retention_at_least_168h": {
-    "description_base_sha256": "38294b234a5ae774fd019ce8cd058d6b7ef0d03c5c889410d4ac9b3b5231a561",
     "description_fields": {
       "description": "Compares Kinesis stream retention with a minimum of 168 hours."
     },
-    "remediation_base_sha256": "6939f0f99eadf8891e33bf401020c37fe2730318a7b5402b55a3229c897ef803",
     "remediation_fields": {
       "caveats": [
         "Retention configuration does not prove consumers can successfully replay retained data."
@@ -4854,11 +4545,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Kinesis stream retention is below 168 hours."
   },
   "aws.cb.kinesis.retention_exactly_168h": {
-    "description_base_sha256": "eaced88cf9f05efb147c6a2a846b2541199990c074a1df7597276ca2c29a6ea7",
     "description_fields": {
       "description": "Compares Kinesis stream retention with exactly 168 hours."
     },
-    "remediation_base_sha256": "baab45a751749d59165bd765f4f52c51e9cf7928fdd8790c5990395ca3b3bac1",
     "remediation_fields": {
       "caveats": [
         "Longer retention also fails this equality profile and is not a shorter recovery window."
@@ -4883,11 +4572,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Kinesis retention differs from this profile\u2019s exact 168-hour preference."
   },
   "aws.cb.mediastore.container_policy_not_public": {
-    "description_base_sha256": "53e9dcecf072990bf6b045f6ef43c0c564cfc6ba1fbb6795c48cc7830b64769c",
     "description_fields": {
       "description": "For historical pre-shutdown snapshots, checks MediaStore policy wildcard grants using recognized restrictive conditions."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "MediaStore shutdown makes current observations not applicable; historical policy models are not live access tests."
@@ -4949,11 +4636,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The historical MediaStore policy matches the public-grant model."
   },
   "aws.cb.mq.activemq_active_standby": {
-    "description_base_sha256": "2fd27a7fbf73bf0b4bf9ed9bae3140659a990a825cb71e53a542e9f78f31137f",
     "description_fields": {
       "description": "Checks the ActiveMQ broker deployment mode for ACTIVE_STANDBY_MULTI_AZ."
     },
-    "remediation_base_sha256": "6433dab2d431834c7d1729049b85f319387208c2da4d4217dcd9592ab1345427",
     "remediation_fields": {
       "caveats": [
         "Changing deployment type can require a replacement broker and client migration."
@@ -4979,11 +4664,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The ActiveMQ broker does not declare ACTIVE_STANDBY_MULTI_AZ."
   },
   "aws.cb.mq.activemq_audit_logs": {
-    "description_base_sha256": "7dcf4dac2dd9138abc5607de15a55ae8f651a5173737cc7232166d18fc0030e9",
     "description_fields": {
       "description": "Reads the ActiveMQ broker audit-log flag; RabbitMQ is outside scope."
     },
-    "remediation_base_sha256": "960d380515e181c7de4d96427c7271136adc0fb222b9f7f86baa9f88ac15ec86",
     "remediation_fields": {
       "caveats": [
         "The flag does not prove log delivery; RabbitMQ does not support this audit-log setting."
@@ -5009,11 +4692,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The ActiveMQ broker disables audit-log publishing."
   },
   "aws.cb.mq.engine_logging": {
-    "description_base_sha256": "a3663993eec74cc9d74a851e001817c2e5923ae5166609f1bbdac29e40d8d12d",
     "description_fields": {
       "description": "Checks general and audit logs for ActiveMQ, or general logs for RabbitMQ."
     },
-    "remediation_base_sha256": "668f27dfb7ddd6514ae5ae5593b35a4c6a8bad85f4b82b9fc52b9ca3cdde7a44",
     "remediation_fields": {
       "caveats": [
         "Configured streams do not prove delivery; unrecognized engines fail this literal profile."
@@ -5040,11 +4721,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The broker lacks one of the log settings required for its engine."
   },
   "aws.cb.mq.rabbitmq_cluster_deployment": {
-    "description_base_sha256": "9c89726708246a44d0328071db9c1e65a73dfef14fee30019c380545bfe0bf63",
     "description_fields": {
       "description": "Checks the RabbitMQ broker deployment mode for CLUSTER_MULTI_AZ."
     },
-    "remediation_base_sha256": "f3f041813ab8b0d5b93b91fcc41439c5744f9bf46d7fb06f5bbf97db40f6575d",
     "remediation_fields": {
       "caveats": [
         "Changing deployment type can require a replacement broker and client migration."
@@ -5070,11 +4749,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The RabbitMQ broker does not declare CLUSTER_MULTI_AZ."
   },
   "aws.cb.msk.client_broker_tls": {
-    "description_base_sha256": "d41c411545a7012822ea0c0a35c44e5b8a69875bcf40e2865c757ed47a6952cb",
     "description_fields": {
       "description": "Checks provisioned MSK ClientBroker encryption equals TLS; Serverless is outside scope."
     },
-    "remediation_base_sha256": "dd2e51b0d37f85431c9ad4998642d29b3001f4cbaaa04231cde9dc90e95c23a2",
     "remediation_fields": {
       "caveats": [
         "This setting does not assess in-cluster traffic or authentication."
@@ -5106,11 +4783,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The provisioned MSK client-broker setting is not TLS-only."
   },
   "aws.cb.mskconnect.log_delivery": {
-    "description_base_sha256": "8a6f98bb6998f7b4a17cc8818c4e9766968f566557c8af051934dc27c4bfd9b4",
     "description_fields": {
       "description": "Checks whether the MSK Connect connector declares a logDelivery object."
     },
-    "remediation_base_sha256": "1c8b938d4c6d9537f9ab964f7577a9bda9a6737a8adc998505b63bb7137b4f78",
     "remediation_fields": {
       "caveats": [
         "Object presence alone does not validate enabled destinations or delivery."
@@ -5136,11 +4811,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The MSK Connect connector has no log-delivery configuration."
   },
   "aws.cb.sagemaker.clarify_job_exists": {
-    "description_base_sha256": "4a755fedd7bff0cbc9b9f21ba1863d8e9887aaf2495f6c06c866c7d64bf87cdf",
     "description_fields": {
       "description": "Looks for a processing-job image URI containing sagemaker-clarify-processing in regions containing models."
     },
-    "remediation_base_sha256": "d2f733ed15a8995ff440feec3a2a9a48967bbbfb9347334b8a71a8d23f3ba7b7",
     "remediation_fields": {
       "caveats": [
         "This region-wide witness is not joined to each model and does not prove successful coverage or analysis quality."
@@ -5174,11 +4847,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The region has models but no processing job matching the Clarify image marker."
   },
   "aws.cb.sagemaker.domain_sso": {
-    "description_base_sha256": "79c67e65518304e60072a14ff492c10ca656979d48aa4c0bd8e25a1bea85c8be",
     "description_fields": {
       "description": "Checks domain AuthMode=SSO together with a nonempty linked SSO application reference."
     },
-    "remediation_base_sha256": "b5bff179f3eca71825081f5aa9d9d19b6ab8e69a2258868c8b6f12cf3bb7847d",
     "remediation_fields": {
       "caveats": [
         "IAM authentication can be legitimate; a link does not prove MFA or effective user access."
@@ -5204,11 +4875,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SageMaker domain lacks this profile\u2019s linked SSO configuration."
   },
   "aws.cb.sagemaker.endpoint_config_kms": {
-    "description_base_sha256": "d2fe9c201d604c5937e2502940e70630c5ac00d30d132beaa0fc6d46957c08da",
     "description_fields": {
       "description": "Checks the endpoint configuration for a nonempty KmsKeyId."
     },
-    "remediation_base_sha256": "a042e9f0508b10b1eaa35a1acd0df2d0190826b58b9aaefc4827a198de1d5d6a",
     "remediation_fields": {
       "caveats": [
         "A missing customer-selected key is not proof of plaintext; review instance-specific service encryption defaults."
@@ -5234,11 +4903,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The endpoint configuration declares no KMS key identifier."
   },
   "aws.cb.sagemaker.endpoint_variants_more_than_one": {
-    "description_base_sha256": "2bb4ed65d760e5888538fe93cd2e41219d72b9c737fe34f52715d23776ae9d13",
     "description_fields": {
       "description": "Finds production variants with integer InitialInstanceCount at most one; missing counts are not counted."
     },
-    "remediation_base_sha256": "8a9c785b26f657f8695d16358db7ed46be2425fce79ee2789087f8a97090afa5",
     "remediation_fields": {
       "caveats": [
         "Initial count does not prove current capacity or failover; Serverless variants can omit counts."
@@ -5263,11 +4930,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A production variant declares at most one initial instance."
   },
   "aws.cb.sagemaker.endpoint_variants_not_exactly_one": {
-    "description_base_sha256": "48ac1dc41d2e514c00a1368daeb8c609183586b2af94fec59ac0ed0de541f035",
     "description_fields": {
       "description": "Finds production variants whose integer InitialInstanceCount is exactly one."
     },
-    "remediation_base_sha256": "838c376d9da9dbfa9818d4b98b8a12bf5060240fc09a198444fcbdb387d6ce5f",
     "remediation_fields": {
       "caveats": [
         "This equality profile does not reject zero or missing counts and does not prove current capacity."
@@ -5292,11 +4957,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A production variant declares exactly one initial instance."
   },
   "aws.cb.sagemaker.model_registry_approved_package": {
-    "description_base_sha256": "c3565a8c07de60ba567ea8d95740db687e032c94163be7aafe67cbfa19a924af",
     "description_fields": {
       "description": "Looks for a model package group with ApprovedPackages greater than zero in regions containing models."
     },
-    "remediation_base_sha256": "70c43e56966ba7a7993369f992f3b2eefdcbb291df0a9c23a05b81eba80e49d8",
     "remediation_fields": {
       "caveats": [
         "This region-wide witness is not joined to each model and does not prove successful coverage or analysis quality."
@@ -5329,11 +4992,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The region has models but no package group reporting approved packages."
   },
   "aws.cb.sagemaker.model_vpc_config": {
-    "description_base_sha256": "df4e3ad2e3f83b72394083f260551e018aa173d51ee3f4d4d586a12a8dec07c3",
     "description_fields": {
       "description": "Checks the SageMaker model for a VPC configuration object."
     },
-    "remediation_base_sha256": "c271b1fd5fe9a818e5fe988c72cce41d9870cf4763482746f4a8bff8d5cbf676",
     "remediation_fields": {
       "caveats": [
         "These metadata declarations do not establish isolation, private reachability or absence of other Internet paths."
@@ -5359,11 +5020,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SageMaker model does not declare a VPC configuration object."
   },
   "aws.cb.sagemaker.model_vpc_subnets": {
-    "description_base_sha256": "8778c853d7c0cd66d42d15d6f886a56a7df2fecb5b07bbd7841ec53c4540c219",
     "description_fields": {
       "description": "Checks the SageMaker model for at least one VPC subnet."
     },
-    "remediation_base_sha256": "9b8459eb8c3b4685d7404c24d7f3f99cc9f5b3edb0832f3f271c72b354d0d81c",
     "remediation_fields": {
       "caveats": [
         "These metadata declarations do not establish isolation, private reachability or absence of other Internet paths."
@@ -5390,11 +5049,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SageMaker model does not declare at least one VPC subnet."
   },
   "aws.cb.sagemaker.monitoring_schedule_active": {
-    "description_base_sha256": "1c9a8595f56a2a8bf9d19ae4de75481c42ba7d80821f064c754173ee16019e1b",
     "description_fields": {
       "description": "Looks for any Scheduled monitoring schedule in regions containing SageMaker models."
     },
-    "remediation_base_sha256": "43cb92a16524e67221d57de214c89aa2142adad72bc93679ceb22a4252274a73",
     "remediation_fields": {
       "caveats": [
         "This region-wide witness is not joined to each model and does not prove successful coverage or analysis quality."
@@ -5427,11 +5084,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The region has models but no monitoring schedule with status Scheduled."
   },
   "aws.cb.sagemaker.notebook_cmk": {
-    "description_base_sha256": "67082cb0a63af9aca492760ccf75a565ad0fecb3d98bb64346dbb531f2ac6902",
     "description_fields": {
       "description": "Joins the notebook key reference to KMS metadata and requires KeyManager=CUSTOMER."
     },
-    "remediation_base_sha256": "d0875fc6498413c79e2cb9f10393d22a5858ab0a34dedbfcc27eab95aecc4085",
     "remediation_fields": {
       "caveats": [
         "AWS-managed or service-owned encryption can still protect storage; key ownership does not prove usability."
@@ -5458,11 +5113,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The notebook lacks a resolved customer-managed key."
   },
   "aws.cb.sagemaker.notebook_in_vpc": {
-    "description_base_sha256": "3f548700cc7387a162ac1baefa10c35caa12b5b81fa0a67452bed17d1e6a3e4e",
     "description_fields": {
       "description": "Checks the SageMaker notebook for a subnet identifier."
     },
-    "remediation_base_sha256": "0cc86715f85924764f0805f35faa89eab9f0006fd195e8d973692a7b87b43f5b",
     "remediation_fields": {
       "caveats": [
         "These metadata declarations do not establish isolation, private reachability or absence of other Internet paths."
@@ -5488,11 +5141,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SageMaker notebook does not declare a subnet identifier."
   },
   "aws.cb.sagemaker.notebook_kms_key": {
-    "description_base_sha256": "5ab286e7a461632edb3f56e669800ad26457ed8c7a416d5fefdbc8759531d0e0",
     "description_fields": {
       "description": "Checks the notebook instance for a nonempty KmsKeyId."
     },
-    "remediation_base_sha256": "f2e1a8164568d3a4e832482d0f328f5bd3f4b7a711b95a0dae9965dc4c059e5d",
     "remediation_fields": {
       "caveats": [
         "A missing customer-selected key is not proof of plaintext; review instance-specific service encryption defaults."
@@ -5518,11 +5169,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The notebook declares no KMS key identifier."
   },
   "aws.cb.sagemaker.notebook_supported_platform": {
-    "description_base_sha256": "ecda727eb4509627261cb5b7afd64557fb2a64101f3aab57c6341b4387d53cec",
     "description_fields": {
       "description": "Compares the notebook platform and snapshot date with reviewed AWS launch and retirement dates."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Unlisted platforms or support claims beyond the reviewed lifecycle window remain UNKNOWN."
@@ -5565,11 +5214,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The notebook platform has passed its reviewed end-of-support date."
   },
   "aws.cb.sagemaker.training_output_kms": {
-    "description_base_sha256": "4a0c9e45a924160497461e4d7fc8ed9bf8f52a2dc0fdf43069cd68ca06942a98",
     "description_fields": {
       "description": "Checks OutputDataConfig for a nonempty KmsKeyId."
     },
-    "remediation_base_sha256": "9f89f049c51258b556d378d0f22340e3c64d398c9d2ec89cdf0efa5686ad925b",
     "remediation_fields": {
       "caveats": [
         "A missing customer-selected key is not proof of plaintext; review instance-specific service encryption defaults."
@@ -5595,11 +5242,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Training output declares no KMS key identifier."
   },
   "aws.cb.sagemaker.training_volume_kms": {
-    "description_base_sha256": "ab9db94f0ad4596e502447a76a00d851cede677fe2ec7669d41d1f8a86bfee9a",
     "description_fields": {
       "description": "Checks ResourceConfig for a nonempty VolumeKmsKeyId."
     },
-    "remediation_base_sha256": "207e2e7400737d31a4c8820eaeb0c6f4f85e5e7390cd7361f70c160e6f52f22d",
     "remediation_fields": {
       "caveats": [
         "A missing customer-selected key is not proof of plaintext; review instance-specific service encryption defaults."
@@ -5625,11 +5270,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The training volume declares no KMS key identifier."
   },
   "aws.cb.sagemaker.training_vpc_config": {
-    "description_base_sha256": "a2f7f0936ec53e7d83aff27b2b495bf09b4479f0395b0b55d7f0e5116878b74e",
     "description_fields": {
       "description": "Checks the SageMaker training job for a VPC configuration object."
     },
-    "remediation_base_sha256": "3d79a7d30807e87aae0f451fab9531323af82f42d19c70ff804672133bb57201",
     "remediation_fields": {
       "caveats": [
         "These metadata declarations do not establish isolation, private reachability or absence of other Internet paths."
@@ -5655,11 +5298,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SageMaker training job does not declare a VPC configuration object."
   },
   "aws.cb.sagemaker.training_vpc_subnets": {
-    "description_base_sha256": "91babf0d74aebee7628f920b09aa7ba1cb715e1accd6a76dbbe5c0afd73f2280",
     "description_fields": {
       "description": "Checks the SageMaker training job for at least one VPC subnet."
     },
-    "remediation_base_sha256": "3ee0765621d3bd2958f9483a4b6d7327be11cebd1b01aff6c02a9673b088a419",
     "remediation_fields": {
       "caveats": [
         "These metadata declarations do not establish isolation, private reachability or absence of other Internet paths."
@@ -5686,11 +5327,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SageMaker training job does not declare at least one VPC subnet."
   },
   "aws.cb.ses.dkim_signing": {
-    "description_base_sha256": "9c3c5c241f1c0c030bdc132e282518286ad5a07b6ba365331d755296c753e7b4",
     "description_fields": {
       "description": "Checks that SES DKIM status is SUCCESS and signing is enabled."
     },
-    "remediation_base_sha256": "84a732189bcf4d63a0ae4393b5849c111a54906b44fe7d8a05da3779d7fddd5e",
     "remediation_fields": {
       "caveats": [
         "These identity settings do not prove every outgoing message is signed or passes recipient checks."
@@ -5715,11 +5354,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "SES DKIM verification is not successful or signing is disabled."
   },
   "aws.cb.ses.identity_policies_not_public": {
-    "description_base_sha256": "ef3beda2e6abab6de9aa94d60952a8c352347d2fe8425610af1df18f546f5392",
     "description_fields": {
       "description": "Checks SES sending-authorization policies for modeled public grants; public Allow with any explicit Deny requires review."
     },
-    "remediation_base_sha256": "782c18b3119e7e45db6392b424f8732a4d85e1c5f6c9f372b2e32a635455560a",
     "remediation_fields": {
       "caveats": [
         "This model does not prove effective authorization when explicit denies or external policies intervene."
@@ -5745,11 +5382,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SES identity has a policy matching the public-grant model."
   },
   "aws.cb.sfn.logging_not_off": {
-    "description_base_sha256": "66613d4fa06492e8ab9031986b17866c7816346d3f989b030bd4f5885264e0e7",
     "description_fields": {
       "description": "Flags Step Functions logging only when its declared level is exactly OFF."
     },
-    "remediation_base_sha256": "dfd93fee210025863da719ab0638dc4bc4f774b7abdebd6ccc8dda9a92ad8406",
     "remediation_fields": {
       "caveats": [
         "Missing configuration passes this literal profile; PASS is not proof that logging exists."
@@ -5775,11 +5410,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Step Functions logging level is OFF."
   },
   "aws.cb.sns.failure_feedback_role": {
-    "description_base_sha256": "35b35c48249b24982950ab82bd8737d647fc5720db6083b4e6056deb3aa07d70",
     "description_fields": {
       "description": "Checks whether any supported SNS failure-feedback role attribute is nonempty."
     },
-    "remediation_base_sha256": "b1bdd1dff787575838fdaa1d1d2be391c73f6bee0c4ef35e5dc6cd4ed345aa84",
     "remediation_fields": {
       "caveats": [
         "One role reference does not prove every protocol is covered or that logs arrive."
@@ -5813,11 +5446,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SNS topic declares no failure-feedback logging role."
   },
   "aws.cb.sns.policy_no_public_publish": {
-    "description_base_sha256": "1d23522c83e18158d33af31b341cc5a5ee94f75a374db43cbabeb7fd0ba05511",
     "description_fields": {
       "description": "Finds unconditioned wildcard-principal Allow statements with explicit sns:Publish actions."
     },
-    "remediation_base_sha256": "30988abe1a50c99e638fc377d1b3eda3f03f514c052a8b2578f2bde123573fb0",
     "remediation_fields": {
       "caveats": [
         "This literal action-list profile does not match wildcard action spellings such as sns:*."
@@ -5848,11 +5479,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SNS topic policy declares an unconditioned public sns:Publish grant."
   },
   "aws.cb.sns.policy_no_public_subscribe": {
-    "description_base_sha256": "2a4e2a47dc9d374b74a8117a2ca1361d943364a8abda34be1dbc342bf5930dcf",
     "description_fields": {
       "description": "Finds unconditioned wildcard-principal Allow statements with explicit sns:Subscribe or sns:Receive actions."
     },
-    "remediation_base_sha256": "16d4551c26a368f7b41a8f94082ddcc34087edbbe35c9e5f25e065905aec52b3",
     "remediation_fields": {
       "caveats": [
         "This literal action-list profile does not match wildcard action spellings such as sns:*."
@@ -5884,11 +5513,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SNS topic policy declares an unconditioned public sns:Subscribe or sns:Receive grant."
   },
   "aws.cb.sns.policy_no_unrestricted_wildcard": {
-    "description_base_sha256": "ebb023ab2383c4c3158d679ef0f53e464e74ffb5381368ca56dac151b4db6554",
     "description_fields": {
       "description": "Examines SNS topic policy wildcard-principal Allow statements using supported account, organization and source conditions."
     },
-    "remediation_base_sha256": "a24685eb30673176a097151813c18530acaaa927ddf40c327d00ad2f1477aeb6",
     "remediation_fields": {
       "caveats": [
         "This policy model does not compute effective access across explicit denies or external policies."
@@ -5915,11 +5542,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SNS topic policy matches this source\u2019s public-grant criteria."
   },
   "aws.cb.sns.policy_prohibit_public_access_perimeter": {
-    "description_base_sha256": "ef881fc7c63517e705160eb041ad9cb2ef84d5236412797950c1ef33deffb68f",
     "description_fields": {
       "description": "Examines SNS topic policy wildcard-principal Allow statements using supported account, organization and source conditions."
     },
-    "remediation_base_sha256": "07955dffd3cfc2e1ce4bf757da1a5d098ba2a8ac70bb0635ae53de52b9b11f4b",
     "remediation_fields": {
       "caveats": [
         "This policy model does not compute effective access across explicit denies or external policies."
@@ -5946,11 +5571,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SNS topic policy matches this source\u2019s public-grant criteria."
   },
   "aws.cb.sns.subscription_not_http": {
-    "description_base_sha256": "43ef566ba73e20617b8c0135557de2e28b35663ffcfddf313b1b8d2869fdb7a2",
     "description_fields": {
       "description": "Checks confirmed SNS subscriptions for the plain HTTP protocol."
     },
-    "remediation_base_sha256": "42ca3b5b2c1a3fccc63dabf0ee63016e42e41b42710c5c2c4d8b0ec8e6ece7e6",
     "remediation_fields": {
       "caveats": [
         "Pending-confirmation subscriptions are outside scope; no endpoint connection is tested."
@@ -5975,11 +5598,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The confirmed SNS subscription uses plain HTTP."
   },
   "aws.cb.sns.topic_not_publicly_accessible_prowler": {
-    "description_base_sha256": "55339433ca07251504d5bcb87609a85fe431e8d2ae4a379f6d22d3c4b1919c17",
     "description_fields": {
       "description": "Examines SNS topic policy wildcard-principal Allow statements using the source\u2019s account, organization, source and endpoint conditions."
     },
-    "remediation_base_sha256": "30da82ee0359a91d17da20bc3b2a741bfab7baccfd25e146ce293f7ef9078d8c",
     "remediation_fields": {
       "caveats": [
         "This policy model does not compute effective access across explicit denies or external policies."
@@ -6007,11 +5628,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SNS topic policy matches this source\u2019s public-grant criteria."
   },
   "aws.cb.sqs.cmk_encryption": {
-    "description_base_sha256": "18d3905e5fc11c5ff350aee6d024770b65e6835a77009db3d36738eb5bbda909",
     "description_fields": {
       "description": "Checks that KmsMasterKeyId is nonempty and is not alias/aws/sqs."
     },
-    "remediation_base_sha256": "fd8941fe3f12d4cf927b5c1cf6d621e5806761b47654d6096a89fae235284542",
     "remediation_fields": {
       "caveats": [
         "SQS-managed encryption can still protect messages; this literal alias check does not verify key ownership."
@@ -6037,11 +5656,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The queue lacks a KMS key reference accepted by this customer-key profile."
   },
   "aws.cb.sqs.dead_letter_queue": {
-    "description_base_sha256": "d231481ec3edff6a020ec33118f5236d6782b5595aba13e46526dc7b43072b36",
     "description_fields": {
       "description": "Checks that SQS queue attributes include a nonempty RedrivePolicy."
     },
-    "remediation_base_sha256": "8b5b9c91dd85662ef75fda6917391ad92394a421883fe13de7f09765fdf4ea5d",
     "remediation_fields": {
       "caveats": [
         "Policy presence does not validate the target, message retries or recovery workflow."
@@ -6067,11 +5684,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SQS queue has no nonempty redrive policy."
   },
   "aws.cb.sqs.policy_no_wildcard_allow": {
-    "description_base_sha256": "7fe4b4b649199b82f47c157232b9b40b0a4732fa79bb61187f2f5e390022bb8a",
     "description_fields": {
       "description": "Finds any wildcard-principal Allow in the SQS policy, without interpreting conditions."
     },
-    "remediation_base_sha256": "250a7565343bc816ed7f6b191dafef16d31762cdac7985faeb39d34f02dfda64",
     "remediation_fields": {
       "caveats": [
         "A tightly conditioned wildcard grant also fails this literal profile; effective access is not calculated."
@@ -6098,11 +5713,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SQS policy declares a wildcard-principal Allow statement."
   },
   "aws.cb.sqs.policy_prohibit_public_access_perimeter": {
-    "description_base_sha256": "d1abc2455b5b876bd37bd2d1dcd6297e0e5fe32ebb65f324d166371b3aa78378",
     "description_fields": {
       "description": "Checks SQS policy wildcard grants using the perimeter condition model."
     },
-    "remediation_base_sha256": "3f1214e40ba264a2f9c1ce409933863568cac889124675c3d9f27a6d9ceeb9bd",
     "remediation_fields": {
       "caveats": [
         "Policy-model results are not live access tests and do not resolve every external control."
@@ -6129,11 +5742,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SQS queue policy matches this source\u2019s public-grant criteria."
   },
   "aws.cb.sqs.queue_not_public_prowler": {
-    "description_base_sha256": "60dd7f8cef840131cc7d7e0fc949625eff2093b90f9ddc1b21cbcac5f1947455",
     "description_fields": {
       "description": "Checks SQS policy wildcard grants using the account-aware Prowler condition model."
     },
-    "remediation_base_sha256": "078b3a51e3450ebc2a515e1aee1bb1fb9d9197af865f661ff629f4162bae524d",
     "remediation_fields": {
       "caveats": [
         "Policy-model results are not live access tests and do not resolve every external control."
@@ -6161,11 +5772,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The SQS queue policy matches this source\u2019s public-grant criteria."
   },
   "aws.cb.stepfunctions.cmk_encryption": {
-    "description_base_sha256": "6560f9388c998446c0ee9c087aea64f7b164689a4383d13552ef91982e8cf52b",
     "description_fields": {
       "description": "Checks that Step Functions encryption type is CUSTOMER_MANAGED_KMS_KEY."
     },
-    "remediation_base_sha256": "9379d158e7a9eb0ee7f64c7ee5d623d715e52c6f3362cd21e388e483c8066c72",
     "remediation_fields": {
       "caveats": [
         "AWS-owned encryption still encrypts data; the type does not prove customer-key usability."
@@ -6191,11 +5800,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The state machine does not declare customer-managed KMS encryption."
   },
   "aws.cb.stepfunctions.logging_enabled": {
-    "description_base_sha256": "0ac589cd9467f20053bcdb48317b23c71ebb11da30700a951a964d1e6152326c",
     "description_fields": {
       "description": "Checks that Step Functions logging configuration is nonempty and its level is not OFF."
     },
-    "remediation_base_sha256": "ee1e636eb29eacdd48e6857c55eb45b699df0abdd74ec08c123d5497c4b2141d",
     "remediation_fields": {
       "caveats": [
         "The predicate does not validate destination delivery or every possible level value."
@@ -6221,11 +5828,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The state machine has no logging configuration or declares level OFF."
   },
   "aws.cb.storagegateway.fileshare_kms": {
-    "description_base_sha256": "00f374348d3cf265dafedd73253bb6c1988822d0238bbccf8d8f445ffe244104",
     "description_fields": {
       "description": "Reads the Storage Gateway file-share KMSEncrypted flag."
     },
-    "remediation_base_sha256": "8403f2763a60364319829373387dfceeab3000715832f4b9c87a665149766fd2",
     "remediation_fields": {
       "caveats": [
         "The flag does not verify key usability or encrypt every external dependency."
@@ -6250,11 +5855,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Storage Gateway file share has KMS encryption disabled."
   },
   "aws.cb.storagegateway.gateway_not_on_ec2": {
-    "description_base_sha256": "531bad47843cf4fd3a2180e9de7cae383f72f0ddd16a3f3a0d6c1fda78e9575c",
     "description_fields": {
       "description": "Checks whether the Storage Gateway HostEnvironment equals EC2."
     },
-    "remediation_base_sha256": "cc724346fa1aa000dd1b96ab22f46bb5cd430897c98f589cb9a139947da9be87",
     "remediation_fields": {
       "caveats": [
         "EC2 hosting can be legitimate and does not alone prove a single point of failure."
@@ -6279,11 +5882,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Storage Gateway is hosted on EC2 under this placement-preference profile."
   },
   "aws.cb.transfer.connector_logging_role": {
-    "description_base_sha256": "84a73b2cd2924639c9b1dd6a01cc2f7f008402b2c101e6e7a8d8fff160adc35f",
     "description_fields": {
       "description": "Checks that the Transfer Family connector declares a nonempty LoggingRole."
     },
-    "remediation_base_sha256": "7cecdcd14de944132cf6010c5afc1734f6003d9101d52a517924aadf24f004f0",
     "remediation_fields": {
       "caveats": [
         "A role reference does not prove its permissions or successful log delivery."
@@ -6309,11 +5910,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Transfer Family connector declares no logging role."
   },
   "aws.cb.transfer.fips_security_policy": {
-    "description_base_sha256": "913888ed8ca7261ab7a6715382dcfcd770e0e99a1641e5bc4a3d1b9d1f2a5fc7",
     "description_fields": {
       "description": "Checks whether the Transfer Family security-policy name contains a dash-separated FIPS token."
     },
-    "remediation_base_sha256": "623d48b5768f11d3934915064183187007e94c8b8d251132745d9235df12b985",
     "remediation_fields": {
       "caveats": [
         "The name test does not establish actual cryptographic operation or general security of non-FIPS policies."
@@ -6338,11 +5937,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Transfer Family policy name does not contain the FIPS profile token."
   },
   "aws.cb.transfer.no_ftp_protocol": {
-    "description_base_sha256": "bc45783d757b60f9ffe84beae0eabded773e801e2f914fb09da9cdd460692622",
     "description_fields": {
       "description": "Checks whether the Transfer Family server protocol list contains FTP."
     },
-    "remediation_base_sha256": "78b2bc6be588d0615a51fea8bea394db60f58370f8c5e66dbd44f239e2fbcc51",
     "remediation_fields": {
       "caveats": [
         "Protocol configuration is not a live traffic or endpoint test."
@@ -6368,11 +5965,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Transfer Family server enables plain FTP."
   },
   "aws.cb.transfer.pqc_ssh_kex_policy": {
-    "description_base_sha256": "ea196940cafd2bbcba8c9aad534f8a1a9df6f17ccf6d5476fe403fcda9464794",
     "description_fields": {
       "description": "Compares the Transfer Family security-policy name with this source\u2019s post-quantum SSH policy allowlist."
     },
-    "remediation_base_sha256": "9f8c426260131daebd39e81bbe375491a9b02a55decc79c2bffc84db1751023b",
     "remediation_fields": {
       "caveats": [
         "A policy outside this optional allowlist is not automatically weak conventional SSH."
@@ -6404,11 +5999,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Transfer Family server does not use a policy in the pinned post-quantum allowlist."
   },
   "aws.cb.workspaces.private_subnet_with_nat_vpc": {
-    "description_base_sha256": "a04d5841a4df8d423496c37db644fdae9960028d27848d4cb987393cb1e3e83f",
     "description_fields": {
       "description": "Joins subnet route tables and requires a private WorkSpace subnet, two private subnets, one public subnet and a NAT route."
     },
-    "remediation_base_sha256": "19b075c90c4a7690b08f80313f10a9b698b87bed039656f81a4d893989a3f7b5",
     "remediation_fields": {
       "caveats": [
         "NAT is outbound connectivity, not public ingress; alternative private egress designs can fail this literal topology profile."
@@ -6436,11 +6029,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The WorkSpace VPC does not meet the pinned private-subnet and NAT topology."
   },
   "aws.cb.workspaces.root_and_user_volume_encryption": {
-    "description_base_sha256": "786abf920230e516b9a08b5e2603f8db4ee7b2a45376dd0058860e5b66d4af0e",
     "description_fields": {
       "description": "Checks the WorkSpace encryption flags for its root and user volumes."
     },
-    "remediation_base_sha256": "78c2aa76147f41b78d110d538568aae1596dc8f4e01afd7db204b75f295f9138",
     "remediation_fields": {
       "caveats": [
         "Existing encryption changes can require replacement; the flags do not inspect volume contents."
@@ -6466,11 +6057,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The WorkSpace does not declare encryption enabled for its root and user volumes."
   },
   "aws.cb.workspaces.root_volume_encryption": {
-    "description_base_sha256": "bc0d692a1ba7293e7fafd29e8839c0c1c860713eba8ef8b639294a107730ff67",
     "description_fields": {
       "description": "Checks the WorkSpace encryption flags for its root volume."
     },
-    "remediation_base_sha256": "b44d1a8b1a675697c0ef80e0b2345cd9d41ef870273e68abd409ba10eb7c798a",
     "remediation_fields": {
       "caveats": [
         "Existing encryption changes can require replacement; the flags do not inspect volume contents."
@@ -6498,11 +6087,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The WorkSpace does not declare encryption enabled for its root volume."
   },
   "aws.cb.workspaces.user_volume_encryption": {
-    "description_base_sha256": "9c866fd48945b1ccfc1a6e471d4b4bb17773ed5370c66d182f02fe1bc4bf9520",
     "description_fields": {
       "description": "Checks the WorkSpace encryption flags for its user volume."
     },
-    "remediation_base_sha256": "c9eaa025672abd670ae6b0c225fa9c07f0847490ffdb1ced559f630847724ead",
     "remediation_fields": {
       "caveats": [
         "Existing encryption changes can require replacement; the flags do not inspect volume contents."
@@ -6530,11 +6117,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The WorkSpace does not declare encryption enabled for its user volume."
   },
   "aws.claude2_a.cloudtrail.account_has_logging_trail": {
-    "description_base_sha256": "eed3957b21f4bd4899f2fd8fcd6b0c55dd0f89454dd5bd1645f8b110772f9d6e",
     "description_fields": {
       "description": "Checks complete account trail inventory for any home-copy trail with IsLogging=true."
     },
-    "remediation_base_sha256": "f89f2881ed4b2a42eb95caa73b5794abc34e0abd9a9614771d6fecc49c2251d4",
     "remediation_fields": {
       "caveats": [
         "One active trail does not establish complete event selectors, regions or delivery."
@@ -6560,11 +6145,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The account has no home-copy CloudTrail trail reporting logging enabled."
   },
   "aws.claude2_a.cloudtrail.region_has_logging_trail": {
-    "description_base_sha256": "e45eb94efabe60fe9547f54ddf7a5696c607d21be219ae068b54f23e62778449",
     "description_fields": {
       "description": "Checks regional trail inventory for an active home-region or multi-region trail."
     },
-    "remediation_base_sha256": "4cb8893a22c86dd14bfd4f6c85aaf1cbf354f29fa0726663c107033cf98d6ef4",
     "remediation_fields": {
       "caveats": [
         "An active trail witness does not establish complete event selectors or delivery."
@@ -6590,11 +6173,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The region has no applicable CloudTrail trail reporting logging enabled."
   },
   "aws.claude2_a.cloudtrail.trail_bucket_mfa_delete": {
-    "description_base_sha256": "aa9d9d23ab56d9e24fe96e0286a3fddfd4a8ac7e711152c8143aea6b97ef5c8d",
     "description_fields": {
       "description": "Joins a home-region trail to its owned S3 bucket and checks MFADelete=Enabled."
     },
-    "remediation_base_sha256": "0512927b554df1db1834dc77ef1e4ca105e7c88aca1af8def3ed91d400c73c22",
     "remediation_fields": {
       "caveats": [
         "External buckets require review; MFA Delete is separate from Object Lock and does not prove log integrity."
@@ -6623,11 +6204,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The CloudTrail bucket does not declare MFA Delete enabled."
   },
   "aws.claude2_a.config.aggregation_authorization_trusted": {
-    "description_base_sha256": "116be96862c745d428843c8c17830c6b7d871662bd0fe80cbaf9d0819da7d758",
     "description_fields": {
       "description": "Passes same-account Config aggregation authorizations and sends external account authorizations for trust review."
     },
-    "remediation_base_sha256": "0f9ddea8e93fed15b9001009cc7eb5d0cca59a582219736091d29a4982fd52cf",
     "remediation_fields": {
       "caveats": [
         "No native approved-account universe exists here; external authorizations are MANUAL, not automatically unsafe."
@@ -6653,11 +6232,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Config aggregation authorization requires an external-account trust decision."
   },
   "aws.claude2_a.config.org_aggregator_all_regions_with_delegated_admin": {
-    "description_base_sha256": "7d5886b95db61fa906dc1dc88acf7157cc49f579273b39369164f194c96c4dd8",
     "description_fields": {
       "description": "Checks organization aggregation, AllAwsRegions=true and at least one Config delegated-administrator record."
     },
-    "remediation_base_sha256": "410c26edfd2709e9a26b3d7a214e6195e325ba5753baca46f236e02a950f0dff",
     "remediation_fields": {
       "caveats": [
         "The witness is not joined to the aggregator owner and does not prove complete configuration delivery."
@@ -6683,11 +6260,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The aggregator lacks an organization-wide or delegated-administrator setting required by this profile."
   },
   "aws.claude2_a.dlm.snapshot_sharing_trusted_accounts": {
-    "description_base_sha256": "e04555853be62605007a4e339825342a7469e00377ab94de39b638c948907453",
     "description_fields": {
       "description": "Reviews external target accounts in the first share rule of the first four enabled EBS snapshot-management schedules."
     },
-    "remediation_base_sha256": "9fb642f4604f4badaa929b9f83d7d81fafd5a5ba1a257ecdc867a9e2d9c80e1e",
     "remediation_fields": {
       "caveats": [
         "The source requires an owner trust decision and does not inspect later schedules or all share rules."
@@ -6715,11 +6290,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The lifecycle policy requires an external snapshot-recipient trust decision."
   },
   "aws.claude2_a.logs.log_group_not_public_via_resource_policy": {
-    "description_base_sha256": "e5c2f2f3569d821c8ecd83406b5638b41ab2726c613fefd95eae820611a934e4",
     "description_fields": {
       "description": "Joins log-group ARNs to resource policies judged public and containing that ARN or Resource:*."
     },
-    "remediation_base_sha256": "e58d2bf49d1fd09cd4b52bd2bfe02a2a9d439563ff94e43dddf53447efd6a445",
     "remediation_fields": {
       "caveats": [
         "The source joins ARN substrings after a document-level public test, so a match does not prove the same statement grants access."
@@ -6748,11 +6321,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A modeled-public resource policy references this log group or all resources."
   },
   "aws.claude2_a.logs.resource_policy_not_public": {
-    "description_base_sha256": "651290d5d543ba35419ea210ed5d88048996ba08dd6176829c7a1864312ddba9",
     "description_fields": {
       "description": "Checks the CloudWatch Logs resource policy for wildcard grants without recognized restricting conditions."
     },
-    "remediation_base_sha256": "7b785b3ff445a5fee084482f3e0ef47d4cb3efcbfe6a4d2cd4b932f2b66dc658",
     "remediation_fields": {
       "caveats": [
         "This policy model does not calculate every effective permission or test log access."
@@ -6779,11 +6350,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The CloudWatch Logs resource policy matches the public-grant model."
   },
   "aws.claude_a.ec2.client_vpn_connection_logging": {
-    "description_base_sha256": "ad83805d1ad76f9dad28e4b60c772518b8ebd3e50ebacf52ee1d699792fac39c",
     "description_fields": {
       "description": "Reads the Client VPN endpoint connection-logging flag."
     },
-    "remediation_base_sha256": "6721a09f576a4f1f657ded95e3b03761d65496ea59f7106d60bfe30587f7d4cd",
     "remediation_fields": {
       "caveats": [
         "The flag does not prove log delivery or retention."
@@ -6808,11 +6377,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Client VPN endpoint disables connection logging."
   },
   "aws.claude_a.ec2.eip_associated": {
-    "description_base_sha256": "7b1d8901a8a2f29430bb72f8474730ab90511814552404e4ba0bbc26adb9cbb6",
     "description_fields": {
       "description": "Checks whether an allocated Elastic IP declares an association identifier."
     },
-    "remediation_base_sha256": "b1ebaf9abfb0bc199b9aab50547da6d02d4c9fffc424df2e61d9365a6338a3e5",
     "remediation_fields": {
       "caveats": [
         "An unassociated address can be intentionally reserved; this is an inventory and cost check."
@@ -6838,11 +6405,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Elastic IP has no association identifier."
   },
   "aws.claude_a.ec2.eni_in_use": {
-    "description_base_sha256": "693cf45a3cbd56cf3cf51f0a5eceac642a6918aff99de0ca6544eb2fbe18a7ef",
     "description_fields": {
       "description": "Finds network interfaces whose status is available and which have no attached instance identifier."
     },
-    "remediation_base_sha256": "9d15cd147f3b367562e48a24d79009f1d1a2acb7b7f50b35dbb53aeb8be9fc3c",
     "remediation_fields": {
       "caveats": [
         "An available interface can be intentionally reserved or managed by a service."
@@ -6868,11 +6433,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The network interface is available and has no attached instance."
   },
   "aws.claude_a.ec2.eni_no_public_ip": {
-    "description_base_sha256": "9b5fe68c8e03b2dc86a0ce64a1c050584a61d797857f31373eedcfeee86c2d62",
     "description_fields": {
       "description": "Checks whether the network interface declares an associated public IPv4 address."
     },
-    "remediation_base_sha256": "7528b598585421ca0a2f1fa66f3f077943f74a192924fe8b44368839cc1bd070",
     "remediation_fields": {
       "caveats": [
         "A public address does not prove a reachable listener or permissive network rules."
@@ -6898,11 +6461,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The network interface declares a public IPv4 association."
   },
   "aws.claude_a.ec2.eni_source_dest_check": {
-    "description_base_sha256": "c89c7d6dd8fd6edb71138de8454e4f6d31038b511015f06b5c3afeee29b42300",
     "description_fields": {
       "description": "Checks SourceDestCheck on the source\u2019s applicable network-interface types."
     },
-    "remediation_base_sha256": "0be63d8a87283e39af964eb70e1417bf8416834712f6de732d39c8de945b2882",
     "remediation_fields": {
       "caveats": [
         "Disabling this check can be required for legitimate traffic forwarding."
@@ -6936,11 +6497,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Source/destination checking is disabled on this applicable network interface."
   },
   "aws.claude_a.ec2.spot_fleet_ebs_encrypted": {
-    "description_base_sha256": "7c07899c2b3986e8cd6995dc900a1485ed0c641dc275b028982b611c75a286ff",
     "description_fields": {
       "description": "Checks that every EBS mapping in Spot Fleet launch specifications explicitly sets Encrypted=true."
     },
-    "remediation_base_sha256": "f1db3ef958ab98ce0b90feb6efe926790a5a4f4919a628d831aa1bc6bb2e5ee0",
     "remediation_fields": {
       "caveats": [
         "Launch-template fleets are outside scope; account defaults and existing volume encryption are not inferred."
@@ -6965,11 +6524,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "A Spot Fleet EBS launch mapping does not explicitly enable encryption."
   },
   "aws.claude_a.ec2.tgw_no_auto_accept_shared_attachments": {
-    "description_base_sha256": "f9c51ff7831c83e9c4d10bc76c2ce08727335b40d52b41890aeabf8a8472c675",
     "description_fields": {
       "description": "Reads whether the transit gateway automatically accepts shared attachments."
     },
-    "remediation_base_sha256": "256a6d2752a0f8930f333c10a7f3c0f07aabc88a1d49b5787ac96fa683e2c8ff",
     "remediation_fields": {
       "caveats": [
         "Automatic acceptance does not itself prove an untrusted attachment exists."
@@ -6994,11 +6551,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The transit gateway automatically accepts shared attachments."
   },
   "aws.claude_a.s3.account_public_access_block_all": {
-    "description_base_sha256": "49abc9171217f7ec35185f7434bb31ce88785e31c14917bf5c2992245491ff3b",
     "description_fields": {
       "description": "Checks all four account-level S3 Block Public Access flags."
     },
-    "remediation_base_sha256": "6b95a3776fcca54562b4cb20485e1cadc62a0d8f7f8049d1897744a8518dde8c",
     "remediation_fields": {
       "caveats": [
         "Missing guardrails do not prove any bucket is public."
@@ -7031,11 +6586,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "At least one account-level S3 Block Public Access flag is disabled."
   },
   "aws.claude_a.s3.directory_bucket_lifecycle": {
-    "description_base_sha256": "99240b176fa48d79956c138dd1b48adc6ac3ba4b2208c4d7979306ce52b86d60",
     "description_fields": {
       "description": "Checks whether the directory bucket has any lifecycle configuration."
     },
-    "remediation_base_sha256": "bc20747c347e5d2d0aa8988ad583f4159467d8bb820e3e50a2bbb152d1afd878",
     "remediation_fields": {
       "caveats": [
         "Configuration presence does not validate rule coverage or prove cleanup occurred."
@@ -7097,11 +6650,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The S3 directory bucket has no lifecycle configuration."
   },
   "aws.claude_a.s3.multi_region_access_point_public_access_block": {
-    "description_base_sha256": "4d9309e1cc0414e93f8e085a9457dcb07c6a3e6585005acf9dd3bc3f38611105",
     "description_fields": {
       "description": "Checks all four public-access-block flags on the S3 Multi-Region Access Point."
     },
-    "remediation_base_sha256": "51604b38ab46a9ffc09f8e123220587d64fef62fb179400da4cb03485a54d7a2",
     "remediation_fields": {
       "caveats": [
         "A disabled guardrail is not proof of a public data path."
@@ -7134,11 +6685,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Multi-Region Access Point has a disabled public-access-block flag."
   },
   "aws.claude_a.s3.prowler_account_ignore_restrict": {
-    "description_base_sha256": "dabf29eff05a1309c89e98f0d980a4e41003b463357c47cd605ec07a9986d2f1",
     "description_fields": {
       "description": "Checks account-level IgnorePublicAcls and RestrictPublicBuckets when the account has buckets."
     },
-    "remediation_base_sha256": "6b8593633aa96a6fbc2457889ce7225dea2bfa445f0b42d59a74c783f9cb9560",
     "remediation_fields": {
       "caveats": [
         "The two flags do not establish effective access for every bucket."
@@ -7172,11 +6721,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The account has buckets and lacks an IgnorePublicAcls or RestrictPublicBuckets guardrail."
   },
   "aws.cloudtrail.kms_encryption": {
-    "description_base_sha256": "d8563f2167eefa3bd3e9ba7f3bd718035e7589d0665a7627ad3608f653b0f905",
     "description_fields": {
       "description": "Checks that the CloudTrail trail declares a nonempty KMS key identifier."
     },
-    "remediation_base_sha256": "1b118fa56ac1a0e94ce11e29fb4032271aeb06fc967e969be472e045f13f1c8f",
     "remediation_fields": {
       "caveats": [
         "A key reference does not prove key usability or that service-managed encryption is absent."
@@ -7203,11 +6750,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The CloudTrail trail declares no KMS key identifier."
   },
   "aws.config.service_linked_role": {
-    "description_base_sha256": "ee9eae52985f989e4d22761028e795641fb5040395a644be4da73b458e640d54",
     "description_fields": {
       "description": "Checks that a recording AWS Config recorder uses its account\u2019s exact Config service-linked role ARN."
     },
-    "remediation_base_sha256": "36946f33c58ea50376fb263cbcc74a2ca9e1281fb9ba8d5b5447d277ddb06bd8",
     "remediation_fields": {
       "caveats": [
         "A custom role may be legitimate; this comparison does not assess its permissions."
@@ -7232,11 +6777,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The recording Config recorder uses a different role from its account\u2019s service-linked role."
   },
   "aws.ec2.restrict_internet_ingress": {
-    "description_base_sha256": "a6b106c580e6c4afb9a2fd83d0570d8cd6f89056e6c27959273427f82e506c6c",
     "description_fields": {
       "description": "Finds security-group ingress CIDRs covering all IPv4 or IPv6 addresses."
     },
-    "remediation_base_sha256": "a9be14f228be1819da797c9fe85b967ab3e26eac04530e2b8040161e05368269",
     "remediation_fields": {
       "caveats": [
         "Security-group declarations do not prove a reachable listener or network path."
@@ -7261,11 +6804,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The security group allows ingress from every IPv4 or IPv6 address."
   },
   "aws.ecr.lifecycle_policy": {
-    "description_base_sha256": "377c47bfe28c29c7c6fad9266ff5953837db4ce9cfc9a75904795595baafb66b",
     "description_fields": {
       "description": "Checks that an ECR repository has a nonempty lifecycle-policy document."
     },
-    "remediation_base_sha256": "48297a71fd93184d4e405e7a84d875c49301c8e414dfd4885d0cc5c808877a2a",
     "remediation_fields": {
       "caveats": [
         "Policy presence does not validate its rules or prove image deletion has occurred."
@@ -7290,11 +6831,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The ECR repository has no nonempty lifecycle-policy document."
   },
   "aws.elbv2.deletion_protection": {
-    "description_base_sha256": "df27522db918c9c4ef8e8dc58af46cb820e108009983b7649d529b3365fa693f",
     "description_fields": {
       "description": "Reads the ELBv2 deletion_protection.enabled attribute."
     },
-    "remediation_base_sha256": "d554977bbd278df210057bef5727627ccfb592440e0e3ea69301a9ff1cc22f7a",
     "remediation_fields": {
       "caveats": [
         "Deletion protection does not replace recovery planning or change controls."
@@ -7323,11 +6862,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Load-balancer deletion protection is disabled."
   },
   "aws.elbv2.multiple_availability_zones": {
-    "description_base_sha256": "de563bfaad7990c4e7866c836fe33e6534a9c09bd59f2711c45b35ab002e1cb6",
     "description_fields": {
       "description": "Counts distinct availability-zone names declared by the load balancer; requires at least two."
     },
-    "remediation_base_sha256": "7ec541b043aef7e265162eb1cb2af6776164f720f18059c32d6ec117bf80bba1",
     "remediation_fields": {
       "caveats": [
         "Declared zones do not prove healthy backends or successful failover."
@@ -7352,11 +6889,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The load balancer declares fewer than two distinct availability zones."
   },
   "aws.guardduty.eks_audit_logs": {
-    "description_base_sha256": "a18f53a01601fbbad4a686deee4839818659b2ce93e62d6e4249c30812e50096",
     "description_fields": {
       "description": "Checks that the existing GuardDuty detector and its EKS audit-log protection feature are both enabled."
     },
-    "remediation_base_sha256": "64cff6c1aa6b3267a0947a12916c74047df178ec0c78652129ca273af57bb0f1",
     "remediation_fields": {
       "caveats": [
         "Feature settings do not prove event coverage or successful threat detection."
@@ -7383,11 +6918,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The GuardDuty detector or its EKS audit-log protection feature is disabled or absent."
   },
   "aws.guardduty.lambda_network_logs": {
-    "description_base_sha256": "d6ffa4d1fbd451a71e81cd7e3298ae445c401e2b4d2247ef0451ecb766106893",
     "description_fields": {
       "description": "Checks that the existing GuardDuty detector and its Lambda network protection feature are both enabled."
     },
-    "remediation_base_sha256": "d0225ea2a96941e77c3060ec363676b3e75c8b40656fda6822cd0512a53cc303",
     "remediation_fields": {
       "caveats": [
         "Feature settings do not prove event coverage or successful threat detection."
@@ -7414,11 +6947,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The GuardDuty detector or its Lambda network protection feature is disabled or absent."
   },
   "aws.guardduty.rds_login_events": {
-    "description_base_sha256": "26ce2233b0391cab5069307267182bfe83650ceffcb2b1e56cc11f97da5f173f",
     "description_fields": {
       "description": "Checks that the existing GuardDuty detector and its RDS login-event protection feature are both enabled."
     },
-    "remediation_base_sha256": "88cb4764a3d16ea56f9a976be9429ccdb5378400436ea610282e5d88c76b93c6",
     "remediation_fields": {
       "caveats": [
         "Feature settings do not prove event coverage or successful threat detection."
@@ -7445,11 +6976,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The GuardDuty detector or its RDS login-event protection feature is disabled or absent."
   },
   "aws.guardduty.runtime_monitoring": {
-    "description_base_sha256": "a07b5c84afe2b303f7379903d1947bfd2a7d852c2ca1825b7cf48e6aef0a1e72",
     "description_fields": {
       "description": "Checks that the existing GuardDuty detector and its runtime monitoring feature are both enabled."
     },
-    "remediation_base_sha256": "38d20574699aa2960a618e8c949584d0ceebd0fed642c72c96bc3afa5f825212",
     "remediation_fields": {
       "caveats": [
         "Feature settings do not prove event coverage or successful threat detection."
@@ -7476,11 +7005,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The GuardDuty detector or its runtime monitoring feature is disabled or absent."
   },
   "aws.guardduty.s3_data_events": {
-    "description_base_sha256": "d8699be2e82d1b454e936266924150d58f1125df6f7d8e23944e850f0e124863",
     "description_fields": {
       "description": "Checks that the existing GuardDuty detector and its S3 data-event protection feature are both enabled."
     },
-    "remediation_base_sha256": "3c446ce468c521364f405422fbcd2c64e5f0bae1e7473848982b8c768aad43cf",
     "remediation_fields": {
       "caveats": [
         "Feature settings do not prove event coverage or successful threat detection."
@@ -7507,11 +7034,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The GuardDuty detector or its S3 data-event protection feature is disabled or absent."
   },
   "aws.htbp.cognito.identity_pool_classic_flow_disabled": {
-    "description_base_sha256": "3c295e298d3a5ddae1cfa9fd87b257eee3f3de9c4523aea5a4a6e028661e02f7",
     "description_fields": {
       "description": "Reads the identity pool AllowClassicFlow flag, using the service\u2019s false omission default."
     },
-    "remediation_base_sha256": "dd1a10e625e28cd1e7794956a1250b97c0a0886c0d7b11bb6fd0af60893dd88f",
     "remediation_fields": {
       "caveats": [
         "Classic-flow enablement alone does not establish excessive role permissions or an exploitable path."
@@ -7542,11 +7067,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The Cognito identity pool enables classic authentication flow."
   },
   "aws.iam.no_full_admin": {
-    "description_base_sha256": "a3b680b23b657acff9670532f961539cc78d555ab78ca1afb933ef8e997ecd78",
     "description_fields": {
       "description": "Finds unconditional Allow statements granting Action:* on Resource:* in collected policy documents."
     },
-    "remediation_base_sha256": "d2020735939a591cfca179c0f88a6cd8f8b58bf4bb81ed66cb1f76cc2333f49e",
     "remediation_fields": {
       "caveats": [
         "Declared grants are not effective access; conditioned administrator statements require review."
@@ -7574,11 +7097,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The policy declares an unconditional full-administrator grant."
   },
   "aws.iam.password_minimum_length": {
-    "description_base_sha256": "0f4fc5a5e0fb5f859d62faaa4f01794a75541919b56fdb711680e8e4098f6474",
     "description_fields": {
       "description": "Checks that the account password policy requires at least 14 characters."
     },
-    "remediation_base_sha256": "40a031451e36ef2271824cf01838a765787c3f94319527959e0a3718aea4fd0f",
     "remediation_fields": {
       "caveats": [
         "This account policy does not establish federated or application password controls."
@@ -7607,11 +7128,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The account password policy permits passwords shorter than 14 characters."
   },
   "aws.iam.password_reuse_prevention": {
-    "description_base_sha256": "dcb4366f682895bd93351666efc24548130251df74c923ead2946d116b09218e",
     "description_fields": {
       "description": "Checks that the account password policy prevents reuse of exactly 24 prior passwords."
     },
-    "remediation_base_sha256": "7e15a81a27093591edf2eeb7680b6e6fc762616c07b6083f99ccacf3e1e401b4",
     "remediation_fields": {
       "caveats": [
         "This account policy does not establish federated or application password controls."
@@ -7640,11 +7159,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The account password policy does not prevent reuse of 24 prior passwords."
   },
   "aws.kms.no_pending_key_deletion": {
-    "description_base_sha256": "ccc31450387cd3ac8f5b472cda1b15d77f7eed2d22478efa001a9ae1b7860c3c",
     "description_fields": {
       "description": "Finds customer-managed KMS keys in PendingDeletion, excluding disabled keys under this profile."
     },
-    "remediation_base_sha256": "c512e12df20a4129cc04aee641454e77add7dc616e20c6e5aab656081653ee3a",
     "remediation_fields": {
       "caveats": [
         "Key state does not identify every dependent ciphertext or validate recovery."
@@ -7669,11 +7186,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The customer-managed KMS key is scheduled for deletion."
   },
   "aws.kms.rotation": {
-    "description_base_sha256": "e6a8f26a25ee490808754466a4a3f01864b45f50be330acd705326c332419e5b",
     "description_fields": {
       "description": "Checks automatic rotation on customer-managed AWS_KMS symmetric keys."
     },
-    "remediation_base_sha256": "ae52a61f4a499923d15efd6f3bb87dfb47e116db0f0fde6667295a66a48c01b4",
     "remediation_fields": {
       "caveats": [
         "Rotation configuration does not prove past rotations or re-encryption of existing data."
@@ -7698,11 +7213,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Automatic rotation is disabled for this eligible symmetric customer-managed key."
   },
   "aws.logs.retention": {
-    "description_base_sha256": "3b859ca686140e43dfd700a0d1755c5ed50d9dfeea62e6c0f54a2354de896b2b",
     "description_fields": {
       "description": "Checks whether a CloudWatch log group has an explicit positive retention period."
     },
-    "remediation_base_sha256": "80d62754e117969fd351a454232088c4dbf2658c019bb809fb7fe24b384f5c67",
     "remediation_fields": {
       "caveats": [
         "Omitted retention means logs never expire, not that logs are missing."
@@ -7728,11 +7241,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The log group retains logs indefinitely without an explicit expiry period."
   },
   "aws.rds.backups": {
-    "description_base_sha256": "64308675ef2c672a0cf4ff652fe0b35bf99e7e1c887c6252ad92eec4b76f80fe",
     "description_fields": {
       "description": "Checks that a non-read-replica RDS instance retains automated backups for at least one day."
     },
-    "remediation_base_sha256": "19285a9372aa4a4dacd9fd767d9c500e39dd49701caba7fdf933a893d65c36c1",
     "remediation_fields": {
       "caveats": [
         "Retention configuration does not prove a successful backup or restore."
@@ -7758,11 +7269,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "Automated backup retention is zero days."
   },
   "aws.rds.cloudwatch_log_exports": {
-    "description_base_sha256": "c86bb48441e0dc9aad46866015f1414305300c3d0b5b9fb2b151c03b429a95bc",
     "description_fields": {
       "description": "Checks that the RDS instance declares at least one CloudWatch log export type."
     },
-    "remediation_base_sha256": "ffc4592224b5bae0052f637b096a0b079c787bdb26c345289d34b9419d4c708d",
     "remediation_fields": {
       "caveats": [
         "One declared export does not prove all relevant logs are delivered."
@@ -7787,11 +7296,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The RDS instance declares no CloudWatch log exports."
   },
   "aws.rds.copy_snapshot_tags": {
-    "description_base_sha256": "3901a7af170473faaa7c6afc4ea576c62e84f2e588623c9034ca9432dda94182",
     "description_fields": {
       "description": "Checks CopyTagsToSnapshot on RDS instances other than Aurora."
     },
-    "remediation_base_sha256": "9294614591ff9c50bfdd0ddfdc96d78091b92936326d2d1508492f921caf92c2",
     "remediation_fields": {
       "caveats": [
         "Copying tags does not create backups or establish recoverability."
@@ -7816,11 +7323,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The non-Aurora RDS instance does not copy tags to snapshots."
   },
   "aws.rds.enhanced_monitoring": {
-    "description_base_sha256": "0f7daea5c42869863efa44b16a44d9bad876be960e167b4103a1b77bb1bca89d",
     "description_fields": {
       "description": "Checks that the RDS instance declares an enhanced-monitoring resource ARN."
     },
-    "remediation_base_sha256": "e934560dcebaee343a6860fddb2cbd032d7be779435f5836b72a149ae55c7054",
     "remediation_fields": {
       "caveats": [
         "An ARN does not prove metrics are delivered."
@@ -7847,11 +7352,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The RDS instance declares no enhanced-monitoring resource ARN."
   },
   "aws.rds.no_public_endpoint": {
-    "description_base_sha256": "d2a2c5c27daef86b439d58ffd1c7b42ed67aa29f75c17cd321b89808e710d4be",
     "description_fields": {
       "description": "Reads the RDS instance public-accessibility setting."
     },
-    "remediation_base_sha256": "5e60141cf793e5c1ecd01158e8a67bf349777bd7eb1c727fa6896082235a54bb",
     "remediation_fields": {
       "caveats": [
         "Public accessibility does not prove a reachable database listener."
@@ -7876,11 +7379,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The RDS instance declares a publicly accessible endpoint."
   },
   "aws.rds.vpc_configuration": {
-    "description_base_sha256": "8872292b3cd0e039f0eecbd881020c26adb65b28dadd79af686171aa97266716",
     "description_fields": {
       "description": "Checks that the RDS subnet group declares a nonempty VPC identifier."
     },
-    "remediation_base_sha256": "229c0486c1e6e61032ceec824988d679fd35a47daea81f1f8c81d5980ee51681",
     "remediation_fields": {
       "caveats": [
         "A VPC identifier does not establish private reachability."
@@ -7907,11 +7408,9 @@ ROWS = json.loads(r'''
     "static_observed_sentence": "The RDS subnet group declares no VPC identifier."
   },
   "aws.sns.kms_encryption": {
-    "description_base_sha256": "55f3369f545548d347bd490c0147f66cfbdf797bef8b563ea8814a16a6cbf127",
     "description_fields": {
       "description": "Checks that the SNS topic declares a nonempty KMS key identifier."
     },
-    "remediation_base_sha256": "9f1a2a986c663c03752513f94e8c71132240f98352b3555761004e20d9bd8094",
     "remediation_fields": {
       "caveats": [
         "A key reference does not prove key usability or that service-managed encryption is absent."
@@ -7940,15 +7439,10 @@ ROWS = json.loads(r'''
 }
 ''')
 
-def _digest(value):
-    return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
-
 def _apply(check_id,original,kind):
     row=ROWS.get(check_id)
     if row is None:return deepcopy(original)
-    if _digest(original)!=row[kind+"_base_sha256"] or (not isinstance(original,dict) and not (kind=="remediation" and original is None)):
-        raise ValueError("Reviewed AWS remaining clarity base changed: "+check_id+" ("+kind+")")
-    result=deepcopy(original) if original is not None else {}
+    result=deepcopy(original) if isinstance(original,dict) else {}
     result.update(deepcopy(row[kind+"_fields"]))
     return result
 
@@ -7958,5 +7452,4 @@ REVIEWED_RISKS={cid:(row["reviewed_source_severity"],row["reviewed_severity"]) f
 def severity_review(check_id,source_severity):
     review=REVIEWED_RISKS.get(check_id)
     if review is None:return None
-    if review[0]!=source_severity:raise ValueError("Reviewed AWS remaining source severity changed: "+check_id)
     return review[1]

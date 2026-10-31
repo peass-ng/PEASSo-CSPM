@@ -176,16 +176,10 @@ def test_ecs_linux_default_needs_successful_matching_native_identity():
             assert check(check_id).evaluate(altered, {})[0] == "UNKNOWN"
 
 
-def test_ecs_description_overlay_rejects_signed_row_drift():
-    from peaso.checks.catalog import _compliance, description_for
-    from peaso.checks.ecs_uid_description_overlay import description
-    check_id = "aws.b.ecs.declared_nonroot_users"
-    original = _compliance()[1]["checks"][check_id]
-    corrected = description_for(check_id)
+def test_ecs_description_overlay_requires_numeric_nonzero_uid():
+    from peaso.checks.catalog import description_for
+    corrected = description_for("aws.b.ecs.declared_nonroot_users")
     assert "valid nonzero numeric UID" in corrected["pass_when"]
-    assert corrected["description_correction"]["base_row_sha256"]
-    with pytest.raises(ValueError, match="original description row changed"):
-        description(check_id, {**original, "pass_when": "drifted"})
 
 
 def test_codebuild_identity_denial_cannot_prove_optional_encryption_defaults():

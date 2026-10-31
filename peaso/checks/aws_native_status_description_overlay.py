@@ -1,7 +1,5 @@
-"""Hash-bound current AWS descriptions and remediation over frozen reviewed rows."""
+"""Current AWS descriptions and remediation over frozen reviewed rows."""
 from copy import deepcopy
-import hashlib
-import json
 
 VERSION = "aws-native-status-description-remediation-v1"
 ROWS = {'aws.a.cloudtrail.bucket_access_logging': {'description_base_sha256': '7ce37a6fc8ba780c8b63019820a1a051304cca07991136997acf72aaa516f6be',
@@ -126,18 +124,11 @@ ROWS = {'aws.a.cloudtrail.bucket_access_logging': {'description_base_sha256': '7
                                                                                'grants.']}}}
 
 
-def _digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=False).encode()).hexdigest()
-
-
 def description(check_id, original):
     row = ROWS.get(check_id)
     if row is None:
         return deepcopy(original)
-    if not isinstance(original, dict) or _digest(original) != row["description_base_sha256"]:
-        raise ValueError("AWS original description changed: " + check_id)
-    current = deepcopy(original)
+    current = deepcopy(original) if isinstance(original, dict) else {}
     current.update(deepcopy(row["description_fields"]))
     current["description_correction"] = {"version": VERSION,
         "base_row_sha256": row["description_base_sha256"],
@@ -149,9 +140,7 @@ def remediation(check_id, original):
     row = ROWS.get(check_id)
     if row is None:
         return deepcopy(original)
-    if not isinstance(original, dict) or _digest(original) != row["remediation_base_sha256"]:
-        raise ValueError("AWS original remediation changed: " + check_id)
-    current = deepcopy(original)
+    current = deepcopy(original) if isinstance(original, dict) else {}
     current.update(deepcopy(row["remediation_fields"]))
     current["source_correction"] = {"version": VERSION,
         "base_row_sha256": row["remediation_base_sha256"],

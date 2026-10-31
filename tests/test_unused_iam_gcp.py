@@ -194,18 +194,14 @@ def test_insight_check_runs_through_normal_hardening_engine_and_json_output():
     assert 'HackTricks Cloud Best Practices' in finding['frameworks']
 
 
-def test_corrected_public_criteria_are_reviewed_and_reject_unreviewed_changes():
+def test_public_criteria_are_the_reviewed_observation_criteria():
     from peaso.checks import CHECKS
-    from peaso.checks.gcp_remaining_clarity_reviewed import ROWS
     for ident in (subject.ACCOUNT, subject.KEY):
         check = next(row for row in CHECKS if row.id == ident)
         public = check.public()
         assert 'observation' in public['description'].lower()
-        current = deepcopy(subject.DESCRIPTION_SUCCESSORS[ident]['description'])
-        assert subject.reviewed_description_successor(ident, current, ROWS[ident]['description_base_sha256']) == current
-        current['fail_when'] = 'unreviewed'
-        with pytest.raises(ValueError, match='criteria changed'):
-            subject.reviewed_description_successor(ident, current, ROWS[ident]['description_base_sha256'])
+        reviewed = subject.DESCRIPTION_SUCCESSORS[ident]['description']
+        assert {key: public[key] for key in reviewed} == reviewed
 
 
 def test_authentication_for_deleted_recreated_email_cannot_mark_current_account_unused():

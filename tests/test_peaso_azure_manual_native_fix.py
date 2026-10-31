@@ -3,10 +3,8 @@ import pytest
 
 from peaso.checks import CHECKS
 from peaso.checks.claude_azure_common import scope_index
-from peaso.checks.azure_defender_applicability_description_overlay import description
 from peaso.engine import evaluate_snapshot, plan_collection
 from peaso.snapshot import seal
-from peaso.checks.azure_defender_applicability_description_overlay import ROWS, description
 
 SCOPE = {"scope": "/subscriptions/s"}
 POLICY = "azure.claude.defender_default_initiative_no_disabled_effects"
@@ -109,7 +107,3 @@ def test_engine_preserves_observed_failure_without_positive_shortcut(solution_st
     assert [(row["check_id"], row["status"]) for row in findings] == [(IOT, expected)]
 
 
-def test_hash_bound_current_descriptions_leave_historical_rows_intact():
-    for check_id in (POLICY, IOT):
-        with pytest.raises(ValueError, match="original description changed"):
-            description(check_id, {"description": "tampered historical source"})

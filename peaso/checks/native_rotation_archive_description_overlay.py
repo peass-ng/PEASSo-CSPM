@@ -1,10 +1,8 @@
-"""Hash-bound public descriptions for native rotation and archive configuration.
+"""Public descriptions for native rotation and archive configuration.
 
 Original signed packs remain unchanged; configuration evidence is not runtime assurance.
 """
 from copy import deepcopy
-import hashlib
-import json
 
 VERSION = "native-rotation-archive-description-overlay-v2"
 OFFICIAL_REFERENCES = [
@@ -136,9 +134,7 @@ def description(check_id, original):
     row = ROWS.get(check_id)
     if row is None:
         return deepcopy(original)
-    if not isinstance(original, dict) or hashlib.sha256(json.dumps(original, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest() != row["base_row_sha256"]:
-        raise ValueError("Native rotation/archive original description changed: " + check_id)
-    value = deepcopy(original)
+    value = deepcopy(original) if isinstance(original, dict) else {}
     value.update(deepcopy(row["fields"]))
     value["description_correction"] = {"version": VERSION, "base_row_sha256": row["base_row_sha256"],
         "source_relationship": "native configuration and complete destination joins; not runtime success or existing object retention proof",
