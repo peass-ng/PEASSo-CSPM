@@ -11,14 +11,14 @@ ALL_BLOCKED = {"BlockPublicAcls": True, "IgnorePublicAcls": True, "BlockPublicPo
 
 
 def _policy_copy(region):
-    row = {"ResourceArn": ARN, "Policy": POLICY, "_provenance": {
+    row = {"id": ARN, "ResourceArn": ARN, "Policy": POLICY, "_provenance": {
         "read_only": True, "owner_account": ACCOUNT, "source_region": region, "collection_region": region,
         "families": ["s3-buckets"], "source_operations": ["s3:get_bucket_policy"]}}
     return {"type": "aws_resource_policy", "scope": f"{ACCOUNT}/{region}", "service": "s3",
             "status": "collected", "items": [row]}
 
 
-def _generic_grants(bucket_block):
+def _findings(bucket_block):
     bucket = {"Name": "b", "Policy": {"collection_status": "collected", "Policy": POLICY},
               "PolicyStatus": {"collection_status": "collected", "PolicyStatus": {"IsPublic": True}},
               "Acl": {"collection_status": "collected", "Grants": []},
@@ -31,7 +31,11 @@ def _generic_grants(bucket_block):
         *(_policy_copy(region) for region in REGIONS)]
     snapshot = make_snapshot("aws", [f"{ACCOUNT}/{region}" for region in REGIONS], collections,
                              created_at="2026-10-10T00:00:00+00:00")
-    return [f for f in analyze(snapshot)["findings"] if f["check_id"] == "analysis.internet_exposure"
+    return analyze(snapshot)["findings"]
+
+
+def _generic_grants(bucket_block):
+    return [f for f in _findings(bucket_block) if f["check_id"] == "analysis.internet_exposure"
             and f["evidence"].get("exposure_kind") == "external_generic_policy_grant"]
 
 
@@ -43,3 +47,11 @@ def test_public_bucket_policy_in_every_region_is_one_failure():
 def test_restrict_public_buckets_blocks_the_wildcard_bucket_grant():
     assert _generic_grants(ALL_BLOCKED) == []
     assert [f["status"] for f in _generic_grants({**ALL_BLOCKED, "RestrictPublicBuckets": False})] == ["FAIL"]
+
+
+def test_public_bucket_principal_read_in_every_region_is_one_declaration():
+    declared = [f for f in _findings(None) if f["check_id"] == "analysis.principal_exposure"
+                and any((row.get("source") or {}).get("resource_type") == "aws_resource_policy"
+                        for row in f["evidence"].get("principals", []))]
+    assert len(declared) == 1
+    assert sorted(declared[0]["evidence"]["observed_scopes"]) == [f"{ACCOUNT}/{region}" for region in REGIONS]
