@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/carlospolop/chack-agent",
-  "commit": "7e258d0602b9aa065bfa2d06aa53be5fe525531f",
+  "commit": "53ab40167c4df367e2e7ca980f1bf3ac8c0b3375",
   "files": {
     "thinking_effort.py": {
       "upstream_path": "chack_agent/thinking_effort.py",
@@ -9,13 +9,13 @@
     },
     "config/thinking_effort.yaml": {
       "upstream_path": "chack_agent/config/thinking_effort.yaml",
-      "sha256": "de1032fe51969bd3df781dda6b6a3a8f9b46bb239719ba22346eebaada4b4835",
-      "bytes": 6710
+      "sha256": "b93ca5508ae4c9c03c9f62c78b1dfd5d209ae70336f4b87f5d3f56e128b737a7",
+      "bytes": 6854
     },
     "model_aliases.py": {
       "upstream_path": "chack_agent/model_aliases.py",
-      "sha256": "9b1002a9d5e81127c45ea3300305d4c76bf68103bc1088ad4f4752340e0359c7",
-      "bytes": 17556
+      "sha256": "4fc6837c8d521396ecbc0be0f46cdc000f362b33757897d4a572047c80f26937",
+      "bytes": 20842
     }
   },
   "license": {

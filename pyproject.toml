@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 dependencies = ["PyYAML>=6", "fastapi>=0.115", "uvicorn>=0.30", "cryptography>=43", "PyJWT[crypto]>=2.10", "tzdata>=2024.1"]
 
 [project.optional-dependencies]
-ai = ["chack-agent @ git+https://github.com/carlospolop/chack-agent.git@7e258d0602b9aa065bfa2d06aa53be5fe525531f", "jsonschema>=4", "psutil>=6", "orjson==3.13.0"]
+ai = ["chack-agent @ git+https://github.com/carlospolop/chack-agent.git@53ab40167c4df367e2e7ca980f1bf3ac8c0b3375", "jsonschema>=4", "psutil>=6", "orjson==3.13.0"]
 secrets = ["kingfisher-secret-scanner==1.4.0"]
 hosted = ["boto3==1.43.38", "botocore==1.43.38", "mangum>=0.19", "requests>=2"]
 cloud = ["boto3==1.43.38", "botocore==1.43.38", "google-auth>=2", "azure-identity>=1.17", "azure-mgmt-resource", "azure-mgmt-subscription", "azure-mgmt-authorization", "azure-mgmt-monitor", "requests>=2", "termcolor", "tqdm", "kubernetes>=34,<36"]

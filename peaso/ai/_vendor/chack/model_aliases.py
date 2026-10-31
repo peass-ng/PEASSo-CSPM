@@ -8,16 +8,19 @@ from typing import Any, Dict, Optional
 import requests
 
 # Local fallback only. Runtime resolution prefers the central model-alias Lambda.
-OPENAI_BEST_QUALITY = "gpt-5.6-sol"
-CODEX_BEST_QUALITY = "gpt-5.6-sol"
-OPENAI_CHEAP_BUT_QUALITY = "gpt-5.4-mini"
-OPENAI_BEST_CHEAPEST = "gpt-5.4-nano"
-ANTHROPIC_BEST_QUALITY = "claude-opus-4-6"
-ANTHROPIC_CHEAP_BUT_QUALITY = "claude-sonnet-4-6"
-ANTHROPIC_BEST_CHEAPEST = "claude-haiku-4-5"
+OPENAI_BEST_QUALITY = "gpt-6-sol"
+OPENAI_CHEAP_BUT_QUALITY = "gpt-6-sol"
+OPENAI_BEST_CHEAPEST = "gpt-6-luna"
+# Deprecated: Codex runs the OpenAI tiers. Kept only so configs that still
+# name these aliases get the same models.
+CODEX_BEST_QUALITY = OPENAI_BEST_QUALITY
+CODEX_BEST_CHEAPEST = OPENAI_BEST_CHEAPEST
+ANTHROPIC_BEST_QUALITY = "claude-opus-5-5"
+ANTHROPIC_CHEAP_BUT_QUALITY = "claude-sonnet-5-5"
+ANTHROPIC_BEST_CHEAPEST = "claude-haiku-5-5"
 OPENROUTER_BEST_QUALITY = f"openrouter/openai/{OPENAI_BEST_QUALITY}"
-OPENROUTER_CHEAP_BUT_QUALITY = f"openrouter/google/gemini-3-flash-preview"
-OPENROUTER_BEST_CHEAPEST = f"openrouter/xiaomi/mimo-v2-flash"
+OPENROUTER_CHEAP_BUT_QUALITY = "openrouter/google/gemini-3.8-flash"
+OPENROUTER_BEST_CHEAPEST = "openrouter/deepseek/deepseek-v4.1-flash"
 COPILOT_BEST_QUALITY = "claude-sonnet-4.6"
 COPILOT_CHEAP_BUT_QUALITY = "gpt-5.4-mini"
 COPILOT_BEST_CHEAPEST = "gpt-5-mini"
@@ -33,7 +36,7 @@ _ALIAS_EQUIVALENTS_BY_PROVIDER: Dict[str, Dict[str, str]] = {
         "BEST_CHEAPEST": "OPENAI_BEST_CHEAPEST",
     },
     "codex": {
-        "BEST_QUALITY": "CODEX_BEST_QUALITY",
+        "BEST_QUALITY": "OPENAI_BEST_QUALITY",
         "CHEAP_BUT_QUALITY": "OPENAI_CHEAP_BUT_QUALITY",
         "BEST_CHEAPEST": "OPENAI_BEST_CHEAPEST",
     },
@@ -120,6 +123,7 @@ _OPENAI_ALIAS_EQUIVALENTS: Dict[str, str] = {
 MODEL_ALIASES: Dict[str, str] = {
     "OPENAI_BEST_QUALITY": OPENAI_BEST_QUALITY,
     "CODEX_BEST_QUALITY": CODEX_BEST_QUALITY,
+    "CODEX_BEST_CHEAPEST": CODEX_BEST_CHEAPEST,
     "OPENAI_CHEAP_BUT_QUALITY": OPENAI_CHEAP_BUT_QUALITY,
     "OPENAI_BEST_CHEAPEST": OPENAI_BEST_CHEAPEST,
     "ANTHROPIC_BEST_QUALITY": ANTHROPIC_BEST_QUALITY,
@@ -137,6 +141,26 @@ BACKEND_ALIASES: Dict[str, str] = {
     "ANTHROPIC_DEFAULT_BACKEND": ANTHROPIC_DEFAULT_BACKEND,
     "OPENROUTER_DEFAULT_BACKEND": OPENROUTER_DEFAULT_BACKEND,
     "COPILOT_DEFAULT_BACKEND": COPILOT_DEFAULT_BACKEND,
+}
+
+
+# How hard each tier alias thinks. Offline fallback only: the central Lambda's
+# ``thinking_efforts`` block wins, so a tier's effort changes without a rebuild.
+THINKING_EFFORTS: Dict[str, str] = {
+    "OPENAI_BEST_QUALITY": "high",
+    "OPENAI_CHEAP_BUT_QUALITY": "medium",
+    "OPENAI_BEST_CHEAPEST": "high",
+    "CODEX_BEST_QUALITY": "high",
+    "CODEX_BEST_CHEAPEST": "high",
+    "ANTHROPIC_BEST_QUALITY": "high",
+    "ANTHROPIC_CHEAP_BUT_QUALITY": "medium",
+    "ANTHROPIC_BEST_CHEAPEST": "high",
+    "OPENROUTER_BEST_QUALITY": "high",
+    "OPENROUTER_CHEAP_BUT_QUALITY": "medium",
+    "OPENROUTER_BEST_CHEAPEST": "high",
+    "COPILOT_BEST_QUALITY": "high",
+    "COPILOT_CHEAP_BUT_QUALITY": "medium",
+    "COPILOT_BEST_CHEAPEST": "high",
 }
 
 
@@ -167,6 +191,7 @@ if not _REMOTE_URL:
     _REMOTE_URL = _DEFAULT_REMOTE_URL
 _REMOTE_MODEL_CACHE: Optional[Dict[str, str]] = None
 _REMOTE_BACKEND_CACHE: Optional[Dict[str, str]] = None
+_REMOTE_EFFORT_CACHE: Optional[Dict[str, str]] = None
 _REMOTE_CACHE_LOADED_AT: float = 0.0
 _GENERIC_MODEL_ALIASES = frozenset({"BEST_QUALITY", "CHEAP_BUT_QUALITY", "BEST_CHEAPEST"})
 
@@ -203,14 +228,16 @@ def _load_remote_aliases() -> Optional[dict[str, Dict[str, str]]]:
 
     model_aliases = _normalize_alias_block(payload.get("model_aliases", payload))
     backend_aliases = _normalize_alias_block(payload.get("backend_aliases", {}))
+    thinking_efforts = _normalize_alias_block(payload.get("thinking_efforts", {}))
     return {
         "model_aliases": model_aliases,
         "backend_aliases": backend_aliases,
+        "thinking_efforts": thinking_efforts,
     }
 
 
 def _refresh_remote_alias_caches() -> None:
-    global _REMOTE_MODEL_CACHE, _REMOTE_BACKEND_CACHE, _REMOTE_CACHE_LOADED_AT
+    global _REMOTE_MODEL_CACHE, _REMOTE_BACKEND_CACHE, _REMOTE_EFFORT_CACHE, _REMOTE_CACHE_LOADED_AT
     if not _REMOTE_URL:
         return
     now = time.time()
@@ -219,6 +246,7 @@ def _refresh_remote_alias_caches() -> None:
         if remote:
             _REMOTE_MODEL_CACHE = remote.get("model_aliases") or None
             _REMOTE_BACKEND_CACHE = remote.get("backend_aliases") or None
+            _REMOTE_EFFORT_CACHE = remote.get("thinking_efforts") or None
             _REMOTE_CACHE_LOADED_AT = now
         else:
             _REMOTE_CACHE_LOADED_AT = now
@@ -245,10 +273,26 @@ def _get_backend_aliases() -> Dict[str, str]:
     return merged
 
 
+def _get_thinking_efforts() -> Dict[str, str]:
+    _refresh_remote_alias_caches()
+    merged = dict(THINKING_EFFORTS)
+    merged.update(_REMOTE_EFFORT_CACHE or {})
+    return merged
+
+
+# Codex runs the OpenAI tiers, so the deprecated Codex aliases are read as the
+# OpenAI ones whatever an alias server still publishes under the old names.
+_DEPRECATED_ALIASES: Dict[str, str] = {
+    "CODEX_BEST_QUALITY": "OPENAI_BEST_QUALITY",
+    "CODEX_BEST_CHEAPEST": "OPENAI_BEST_CHEAPEST",
+}
+
+
 def _adapt_alias_for_runtime(name: str, *, provider: str = "") -> str:
     key = str(name or "").strip()
     if not key:
         return name
+    key = _DEPRECATED_ALIASES.get(key, key)
     model_provider = str(provider or "").strip().lower()
     provider_aliases = _ALIAS_EQUIVALENTS_BY_PROVIDER.get(model_provider)
     if provider_aliases:
@@ -486,3 +530,44 @@ def resolve_model_alias(
                 )
             return resolved_name
     return name
+
+
+def resolve_thinking_effort_alias(
+    name: str,
+    *,
+    provider: str = "",
+    openai_api_key: str = "",
+    anthropic_api_key: str = "",
+    openrouter_api_key: str = "",
+    credentials: Any = None,
+) -> str:
+    """Thinking effort the central Lambda assigns to model alias ``name``.
+
+    ``name`` is looked up exactly like ``resolve_model_alias`` looks up the
+    model, so the generic ``BEST_QUALITY`` follows the provider's own tier.
+    Returns "" when ``name`` is a concrete model or a tier without an effort,
+    or when the published value is not a known level.
+    """
+    from .thinking_effort import normalize_thinking_effort
+
+    raw_name = str(name or "").strip()
+    if not raw_name:
+        return ""
+    normalized_provider = str(provider or "").strip().lower()
+    key = _adapt_alias_for_runtime(raw_name, provider=normalized_provider)
+    if not normalized_provider:
+        key_type = _select_api_key_type(
+            openai_api_key=openai_api_key,
+            anthropic_api_key=anthropic_api_key,
+            openrouter_api_key=openrouter_api_key,
+            credentials=credentials,
+        )
+        key = _adapt_alias_for_key_type(key, key_type=key_type)
+    for effort in (_get_thinking_efforts().get(key, ""), THINKING_EFFORTS.get(key, "")):
+        if not effort:
+            continue
+        try:
+            return normalize_thinking_effort(effort)
+        except ValueError:
+            _LOGGER.warning("Ignoring unknown thinking effort %r published for %s", effort, key)
+    return ""
