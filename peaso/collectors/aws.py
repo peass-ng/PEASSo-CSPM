@@ -1204,6 +1204,10 @@ GLOBAL_SCOPE = "global"
 # Account inventories assembled from every enabled Region, even with a Region list.
 ACCOUNT_WIDE_REGIONAL_KINDS = frozenset({"config_account_aggregator_inventory", "cloudtrail_account_inventory",
     "macie2_account_classification_job_inventory", "metric_alarm_account_inventory"})
+# Kinds whose collector or checks need the per-account enabled-Region proof
+# (ec2:DescribeRegions) even when the scan names an explicit Region list.
+ENABLED_REGION_PROOF_KINDS = frozenset({"vpc_account_inventory", "waf_account_acl_inventory",
+    "s3_backup_plan_coverage", "config_account_region_coverage", "config_recorder"})
 FETCHERS = {}
 GLOBAL_TYPES.add("vpc_account_inventory")
 GLOBAL_TYPES.add("macie2_account_classification_job_inventory")
@@ -2670,61 +2674,68 @@ def collect(connector, requirements=None):
             failed_scope(f"{account}/{regions[0]}", failure)
         org_inventory = None
 
+    def discover_enabled_regions(account_session, identity, home):
+        """One read-only ec2:DescribeRegions proof per account: (proof, enabled, failure)."""
+        account = identity["Account"]
+        read = requests.pages(account_session, "ec2", home, "describe_regions", "Regions", AllRegions=True)
+        requests.backup_region_discovery[account] = copy.deepcopy(read)
+        partition = account_session.get_partition_for_region(home)
+        caller_arn = identity.get("Arn", "")
+        caller = re.fullmatch(r"arn:([^:]+):(iam|sts)::([0-9]{12}):.+", caller_arn) if isinstance(caller_arn, str) else None
+        raw_regions = copy.deepcopy(read.items)
+        seen_regions, enabled = set(), []
+        valid = read.status == "collected" and isinstance(raw_regions, list) and bool(raw_regions)
+        valid = valid and caller is not None and caller.group(1) == partition and caller.group(3) == account
+        if valid:
+            for row in raw_regions:
+                name = row.get("RegionName") if isinstance(row, dict) else None
+                state = row.get("OptInStatus") if isinstance(row, dict) else None
+                if (not isinstance(name, str) or not re.fullmatch(r"[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+", name)
+                        or name in seen_regions or state not in {"opt-in-not-required", "opted-in", "not-opted-in"}
+                        or account_session.get_partition_for_region(name) != partition):
+                    valid = False
+                    break
+                seen_regions.add(name)
+                if state != "not-opted-in":
+                    enabled.append(name)
+        enabled = sorted(enabled) if valid else []
+        proof = {"account_id": account, "caller_account_id": account, "scope": account + "/global",
+            "partition": partition, "source_operation": "ec2:DescribeRegions", "all_regions": True,
+            "read_only": True, "observed_at": requests.observed_at.isoformat(), "raw_regions": raw_regions}
+        if not valid or not enabled:
+            failure = ReadFailure(read.status if read.status not in {"collected", "empty"} else "malformed", (read.error or {}).get("code", "enabled_region_discovery_unavailable"))
+            return {**proof, "status": failure.status, "error": {"code": failure.code}}, [], failure
+        return {**proof, "status": "collected", "regions": enabled}, enabled, None
+
     if not explicit_regions:
         metadata["region_discovery"] = []
         for account_session, identity in contexts:
             account = identity["Account"]
-            read = requests.pages(account_session, "ec2", regions[0], "describe_regions", "Regions", AllRegions=True)
-            requests.backup_region_discovery[account] = copy.deepcopy(read)
-            partition = account_session.get_partition_for_region(regions[0])
-            caller_arn = identity.get("Arn", "")
-            caller = re.fullmatch(r"arn:([^:]+):(iam|sts)::([0-9]{12}):.+", caller_arn) if isinstance(caller_arn, str) else None
-            raw_regions = copy.deepcopy(read.items)
-            seen_regions, enabled = set(), []
-            valid = read.status == "collected" and isinstance(raw_regions, list) and bool(raw_regions)
-            valid = valid and caller is not None and caller.group(1) == partition and caller.group(3) == account
-            if valid:
-                for row in raw_regions:
-                    name = row.get("RegionName") if isinstance(row, dict) else None
-                    state = row.get("OptInStatus") if isinstance(row, dict) else None
-                    if (not isinstance(name, str) or not re.fullmatch(r"[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+", name)
-                            or name in seen_regions or state not in {"opt-in-not-required", "opted-in", "not-opted-in"}
-                            or account_session.get_partition_for_region(name) != partition):
-                        valid = False
-                        break
-                    seen_regions.add(name)
-                    if state != "not-opted-in":
-                        enabled.append(name)
-            enabled = sorted(enabled) if valid else []
-            proof = {"account_id": account, "caller_account_id": account, "scope": account + "/global",
-                "partition": partition, "source_operation": "ec2:DescribeRegions", "all_regions": True,
-                "read_only": True, "observed_at": requests.observed_at.isoformat(), "raw_regions": raw_regions}
-            if not valid or not enabled:
-                failure = ReadFailure(read.status if read.status not in {"collected", "empty"} else "malformed", (read.error or {}).get("code", "enabled_region_discovery_unavailable"))
+            proof, enabled, failure = discover_enabled_regions(account_session, identity, regions[0])
+            metadata["region_discovery"].append(proof)
+            if failure is not None:
                 region_discovery_errors[account] = failure
-                metadata["region_discovery"].append({**proof, "status": failure.status, "error": {"code": failure.code}})
             else:
                 discovered_regions[account] = enabled
-                metadata["region_discovery"].append({**proof, "status": "collected", "regions": enabled})
         if discovered_regions:
             regions[:] = sorted({region for values in discovered_regions.values() for region in values})
         metadata["regions"] = list(regions)
-    elif wanted & ACCOUNT_WIDE_REGIONAL_KINDS:
+    elif wanted & (ACCOUNT_WIDE_REGIONAL_KINDS | ENABLED_REGION_PROOF_KINDS):
         # A Region list limits regional services only. Account-wide inventories
-        # (CloudTrail trails, Config aggregators, Macie jobs, CIS metric alarms)
-        # still need every enabled Region, so discover them read-only.
+        # (CloudTrail trails, Config aggregators, Macie jobs, CIS metric alarms,
+        # WAF/S3-backup account views) and account-wide facts (log archive
+        # trail homes, multi-Region VPC layout) still need the enabled-Region
+        # proof, so discover it read-only. A failed discovery stays a recorded
+        # proof gap for those consumers and never fails the selected Regions.
         metadata["account_wide_regions"] = {}
+        metadata["region_discovery"] = []
         for account_session, identity in contexts:
             account = identity["Account"]
-            read = requests.pages(account_session, "ec2", regions_for(account)[0], "describe_regions", "Regions", AllRegions=True)
-            rows = read.items if read.status == "collected" and isinstance(read.items, list) else []
-            names = sorted({row.get("RegionName") for row in rows if isinstance(row, dict)
-                            and isinstance(row.get("RegionName"), str)
-                            and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+", row["RegionName"])
-                            and row.get("OptInStatus") in {"opt-in-not-required", "opted-in"}})
-            if names and all(isinstance(row, dict) and row.get("OptInStatus") in {"opt-in-not-required", "opted-in", "not-opted-in"} for row in rows):
-                account_wide_regions[account] = names
-                metadata["account_wide_regions"][account] = list(names)
+            proof, enabled, failure = discover_enabled_regions(account_session, identity, regions_for(account)[0])
+            metadata["region_discovery"].append(proof)
+            if failure is None:
+                account_wide_regions[account] = enabled
+                metadata["account_wide_regions"][account] = list(enabled)
     # Freeze exact account/region pairs only after target resolution and region
     # discovery have succeeded for the entire selection. An observed subset,
     # fallback region, truncated organization roster or failed role is not a
@@ -3325,8 +3336,12 @@ def collect(connector, requirements=None):
                         ReadResult(rows, status, error), identity["Account"])
                 if derive_account_vpcs:
                     from .aws_inventory import vpc_account_inventory
+                    # An explicit Region list still proves full coverage when it
+                    # includes every Region the account has enabled.
+                    covered = (not explicit_regions or identity["Account"] in account_wide_regions
+                               and set(account_wide_regions[identity["Account"]]) <= set(regions_for(identity["Account"])))
                     items, status, error = vpc_account_inventory(collections, identity["Account"], regions_for(identity["Account"]),
-                        full_region_coverage=not explicit_regions and identity["Account"] not in region_discovery_errors)
+                        full_region_coverage=covered and identity["Account"] not in region_discovery_errors)
                     append("vpc_account_inventory", f"{identity['Account']}/{GLOBAL_SCOPE}", "ec2", ReadResult(items, status, error), identity["Account"])
                 for kind in sorted(GLOBAL_TYPES - wanted):
                     append(kind, f"{identity['Account']}/{GLOBAL_SCOPE}", SPECS.get(kind, ("aws",))[0], ReadResult([], "not_collected", {"code": "inventory_not_requested"}), identity["Account"])

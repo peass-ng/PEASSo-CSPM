@@ -88,3 +88,44 @@ def test_collector_derives_complete_account_view_without_duplicate_vpc_calls(mon
         assert report["findings"] and {f["status"] for f in report["findings"]} == {"PASS"}
         for stub in stubs.values():
             stub.assert_no_pending_responses()
+
+
+def _explicit_region_scan(monkeypatch, selected):
+    import boto3
+    from botocore.stub import Stubber
+    from peaso.collectors import aws
+    session = boto3.Session(aws_access_key_id="fixture-key", aws_secret_access_key="fixture-secret", region_name=REGIONS[0])
+    clients = {(service, region): session.client(service, region_name=region)
+               for service, region in [("sts", REGIONS[0]), ("ec2", REGIONS[0]), ("ec2", REGIONS[1])]}
+    monkeypatch.setattr(aws, "_session", lambda auth, region: (session, "fixture"))
+    monkeypatch.setattr(aws.Requests, "client", lambda self, chosen, service, region: clients[(service, region)])
+    with ExitStack() as stack:
+        stubs = {key: stack.enter_context(Stubber(client)) for key, client in clients.items()}
+        stubs[("sts", REGIONS[0])].add_response("get_caller_identity", {"Account": ACCOUNT,
+            "Arn": f"arn:aws:iam::{ACCOUNT}:user/fixture", "UserId": "fixture"}, {})
+        stubs[("ec2", REGIONS[0])].add_response("describe_regions", {"Regions": [
+            {"RegionName": region, "OptInStatus": "opt-in-not-required"} for region in REGIONS]}, {"AllRegions": True})
+        for region in selected:
+            stubs[("ec2", region)].add_response("describe_vpcs", {"Vpcs": [{"VpcId": "vpc-same", "IsDefault": False}]}, {})
+            stubs[("ec2", region)].add_response("describe_vpc_attribute", {"VpcId": "vpc-same",
+                "EnableDnsSupport": {"Value": True}}, {"VpcId": "vpc-same", "Attribute": "enableDnsSupport"})
+            stubs[("ec2", region)].add_response("describe_vpc_attribute", {"VpcId": "vpc-same",
+                "EnableDnsHostnames": {"Value": True}}, {"VpcId": "vpc-same", "Attribute": "enableDnsHostnames"})
+        snapshot = aws.collect({"provider": "aws", "scopes": list(selected)}, ["vpc_account_inventory"])
+        for stub in stubs.values():
+            stub.assert_no_pending_responses()
+    return snapshot
+
+
+def test_explicit_region_list_covering_every_enabled_region_proves_account_view(monkeypatch):
+    snapshot = _explicit_region_scan(monkeypatch, REGIONS)
+    derived = next(c for c in snapshot["collections"] if c["type"] == "vpc_account_inventory")
+    assert derived["status"] == "collected"
+    assert [proof["status"] for proof in snapshot["metadata"]["region_discovery"]] == ["collected"]
+
+
+def test_explicit_region_subset_keeps_account_view_unproven(monkeypatch):
+    snapshot = _explicit_region_scan(monkeypatch, REGIONS[:1])
+    derived = next(c for c in snapshot["collections"] if c["type"] == "vpc_account_inventory")
+    assert derived["status"] == "not_collected"
+    assert snapshot["metadata"]["region_discovery"][0]["regions"] == sorted(REGIONS)
