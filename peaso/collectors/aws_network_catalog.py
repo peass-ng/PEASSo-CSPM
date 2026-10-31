@@ -214,6 +214,33 @@ def influxdb_instances(requests, session, region, account):
     return requests.pages(MetadataSession(session), "timestream-influxdb", region, "list_db_instances", "items")
 
 
+def lattice_network_associations(operation):
+    """The association list APIs require a service network (or VPC/service)
+    identifier; an unscoped call is a ValidationException. List them per
+    owned-or-shared service network instead."""
+    def fetch(requests, session, region, account):
+        from .aws import ReadResult
+        session = MetadataSession(session)
+        networks = requests.pages(session, "vpc-lattice", region, "list_service_networks", "items")
+        if networks.status not in {"collected", "empty"}:
+            return networks
+        rows, failures, seen = [], [], set()
+        for network in networks.items:
+            if not isinstance(network.get("id"), str):
+                failures.append("malformed")
+                continue
+            read = requests.pages(session, "vpc-lattice", region, operation, "items", serviceNetworkIdentifier=network["id"])
+            if read.status not in {"collected", "empty"}:
+                failures.append(read.status)
+            for row in read.items:
+                if isinstance(row, dict) and row.get("id") not in seen:
+                    seen.add(row.get("id"))
+                    rows.append(row)
+        return ReadResult(rows, "partial" if rows and failures else failures[0] if failures else "collected" if rows else "empty",
+                          {"code": "lattice_association_inventory_incomplete"} if failures else None)
+    return fetch
+
+
 def lattice_routes(kind):
     def fetch(requests, session, region, account):
         from .aws import ReadResult, _single
@@ -466,4 +493,6 @@ FETCHERS.update({"quicksight_vpc_connection": quicksight_connections,
                  "lightsail_container_service": lightsail_containers,
                  "influxdb_instance": influxdb_instances,
                  **{kind: lattice_routes(kind) for kind in {"lattice_listener", "lattice_listener_rule"}},
+                 "lattice_vpc_association": lattice_network_associations("list_service_network_vpc_associations"),
+                 "lattice_service_association": lattice_network_associations("list_service_network_service_associations"),
                  **{kind: eks_children(kind) for kind in {"eks_nodegroup", "eks_fargate_profile"}}})

@@ -73,6 +73,15 @@ _SERVICE_STATES = (
     (None, "InvalidAccessException", r"Account [0-9]{12} is not subscribed to AWS Security Hub(?: CSPM)?\.?", "service_not_enabled"),
     (None, "UnsupportedUserEditionException", r"Account [0-9]{12} is not subscribed for QuickSight\.?", "service_not_enabled"),
     (None, "UnknownOperationException", r"Unknown Operation\.?|Operation is disabled in this region\.?|" + _EMPTY_MESSAGE, "region_operation_unsupported"),
+    # Services the account never set up (or was never admitted to) hold no
+    # resources; their documented replies are account facts, not IAM denials.
+    (None, "AccessDeniedException", r"Please complete AWS Audit Manager setup from home page to enable this action in this account\.?", "service_not_enabled"),
+    (None, "AccessDeniedException", r"This account does not have access to the Cloud9 service\.?", "service_not_enabled"),
+    (None, "AccessDeniedException", r"Service role not found\. Consult setup procedures in License Manager User Guide and create the required role for the service\.?", "service_not_enabled"),
+    (None, "AccessGrantsInstanceNotExistsError", r"Access Grants Instance does not exist\.?", "service_not_enabled"),
+    (None, "ResourceNotFoundException", r"The request failed because Security Lake isn't enabled for your account in any Regions\. Enable Security Lake for your account and then try again\.?", "service_not_enabled"),
+    (None, "AccessDeniedException", r"To perform this operation, your account must be a delegated Security Lake administrator account or a standalone Security Lake account\.?", "not_delegated_administrator"),
+    ({"DescribeDomains"}, "NotAuthorized", r"New domain creation not supported on this account\. Please reach out to AWS Support for assistance\.?", "service_not_enabled"),
     ({"GetInstances", "GetRelationalDatabases", "GetStaticIps"}, "RegionSetupInProgressException",
      r"Lightsail is setting up this region for your account, please try again later\.?", "region_setup_in_progress"),
 )

@@ -132,6 +132,28 @@ def test_lattice_routing_native_reads_keep_default_actions_and_parent_identity(k
     assert linked(graph, node(graph, kind, "route"), node(graph, "lattice_target_group", "tg"))
 
 
+@pytest.mark.parametrize("kind,operation", [("lattice_vpc_association", "list_service_network_vpc_associations"),
+                                            ("lattice_service_association", "list_service_network_service_associations")])
+def test_lattice_associations_are_listed_per_service_network(kind, operation):
+    # The association APIs reject an unscoped call with a ValidationException.
+    from peaso.collectors.aws import ReadResult
+    from peaso.collectors.aws_network_catalog import FETCHERS
+    calls = []
+    class Requests:
+        def __init__(self, networks): self.networks = networks
+        def pages(self, session, service, region, op, key, **args):
+            calls.append((op, args))
+            if op == "list_service_networks":
+                return ReadResult(self.networks, "collected" if self.networks else "empty")
+            assert op == operation and set(args) == {"serviceNetworkIdentifier"}
+            return ReadResult([{"id": "assoc-" + args["serviceNetworkIdentifier"]}], "collected")
+    result = FETCHERS[kind](Requests([{"id": "sn-a"}, {"id": "sn-b"}]), None, "us-east-1", "111111111111")
+    assert result.status == "collected" and [row["id"] for row in result.items] == ["assoc-sn-a", "assoc-sn-b"]
+    calls.clear()
+    result = FETCHERS[kind](Requests([]), None, "us-east-1", "111111111111")
+    assert result.status == "empty" and [op for op, _ in calls] == ["list_service_networks"]
+
+
 @pytest.mark.parametrize("kind,segment", [("mesh_http_route", "httpRoutes"), ("mesh_tcp_route", "tcpRoutes"),
     ("mesh_tls_route", "tlsRoutes"), ("mesh_grpc_route", "grpcRoutes"), ("service_mesh", "meshes"), ("mesh_gateway", "gateways"),
     ("mesh_endpoint_policy", "endpointPolicies")])
