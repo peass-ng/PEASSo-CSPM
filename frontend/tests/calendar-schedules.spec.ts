@@ -63,6 +63,7 @@ test("daily, selected weekdays and monthly rules can be combined, saved and edit
   await page.getByRole("button", { name: "Remove rule 1", exact: true }).click();
   await expect(page.getByLabel("Rule 1 frequency", { exact: true })).toHaveValue("weekly");
   await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(2);
   expect((writes[1].rules as unknown[]).length).toBe(2);
 });
 
@@ -77,6 +78,7 @@ test("weekly rules require a selected day and switching frequency removes irrele
   await page.getByLabel("Rule 1 frequency", { exact: true }).selectOption("monthly");
   await page.getByLabel("Rule 1 frequency", { exact: true }).selectOption("daily");
   await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].rules).toEqual([{ frequency: "daily", time: "09:00" }]);
 });
 
@@ -87,6 +89,7 @@ test("legacy intervals remain visible until explicitly converted and check selec
   await page.getByRole("button", { name: "Production AWS", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("Saving replaces that interval");
   await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].checks).toEqual(["aws.iam.console_mfa"]);
   expect(writes[0].rules).toEqual([{ frequency: "daily", time: "09:00" }]);
 });
