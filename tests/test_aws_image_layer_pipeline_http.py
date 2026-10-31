@@ -54,7 +54,7 @@ def test_real_http_bad_digest_never_returns_complete_layer_list(monkeypatch,tmp_
         monkeypatch.setattr(content,'build_opener',fixture.opener)
         with pytest.raises(ValueError,match='image_blob_download_unavailable'):
             pipeline.download_layers(reader,'fixture',descs,tmp_path,'sha256:'+'a'*64)
-        assert fixture.active==0 and fixture.peak<=2 and fixture.calls<=len(descs)
+        assert fixture.idle() and fixture.peak<=2 and fixture.calls<=len(descs)
         assert not (tmp_path/'layer-0.blob').exists()
         assert all(row.get('digest')!=descs[0]['digest'] for row in reader.ledger)
 
@@ -106,5 +106,5 @@ def test_scan_bound_all_layer_validation_precedes_runner_and_scratch_cleanup(mon
             image,scan=current._scan_bound(*args)
             assert scan['complete'] and scan['image']==image and ran==[True]
             assert verified==['caller']*4
-        assert fixture.active==0
+        assert fixture.idle()
     assert not list(tmp_path.iterdir())
