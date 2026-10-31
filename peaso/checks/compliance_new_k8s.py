@@ -199,8 +199,8 @@ _register("k8s_deployment_available_condition", "deployment", "Deployment report
 
 def _ingress_sni_hosts(item, index):
     spec = get(item, "spec", dict)
-    rules = list_of_objects(get(spec, "rules", list))
-    tls = list_of_objects(get(spec, "tls", list))
+    rules = list_of_objects(optional(spec, "rules", [], list))
+    tls = list_of_objects(optional(spec, "tls", [], list))  # Absent spec.tls: no host has TLS.
     covered = set()
     for entry in tls:
         secret = optional(entry, "secretName", "", str)
@@ -223,8 +223,8 @@ _register("k8s_ingress_sni_hosts", "ingress", "Ingress rule hosts have matching 
 
 def _ingress_tls_secret(item, index):
     namespace = get(item, "metadata.namespace", str)
-    rules = list_of_objects(get(item, "spec.rules", list))
-    tls = list_of_objects(get(item, "spec.tls", list))
+    rules = list_of_objects(optional(get(item, "spec", dict), "rules", [], list))
+    tls = list_of_objects(optional(get(item, "spec", dict), "tls", [], list))  # Absent spec.tls: no TLS declared.
     if not namespace:
         return unknown("Ingress namespace absent")
     def secret_names():

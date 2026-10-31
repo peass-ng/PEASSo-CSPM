@@ -231,7 +231,8 @@ def _inventory(index, kind):
         if get(row, "provenance.cluster_id", str) != cluster:
             raise Unavailable("foreign cluster in " + kind + " inventory")
         if kind == "pod":
-            if get(row, "kind", str) != "Pod":
+            # Items of a typed Pod list carry no per-item kind; only a declared foreign kind is rejected.
+            if row.get("kind", "Pod") != "Pod":
                 raise Unavailable("Pod inventory contains a foreign resource kind")
             namespace = get(row, "metadata.namespace", str)
             uid = get(row, "metadata.uid", str)
@@ -277,7 +278,7 @@ def _namespaces(index):
     seen = set()
     result_rows = []
     for row in rows:
-        if get(row, "kind", str) != "Namespace":
+        if row.get("kind", "Namespace") != "Namespace":  # Typed list items carry no kind.
             raise Unavailable("Namespace inventory contains a foreign resource kind")
         name = get(row, "metadata.name", str)
         if not name or name in seen:
