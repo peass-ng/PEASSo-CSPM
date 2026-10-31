@@ -96,6 +96,33 @@ def _service_state(exc, code):
     return None
 
 
+def _s3express_control_absent(exc, service, operation, region):
+    """S3 Express One Zone is offered in fewer Regions than S3, and the SDK
+    endpoint data cannot tell them apart. Its control host has no DNS record
+    in Regions without it; prove that, with the Region's S3 host resolving so
+    a local DNS outage is never mistaken for an unsupported Region."""
+    if (service, operation) != ("s3", "list_directory_buckets") or not isinstance(region, str):
+        return False
+    import socket
+    from urllib.parse import urlsplit
+    url = (getattr(exc, "kwargs", None) or {}).get("endpoint_url")
+    host = urlsplit(url).hostname if isinstance(url, str) else None
+    match = re.fullmatch(r"s3express-control\.([a-z0-9-]+)\.(amazonaws\.com(?:\.cn)?)", host or "")
+    if match is None or match.group(1) != region:
+        return False
+    try:
+        socket.getaddrinfo(f"s3.{region}.{match.group(2)}", 443)
+    except OSError:
+        return False
+    try:
+        socket.getaddrinfo(host, 443)
+    except socket.gaierror as error:
+        return error.errno in {socket.EAI_NONAME, getattr(socket, "EAI_NODATA", socket.EAI_NONAME)}
+    except OSError:
+        return False
+    return False
+
+
 def _failure(exc):
     if isinstance(exc, ReadFailure):
         return exc
@@ -863,7 +890,10 @@ class Requests:
                                 failure = ReadFailure("not_collected", "unsupported_region_service")
                         except Exception:
                             pass
-                    transient_transport = type(exc).__name__ in {"ReadTimeoutError", "ConnectTimeoutError", "EndpointConnectionError", "ConnectionClosedError", "HTTPClientError"}
+                    if (failure.code != "unsupported_region_service" and type(exc).__name__ == "EndpointConnectionError"
+                            and _s3express_control_absent(exc, service, operation, region)):
+                        failure = ReadFailure("not_collected", "unsupported_region_service")
+                    transient_transport =type(exc).__name__ in {"ReadTimeoutError", "ConnectTimeoutError", "EndpointConnectionError", "ConnectionClosedError", "HTTPClientError"}
                     response_meta = getattr(exc, "response", None)
                     response_meta = response_meta.get("ResponseMetadata", {}) if isinstance(response_meta, dict) else {}
                     http_status = response_meta.get("HTTPStatusCode") if isinstance(response_meta, dict) else None
