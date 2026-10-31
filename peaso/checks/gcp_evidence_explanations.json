@@ -1056,11 +1056,11 @@
     "purpose": "An internet-wide service rule can expose the named port; listeners, target matching and authentication remain separate.",
     "missing_observation": "The recorded evidence does not establish the checked service port and its ingress source ranges."
   },
-  "gcp.claude.firewall.public_ingress_postgresql_port_10250": {
+  "gcp.claude.firewall.public_ingress_kubelet_port_10250": {
     "purpose": "An internet-wide service rule can expose the named port; listeners, target matching and authentication remain separate.",
     "missing_observation": "The recorded evidence does not establish the checked service port and its ingress source ranges."
   },
-  "gcp.claude.firewall.public_ingress_postgresql_port_10255": {
+  "gcp.claude.firewall.public_ingress_kubelet_read_only_port_10255": {
     "purpose": "An internet-wide service rule can expose the named port; listeners, target matching and authentication remain separate.",
     "missing_observation": "The recorded evidence does not establish the checked service port and its ingress source ranges."
   },

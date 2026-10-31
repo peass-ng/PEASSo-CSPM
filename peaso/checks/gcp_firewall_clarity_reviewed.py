@@ -396,7 +396,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_fields':
                                                                                         'administration '
                                                                                         'networks that need '
                                                                                         'access.'}},
- 'gcp.claude.firewall.public_ingress_postgresql_port_10250': {'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_kubelet_port_10250': {'description_fields': {'description': 'Checks '
                                                                                                     'whether '
                                                                                                     'an '
                                                                                                     'active '
@@ -453,7 +453,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_fields':
                                                                                                 'networks '
                                                                                                 'that need '
                                                                                                 'access.'}},
- 'gcp.claude.firewall.public_ingress_postgresql_port_10255': {'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_kubelet_read_only_port_10255': {'description_fields': {'description': 'Checks '
                                                                                                     'whether '
                                                                                                     'an '
                                                                                                     'active '

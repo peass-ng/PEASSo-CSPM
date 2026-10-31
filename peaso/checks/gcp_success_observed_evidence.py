@@ -1475,10 +1475,10 @@ RULES=json.loads(r'''
   "gcp.claude.firewall.public_ingress_telnet_port_23": {
     "mode": "firewall"
   },
-  "gcp.claude.firewall.public_ingress_postgresql_port_10250": {
+  "gcp.claude.firewall.public_ingress_kubelet_port_10250": {
     "mode": "firewall"
   },
-  "gcp.claude.firewall.public_ingress_postgresql_port_10255": {
+  "gcp.claude.firewall.public_ingress_kubelet_read_only_port_10255": {
     "mode": "firewall"
   },
   "gcp.claude.firewall.public_ingress_tcp_port_9090": {

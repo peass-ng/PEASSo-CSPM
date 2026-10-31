@@ -10,7 +10,7 @@ def test_historical_alias_projection_keeps_live_registry_unchanged_and_cannot_ex
     historical = registered_before_bulk(CHECKS)
     retired = set(REVIEWED_NATIVE_ALIASES_20261021) - {check.id for check in CHECKS}
     aliases = [check for check in historical if check.id in retired]
-    assert len(aliases) == len(retired) == 7
+    assert aliases and len(aliases) == len(retired)
     for check in aliases:
         with pytest.raises(AssertionError, match='not a runnable current predicate'):
             check.evaluate({}, {})

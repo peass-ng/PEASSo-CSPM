@@ -437,7 +437,7 @@
  "gcp-compliance.control.compute_firewall_rule_ingress_access_restricted_to_postgresql_port_10250": {
   "disposition": "ported",
   "native_checks": [
-   "gcp.claude.firewall.public_ingress_postgresql_port_10250"
+   "gcp.claude.firewall.public_ingress_kubelet_port_10250"
   ],
   "reason": "Active INGRESS allow rule whose declared source ranges include 0.0.0.0/0 or ::/0 (GCP defaults omitted sourceRanges to 0.0.0.0/0 only without source tags/service accounts) and whose protocol/port ranges cover the listed ports. Disabled and EGRESS rules are NOT_APPLICABLE; malformed ports UNKNOWN. Declared configuration only, no reachability claim.",
   "official_docs": [
@@ -459,7 +459,7 @@
  "gcp-compliance.control.compute_firewall_rule_ingress_access_restricted_to_postgresql_port_10255": {
   "disposition": "ported",
   "native_checks": [
-   "gcp.claude.firewall.public_ingress_postgresql_port_10255"
+   "gcp.claude.firewall.public_ingress_kubelet_read_only_port_10255"
   ],
   "reason": "Active INGRESS allow rule whose declared source ranges include 0.0.0.0/0 or ::/0 (GCP defaults omitted sourceRanges to 0.0.0.0/0 only without source tags/service accounts) and whose protocol/port ranges cover the listed ports. Disabled and EGRESS rules are NOT_APPLICABLE; malformed ports UNKNOWN. Declared configuration only, no reachability claim.",
   "official_docs": [

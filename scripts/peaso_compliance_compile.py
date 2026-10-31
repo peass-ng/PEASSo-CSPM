@@ -410,6 +410,11 @@ REVIEWED_NATIVE_ALIASES_20261021 = {
     'aws.c2b.elasticache.cluster_public_subnet': 'aws.c2b.elasticache.cluster_public_subnet_prowler',
     'aws.cb.sns.policy_prohibit_public_access_perimeter': 'aws.cb.sns.policy_no_unrestricted_wildcard',
     'azure.claude.aks_authorized_ip_ranges': 'azure.aks.api_server_restricted',
+    # Renames, not duplicates: ports 10250/10255 are the kubelet API and read-only ports. The retired ids copied
+    # the upstream steampipe query names; the predicate is unchanged.
+    'gcp.claude.firewall.public_ingress_postgresql_port_10250': 'gcp.claude.firewall.public_ingress_kubelet_port_10250',
+    'gcp.claude.firewall.public_ingress_postgresql_port_10255':
+        'gcp.claude.firewall.public_ingress_kubelet_read_only_port_10255',
 }
 
 

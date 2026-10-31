@@ -10301,11 +10301,11 @@
       "decision": "include",
       "group": "security_configuration"
     },
-    "gcp.claude.firewall.public_ingress_postgresql_port_10250": {
+    "gcp.claude.firewall.public_ingress_kubelet_port_10250": {
       "decision": "include",
       "group": "security_configuration"
     },
-    "gcp.claude.firewall.public_ingress_postgresql_port_10255": {
+    "gcp.claude.firewall.public_ingress_kubelet_read_only_port_10255": {
       "decision": "include",
       "group": "security_configuration"
     },
