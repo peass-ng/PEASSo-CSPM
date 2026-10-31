@@ -4,6 +4,7 @@ Each path is checked against the pinned Botocore models by the coverage tests.
 Only policy documents and resource identities leave this collector.
 """
 from dataclasses import dataclass
+import functools
 import json
 from urllib.parse import unquote
 
@@ -275,9 +276,42 @@ def resolve(value, context):
     return value.format_map(context)
 
 
+def is_account_global(r):
+    """A recipe whose reads return the same account-wide answer from every Region.
+
+    Pinned recipes always call one fixed endpoint (IAM, Organizations,
+    CloudFront, ECR Public, ...). ListBuckets returns every bucket of the
+    account whichever S3 Regional endpoint serves it.
+    """
+    return r.region is not None or r.id == "s3-buckets"
+
+
+@functools.lru_cache(maxsize=1)
+def global_recipe_ids():
+    return frozenset(r.id for r in RECIPES if is_account_global(r))
+
+
+def global_home(requests, account):
+    """The one audited Region whose scope holds this account's global policies.
+
+    The lexicographically first audited Region: the scope the analysis already
+    kept when every Region carried a copy, independent of the order the
+    Regions were given in, and always inside the scanned set and partition
+    (pinned recipes still call their partition's global endpoint from it).
+    None when the scan's Region plan is unknown (direct calls): read all.
+    """
+    audited = getattr(requests, "audited_regions_by_account", None)
+    regions = audited.get(account) if isinstance(audited, dict) else None
+    return min(regions) if regions else None
+
+
 def collect(requests, session, region, account, recipes=None):
     from .aws import ReadResult
     selected = RECIPES if recipes is None else recipes
+    home = global_home(requests, account)
+    if home is not None and region != home:
+        # Read account-global families once per account, not once per Region.
+        selected = [r for r in selected if not is_account_global(r)]
     partition = session.get_partition_for_region(region)
     policies, failures = {}, []
 

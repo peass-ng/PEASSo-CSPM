@@ -6445,11 +6445,22 @@ def _aws_ecr_template_pull(snapshot, inventory, resource):
 
 
 
+def _account_global_policy(provenance):
+    """Whether every collector family of this policy row is account-global."""
+    from peaso.collectors.aws_resource_policy_families import global_recipe_ids
+    families = provenance.get("families") if isinstance(provenance, dict) else None
+    if not isinstance(families, list) or not families:
+        return False
+    return all(family in global_recipe_ids() for family in families)
+
+
 def _later_global_policy_copy(inventory, resource, account, arn):
     """True when this account-global policy was also read in an earlier-sorted Region.
 
-    Global families (S3 buckets, IAM role trusts) are listed from every scanned
-    Region; only the first copy is assessed so one policy gives one result.
+    The collector reads global families (S3 buckets, IAM role trusts, pinned
+    global endpoints) once, in the first audited Region. Snapshots from older
+    collectors hold one copy per Region; only the first copy is assessed so one
+    policy gives one result either way.
     """
     key = ("global_policy_first_scope", None)
     if key not in inventory.network_cache:
@@ -6501,8 +6512,13 @@ def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
         a.gap("inventory", "Resource policy source or owner is not attributable to the scanned account")
         return a
     parts = arn.split(":", 5)
+    account_global = _account_global_policy(provenance)
+    # An account-global family is read once, from one audited Region, at its
+    # fixed home endpoint; its ARN carries that endpoint's Region.
+    home_endpoint = (account_global and provenance.get("collection_region") == region and
+                     isinstance(provenance.get("source_region"), str) and parts[3:4] == [provenance["source_region"]])
     if (len(parts) != 6 or parts[0] != "arn" or parts[1] != partition or
-            parts[3] not in (region, "") or parts[4] not in (account, "") or not parts[5] or
+            (parts[3] not in (region, "") and not home_endpoint) or parts[4] not in (account, "") or not parts[5] or
             (parts[4] == "" and not all(str(family).startswith("s3-") for family in provenance["families"]))):
         a.gap("inventory", "Resource policy ARN is outside the owned partition, account or Region")
         return a
@@ -6511,7 +6527,7 @@ def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
         # PutResourcePolicy only authorizes AWS service principals. Destination
         # access policies have their own cross-account handler.
         return None
-    if parts[3] == "" and _later_global_policy_copy(inventory, resource, account, arn):
+    if (parts[3] == "" or account_global) and _later_global_policy_copy(inventory, resource, account, arn):
         return None
     policy = data.get("Policy")
     statements = policy.get("Statement") if isinstance(policy, dict) else None
