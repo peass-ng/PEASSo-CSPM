@@ -1100,6 +1100,7 @@ def _client_error(operation, code, message):
     ("ListAssessmentFrameworkShareRequests", "AccessDeniedException", "Please complete AWS Audit Manager setup from home page to enable this action in this account.", "service_not_enabled"),
     ("ListEnvironments", "AccessDeniedException", "This account does not have access to the Cloud9 service", "service_not_enabled"),
     ("ListDistributedGrants", "AccessDeniedException", "Service role not found. Consult setup procedures in License Manager User Guide and create the required role for the service.", "service_not_enabled"),
+    ("DescribeMLModels", "AccessDeniedException", "Thank you for your interest in Amazon Machine Learning. AmazonML is no longer available to new customers.  Please consider using Amazon SageMaker.", "service_not_enabled"),
     ("ListAccessGrants", "AccessGrantsInstanceNotExistsError", "Access Grants Instance does not exist", "service_not_enabled"),
     ("ListSubscribers", "ResourceNotFoundException", "The request failed because Security Lake isn't enabled for your account in any Regions. Enable Security Lake for your account and then try again.", "service_not_enabled"),
     ("GetDataLakeExceptionSubscription", "AccessDeniedException", "To perform this operation, your account must be a delegated Security Lake administrator account or a standalone Security Lake account.", "not_delegated_administrator"),
@@ -1130,6 +1131,7 @@ def test_api_missing_from_installed_sdk_is_named_not_a_failed_read():
     ("DescribeHub", "InvalidAccessException", "User is not authorized to perform: securityhub:DescribeHub"),
     ("ListEnvironments", "AccessDeniedException", "User is not authorized to perform: cloud9:ListEnvironments"),
     ("DescribeDomains", "NotAuthorized", "User is not authorized to perform: cloudsearch:DescribeDomains"),
+    ("DescribeMLModels", "AccessDeniedException", "User is not authorized to perform: machinelearning:DescribeMLModels"),
 ])
 def test_undocumented_or_nonmatching_replies_stay_denied_or_unknown(operation, code, message):
     failure = aws._failure(_client_error(operation, code, message))

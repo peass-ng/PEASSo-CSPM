@@ -78,6 +78,9 @@ _SERVICE_STATES = (
     (None, "AccessDeniedException", r"Please complete AWS Audit Manager setup from home page to enable this action in this account\.?", "service_not_enabled"),
     (None, "AccessDeniedException", r"This account does not have access to the Cloud9 service\.?", "service_not_enabled"),
     (None, "AccessDeniedException", r"Service role not found\. Consult setup procedures in License Manager User Guide and create the required role for the service\.?", "service_not_enabled"),
+    # Legacy Amazon Machine Learning is closed to new customers: accounts that
+    # never used it get this reply (seen live 2026-10-31) whatever IAM allows.
+    ({"DescribeMLModels"}, "AccessDeniedException", r"Thank you for your interest in Amazon Machine Learning\. AmazonML is no longer available to new customers\.\s+Please consider using Amazon SageMaker\.?", "service_not_enabled"),
     (None, "AccessGrantsInstanceNotExistsError", r"Access Grants Instance does not exist\.?", "service_not_enabled"),
     (None, "ResourceNotFoundException", r"The request failed because Security Lake isn't enabled for your account in any Regions\. Enable Security Lake for your account and then try again\.?", "service_not_enabled"),
     (None, "AccessDeniedException", r"To perform this operation, your account must be a delegated Security Lake administrator account or a standalone Security Lake account\.?", "not_delegated_administrator"),
