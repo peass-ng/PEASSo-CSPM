@@ -1772,7 +1772,8 @@ class _KeepAlivePool:
                 entries = self.idle.get(key)
                 while entries:
                     connection, stamp = entries.pop()
-                    if now - stamp <= self.idle_seconds and connection.sock is not None:
+                    if (now - stamp <= self.idle_seconds and connection.sock is not None and
+                            connection.sock.fileno() != -1):
                         self.reused += 1
                         return connection
                     stale.append(connection)
@@ -1863,8 +1864,14 @@ class _KeepAliveHTTPSHandler(HTTPSHandler):
                 with self._pool.lock:
                     self._pool.created += 1
             else:
-                connection.timeout = req.timeout
-                connection.sock.settimeout(req.timeout)
+                try:
+                    connection.timeout = req.timeout
+                    connection.sock.settimeout(req.timeout)
+                except OSError:
+                    # An idle socket whose descriptor is already gone cannot
+                    # carry a request; open a fresh connection instead.
+                    connection.close()
+                    continue
             try:
                 try:
                     connection.request(req.get_method(), req.selector, req.data, headers,
