@@ -214,6 +214,10 @@ def root_candidate(row):
                     or not re.fullmatch(r"//cloudkms\.googleapis\.com/projects/[^/]+/locations/[^/]+/keyRings/[^/]+" + suffix,
                                         name, re.ASCII)):
                 return True
+        if asset_type == "iam.googleapis.com/ServiceAccount":
+            # A service account is a resource peer only under its structurally
+            # nested IAM name; a project root never has that name.
+            return not re.fullmatch(r"//iam\.googleapis\.com/projects/[^/]+/serviceAccounts/[^/]+", name, re.ASCII)
         return asset_type not in KNOWN_RESOURCE_PEERS
     except AliasUnavailable:
         return True
