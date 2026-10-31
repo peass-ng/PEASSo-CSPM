@@ -64,7 +64,7 @@ def prime_repo(stub, paths=('/config.py',), content=SECRET):
         stub.add_response('get_file', {'commitId': COMMIT, 'blobId': 'b'*40, 'filePath': path, 'fileMode': 'NORMAL', 'fileSize': len(content.encode()), 'fileContent': content.encode()}, {'repositoryName': 'demo', 'commitSpecifier': COMMIT, 'filePath': path})
 
 
-def log_args(requests, token=None, limit=100):
+def log_args(requests, token=None, limit=c.MAX_MESSAGES):
     end = int(requests.observed_at.timestamp()*1000)
     return {'logGroupName': 'demo', 'startTime': end-86400000, 'endTime': end, 'limit': limit, **({'nextToken': token} if token else {})}
 
@@ -195,15 +195,47 @@ def test_log_repeated_token_partial(sdk):
     assert not sample['complete'] and sample['collection_status'] == 'partial'
 
 
-def test_log_message_cap_partial(sdk):
-    requests, session, stubs, routes = sdk
+def _log_window(requests, stubs, total, secret_last, page=None):
+    """Queue `total` events over pages; the last event may carry a secret."""
     stamp = log_args(requests)['startTime']+1
-    stubs['logs'].add_response('filter_log_events', {'events': [{'timestamp': stamp, 'message': SECRET}]*100, 'nextToken': 'next'}, log_args(requests))
+    events = [{'timestamp': stamp+i, 'message': f'request {i} handled ok'} for i in range(total)]
+    if secret_last:
+        events[-1]['message'] = SECRET
+    page = page or c.MAX_MESSAGES
+    chunks = [events[i:i+page] for i in range(0, total, page)] or [[]]
+    for number, chunk in enumerate(chunks):
+        token = f'page-{number}' if number else None
+        last = number == len(chunks)-1
+        stubs['logs'].add_response('filter_log_events', {'events': chunk, **({} if last else {'nextToken': f'page-{number+1}'})},
+                                   log_args(requests, token))
+
+
+@pytest.mark.parametrize('total,page', [(150, None), (150, 100), (5000, None), (5000, 1000)])
+@pytest.mark.parametrize('secret_last', [False, True])
+def test_whole_log_window_is_read(sdk, total, page, secret_last):
+    requests, session, stubs, _ = sdk
+    _log_window(requests, stubs, total, secret_last, page)
     sample = c.scan_logs(requests, session, REGION, GROUP)
-    assert len(sample['records']) == 100 and not sample['complete']
+    assert sample['complete'] and sample['events_inspected'] == total
     item, index = fixture('logs')
     item['ContentSecretIndicators'] = sample
-    assert checks.logs(item, index)[0] == 'FAIL'
+    status, evidence = checks.logs(item, index)
+    assert status == ('FAIL' if secret_last else 'PASS')
+    assert evidence['records_inspected'] == total
+
+
+@pytest.mark.parametrize('secret_last', [False, True])
+def test_log_event_bound_cut_is_partial(sdk, monkeypatch, secret_last):
+    requests, session, stubs, _ = sdk
+    monkeypatch.setattr(c, 'MAX_LOG_EVENTS', 100)
+    stamp = log_args(requests)['startTime']+1
+    events = [{'timestamp': stamp, 'message': 'clean'}]*99 + [{'timestamp': stamp, 'message': SECRET if secret_last else 'clean'}]
+    stubs['logs'].add_response('filter_log_events', {'events': events, 'nextToken': 'next'}, log_args(requests, limit=100))
+    sample = c.scan_logs(requests, session, REGION, GROUP)
+    assert not sample['complete'] and sample['collection_status'] == 'partial'
+    item, index = fixture('logs')
+    item['ContentSecretIndicators'] = sample
+    assert checks.logs(item, index)[0] == ('FAIL' if secret_last else 'UNKNOWN')
 
 
 @pytest.mark.parametrize('mode', ['file', 'logs'])
@@ -255,7 +287,7 @@ def test_positive_then_denied_log_page(sdk):
     requests, session, stubs, _ = sdk
     stamp = log_args(requests)['startTime']+1
     stubs['logs'].add_response('filter_log_events', {'events': [{'timestamp': stamp, 'message': SECRET}], 'nextToken': 'next'}, log_args(requests))
-    stubs['logs'].add_client_error('filter_log_events', service_error_code='AccessDeniedException', expected_params=log_args(requests, 'next', 99))
+    stubs['logs'].add_client_error('filter_log_events', service_error_code='AccessDeniedException', expected_params=log_args(requests, 'next'))
     sample = c.scan_logs(requests, session, REGION, GROUP)
     assert sample['collection_status'] == 'partial' and not sample['complete']
     item, index = fixture('logs')
@@ -368,3 +400,16 @@ def test_loaded_collector_contract():
     assert aws.SPECS['codecommit_repository'] == c.SPECS['codecommit_repository']
     assert aws._NATIVE_IDS['codecommit_repository'] == 'repositoryName'
     assert all(kind in aws.ENRICHERS for kind in ('codecommit_repository', 'log_group'))
+
+
+def test_many_positive_events_keep_failing_beyond_retained_records(sdk):
+    requests, session, stubs, _ = sdk
+    total = c.MAX_LOG_RECORDS + 50
+    stamp = log_args(requests)['startTime']+1
+    stubs['logs'].add_response('filter_log_events', {'events': [{'timestamp': stamp+i, 'message': SECRET} for i in range(total)]},
+                               log_args(requests))
+    sample = c.scan_logs(requests, session, REGION, GROUP)
+    assert sample['events_inspected'] == total
+    item, index = fixture('logs')
+    item['ContentSecretIndicators'] = sample
+    assert checks.logs(item, index)[0] == 'FAIL'

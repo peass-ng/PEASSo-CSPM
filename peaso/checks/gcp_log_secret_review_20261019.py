@@ -4,7 +4,7 @@ from datetime import timedelta, datetime, timezone
 
 from .facts import get, Unavailable
 from peaso.collectors.gcp_log_secret_indicators import (
-    KIND, SCHEMA, SCOPE, PATH, stamp, MAX_ENTRIES, MAX_PAGES, MAX_SAMPLE_BYTES,
+    KIND, SCHEMA, SCOPE, PATH, stamp, MAX_ENTRIES, MAX_PAGES, MAX_SAMPLE_BYTES, PAGE_SIZE,
 )
 from peaso.secret_scanning import merge_leaks, KINGFISHER_VERSION, TRUFFLEHOG_VERSION
 
@@ -66,7 +66,7 @@ def evaluate(item, index):
                     or {e['engine'] for e in engines} != set(expected)):
                 raise Unavailable('both pinned detectors required')
         for nums in counts.values():
-            if nums != [0] and (not nums or sorted(nums) != list(range(1, len(nums) + 1)) or len(nums) > 50):
+            if nums != [0] and (not nums or sorted(nums) != list(range(1, len(nums) + 1)) or len(nums) > PAGE_SIZE):
                 raise Unavailable('message coverage')
         if sum(n != 0 for nums in counts.values() for n in nums) != sample['entries']:
             raise Unavailable('entry coverage')

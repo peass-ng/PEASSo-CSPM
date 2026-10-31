@@ -191,7 +191,7 @@ def test_native_unavailable_or_unsafe_never_clean(harness, clean, case):
         for _ in range(15): value = {'nested': value}
         row['jsonPayload'] = value; del row['textPayload']
     if case == 'message_bytes': row['textPayload'] = 'é' * native.MAX_MESSAGE_BYTES
-    if case == 'page_entries': page['entries'] = [row] * 51
+    if case == 'page_entries': page['entries'] = [row] * (native.PAGE_SIZE + 1)
     if case == 'malformed_resource': row['resource'] = []
     result = harness([page], status=status)
     assert result.result[0] == 'UNKNOWN'
@@ -270,7 +270,8 @@ def test_sample_byte_budget_prevents_additional_content_scan(harness, clean, mon
     assert result.item['sample']['bytes'] == 6
 
 
-def test_pagination_preserves_all_parameters_and_remaining_entry_bound(harness, clean):
+def test_pagination_preserves_all_parameters_and_remaining_entry_bound(harness, clean, monkeypatch):
+    monkeypatch.setattr(native, 'MAX_ENTRIES', 100)
     result = harness([{'entries': [entry()], 'nextPageToken': 'a'},
                       {'entries': [entry()] * 50, 'nextPageToken': 'b'},
                       {'entries': [entry()] * 50}])
@@ -444,3 +445,27 @@ def test_discovered_project_authorized_by_resolved_collector_scope(harness, clea
     result = harness([{'entries': [entry()]}], scopes=['*'],
                      resolved_scopes=[SCOPE], options={'all_projects': True})
     assert result.result[0] == 'PASS' and len(result.calls) == 1
+
+
+@pytest.mark.parametrize('total', [150, 5000])
+@pytest.mark.parametrize('secret_last', [False, True])
+def test_whole_window_is_read_to_the_end(harness, monkeypatch, total, secret_last):
+    found = lambda payload, *a: [(TOKEN, 'synthetic', 1)] if TOKEN.encode() in payload else []
+    monkeypatch.setattr(scanning, '_scan_kingfisher', found)
+    monkeypatch.setattr(scanning, '_scan_trufflehog', found)
+    rows = [entry(f'request {i} handled ok') for i in range(total)]
+    if secret_last:
+        rows[-1] = entry('token=' + TOKEN)
+    size = native.PAGE_SIZE
+    chunks = [rows[i:i + size] for i in range(0, total, size)]
+    pages = [{'entries': chunk, **({'nextPageToken': f'p{n}'} if n < len(chunks) - 1 else {})}
+             for n, chunk in enumerate(chunks)]
+    result = harness(pages)
+    assert result.item['sample']['entries'] == total
+    assert result.result[0] == ('FAIL' if secret_last else 'PASS')
+
+
+def test_window_cut_by_entry_bound_is_unknown(harness, clean, monkeypatch):
+    monkeypatch.setattr(native, 'MAX_ENTRIES', 100)
+    result = harness([{'entries': [entry()] * 100, 'nextPageToken': 'more'}])
+    assert result.result[0] == 'UNKNOWN'

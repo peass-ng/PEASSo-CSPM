@@ -31,10 +31,13 @@ MARKER = 'SelectedLogSampleSecretIndicators'
 SCHEMA = 'azure-selected-message-sample-v1'
 MAX_TARGETS = 4
 MAX_CALLS = 12
-MAX_ROWS = 100
-MAX_WIRE = 2 * 1024 * 1024
-MAX_TOTAL = 8 * 1024 * 1024
-MAX_CONTENT = 256 * 1024
+# The selected one-hour window is read whole rather than sampled. These bounds
+# only stop pathological tables; a window that fills the row budget may hold
+# more rows, so it stays incomplete (UNKNOWN) instead of claiming absence.
+MAX_ROWS = 10000
+MAX_WIRE = 32 * 1024 * 1024
+MAX_TOTAL = 64 * 1024 * 1024
+MAX_CONTENT = 16 * 1024 * 1024
 MAX_SECONDS = 120
 WINDOW_SECONDS = 3600
 MAX_LEAKS = 256
@@ -241,7 +244,8 @@ def _scan(reader, transport, profile, target, scope, state, receipts):
             if len(bounded) >= MAX_LEAKS or locations + len(leak['locations']) > MAX_LOCATIONS: break
             bounded.append(leak); locations += len(leak['locations'])
         marker['leaks'] = bounded
-        remaining(reader,state); marker['complete'] = result['complete'] is True and not partial and len(bounded) == len(leaks)
+        remaining(reader,state); marker['complete'] = (result['complete'] is True and not partial and len(bounded) == len(leaks)
+            and marker['row_count'] < limit)
     except Exception:
         marker['complete'] = False
     marker['source_requests'] = [r['id']for r in receipts[first:]]

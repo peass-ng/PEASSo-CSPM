@@ -15,15 +15,19 @@ KIND = 'log_secret_sample'
 OPERATION = 'application-log-secret-sample'
 SCHEMA = 'gcp-application-log-secret-sample-v1'
 URL = 'https://logging.googleapis.com/v2/entries:list'
-MAX_PAGE_BYTES = 262144
+# The 15-minute window is read to the end rather than sampled: each page is
+# scanned and released before the next one is requested. These bounds only
+# stop pathological projects; when one cuts the window the result stays
+# incomplete (UNKNOWN), otherwise a fully read window is a real PASS/FAIL.
+MAX_PAGE_BYTES = 16 * 1024 * 1024
 MAX_MESSAGE_BYTES = 65536
-MAX_SAMPLE_BYTES = 524288
-MAX_ENTRIES = 100
-MAX_PAGES = 3
-PAGE_SIZE = 50
-MAX_SECONDS = 45
+MAX_SAMPLE_BYTES = 64 * 1024 * 1024
+MAX_ENTRIES = 20000
+MAX_PAGES = 100
+PAGE_SIZE = 500
+MAX_SECONDS = 600
 SCOPE = re.compile(r'projects/(?:[a-z][a-z0-9-]{0,62}|[0-9]{1,20})')
-PATH = re.compile(r'page/[1-3]/message/[1-9][0-9]?/(?:textPayload|jsonPayload)|page/[1-3]/empty')
+PATH = re.compile(r'page/[1-9][0-9]{0,2}/message/[1-9][0-9]{0,2}/(?:textPayload|jsonPayload)|page/[1-9][0-9]{0,2}/empty')
 
 
 def enabled(options):
