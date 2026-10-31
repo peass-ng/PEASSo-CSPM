@@ -1891,7 +1891,7 @@ def check_api_delivery_plan(data, expected):
             raise RuntimeError("Saved API Lambda is absent")
         values = (row.get("change") or {}).get("after") or {}
         markers = (row.get("change") or {}).get("after_unknown") or {}
-        if (values.get("filename") is not None or values.get("s3_bucket") != bucket or
+        if (values.get("filename") not in (None, "") or values.get("s3_bucket") != bucket or
                 values.get("s3_key") != key or
                 values.get("source_code_hash") != expected["api_code_sha256"] or
                 values.get("s3_object_version") is not None or markers.get("s3_object_version") is True):
@@ -2668,7 +2668,7 @@ def verify_resolved_api_delivery(session, contract):
         raise RuntimeError("Resolved API package key or bucket differs from reviewed delivery")
     for name in ("api", "scheduler"):
         values = rows.get(f"aws_lambda_function.{name}") or {}
-        if (values.get("filename") is not None or values.get("s3_bucket") != bucket or
+        if (values.get("filename") not in (None, "") or values.get("s3_bucket") != bucket or
                 values.get("s3_key") != key or values.get("s3_object_version") is not None):
             raise RuntimeError(f"Resolved {name} Lambda references a different S3 package")
     import base64
