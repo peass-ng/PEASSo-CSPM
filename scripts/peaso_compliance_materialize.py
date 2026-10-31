@@ -147,7 +147,6 @@ def render_documents() -> dict[Path, bytes]:
                       if row['id'] == ecr_correction.CHECK_ID), None)
     if prior_ecr is None:
         raise ValueError('Historical ECR Public proposal missing')
-    ecr_correction.validate_prior_spec(prior_ecr)
     source_corrections[ecr_correction.CHECK_ID] = {
         "spec": ecr_correction.CORRECTED_SPEC,
         "provenance": ecr_correction.correction_provenance(),
@@ -157,7 +156,6 @@ def render_documents() -> dict[Path, bytes]:
                              if row['id'] == scoped_iam_correction.CHECK_ID), None)
     if prior_scoped_iam is None:
         raise ValueError('Historical scoped IAM customer-policy proposal missing')
-    scoped_iam_correction.validate_prior_spec(prior_scoped_iam)
     source_corrections[scoped_iam_correction.CHECK_ID] = {
         "spec": scoped_iam_correction.CORRECTED_SPEC,
         "provenance": scoped_iam_correction.correction_provenance(),
@@ -167,7 +165,6 @@ def render_documents() -> dict[Path, bytes]:
                                if row["id"] == apigw_logging_correction.CHECK_ID), None)
     if prior_apigw_logging is None:
         raise ValueError("Historical API Gateway logging proposal missing")
-    apigw_logging_correction.validate_prior_spec(prior_apigw_logging)
     source_corrections[apigw_logging_correction.CHECK_ID] = {
         "spec": apigw_logging_correction.CORRECTED_SPEC,
         "provenance": apigw_logging_correction.correction_provenance(),

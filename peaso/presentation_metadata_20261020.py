@@ -10,9 +10,6 @@ from pathlib import Path
 from types import MappingProxyType
 
 REGISTRY_PATH = Path(__file__).resolve().parent / 'checks/finding_types.json'
-# Unused; kept only because peaso/server/finding_types_static_20261020.py still
-# re-exports it. Remove together with that import.
-REGISTRY_SHA256 = '533306fc7e6c2eb6db6cbadf33857e1d3d04bcdaf4270cb09ee142772ea3fe4a'
 MAX_REGISTRY_BYTES = 1024 * 1024
 ALIASES = MappingProxyType({
     'gcp.compute.os_login': 'gcp.ports.compute_oslogin_metadata_precedence',

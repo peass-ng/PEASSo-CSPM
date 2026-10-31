@@ -283,10 +283,7 @@ statuses=[[f["status"] for f in engine.evaluate_snapshot(s,checks=[base.CHECK])[
 print(json.dumps({"statuses":statuses,"key_canary":secret_scanning._fingerprint("cross-process-canary")}))
 '''
     repo = Path(__file__).resolve().parents[1]
-    # The child measures the shipped evaluation path. The suite-wide
-    # PEASO_SOURCE_ATTESTATION=always re-proves every source on a cold import
-    # (minutes of CPU), which is not what this cross-process HMAC check tests.
-    env = {k: v for k, v in os.environ.items() if k != 'PEASO_SOURCE_ATTESTATION'}
+    env = dict(os.environ)
     child = subprocess.run([sys.executable, '-I', '-c', 'import sys;sys.path.insert(0,' + repr(str(repo)) + ');' + script],
         input=json.dumps(snapshots), text=True, capture_output=True, timeout=120,
         cwd=repo, env={**env, 'PYTHONDONTWRITEBYTECODE': '1'})

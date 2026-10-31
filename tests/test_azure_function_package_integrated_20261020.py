@@ -200,10 +200,7 @@ with owner_admission(expected):
 assert len(result['findings']) == 1 and result['findings'][0]['status'] == 'FAIL'
 print(json.dumps(result['findings']))
 '''
-    # Run the shipped attestation mode: the fresh child still proves every pinned
-    # source once. The suite-wide PEASO_SOURCE_ATTESTATION=always re-proves on
-    # every nested call (minutes of CPU on a cold import), unrelated to replay.
-    shipped = {k: v for k, v in os.environ.items() if k != 'PEASO_SOURCE_ATTESTATION'}
+    shipped = dict(os.environ)
     result = subprocess.run([sys.executable, '-c', code, str(path)], cwd=ROOT,
         capture_output=True, text=True, timeout=120, env={**shipped, 'PYTHONPATH': str(ROOT)})
     assert result.returncode == 0, result.stderr
@@ -249,8 +246,7 @@ from peaso.cli import main
 raise SystemExit(main(sys.argv[1:]))
 '''
     command = [sys.executable, '-c', offline_cli, 'evaluate', str(saved), '--checks', runtime.CHECK, '--quiet']
-    # Shipped attestation mode in the cold child, as in the JSON replay above.
-    shipped = {k: v for k, v in os.environ.items() if k != 'PEASO_SOURCE_ATTESTATION'}
+    shipped = dict(os.environ)
     child = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=120,
         env={**shipped, 'XDG_STATE_HOME': str(tmp_path / 'empty-state')})
     assert child.returncode == 0, child.stderr

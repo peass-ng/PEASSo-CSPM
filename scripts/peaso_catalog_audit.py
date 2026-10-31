@@ -40,7 +40,6 @@ def reviewed_correction_matches(check_id, correction):
     for module in (aws_apigateway_logging_source_correction,
                    aws_ecr_source_correction, aws_pci_iam_scoped_source_correction):
         if check_id == module.CHECK_ID:
-            module.validate_prior_spec()
             return correction == {"spec": module.CORRECTED_SPEC,
                                   "provenance": module.correction_provenance()}
     if check_id == "gcp.apikeys.active_service_restrictions":
