@@ -1975,7 +1975,7 @@ class GCPCollector:
             state, error = exc.status, {"kind": exc.status, **exc.error}
             if getattr(exc, "request_id", None):
                 source_requests.append(exc.request_id)
-            if exc.error.get("reason") == "SERVICE_DISABLED" and exc.error.get("consumer") == scope:
+            if exc.error.get("reason") == "SERVICE_DISABLED" and self.consumer_is_scope(exc.error.get("consumer"), scope):
                 # A disabled API cannot inventory retained resources (for example,
                 # Cloud Storage buckets or BigQuery datasets). Preserve the error.
                 service_state = {"state": "disabled", "reason": "SERVICE_DISABLED", "service": exc.error.get("service"),
@@ -5923,6 +5923,41 @@ class GCPCollector:
             return
         values.update(matches)
 
+    def project_number(self, scope):
+        """The numeric name of a project scope, only from a CRM read this scan already made."""
+        binding = self.data_project_bindings.get(scope) if isinstance(getattr(self, "data_project_bindings", None), dict) else None
+        if isinstance(binding, dict) and isinstance(binding.get("project_number"), str):
+            return binding["project_number"]
+        envelope = self.collections.get(("project", scope))
+        project_id = scope.removeprefix("projects/")
+        for row in (envelope or {}).get("items", []) if isinstance(envelope, dict) else []:
+            name = row.get("name") if isinstance(row, dict) else None
+            if (row.get("projectId") == project_id and isinstance(name, str)
+                    and re.fullmatch(r"projects/[1-9][0-9]*", name)):
+                return name.split("/")[1]
+        return None
+
+    def consumer_is_scope(self, consumer, scope):
+        """ErrorInfo may name the consumer project by number while the scope uses its ID."""
+        if not isinstance(consumer, str) or not isinstance(scope, str) or not scope.startswith("projects/"):
+            return False
+        if consumer == scope:
+            return True
+        number = self.project_number(scope) if re.fullmatch(r"projects/[0-9]+", consumer) else None
+        return number is not None and consumer == "projects/" + number
+
+    def bind_numeric_disabled_consumers(self):
+        """Record SERVICE_DISABLED for the scope when its consumer number was proved after the read."""
+        for (kind, scope), envelope in self.collections.items():
+            error = envelope.get("error") if isinstance(envelope, dict) else None
+            if (not isinstance(error, dict) or error.get("reason") != "SERVICE_DISABLED"
+                    or "service_state" in envelope or error.get("consumer") == scope
+                    or not self.consumer_is_scope(error.get("consumer"), scope)):
+                continue
+            requests = [r for r in envelope.get("source_requests", []) if isinstance(r, str)]
+            envelope["service_state"] = {"state": "disabled", "reason": "SERVICE_DISABLED",
+                "service": error.get("service"), "consumer": scope, "source_requests": requests[-1:]}
+
     def prune_disabled_services(self):
         """Keep enabled services and only the disabled ones some check, analysis or API key names.
 
@@ -5950,6 +5985,7 @@ class GCPCollector:
     def finish(self):
         from peaso.snapshot import make_snapshot
         self.prune_disabled_services()
+        self.bind_numeric_disabled_consumers()
         envelopes, hierarchy_discovery = [], []
         for key, collection in sorted(self.collections.items()):
             if key[1] == "discovery":
