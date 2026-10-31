@@ -454,7 +454,6 @@ REPRODUCTION_INPUT_PATTERNS = (
     'tests/test_peaso_collector_swc_gcp_wave.py',
     'tests/test_peaso_gcp_project_alias_pipeline.py',
     'tests/test_shared_admission_epoch_compatibility_20261020.py',
-    "tests/azure_windows_scope_history_20261020.py",
     "tests/fixtures/azure-windows-scope-predecessor-20261020.json",
     'tests/fixtures/gcp-final-residual-predecessors-20261020.json.gz',
     'tests/fixtures/gcp-final-residual-source-closure-20261020.json',

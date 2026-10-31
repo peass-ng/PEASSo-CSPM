@@ -282,6 +282,7 @@ def expected(cid,mode):
         if cid in ('azure.claude.sql_server_vulnerability_assessment_enabled','azure.claude2.sql_server_threat_detection_all_alerts'):return 'PASS'
         if cid=='azure.htbp.keyvault.template_deployment_disabled':return 'PASS'  # documented false default
         if cid=='azure.claude.recovery_vault_managed_identity':return 'FAIL'  # native no identity declaration
+        if cid in ('azure.port.keyvault_vault_recoverable','azure.vault.purge_protection'):return 'FAIL'  # documented default: purge protection off
         return 'UNKNOWN'
     return 'FAIL'if mode=='negative'else'PASS'
 

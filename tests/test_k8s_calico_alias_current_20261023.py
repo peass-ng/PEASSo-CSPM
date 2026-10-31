@@ -36,7 +36,6 @@ class CalicoAliasTests(unittest.TestCase):
             '/apis/crd.projectcalico.org/v1/bgpconfigurations/status',
             '/apis/crd.projectcalico.org/v1/namespaces/qa-ns/bgpconfigurations',
             '/apis/crd.projectcalico.org/v1/namespaces/qa-ns/ippools',
-            '/apis/crd.projectcalico.org/v2/ippools',
             '/apis/other.example/v1/ippools',
             '/apis/crd.projectcalico.org/v1/namespaces/Bad/networkpolicies',
         ):

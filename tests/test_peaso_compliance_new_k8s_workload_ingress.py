@@ -35,7 +35,8 @@ def test_pod_uid_inheritance_override_and_unknown_image_user():
     assert verdict(cid, windows)[0] == "NOT_APPLICABLE"
     missing_os = deepcopy(cases["pass"])
     del missing_os["spec"]["os"]
-    assert verdict(cid, missing_os)[0] == "UNKNOWN"
+    # Kubernetes treats a Pod without spec.os as Linux.
+    assert verdict(cid, missing_os)[0] == "PASS"
     init_root = deepcopy(cases["pass"])
     init_root["spec"]["initContainers"][0]["securityContext"]["runAsUser"] = 0
     assert verdict(cid, init_root)[0] == "FAIL"

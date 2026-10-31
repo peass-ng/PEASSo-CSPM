@@ -317,7 +317,7 @@ def expected(cid,mode):
         if 'no_azure_services_rule' in slug or 'no_zero_address_rule' in slug:return 'PASS'
         if slug=='postgresql_flexible_connection_throttling':return 'NOT_APPLICABLE'
         if slug=='recovery_vault_backup_retention_30_days':return 'FAIL'
-        if slug in ('cosmos_cmk','cosmos_private_endpoint_present','keyvault_firewall_ip_rules','keyvault_audit_logging','keyvault_audit_and_alllogs_groups','managed_hsm_audit_logging'):return 'FAIL'
+        if slug in ('cosmos_cmk','cosmos_private_endpoint_present','keyvault_firewall_ip_rules','keyvault_private_endpoint_exists','keyvault_audit_logging','keyvault_audit_and_alllogs_groups','managed_hsm_audit_logging'):return 'FAIL'
         if 'expiration_set' in slug:return 'FAIL'  # absent optional exp on complete metadata means no configured expiry
         if 'rotation' in slug:return 'FAIL'  # GET policy with omitted optional lifetimeActions has no Rotate action
         return 'UNKNOWN'

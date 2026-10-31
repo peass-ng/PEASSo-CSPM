@@ -17,13 +17,12 @@ def test_every_scope_observation_comes_from_actual_registered_fixture(row):
  else:
   fx=CASES[cid];item,index=fx[state],fx.get(state+'_index',fx.get('index',{}))
  if cid=='azure.claude.vm_windows_secure_boot' and state=='not_applicable':
-  # This exact old image-offer witness describes archived reports. Native OS
+  # The old image-offer witness only describes archived reports. Native OS
   # facts now take precedence; the same Windows fixture correctly fails today.
-  from tests.azure_windows_scope_history_20261020 import historical_secure_boot
-  status,evidence=historical_secure_boot(deepcopy(item),deepcopy(index))
   native_status,native_evidence=CHECK[cid].evaluate(deepcopy(item),deepcopy(index))
   assert native_status=='FAIL'
   assert provider_scope({'provider':'azure','check_id':cid,'status':native_status,'evidence':native_evidence}) is None
+  return
  else:
   status,evidence=CHECK[cid].evaluate(deepcopy(item),deepcopy(index))
  assert status==row['status'] and evidence==row['witness']

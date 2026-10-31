@@ -14,7 +14,9 @@ def evidence_summary(finding):
             'So whether those settings hold a password or token is unknown.',
             'A secret stored there could let someone reach the services it unlocks.'])
     observation = _evidence_summary(finding)
-    if not isinstance(finding, dict) or finding.get('provider') != 'azure':
+    evidence = finding.get('evidence') if isinstance(finding, dict) else None
+    if (finding.get('provider') != 'azure' or not isinstance(evidence, dict)
+            or not evidence.get('platform_defaults')):
         return observation
     from peaso.checks.azure_platform_defaults import first_lines
     # A property read as its documented Azure default is named first.
