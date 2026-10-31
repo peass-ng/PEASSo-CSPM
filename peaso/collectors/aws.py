@@ -2603,7 +2603,14 @@ def collect(connector, requirements=None):
                     account if region == GLOBAL_SCOPE and re.fullmatch(r"[0-9]{12}", account) else None)
 
     try:
-        session, credential_method = _session(auth, regions[0] if explicit_regions else None)
+        source_auth = auth
+        if (auth.get("method") == "assume_role" and options.get("organization_role_name")
+                and not any(auth.get(key) for key in ("role_arn", "assume_roles", "role_chain"))):
+            # Organization discovery supplies the member role targets, so the
+            # selected source credential itself carries no role (as the access check).
+            source_auth = {**auth, "method": "profile" if auth.get("profile") else
+                           "access_keys" if any(auth.get(k) for k in ("aws_access_key_id", "aws_secret_access_key", "aws_session_token")) else "default"}
+        session, credential_method = _session(source_auth, regions[0] if explicit_regions else None)
         if not explicit_regions:
             regions[:] = [session.region_name or "us-east-1"]
         metadata["credential_method"] = credential_method
