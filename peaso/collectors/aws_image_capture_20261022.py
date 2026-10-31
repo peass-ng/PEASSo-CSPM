@@ -102,6 +102,12 @@ def _authority(session):
     return session.session if type(session) is _PinnedSession else session
 
 
+class CaptureUnavailable(ValueError):
+    def __init__(self, code=None):
+        super().__init__('image_capture_unavailable')
+        self.code = code
+
+
 class _Capture:
     def __init__(self):
         try:
@@ -153,7 +159,14 @@ class _Capture:
                 raise ValueError('image_capture_descriptor_changed')
         if owner:
             try:
-                load(entry['path'])
+                try:
+                    load(entry['path'])
+                except Exception as exc:
+                    # Waiters report the owner's failure kind (for example a
+                    # layer download failure), never its message.
+                    code = getattr(exc, 'code', None)
+                    entry['code'] = code if type(code) is str else None
+                    raise
                 if not entry['path'].is_file() or entry['path'].stat().st_size != size:
                     raise ValueError('image_capture_incomplete')
                 entry['ok'] = True
@@ -169,7 +182,7 @@ class _Capture:
         check()
         requests.check_deadline()
         if not entry['ok']:
-            raise ValueError('image_capture_unavailable')
+            raise CaptureUnavailable(entry.get('code'))
         return entry['path']
 
     def close(self):

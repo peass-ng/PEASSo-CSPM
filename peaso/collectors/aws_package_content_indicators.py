@@ -311,6 +311,11 @@ def _download_image_layers(requests, session, region, account, repo, digest,
                     safe = requests.detail(session, 'ecr', region, 'get_download_url_for_layer',
                                            _metadata_profile=PROFILE, _cache_refresh=True,
                                            registryId=account, repositoryName=repo, layerDigest=ld)
+                if safe.get('collection_status') != 'collected':
+                    # The layer read or its bound stream failed (network,
+                    # stall, credentials): a download failure, not an
+                    # unreadable archive.
+                    raise _failure('package_download_unavailable')
                 if (safe.get('collection_status') != 'collected' or safe.get('LayerDigest') != ld or
                         safe.get('RegistryId') != account or safe.get('RepositoryName') != repo or
                         safe.get('CompressedBytes') != size or not path.is_file() or path.stat().st_size != size):
