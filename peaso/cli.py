@@ -254,6 +254,8 @@ def main(argv=None):
         message = "unable to process the request; check input files, selectors and credentials."
         if isinstance(exc, ValueError) and str(exc).startswith("check requires external policy or manual evidence"):
             message = "selected check requires external policy or manual evidence and cannot run automatically."
+        elif isinstance(exc, ValueError) and str(exc).startswith("unknown check ID for selected provider: "):
+            message = str(exc) + " (run `peaso catalog` for valid IDs)."
         print(f"hacktricks-cspm: {type(exc).__name__}: {message}", file=sys.stderr)
         return 2
 

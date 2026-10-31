@@ -251,8 +251,9 @@ def _selection(provider, categories, checks, frameworks, *, content_checks=None)
         known = {c.id for c in registry if c.provider == provider} | {c["id"] for c in ANALYSIS_CHECKS}
         if any(check not in known for check in checks):
             known |= {PRIVESC_CHECK_ID} | {t["id"] for t in privesc_techniques(provider)}
-        if any(check not in known for check in checks):
-            raise ValueError("unknown check ID for selected provider")
+        unknown = [check for check in checks if check not in known]
+        if unknown:
+            raise ValueError("unknown check ID for selected provider: " + ", ".join(unknown[:10]))
     if frameworks is not None:
         frameworks = [FRAMEWORK_ALIASES.get(value, value) for value in _string_list(frameworks, "frameworks")]
         from .checks.catalog import _framework_rows, framework_selector_index

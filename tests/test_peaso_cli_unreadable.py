@@ -85,3 +85,11 @@ def test_hosted_collector_distinguishes_file_permission_from_provider_denial(
     assert "/private/fixture-secret.json" not in repr(pipe.sent)
     assert "private local artifact" not in repr(pipe.sent)
     assert "sensitive detail" not in repr(pipe.sent)
+
+
+def test_scan_with_mistyped_check_id_names_it(tmp_path, capsys):
+    from peaso.cli import main
+    path = _write(tmp_path, [])
+    code = main(["evaluate", str(path), "--checks", "gcp.no_such_check", "-o", str(tmp_path / "r.json")])
+    assert code == 2
+    assert "gcp.no_such_check" in capsys.readouterr().err
