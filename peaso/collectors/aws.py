@@ -135,6 +135,9 @@ def _s3express_control_absent(exc, service, operation, region):
 def _failure(exc):
     if isinstance(exc, ReadFailure):
         return exc
+    if type(exc).__name__ == "UnknownServiceError":
+        # The installed SDK has no model for this API: nothing was read.
+        return ReadFailure("not_collected", "sdk_service_unavailable")
     response = getattr(exc, "response", None)
     error = response.get("Error", {}) if isinstance(response, dict) else {}
     code = error.get("Code", "") if isinstance(error, dict) else ""

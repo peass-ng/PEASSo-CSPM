@@ -1110,6 +1110,13 @@ def test_documented_service_state_replies_are_facts_not_denials(operation, code,
     assert (failure.status, failure.code) == ("empty", state)
 
 
+def test_api_missing_from_installed_sdk_is_named_not_a_failed_read():
+    boto3 = pytest.importorskip("boto3")
+    session = boto3.Session(aws_access_key_id="INERT", aws_secret_access_key="INERT", region_name=REGION)
+    read = aws.Requests({"retry_attempts": 1}).pages(session, "notarealservice", REGION, "list_things", "Things")
+    assert (read.status, read.error["code"]) == ("not_collected", "sdk_service_unavailable")
+
+
 @pytest.mark.parametrize("operation, code, message", [
     ("GetMacieSession", "AccessDeniedException", "User is not authorized to perform: macie2:GetMacieSession"),
     ("ListPolicies", "AccessDeniedException", "No default admin could be found for account 222233334444 in Region us-east-1 because of SCP"),
