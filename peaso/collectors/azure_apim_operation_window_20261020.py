@@ -187,6 +187,7 @@ def collect(reader, transport, scopes, wanted, options, *, named_checks, credent
         raise Incomplete('capture_unbound')
     end = datetime.now(timezone.utc).replace(microsecond=0)
     state = {'capture': capture, 'tenant': None, 'deadline': time.monotonic() + MAX_SECONDS, 'bytes': 0,
+        'max_wire': MAX_WIRE, 'max_total': MAX_TOTAL,
         'calls': 0, 'start': utc(end - timedelta(seconds=WINDOW_SECONDS)), 'end': utc(end)}
     metadata = {KIND + '_authorized': True, KIND + '_capture': capture, KIND + '_receipts': [],
         KIND + '_selection': {scope: [identity(t) for t in targets if parse(t)[0].casefold() == scope.casefold()] for scope in scopes}}

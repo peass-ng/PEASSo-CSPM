@@ -149,7 +149,7 @@ def _read(reader, transport, state, receipts, ident, scope, profile, operation, 
             raise Incomplete('read_unavailable')
         if (response.getheader('Content-Type') or '').split(';')[0].strip().lower() != 'application/json': raise Incomplete('encoding')
         length = response.getheader('Content-Length')
-        if length is not None and (not re.fullmatch(r'[0-9]{1,8}', length) or not 0 < int(length) <= MAX_WIRE): raise Incomplete('byte_limit')
+        if length is not None and (not re.fullmatch(r'[0-9]{1,8}', length) or not 0 < int(length) <= state.get('max_wire', MAX_WIRE)): raise Incomplete('byte_limit')
         chunks = []; size = 0
         while True:
             timeout = remaining(reader, state)
@@ -157,7 +157,7 @@ def _read(reader, transport, state, receipts, ident, scope, profile, operation, 
             chunk = response.read(16384)
             if not chunk: break
             size += len(chunk); state['bytes'] += len(chunk); proof['bytes'] = size
-            if size > MAX_WIRE or state['bytes'] > MAX_TOTAL: raise Incomplete('byte_limit')
+            if size > state.get('max_wire', MAX_WIRE) or state['bytes'] > state.get('max_total', MAX_TOTAL): raise Incomplete('byte_limit')
             chunks.append(chunk)
         if not size or length is not None and int(length) != size: raise Incomplete('body_incomplete')
         data = json.loads(b''.join(chunks).decode('utf-8'), object_pairs_hook=_pairs,
