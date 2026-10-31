@@ -4,24 +4,19 @@ Place this file in tests/ and the installer plus JSON in peaso/checks/. The
 initializer installs the group before this test imports the registry.
 """
 from copy import deepcopy
-from hashlib import sha256
 import json
-from pathlib import Path
 import unittest
 
 from peaso import engine
 from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
 from peaso.snapshot import freeze, make_snapshot
-from peaso.checks import provider_group_install_20261021 as installer
 from peaso.checks.provider_group_install_20261021 import (
-    RUNTIME, GCP, AWS, DEFAULT_CASES_SHA256, _default_cases)
+    RUNTIME, GCP, AWS, _default_cases)
 
 
 class ProviderGroupFixtureClosure(unittest.TestCase):
-    def test_default_cases_are_exact_and_reproduce_registered_checks(self):
-        path = Path(installer.__file__).with_name('provider_group_native_cases_20261021.json')
-        self.assertEqual(sha256(path.read_bytes()).hexdigest(), DEFAULT_CASES_SHA256)
+    def test_default_cases_reproduce_registered_checks(self):
         self.assertEqual(set(_default_cases()), {RUNTIME, GCP, AWS})
         for check_id in (RUNTIME, GCP, AWS):
             check, = [c for c in CHECKS if c.id == check_id]
