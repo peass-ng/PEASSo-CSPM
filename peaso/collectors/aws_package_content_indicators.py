@@ -433,8 +433,11 @@ def _lambda(response, operation, arguments, requests, region):
         account, resource = _arn(identity, 'lambda', region)
         configuration = response['Configuration']
         version = arguments['Qualifier']
+        # GetFunction with a Qualifier answers with the qualified ARN
+        # (name:$LATEST or name:N); the unqualified form is also accepted.
         if (not re.fullmatch(r'function:[A-Za-z0-9_-]{1,64}', resource)
-                or not isinstance(configuration, dict) or configuration.get('FunctionArn') != identity
+                or not isinstance(configuration, dict) or not isinstance(version, str)
+                or configuration.get('FunctionArn') not in (identity, identity + ':' + version)
                 or configuration.get('Version') != version or not isinstance(version, str)
                 or not re.fullmatch(r'(?:\$LATEST|[1-9][0-9]*)', version) or configuration.get('PackageType') != 'Zip'):
             raise ValueError('function identity/version/format mismatch')
