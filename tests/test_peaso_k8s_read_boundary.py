@@ -154,12 +154,14 @@ def test_sdk_normal_collect_inventory_and_discovery():
         path = urlsplit(url).path.removeprefix("/control")
         if path == "/apis":
             return {"groups": [{"name": "cilium.io", "versions": [{"version": "v2"}]}]}
+        if path == "/apis/cilium.io/v2":
+            return {"resources": [{"name": "ciliumnetworkpolicies", "namespaced": True, "verbs": ["list"]}]}
         assert path in ("/api/v1/namespaces/team-a/pods", "/apis/cilium.io/v2/namespaces/team-a/ciliumnetworkpolicies")
         return {"items": [], "metadata": {"resourceVersion": "11"}}
     api, calls = sdk_spy(handler)
     snapshot = k8s.collect({"scopes": ["team-a"]}, ["pod", "cilium_networkpolicy"], api=api)
     assert all(c["status"] in ("collected", "empty") for c in snapshot["collections"])
-    assert len(calls) == 3
+    assert len(calls) == 4
     assert all(method == "GET" and kw["redirect"] is False and kw["retries"] is False for method, _, kw in calls)
 
 

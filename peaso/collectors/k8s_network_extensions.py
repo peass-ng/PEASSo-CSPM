@@ -24,6 +24,14 @@ def match(path):
     return BY_ENDPOINT.get((result[1], result[2])) if result else None
 
 
+def allowed_path(path):
+    """A reviewed extension plural at any served version, as read() negotiates it."""
+    result = re.fullmatch(r'/apis/([a-z0-9.-]+)/v[0-9]+(?:(?:alpha|beta)[0-9]+)?'
+                          r'(/namespaces/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)?/([a-z0-9]+)', path)
+    kind = BY_ENDPOINT.get((result[1], result[3])) if result else None
+    return kind is not None and (result[2] is None or RESOURCES[kind][2] is True)
+
+
 def _configuration(value):
     """Positive native configuration, plus network facts through SDK wrappers."""
     from peaso.analysis.network_services import project_network_data

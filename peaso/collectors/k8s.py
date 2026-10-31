@@ -524,6 +524,8 @@ def _inventory_read_path(path, query, headers):
         return True
     if _allowed_calico_alias(path):
         return True
+    if k8s_network_extensions.allowed_path(path):
+        return True  # Served version or alternate group negotiated by k8s_network_extensions.read.
     if re.fullmatch(r"/apis/" + dns + r"(?:/" + version + r")?", path):
         return True  # API group/resource discovery, including installed CRDs.
     for endpoint, namespaced in ENDPOINTS.values():
@@ -1966,6 +1968,25 @@ def collect(connector, requirements=None, *, api=None):
                 attach_server_version(reader, api, discovered, _safe_error)
             actual.update(legacy_psp.legacy_support(discovered, legacy_psp_requested))
             groups = {group["name"] for item in discovered["items"] for group in item["groups"]}
+            served_resources = {}
+
+            def served_versions(group_name, group_versions):
+                """{plural: {version, ...}} advertised for one served group; None when unreadable."""
+                if group_name not in served_resources:
+                    plurals = {}
+                    try:
+                        for served in sorted(v for v in group_versions if re.fullmatch(r"v[0-9]+(?:(?:alpha|beta)[0-9]+)?", v)):
+                            document = reader.call(api.get_json, f"/apis/{group_name}/{served}")
+                            if not isinstance(document, dict) or not isinstance(document.get("resources"), list):
+                                raise ValueError("malformed resource discovery")
+                            for resource in document["resources"]:
+                                if isinstance(resource, dict) and isinstance(resource.get("name"), str):
+                                    plurals.setdefault(resource["name"], set()).add(served)
+                    except Exception:
+                        plurals = None
+                    served_resources[group_name] = plurals
+                return served_resources[group_name]
+
             for kind in sorted(actual.intersection(CUSTOM_NETWORK_POLICY_GROUPS)):
                 group_name, version = CUSTOM_NETWORK_POLICY_GROUPS[kind]
                 base_path, namespaced = ENDPOINTS[kind]
@@ -1978,7 +1999,15 @@ def collect(connector, requirements=None, *, api=None):
                     elif group_name not in groups:
                         reader.collections.append({"type": kind, "scope": scope, "service": "kubernetes", "status": "empty",
                             "items": [], "applicability": {"observed_api_group_absent": group_name, "source": "GET /apis"}})
-                    elif version not in group_versions:
+                    elif (plurals := served_versions(group_name, group_versions)) is None:
+                        reader.unavailable(kind, scope, "kubernetes", K8sReadError("api_discovery_incomplete"))
+                    elif base_path.rsplit("/", 1)[1] not in plurals:
+                        # The group is served (for example Cilium on GKE Dataplane V2) but this
+                        # policy resource is not installed at any version, so none can exist.
+                        reader.collections.append({"type": kind, "scope": scope, "service": "kubernetes", "status": "empty",
+                            "items": [], "applicability": {"observed_api_resource_absent": group_name + "/" + base_path.rsplit("/", 1)[1],
+                                                           "source": "GET /apis/" + group_name + "/<version>"}})
+                    elif version not in plurals[base_path.rsplit("/", 1)[1]]:
                         reader.unavailable(kind, scope, "kubernetes", K8sReadError("network_policy_api_version_unavailable"))
                     else:
                         path = base_path

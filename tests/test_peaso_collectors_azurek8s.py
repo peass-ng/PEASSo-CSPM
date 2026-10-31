@@ -78,6 +78,8 @@ def test_k8s_custom_network_policy_inventory_uses_api_discovery():
     def present(path, _params):
         if path == "/apis":
             return {"groups": [{"name": "cilium.io", "versions": [{"version": "v2"}]}]}
+        if path == "/apis/cilium.io/v2":
+            return {"resources": [{"name": "ciliumnetworkpolicies"}, {"name": "ciliumclusterwidenetworkpolicies"}]}
         if path == "/apis/cilium.io/v2/namespaces/team-a/ciliumnetworkpolicies":
             return kube_list([kube_item("restrict", apiVersion="cilium.io/v2", spec={"endpointSelector": {}})])
         assert path == "/apis/cilium.io/v2/ciliumclusterwidenetworkpolicies"
@@ -100,6 +102,9 @@ def test_k8s_admin_policy_inventory_distinguishes_served_versions():
     def handler(path, _params):
         if path == "/apis":
             return {"groups": [{"name": "policy.networking.k8s.io", "versions": [{"version": "v1alpha1"}]}]}
+        if path == "/apis/policy.networking.k8s.io/v1alpha1":
+            return {"resources": [{"name": "adminnetworkpolicies"}, {"name": "baselineadminnetworkpolicies"},
+                                  {"name": "clusternetworkpolicies"}]}
         assert path in {"/apis/policy.networking.k8s.io/v1alpha1/adminnetworkpolicies",
             "/apis/policy.networking.k8s.io/v1alpha1/baselineadminnetworkpolicies"}
         return kube_list([{"apiVersion": "policy.networking.k8s.io/v1alpha1", "metadata": {"name": "guard", "uid": "uid-guard"},
@@ -115,6 +120,8 @@ def test_k8s_custom_policy_lists_each_namespace_and_cluster_policy_once():
     def handler(path, _params):
         if path == "/apis":
             return {"groups": [{"name": "cilium.io", "versions": [{"version": "v2"}]}]}
+        if path == "/apis/cilium.io/v2":
+            return {"resources": [{"name": "ciliumnetworkpolicies"}, {"name": "ciliumclusterwidenetworkpolicies"}]}
         if path == "/apis/cilium.io/v2/ciliumclusterwidenetworkpolicies":
             return kube_list()
         namespace = path.split("/namespaces/", 1)[1].split("/", 1)[0]
