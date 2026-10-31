@@ -55,3 +55,14 @@ def test_public_bucket_principal_read_in_every_region_is_one_declaration():
                         for row in f["evidence"].get("principals", []))]
     assert len(declared) == 1
     assert sorted(declared[0]["evidence"]["observed_scopes"]) == [f"{ACCOUNT}/{region}" for region in REGIONS]
+
+
+def _principal_exposure(bucket_block):
+    return [f for f in _findings(bucket_block) if f["check_id"] == "analysis.principal_exposure"]
+
+
+def test_principal_exposure_honours_restrict_public_buckets():
+    assert "FAIL" in {f["status"] for f in _principal_exposure(None)}
+    blocked = _principal_exposure(ALL_BLOCKED)
+    assert blocked and {f["status"] for f in blocked} == {"PASS"}
+    assert all(f["evidence"]["blocked_principals"][0]["principal"] == "*" for f in blocked)

@@ -137,6 +137,14 @@ def evidence_summary(finding):
     from .provider_observed_evidence import evidence_summary as provider_summary
     observed=provider_summary(finding)
     if observed is not None:return observed
+    if cid=='analysis.principal_exposure' and e.get('effective_access')=='blocked_by_s3_block_public_access':
+        names=[str(v.get('principal')) for v in e.get('blocked_principals') or [] if isinstance(v,dict) and v.get('principal') is not None]
+        if names:
+            shown=', '.join(dict.fromkeys(names[:5]))
+            return ('The bucket policy names public or outside principals: '+shown+'.\n'
+                    'S3 Block Public Access has RestrictPublicBuckets turned on for this bucket.\n'
+                    'That setting limits a bucket with a public policy to AWS services and the owner account.\n'
+                    'So people outside the account may not be able to reach the bucket data through these grants while it stays on.')
     if cid=='analysis.principal_exposure':
         entries=e.get('principals')
         if not isinstance(entries,list) or not entries or any(not isinstance(v,dict) for v in entries):return None
