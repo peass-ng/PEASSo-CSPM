@@ -39,6 +39,7 @@ def _after_fork():
     _KEY, _LOCK = secrets.token_bytes(32), threading.Lock()
     _RESULT_LOCK, _RESULTS = threading.Lock(), OrderedDict()
     _kingfisher.cache_clear()
+    _verified_trufflehog.cache_clear()
 
 
 if hasattr(os, 'register_at_fork'):
@@ -130,14 +131,29 @@ def _run(argv, payload, timeout):
 
 
 @lru_cache(maxsize=1)
-def _trufflehog():
-    executable = shutil.which('trufflehog')
-    if executable is None:
-        raise RuntimeError('scanner unavailable')
+@lru_cache(maxsize=8)
+def _verified_trufflehog(executable, mtime_ns, size):
     version = _run([executable, '--version'], b'', 5).decode('utf-8').strip()
     if version != 'trufflehog ' + TRUFFLEHOG_VERSION:
         raise RuntimeError('unsupported scanner version')
     return executable
+
+
+def _trufflehog():
+    # Resolve the binary on every call, but run its version check once per
+    # exact file: a scan can call this thousands of times, and an extra
+    # process start for each content item doubled the detector cost.
+    executable = shutil.which('trufflehog')
+    if executable is None:
+        raise RuntimeError('scanner unavailable')
+    try:
+        status = os.stat(executable)
+    except OSError:
+        raise RuntimeError('scanner unavailable') from None
+    return _verified_trufflehog(executable, status.st_mtime_ns, status.st_size)
+
+
+_trufflehog.cache_clear = _verified_trufflehog.cache_clear
 
 
 class _DetectorMatches(list):

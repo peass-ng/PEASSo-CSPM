@@ -594,3 +594,14 @@ def test_bound_tar_preserves_proven_positive_before_later_bad_header(monkeypatch
     assert c.image_layers(result, index('ecr_repository', result))[0] == 'FAIL'
     assert result['PackageContentSource']['PackageSecretIndicators']['NativeResponseComplete'] is False
     assert SECRET not in json.dumps(result)
+
+
+@pytest.mark.parametrize('detected', [True, False])
+def test_lambda_get_function_qualified_arn_reply_is_scanned(monkeypatch, detected):
+    # GetFunction called with Qualifier=$LATEST answers with the qualified ARN.
+    requests, session, item, ops, calls, downloads, _ = sdk(monkeypatch, 'lambda_function', detected)
+    ops['get_function']['Configuration']['FunctionArn'] = item['FunctionArn'] + ':' + item['Version']
+    result = p.ENRICHERS['lambda_function'](requests, session, REGION, [item])[0]
+    status, evidence = FUNCTIONS['lambda_function'](result, index('lambda_function', result))
+    assert status == ('FAIL' if detected else 'PASS') and evidence['source_complete'] is True
+    assert downloads

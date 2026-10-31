@@ -20,6 +20,8 @@ from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import unquote
 
+from peaso.snapshot import STATUSES as _COLLECTION_STATUSES
+
 
 THROTTLE_RETRY_ATTEMPTS = 8
 THROTTLE_RETRY_MAX_WAIT = 16.0
@@ -62,7 +64,14 @@ _SERVICE_STATES = (
     ({"GetDelegatedAdminAccount"}, "ResourceNotFoundException", r"No delegated admin found for caller account\.?", "no_delegated_administrator"),
     ({"GetDevEndpoints"}, "AccessDeniedException", r"GetDevEndpoints operation is currently disabled\.?", "operation_disabled_for_account"),
     ({"GetDevEndpoints"}, "InvalidInputException", r"Operation is not supported in <[a-z]{2}(?:-[a-z]+)+-[0-9]> region\.?", "region_operation_unsupported"),
-    ({"ListCustomModels"}, "ValidationException", r"Unknown operation\.?", "region_operation_unsupported"),
+    ({"ListCustomModels"}, "ValidationException", r"Unknown [Oo]peration\.?", "region_operation_unsupported"),
+    # Amazon DocumentDB is not offered in every region; the shared RDS API
+    # then rejects the engine filter instead of returning an empty list.
+    ({"DescribeDBClusters", "DescribeDBInstances"}, "InvalidParameterValue", r"Unrecognized engine name: docdb\.?", "region_operation_unsupported"),
+    # Security Hub answers every API with InvalidAccessException; only this
+    # exact message says the account has no hub in the Region.
+    (None, "InvalidAccessException", r"Account [0-9]{12} is not subscribed to AWS Security Hub(?: CSPM)?\.?", "service_not_enabled"),
+    (None, "UnsupportedUserEditionException", r"Account [0-9]{12} is not subscribed for QuickSight\.?", "service_not_enabled"),
     (None, "UnknownOperationException", r"Unknown Operation\.?|Operation is disabled in this region\.?|" + _EMPTY_MESSAGE, "region_operation_unsupported"),
     ({"GetInstances", "GetRelationalDatabases", "GetStaticIps"}, "RegionSetupInProgressException",
      r"Lightsail is setting up this region for your account, please try again later\.?", "region_setup_in_progress"),
@@ -1038,13 +1047,39 @@ def _assume(requests, session, region, target, defaults):
     external = target.get("external_id", defaults.get("external_id"))
     if external:
         params["ExternalId"] = external
-    response = requests.call(session, "sts", region, "assume_role", **params)
-    credentials = response.get("Credentials", {})
-    if not all(credentials.get(k) for k in ("AccessKeyId", "SecretAccessKey", "SessionToken")):
-        raise ReadFailure("malformed", "malformed_assume_role")
-    return boto3.Session(aws_access_key_id=credentials["AccessKeyId"],
-        aws_secret_access_key=credentials["SecretAccessKey"],
-        aws_session_token=credentials["SessionToken"], region_name=region)
+
+    def exchange(fresh=False):
+        response = requests.call(session, "sts", region, "assume_role",
+            **({"_uncached_credential_exchange": True} if fresh else {}), **params)
+        credentials = response.get("Credentials", {})
+        if not all(credentials.get(k) for k in ("AccessKeyId", "SecretAccessKey", "SessionToken")):
+            raise ReadFailure("malformed", "malformed_assume_role")
+        return credentials
+
+    credentials = exchange()
+    expiration = credentials.get("Expiration")
+    if not isinstance(expiration, datetime) or expiration.tzinfo is None or expiration <= datetime.now(timezone.utc):
+        return boto3.Session(aws_access_key_id=credentials["AccessKeyId"],
+            aws_secret_access_key=credentials["SecretAccessKey"],
+            aws_session_token=credentials["SessionToken"], region_name=region)
+    # Role sessions last one hour by default. A longer scan re-assumes the
+    # same role from the same pinned source before the session expires,
+    # instead of reading every later call as denied (ExpiredToken).
+    from botocore.credentials import RefreshableCredentials
+    import botocore.session
+
+    def metadata(values):
+        expiry = values.get("Expiration")
+        if not isinstance(expiry, datetime) or expiry.tzinfo is None:
+            raise ReadFailure("malformed", "malformed_assume_role")
+        return {"access_key": values["AccessKeyId"], "secret_key": values["SecretAccessKey"],
+                "token": values["SessionToken"], "expiry_time": expiry.isoformat()}
+
+    refreshable = RefreshableCredentials.create_from_metadata(
+        metadata(credentials), lambda: metadata(exchange(fresh=True)), "assume-role")
+    core = botocore.session.Session()
+    core._credentials = refreshable
+    return boto3.Session(botocore_session=core, region_name=region)
 
 
 def _reject_unprotected_hosted_role(requests, session, region, target, defaults):
@@ -2389,6 +2424,11 @@ def collect(connector, requirements=None):
         # selection despite concurrent API completion.
         unique = {}
         status, error = read.status, read.error
+        if status not in _COLLECTION_STATUSES:
+            # One reader returning an unexpected status must not invalidate
+            # the whole snapshot; keep its rows and mark the read incomplete.
+            status = "partial" if read.items else "unknown"
+            error = {**(error if isinstance(error, dict) else {}), "reason": "invalid_collection_status"}
         for original in read.items:
             if not isinstance(original, dict):
                 status, error = ("partial" if unique else "malformed"), {"code": "malformed_resource"}

@@ -8,6 +8,14 @@ from __future__ import annotations
 import json
 
 
+def _regionless(evidence):
+    # Global policies are read from each Region; the reading Region is not
+    # part of the declaration itself.
+    if not isinstance(evidence, dict):
+        return evidence
+    return {key: value for key, value in evidence.items() if key not in {"collection_region", "source_region"}}
+
+
 def _declaration(finding):
     if finding.get("check_id") != "analysis.principal_exposure" or finding.get("provider") != "aws":
         return None
@@ -20,7 +28,8 @@ def _declaration(finding):
     if len(native) != 1 or not next(iter(native))[1]:
         return None
     declarations = [{**{key: value for key, value in row.items() if key != "source"},
-        "source": {key: value for key, value in (row.get("source") or {}).items()
+        "source": {key: _regionless(value) if key == "request_evidence" else value
+            for key, value in (row.get("source") or {}).items()
             if key not in {"scope", "snapshot_id"}}} for row in principals]
     rest = {key: value for key, value in evidence.items() if key not in {"principals", "observed_scopes"}}
     return (finding.get("status"), next(iter(native)),
