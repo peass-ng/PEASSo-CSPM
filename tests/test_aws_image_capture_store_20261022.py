@@ -80,7 +80,18 @@ def test_cancelled_waiter_does_not_remove_active_owner_payload():
     assert not store.root.exists()
 
 
-def test_cleanup_error_propagates_and_detaches_scope(monkeypatch):
+def test_failed_cleanup_is_retried_and_removes_payloads(monkeypatch):
+    requests = SimpleNamespace(_lock=threading.RLock(), check_deadline=lambda: None)
+    with capture.capture_scope(requests) as store:
+        (store.root / 'blob-0').write_bytes(b'payload')
+        def fail():
+            raise OSError('synthetic cleanup error')
+        monkeypatch.setattr(store.temporary, 'cleanup', fail)
+    assert not hasattr(requests, '_ecr_image_capture')
+    assert not store.root.exists()
+
+
+def test_cleanup_error_propagates_when_payloads_remain_and_detaches_scope(monkeypatch):
     requests = SimpleNamespace(_lock=threading.RLock(), check_deadline=lambda: None)
     with pytest.raises(OSError, match='synthetic cleanup error'):
         with capture.capture_scope(requests) as store:
@@ -88,7 +99,9 @@ def test_cleanup_error_propagates_and_detaches_scope(monkeypatch):
             def fail():
                 raise OSError('synthetic cleanup error')
             monkeypatch.setattr(store.temporary, 'cleanup', fail)
+            monkeypatch.setattr(capture.shutil, 'rmtree', lambda *a, **k: None)
     assert not hasattr(requests, '_ecr_image_capture')
+    monkeypatch.undo()
     cleanup()
     assert not store.root.exists()
 
@@ -105,7 +118,7 @@ def test_capacity_uses_actual_available_disk_with_scanner_headroom(monkeypatch):
         assert store.reserved == 0 and not list(store.root.iterdir())
 
 
-@pytest.mark.parametrize('changed', ['account', 'region', 'repository', 'image', 'session'])
+@pytest.mark.parametrize('changed', ['account', 'region', 'repository', 'session'])
 def test_exact_capture_boundary(monkeypatch, changed):
     requests = SimpleNamespace(_lock=threading.RLock(), check_deadline=lambda: None)
     session = object()
@@ -121,6 +134,9 @@ def test_exact_capture_boundary(monkeypatch, changed):
     with capture.capture_scope(requests):
         first = capture.shared_blob(**params, load=load)
         assert capture.shared_blob(**params, load=load) == first
+        # Another image of the same repository listing this blob reuses it.
+        assert capture.shared_blob(**{**params, 'image_digest': 'sha256:' + 'c' * 64},
+                                   load=load) == first
         updated = dict(params)
         key = {'account': 'account', 'region': 'region', 'repository': 'repo',
                'image': 'image_digest', 'session': 'session'}[changed]

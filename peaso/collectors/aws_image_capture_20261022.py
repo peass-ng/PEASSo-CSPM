@@ -5,14 +5,95 @@ The collector must enclose all consumers (and their executor shutdown) in scope.
 Without that owner, existing independently owned temporary downloads apply.
 """
 from contextlib import contextmanager
+import os
 from pathlib import Path
+import re
 import shutil
+import stat
 import tempfile
 import threading
+import time
 
 MAX_CAPTURE_BYTES = 16 * 1024 * 1024 * 1024
 MAX_CAPTURE_BLOBS = 32768
 FREE_RESERVE_BYTES = 512 * 1024 * 1024
+# Private ECR payload scratch. Each directory name carries its owning process
+# id, so a later scan can remove what a killed (SIGKILL/OOM) scan left behind.
+SCRATCH_PREFIXES = ('peaso-ecr-capture-', 'peaso-ecr-secret-')
+_OWNED = re.compile(r'(?:' + '|'.join(map(re.escape, SCRATCH_PREFIXES)) + r')([0-9]+)-[^/]+')
+_LEGACY = re.compile(r'(?:' + '|'.join(map(re.escape, SCRATCH_PREFIXES)) + r')[^/]+')
+LEGACY_STALE_SECONDS = 24 * 3600
+
+
+def scratch_directory(prefix):
+    """A private TemporaryDirectory whose name records this process as owner."""
+    if prefix not in SCRATCH_PREFIXES:
+        raise ValueError('unknown ECR scratch prefix')
+    return tempfile.TemporaryDirectory(prefix=f'{prefix}{os.getpid()}-')
+
+
+def _alive(pid):
+    if pid == os.getpid():
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # Exists but belongs to someone else: never touch it.
+    return True
+
+
+def sweep_stale_scratch(root=None):
+    """Remove ECR scratch directories whose owning process no longer exists.
+
+    Only this user's real directories are considered. Directories from older
+    releases (no owner id in the name) are removed once a day old.
+    """
+    root = Path(root or tempfile.gettempdir())
+    removed = 0
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return removed
+    now = time.time()
+    for name in names:
+        owned = _OWNED.fullmatch(name)
+        if owned is None and _LEGACY.fullmatch(name) is None:
+            continue
+        path = root / name
+        try:
+            info = os.lstat(path)
+        except OSError:
+            continue
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            continue
+        stale = (not _alive(int(owned.group(1))) if owned is not None
+                 else now - info.st_mtime > LEGACY_STALE_SECONDS)
+        if stale:
+            shutil.rmtree(path, ignore_errors=True)
+            removed += not path.exists()
+    return removed
+
+
+@contextmanager
+def owned_scratch(prefix):
+    """Yield a scratch path that is removed on every exit, cleanup races included."""
+    temporary = scratch_directory(prefix)
+    try:
+        yield temporary.name
+    finally:
+        remove_scratch(temporary)
+
+
+def remove_scratch(temporary):
+    """Remove a scratch directory; retry once past late writers, then report."""
+    try:
+        temporary.cleanup()
+    except Exception:
+        shutil.rmtree(temporary.name, ignore_errors=True)
+        if os.path.lexists(temporary.name):
+            raise
 
 
 def _authority(session):
@@ -23,7 +104,11 @@ def _authority(session):
 
 class _Capture:
     def __init__(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='peaso-ecr-capture-')
+        try:
+            sweep_stale_scratch()
+        except Exception:
+            pass  # Housekeeping never blocks a scan.
+        self.temporary = scratch_directory('peaso-ecr-capture-')
         self.root = Path(self.temporary.name)
         # Leave at least half the currently available scratch for archive
         # construction and scanners; 16 GiB is a ceiling, never a reservation.
@@ -31,7 +116,7 @@ class _Capture:
             self.capacity = min(MAX_CAPTURE_BYTES, max(0,
                 (shutil.disk_usage(self.root).free - FREE_RESERVE_BYTES) // 2))
         except Exception:
-            self.temporary.cleanup()
+            remove_scratch(self.temporary)
             raise
         self.lock = threading.Lock()
         self.entries, self.sessions, self.reserved = {}, [], 0
@@ -42,7 +127,13 @@ class _Capture:
         check = check or requests.check_deadline
         check()
         authority = _authority(session)
-        key = (id(authority), account, region, repo, image_digest, digest)
+        # A blob is content-addressed within its repository: every image of
+        # the repository whose (independently authorized) manifest lists this
+        # digest and size reads the same bytes. Keying by image as well would
+        # let two images fetch one layer concurrently, and the scan-wide request
+        # cache joins those reads into one provider call that fills only the
+        # first image's file.
+        key = (id(authority), account, region, repo, digest)
         with self.lock:
             if self.closed:
                 raise ValueError('image_capture_closed')
@@ -85,7 +176,7 @@ class _Capture:
         with self.lock:
             self.closed = True
         try:
-            self.temporary.cleanup()
+            remove_scratch(self.temporary)
         finally:
             self.entries.clear()
             self.sessions.clear()

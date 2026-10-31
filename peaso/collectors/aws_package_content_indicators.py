@@ -7,7 +7,7 @@ is executed or extracted into the host filesystem.
 from peaso.secret_evidence import source_context, reuse_image_layer
 import base64
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar, copy_context
 from copy import deepcopy
 import hashlib
@@ -18,7 +18,6 @@ import re
 import stat
 import struct
 import tarfile
-import tempfile
 import time
 import threading
 from urllib.parse import urlsplit
@@ -269,6 +268,26 @@ def _scan_progress(requests, count, label):
                   completed=count, total=None, dynamic_total=True)
 
 
+_LAYER_TURNS_LOCK = threading.Lock()
+
+
+@contextmanager
+def _layer_turn(requests, session, region, account, repo, layer_digest):
+    """Serialize one blob's layer read per scan; waiters keep honoring the deadline."""
+    key = (region, account, repo, layer_digest)
+    with _LAYER_TURNS_LOCK:
+        turns = getattr(requests, '_package_layer_turns', None)
+        if turns is None:
+            turns = requests._package_layer_turns = {}
+        turn = turns.setdefault(key, threading.Lock())
+    while not turn.acquire(timeout=0.1):
+        requests.check_deadline()
+    try:
+        yield
+    finally:
+        turn.release()
+
+
 def _download_image_layers(requests, session, region, account, repo, digest,
                            identity, descriptors, root, state):
     """Fetch at most two independently bound ECR blobs at a time, in descriptor order."""
@@ -278,6 +297,12 @@ def _download_image_layers(requests, session, region, account, repo, digest,
         def load(path):
             # The provider projection binds its stream writer through this
             # thread-local descriptor; every consumer validates its manifest.
+            # Concurrent identical layer reads (another image of the same
+            # repository) join one in-flight request Future whose projection
+            # writes only the first caller's path, so take turns per blob.
+            with _layer_turn(requests, session, region, account, repo, ld):
+                return _load(path)
+        def _load(path):
             state.active, state.budget = (ld, size, path), [size]
             try:
                 with source_context(resource_id=identity, scope=account + '/' + region,
@@ -811,7 +836,8 @@ def _image(response, arguments, requests, session, region):
         pending_bytes += len(payload)
         if len(pending) >= _archive_batch_items(requests): flush_pending()
         return file_key not in failed_files
-    with tempfile.TemporaryDirectory(prefix='peaso-ecr-secret-') as directory:
+    from .aws_image_capture_20261022 import owned_scratch
+    with owned_scratch('peaso-ecr-secret-') as directory:
         root = Path(directory)
         try:
             paths = _download_image_layers(requests, session, region, account, repo,
