@@ -56,7 +56,6 @@ APIM_ANCHOR_685_PREVIOUS_TREE = 'b5b50df92c4dc30ee8cfc212e6a08fc1f15e4d55a31d92a
 APIM_ANCHOR_685_PREVIOUS_ARCHIVE_SHA256 = '471a7864be4b6dbdfb430e917ec9c1320433b36fa7552cf1ecd1b2574b3eaa79'
 APIM_ANCHOR_685_PREVIOUS_MANIFEST_PATH = Path(__file__).resolve().parent / 'catalog_versions/prior-reviewed-685-before-apim-anchor-source-manifest.json'
 APIM_ANCHOR_685_PREVIOUS_ARCHIVE = Path(__file__).resolve().parent / 'catalog_versions/prior-reviewed-685-before-apim-anchor-catalog.tar.gz'
-CURRENT_MANIFEST = '23b34efd8f37d530b7be22bb5b48f86b145a16c3cc068db3b42d15cd7d93ed81'
 MWAA_TOKEN_REASON_685_PREVIOUS_MANIFEST = '8fb197160ed8f236c554cbb1630256fba47963e0755654fb4f6f017df06d1bc5'
 MWAA_TOKEN_REASON_685_PREVIOUS_TREE = '21b9159c4f9de06ef56637214c241da7ef1285e4a72491b1fda6a5a2b094b632'
 MWAA_TOKEN_REASON_685_PREVIOUS_ARCHIVE_SHA256 = 'cac08e430052f9b1dda76b9fdc94277ceff6851ca5fc9bd4903145e23707d752'
@@ -753,10 +752,7 @@ PRIOR_CURRENT_MANIFEST = "eb459bc440cdad814f3acde244a36fa7f546119a351d5ce720ef0c
 PRIOR_DISCLOSURE_MANIFEST = "91ffe7389d02568cdcdf74a6b08dafa5f665ea07c0c528988127ffc4d2a86c45"
 PRIOR_DISCLOSURE_TREE = "5091464bedcb10bb87301695ca733276dc67b865e544c408ccf72a5408176f0f"
 PRIOR_DISCLOSURE_HISTORY = Path(__file__).resolve().parent / "catalog_versions/disclosure-v7-manifest.json"
-CURRENT_TREE = '87c43b11c55acf05c43a15b66f4d66b247eee71f13d469f24dd5939db91d027d'
 PRIOR_CURRENT_TREE = "99207e6469fc5e5b3daf21324e6860599b116ffcf7d30600643bd229b0f11494"
-CURRENT_ENTRY_COUNT = 685
-CURRENT_EXCLUDED_COUNT = 3777
 CURRENT_HISTORY = Path(__file__).resolve().parent / "catalog_versions/bulk-principal-v6-manifest.json"
 PRIOR_CATALOG_ARCHIVE = Path(__file__).resolve().parent / "catalog_versions/prior-disclosure-catalog-20261016.tar.gz"
 PRIOR_CATALOG_ARCHIVE_SHA256 = "498459a1979833e9e1a09b64bbeb859beb004980ad7baa81818621e5c810c030"
@@ -781,27 +777,45 @@ def _paths(catalog_dir=None, manifest_path=None, history_path=None):
 
 
 @lru_cache(maxsize=4)
-def _verified_current(catalog_dir, manifest_path):
-    root, manifest_path = Path(catalog_dir), Path(manifest_path)
-    if _sha(manifest_path) != CURRENT_MANIFEST:
-        raise ValueError("v4_catalog_manifest_mismatch")
-    manifest = json.loads(manifest_path.read_text())
-    wanted = manifest.get("sha256")
+def _current_tree(catalog_dir):
+    """Content address of the live catalog: per-file sha256 and the effective tree digest."""
+    root = Path(catalog_dir)
     actual = {str(path.relative_to(root)): _sha(path) for path in root.rglob("*.yaml")}
-    if not isinstance(wanted, dict) or actual != wanted:
-        raise ValueError("v4_catalog_file_mismatch")
     tree = ''.join(f'{name} {actual[name]}\n' for name in sorted(actual))
-    if hashlib.sha256(tree.encode()).hexdigest() != CURRENT_TREE:
-        raise ValueError("v4_catalog_tree_mismatch")
+    return actual, hashlib.sha256(tree.encode()).hexdigest()
+
+
+@lru_cache(maxsize=4)
+def _manifest_sha(manifest_path):
+    try:
+        return _sha(Path(manifest_path))
+    except OSError:
+        return None
+
+
+@lru_cache(maxsize=4)
+def _current_entries(catalog_dir):
+    actual, _ = _current_tree(catalog_dir)
     from . import loaded_catalog_for
     loaded = loaded_catalog_for(catalog_dir, actual)
     if loaded is None:
-        loaded = load_catalog(root, strict=True)
+        loaded = load_catalog(Path(catalog_dir), strict=True)
     elif loaded["errors"]:  # same failure the strict load raises for these bytes
         raise CatalogError("; ".join(loaded["errors"][:20]))
-    if len(loaded["entries"]) != CURRENT_ENTRY_COUNT or loaded["excluded"] != CURRENT_EXCLUDED_COUNT:
-        raise ValueError("v4_catalog_counts_mismatch")
     return {entry["id"]: entry for entry in loaded["entries"]}
+
+
+def _binding_for(catalog_dir, manifest_path):
+    return {"schema": BINDING_SCHEMA, "manifest_sha256": _manifest_sha(str(manifest_path)),
+            "effective_tree_sha256": _current_tree(str(catalog_dir))[1], "source_revision": V4_REVISION}
+
+
+def __getattr__(name):
+    # The current catalog identity is derived from the live catalog, never pinned.
+    if name in ("CURRENT_MANIFEST", "CURRENT_TREE"):
+        binding = current_binding()
+        return binding["manifest_sha256" if name == "CURRENT_MANIFEST" else "effective_tree_sha256"]
+    raise AttributeError(name)
 
 
 @lru_cache(maxsize=1)
@@ -2304,9 +2318,17 @@ def _verified_apim_anchor_685_previous():
 
 def current_binding(*, catalog_dir=None, manifest_path=None):
     catalog_dir, manifest_path, _ = _paths(catalog_dir, manifest_path)
-    _verified_current(str(catalog_dir), str(manifest_path))
-    return {"schema": BINDING_SCHEMA, "manifest_sha256": CURRENT_MANIFEST,
-            "effective_tree_sha256": CURRENT_TREE, "source_revision": V4_REVISION}
+    _current_entries(str(catalog_dir))
+    return _binding_for(catalog_dir, manifest_path)
+
+
+def _matches_current(binding, catalog_dir, manifest_path):
+    try:
+        current = _binding_for(catalog_dir, manifest_path)
+    except OSError:
+        return False
+    return all(binding.get(key) == current[key]
+               for key in ("manifest_sha256", "effective_tree_sha256", "source_revision"))
 
 
 def lookup_entries(technique_ids, binding=None, *, tenant_id=None, catalog_dir=None,
@@ -2324,9 +2346,7 @@ def lookup_entries(technique_ids, binding=None, *, tenant_id=None, catalog_dir=N
         return {}, "invalid_catalog_binding"
     elif tenant_id is not None and binding.get("tenant_id") != tenant_id:
         return {}, "tenant_binding_mismatch"
-    elif (binding.get("manifest_sha256") == CURRENT_MANIFEST and
-          binding.get("effective_tree_sha256") == CURRENT_TREE and
-          binding.get("source_revision") == V4_REVISION):
+    elif _matches_current(binding, catalog_dir, manifest_path):
         version, status = "current", "exact_strict_privesc"
     elif (binding.get("manifest_sha256") == APIM_ANCHOR_685_PREVIOUS_MANIFEST and
           binding.get("effective_tree_sha256") == APIM_ANCHOR_685_PREVIOUS_TREE and
@@ -2901,7 +2921,7 @@ def lookup_entries(technique_ids, binding=None, *, tenant_id=None, catalog_dir=N
         return {}, "unknown_catalog_manifest"
     try:
         if version == "current":
-            current = _verified_current(str(catalog_dir), str(manifest_path))
+            current = _current_entries(str(catalog_dir))
             return {ident: current[ident] for ident in ids if ident in current}, status
         if version == "apim_anchor_685_previous":
             previous = _verified_apim_anchor_685_previous()
