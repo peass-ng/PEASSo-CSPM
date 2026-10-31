@@ -893,8 +893,12 @@ class Requests:
                         # support list that excludes this region is unsupported
                         # endpoint evidence, not a successful empty inventory.
                         try:
-                            partition = session.get_partition_for_region(region)
-                            supported = session.get_available_regions(service, partition_name=partition)
+                            # Metadata wrappers expose only client(); ask the
+                            # SDK session they project for the support list.
+                            from .aws_request_pool import wrapper_root
+                            sdk = wrapper_root(session) or session
+                            partition = sdk.get_partition_for_region(region)
+                            supported = sdk.get_available_regions(service, partition_name=partition)
                             if supported and region not in supported:
                                 failure = ReadFailure("not_collected", "unsupported_region_service")
                         except Exception:

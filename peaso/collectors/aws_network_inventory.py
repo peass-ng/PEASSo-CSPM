@@ -696,7 +696,7 @@ def collect(kind):
                 return ReadResult([], 'not_collected', {'code': 'sdk_operation_unavailable'})
         session = MetadataSession(session)
         service = plan['service']
-        failures, rows = [], []
+        failures, rows, unsupported = [], [], []
         def pages(step, context):
             try:
                 arguments = _arguments(step, context)
@@ -707,6 +707,8 @@ def collect(kind):
                                     _tokens=tuple(step['tokens']) if step.get('tokens') else None, **arguments)
             if result.status not in {'collected', 'empty'}:
                 failures.append(result.status)
+                error = result.error if isinstance(result.error, dict) else {}
+                unsupported.append(error.get('code') == 'unsupported_region_service')
             return result.items
         parents = [({'NetworkAccountId': account}, [])]
         for step in plan.get('parents', []):
@@ -783,6 +785,9 @@ def collect(kind):
                 else:
                     identity = native if native.startswith('arn:') else '/'.join([*lineage, native])
                 rows.append(dict(item, NetworkResourceId=identity, NetworkParentIds=lineage))
+        if not rows and unsupported and all(unsupported) and len(unsupported) == len(failures):
+            # The SDK proves the service has no endpoint in this Region.
+            return ReadResult([], 'not_collected', {'code': 'unsupported_region_service'})
         status = 'partial' if rows and failures else failures[0] if failures else 'collected' if rows else 'empty'
         return ReadResult(rows, status, {'code': 'native_network_inventory_incomplete', 'cause_status': failures[0]} if failures else None)
     return fetch
