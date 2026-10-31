@@ -12,7 +12,7 @@ from test_peaso_connector_access_check import IdentityStub
 
 ACCOUNT = '555566667777'
 PREFIX = 'arn:aws:iam::aws:policy/'
-POLICIES = ['ReadOnlyAccess', 'SecurityAudit', 'IAMAccessAnalyzerFullAccess']
+POLICIES = ['ReadOnlyAccess', 'SecurityAudit']
 
 
 def test_hosted_role_attaches_recommended_managed_policies_within_quota():
@@ -70,7 +70,7 @@ def inspect(iam, resource='user/path/scan', service='iam', partition='aws'):
     return issues
 
 
-def test_readonly_alone_warns_for_missing_security_and_analyzer_policies(monkeypatch):
+def test_readonly_alone_warns_only_for_missing_security_audit_policy(monkeypatch):
     iam = IAM(['ReadOnlyAccess'])
     class Session:
         def client(self, service, **kwargs):
@@ -87,14 +87,14 @@ def test_readonly_alone_warns_for_missing_security_and_analyzer_policies(monkeyp
     assert result['requires_warning_acknowledgement'] is True
     assert result['scope_summary']['warning'] == 1
     assert result['scope_results'][0]['status'] == 'warning'
-    assert len(result['issues']) == 2
+    assert len(result['issues']) == 1
     assert all(any(PREFIX + name in issue['message'] for issue in result['issues']) for name in POLICIES[1:])
 
 
 @pytest.mark.parametrize('names,critical,advisories', [
-    ([], True, 3), (['SecurityAudit', 'IAMAccessAnalyzerFullAccess'], False, 1),
-    (['ReadOnlyAccess'], False, 2), (POLICIES, False, 0),
-    (['AdministratorAccess'], True, 3),
+    ([], True, 2), (['SecurityAudit'], False, 1),
+    (['ReadOnlyAccess'], False, 1), (POLICIES, False, 0),
+    (['AdministratorAccess'], True, 2),
 ])
 def test_required_and_recommended_policy_classification(names, critical, advisories):
     issues = inspect(IAM(names))

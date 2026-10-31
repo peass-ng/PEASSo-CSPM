@@ -88,7 +88,7 @@ test("every authentication option explains access and permission setup", async (
   for (const arn of awsPolicyArns) await expect(awsGuide).toContainText(arn);
   await expect(awsGuide.locator(".auth-guide-step").nth(1).locator("pre").first()).toContainText("aws iam attach-role-policy");
   await expect(awsGuide.getByText("Optional: set up Access Analyzer findings")).toHaveCount(0);
-  await expect(awsGuide).toContainText("arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess");
+  await expect(awsGuide).not.toContainText("arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess");
   await expect(awsGuide).not.toContainText("arn:aws:iam::aws:policy/IAMAccessAnalyzerReadOnlyAccess");
 });
 test("connector methods start with common choices and explain environment credentials", async ({ page }) => {

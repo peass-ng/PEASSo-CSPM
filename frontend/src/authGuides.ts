@@ -14,11 +14,10 @@ export type AuthGuide = {
 export const awsPolicyArns = [
   "arn:aws:iam::aws:policy/ReadOnlyAccess",
   "arn:aws:iam::aws:policy/SecurityAudit",
-  "arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess",
 ];
 const awsPolicyList = awsPolicyArns.join(" ");
-const awsPermissions = "ReadOnlyAccess or SecurityAudit, or verified equivalent baseline inventory permissions, are required. We recommend both read policies for broad inventory and security configuration coverage. Optional exact secret-content checks need separate per-surface reads in docs/secret-content-permissions.md. IAMAccessAnalyzerFullAccess is recommended because the scan creates missing analyzers, waits at least three minutes, collects findings, and deletes only analyzers it created. This managed policy grants full Access Analyzer administration, including writes beyond those the scan uses; the other recommended policies are read-oriented. External analyzers are regional; one unused analyzer covers the account and partition and incurs AWS charges.";
-export const awsHostedPermissions = "Deploy the customer role template from Onboarding in each target account. It creates the role, External ID trust, collector-specific read policies, ReadOnlyAccess, SecurityAudit, and IAMAccessAnalyzerFullAccess. Its metadata grants do not cover every optional exact secret-content check; see docs/secret-content-permissions.md and preserve any separately deployed read grants when updating the role. IAMAccessAnalyzerFullAccess grants full analyzer administration; the scan uses it for temporary analyzer creation and cleanup of scan-created analyzers.";
+const awsPermissions = "ReadOnlyAccess or SecurityAudit, or verified equivalent baseline inventory permissions, are required. We recommend both read policies for broad inventory and security configuration coverage. Optional exact secret-content checks need separate per-surface reads; see docs/permissions.md. Access is read-only: the scan never creates, changes or deletes IAM Access Analyzer analyzers, so no Access Analyzer write permission such as IAMAccessAnalyzerFullAccess is needed.";
+export const awsHostedPermissions = "Deploy the customer role template from Onboarding in each target account. It creates the role, External ID trust, collector-specific read policies, ReadOnlyAccess and SecurityAudit. All grants are read-only; the scan never creates or deletes IAM Access Analyzer analyzers. Its metadata grants do not cover every optional exact secret-content check; see docs/permissions.md and preserve any separately deployed read grants when updating the role.";
 const awsRoleGrant = { label: "AWS CLI: attach policies to role", value: [
   "ROLE_NAME='REPLACE_WITH_SCANNING_ROLE_NAME'",
   "for POLICY_ARN in " + awsPolicyList + "; do",
@@ -88,7 +87,7 @@ export const gcpRoles = [
   "roles/securitycenter.findingsViewer",
   "roles/recommender.viewer",
 ];
-const gcpPermissions = "Grant these seven project roles to the scanning identity. Optional selected content needs separate bucket/repository/service grants in the resource-owning project; see docs/secret-content-permissions.md. A workload service agent is a different principal from the scanner. Private Logs Viewer already includes Logs Viewer and permits Data Access log reads.";
+const gcpPermissions = "Grant these seven project roles to the scanning identity. Optional selected content needs separate bucket/repository/service grants in the resource-owning project; see docs/permissions.md. A workload service agent is a different principal from the scanner. Private Logs Viewer already includes Logs Viewer and permits Data Access log reads.";
 const gcpGrant = (principal = "serviceAccount:REPLACE_WITH_SCANNING_SA_EMAIL") => ({
   label: "gcloud CLI: grant project roles",
   value: [
@@ -141,7 +140,7 @@ const gcpMetadataAccess = { label: "gcloud CLI: attach scanning service account 
   'gcloud compute instances set-service-account "$VM_NAME" --zone="$ZONE" --service-account="hacktricks-cspm-scan@$IDENTITY_PROJECT.iam.gserviceaccount.com" --scopes=https://www.googleapis.com/auth/cloud-platform',
 ].join("\n") };
 
-const azurePermissions = "Assign Reader and Security Reader on each subscription. Optional selected content needs separate site config/list, registry pull, storage data, workspace or service-specific reads; see docs/secret-content-permissions.md. Key Vault Reader is only for metadata inside RBAC-enabled vaults. For directory inventory, app credentials also need Microsoft Graph application permissions Directory.Read.All, Policy.Read.All, AuditLog.Read.All, Reports.Read.All, RoleManagement.Read.Directory, and Organization.Read.All with admin consent.";
+const azurePermissions = "Assign Reader and Security Reader on each subscription. Optional selected content needs separate site config/list, registry pull, storage data, workspace or service-specific reads; see docs/permissions.md. Key Vault Reader is only for metadata inside RBAC-enabled vaults. For directory inventory, app credentials also need Microsoft Graph application permissions Directory.Read.All, Policy.Read.All, AuditLog.Read.All, Reports.Read.All, RoleManagement.Read.Directory, and Organization.Read.All with admin consent.";
 const azureRoleIds = [
   "Reader · acdd72a7-3385-48ef-bd42-f606fba81ae7",
   "Security Reader · 39bc4728-0917-49c7-9d2c-d95423bc2eb4",

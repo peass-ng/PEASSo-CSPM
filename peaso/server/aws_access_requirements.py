@@ -85,7 +85,6 @@ def check_policy_requirements(iam, identity, scope, issues):
     for name, consequence in (
         ('ReadOnlyAccess', 'Some service inventory and configuration data may be missing.'),
         ('SecurityAudit', 'Some security configuration and IAM audit data may be missing.'),
-        ('IAMAccessAnalyzerFullAccess', 'Creation of missing analyzers and collection of their findings may be unavailable.'),
     ):
         policy = policy_prefix + name
         if policy not in policies:

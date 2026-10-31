@@ -18,7 +18,7 @@ test("missing recommended AWS policies require acknowledgement and a changed con
   await page.route("**/api/connectors/check-access", route => route.fulfill({ json: {
     status: "warning", check_token: "bound-warning-receipt", principals: [],
     scope_summary: { unit: "accounts", total: 1, accessible: 1, blocked: 0, warning: 1, not_checked: 0 },
-    issues: ["SecurityAudit", "IAMAccessAnalyzerFullAccess"].map(name => ({ severity: "advisory", scope: "555566667777",
+    issues: ["SecurityAudit", "ReadOnlyAccess"].map(name => ({ severity: "advisory", scope: "555566667777",
       message: `Missing recommended policy arn:aws:iam::aws:policy/${name}. Some checks might fail.` })),
   } }));
   await page.goto("/#Connectors");
@@ -31,7 +31,7 @@ test("missing recommended AWS policies require acknowledgement and a changed con
   const result = page.getByRole("status");
   await expect(result).toContainText("1 with recommendations");
   await expect(result).toContainText("arn:aws:iam::aws:policy/SecurityAudit");
-  await expect(result).toContainText("arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess");
+  await expect(result).toContainText("arn:aws:iam::aws:policy/ReadOnlyAccess");
   const save = page.getByRole("button", { name: "Save connector", exact: true });
   await expect(save).toBeDisabled();
   const acknowledgement = page.getByRole("checkbox", { name: /I understand that some checks might fail/ });
