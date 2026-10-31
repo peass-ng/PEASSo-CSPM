@@ -63,6 +63,33 @@ def _project(raw, scope, kind, version):
     return row
 
 
+_SUBASSESSMENT_QUERY = ("securityresources | where type =~ 'microsoft.security/assessments/subassessments' "
+                        "| project id, type, name, properties | order by id asc")
+
+
+def _list_pages(reader, request, scope, kind, resource_type, version):
+    """ARM list pages; sub-assessments fall back to Resource Graph once the ARM list is retired."""
+    from .azure import _arm_error_code, _status_code
+    url = ARM + scope + '/providers/' + resource_type + '?api-version=' + version
+    started = False
+    try:
+        for page in reader.pages(request, url):
+            started = True
+            yield page, None
+        return
+    except Exception as exc:
+        # ARM now answers 404 SubAssessmentsDeprecated; the same records stay
+        # readable through the securityresources Resource Graph table.
+        if (started or kind != 'security_subassessment' or _status_code(exc) not in (404, '404')
+                or _arm_error_code(exc) != 'SubAssessmentsDeprecated'):
+            raise
+    subscription = scope.rsplit('/', 1)[-1]
+    body = {'subscriptions': [subscription], 'query': _SUBASSESSMENT_QUERY, 'options': {'resultFormat': 'objectArray', '$top': 1000}}
+    for page in reader.pages(request, ARM + '/providers/Microsoft.ResourceGraph/resources?api-version=2024-04-01',
+                             body=body, key='data', next_key='$skipToken'):
+        yield page, 'ResourceGraph'
+
+
 def collect(reader, request, scopes, wanted):
     from .azure import AzureReadError, _status_code
     requested = set(wanted)
@@ -78,10 +105,12 @@ def collect(reader, request, scopes, wanted):
                 continue
             def fetch(scope=scope, kind=kind, resource_type=resource_type, version=version):
                 seen = {}
-                for page in reader.pages(request, ARM + scope + '/providers/' + resource_type + '?api-version=' + version):
+                for page, via in _list_pages(reader, request, scope, kind, resource_type, version):
                     values = []
                     for raw in page:
                         row = _project(raw, scope, kind, version)
+                        if via:
+                            row['_provenance']['transport'] = via
                         key = row['id'].casefold()
                         # Compare actual source fields, excluding fetch timestamps.
                         value = {k: v for k, v in row.items() if k != '_provenance'}
