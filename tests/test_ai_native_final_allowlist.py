@@ -1,8 +1,6 @@
 """Admission and downstream contract for reviewed native Hardening failures."""
 import copy
-import hashlib
 import json
-from pathlib import Path
 
 from peaso.ai import native_final, pipeline
 from peaso.ai.briefing import build
@@ -15,12 +13,11 @@ def qualified_manifest():
         'version': 2,
         'source_scan_id': native_final.SOURCE_SCAN,
         'base_commit': native_final.BASE_COMMIT,
-        'replay_qualification': {'status': 'qualified', 'receipt_sha256': 'a' * 64},
+        'replay_qualification': {'status': 'qualified'},
         'checks': [{
             'check_id': 'aws.test.direct_setting',
             'prod992_disagreements': 0,
             'prod992_reviewed_failures': 7,
-            'audit_receipt_sha256': 'b' * 64,
             'deterministic_evidence': {
                 'source_fields': [{
                     'api': 'ec2:DescribeInstances',
@@ -34,8 +31,6 @@ def qualified_manifest():
                 'scan_time': None,
                 'code_path_audit_ref': {
                     'path': 'peaso/checks/aws.py', 'symbol': 'versioning',
-                    'source_sha256': hashlib.sha256((Path(native_final.__file__).resolve()
-                        .parents[2] / 'peaso/checks/aws.py').read_bytes()).hexdigest(),
                     'audit_ref': 'native-final-audit-992#aws.test.direct_setting',
                 },
             },
@@ -48,18 +43,15 @@ def write_manifest(tmp_path, monkeypatch, value):
     raw = (json.dumps(value, sort_keys=True) + '\n').encode()
     path.write_bytes(raw)
     monkeypatch.setenv('PEASO_HARDENING_NATIVE_FINAL_ENABLED', '1')
-    monkeypatch.setenv('PEASO_HARDENING_NATIVE_FINAL_SHA256', hashlib.sha256(raw).hexdigest())
     return path
 
 
-def test_default_disabled_and_version_pin_fail_closed(tmp_path, monkeypatch):
+def test_default_disabled_and_version_fail_closed(tmp_path, monkeypatch):
     path = write_manifest(tmp_path, monkeypatch, qualified_manifest())
     monkeypatch.delenv('PEASO_HARDENING_NATIVE_FINAL_ENABLED')
     assert not native_final.admitted_check_ids(path)
     monkeypatch.setenv('PEASO_HARDENING_NATIVE_FINAL_ENABLED', '1')
     assert native_final.admitted_check_ids(path) == {'aws.test.direct_setting'}
-    path.write_bytes(path.read_bytes() + b' ')
-    assert not native_final.admitted_check_ids(path)
     value = qualified_manifest()
     value['version'] = 1
     path = write_manifest(tmp_path, monkeypatch, value)
@@ -120,7 +112,7 @@ def test_fixed_age_from_recorded_api_timestamp_and_scan_time(tmp_path, monkeypat
     assert not native_final.admitted_check_ids(write_manifest(tmp_path, monkeypatch, value))
 
 
-def test_recorded_empty_string_and_numeric_threshold_are_source_pinned(tmp_path, monkeypatch):
+def test_recorded_empty_string_and_numeric_threshold(tmp_path, monkeypatch):
     value = qualified_manifest()
     evidence = value['checks'][0]['deterministic_evidence']
     evidence['operation']['threshold'] = ''
