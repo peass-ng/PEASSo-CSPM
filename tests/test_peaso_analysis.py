@@ -361,3 +361,19 @@ def test_hosted_analysis_retains_conditional_checks(condition, expected):
     report = engine.evaluate_snapshot(snap, checks=["analysis.principal_exposure"])
     finding = next(f for f in report["findings"] if f["check_id"] == "analysis.principal_exposure")
     assert finding["status"] == expected
+
+
+def test_azure_tenant_and_child_scope_inventories_cover_each_subscription():
+    from peaso.analysis import REQUIRED_TYPES
+    sub, tenant = "/subscriptions/00000000-0000-0000-0000-000000000001", "/tenants/00000000-0000-0000-0000-000000000002"
+    site = sub + "/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+    collections = []
+    for kind in REQUIRED_TYPES["azure"]["least_privilege"]:
+        where = tenant if kind.startswith("directory_") or kind == "tenant" else site if kind == "app_service_config" else sub
+        collections.append({"type": kind, "scope": where, "service": kind, "status": "empty", "items": []})
+    snap = make_snapshot("azure", [sub], collections, created_at="2026-01-01T00:00:00+00:00")
+    assert not [f for f in analyze_findings(snap) if f["check_id"] == "analysis.coverage" and f["evidence"].get("gaps")]
+    collections[0] = dict(collections[0], status="denied")
+    gaps = [f for f in analyze_findings(make_snapshot("azure", [sub], collections, created_at="2026-01-01T00:00:00+00:00"))
+            if f["check_id"] == "analysis.coverage" and f["evidence"].get("gaps")]
+    assert gaps and gaps[0]["evidence"]["gaps"] == [{"type": collections[0]["type"], "status": "denied"}]

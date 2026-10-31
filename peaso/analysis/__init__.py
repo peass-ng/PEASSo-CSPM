@@ -97,6 +97,17 @@ def analyze_findings(snapshot, resources=None, index=None, *, include_manual_onl
         present = {c["type"]: c for c in snapshot["collections"] if account and c.get("global") is True
                    and c.get("account_id") == account and c["scope"].split("/", 1)[0] == account}
         present.update({c["type"]: c for c in snapshot["collections"] if c["scope"] == scope})
+        if snapshot["provider"] == "azure":
+            # Entra inventories live at the tenant scope and per-parent reads (a site's
+            # config, a group's members) below the subscription; both cover this scope.
+            prefix = scope.casefold().rstrip("/") + "/"
+            for c in snapshot["collections"]:
+                if c["type"] in present and c["scope"] == scope:
+                    continue
+                if c["scope"].startswith("/tenants/") or c["scope"].casefold().startswith(prefix):
+                    held = present.get(c["type"])
+                    if held is None or held.get("status") in {"collected", "empty"}:
+                        present[c["type"]] = c
         gaps =[{"type": kind, "status": present.get(kind, {}).get("status", "not_collected")}
                 for kind in expected if present.get(kind, {}).get("status") not in {"collected", "empty"}]
         if gaps:
