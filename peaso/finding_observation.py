@@ -1,7 +1,18 @@
 """Project short, check-specific observations without changing recorded findings."""
 
 
+_APP_SETTINGS_CHECK = 'azure.review.app_service.selected_app_settings_secret_indicators'
+
+
 def evidence_summary(finding):
+    if (isinstance(finding, dict) and finding.get('check_id') == _APP_SETTINGS_CHECK
+            and finding.get('status') == 'DENIED' and isinstance(finding.get('evidence'), dict)
+            and isinstance(finding['evidence'].get('missing_action'), str)):
+        return '\n'.join([
+            'The app settings on this app could not be read because the identity lacks '
+            + finding['evidence']['missing_action'] + '.',
+            'So whether those settings hold a password or token is unknown.',
+            'A secret stored there could let someone reach the services it unlocks.'])
     observation = _evidence_summary(finding)
     if not isinstance(finding, dict) or finding.get('provider') != 'azure':
         return observation

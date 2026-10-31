@@ -92,6 +92,12 @@ def _automatic_issue(item, index, kind, batch, marker_name):
         {'HTTP401', 'HTTP403'} if kind in ('app_service_selected_settings', 'azure_configuration_selected_content')
         else {'native_get_denied'})
     if issue['status'] == 'denied' and issue['code'] in allowed_codes:
+        if kind == 'app_service_selected_settings' and expected.endswith('/config/appsettings:POST'):
+            # Reading app settings is a list action that Reader does not grant.
+            action = 'Microsoft.Web/sites' + ('/slots' if '/slots/' in expected else '') + '/config/list/action'
+            return 'DENIED', {'observed': 'The app settings could not be read because the identity lacks '
+                + action + ' (' + issue['code'] + ').', 'reason': 'access_denied', 'operation': expected,
+                'missing_action': action, 'provider_code': issue['code'], 'complete': False}
         return 'DENIED', {'observed': 'Access denied for ' + expected + ' (' + issue['code'] + ').',
             'reason': 'access_denied', 'operation': expected, 'provider_code': issue['code'],
             'complete': False}

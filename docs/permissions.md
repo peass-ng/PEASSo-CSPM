@@ -150,6 +150,11 @@ and similar) and image CVE scanning are off unless you select specific targets. 
 surface needs its own extra read permission, for example `pods/log` in Kubernetes or pull access
 to a container registry. These scans are described in [secrets-and-images.md](secrets-and-images.md).
 
+In Azure, scanning App Service and Function app settings for secrets needs
+`Microsoft.Web/sites/config/list/action` (and `Microsoft.Web/sites/slots/config/list/action` for
+deployment slots). Reader does not include it, because the action returns setting values. Without
+it, the finding says the app settings could not be read and names the missing action.
+
 ## What is never needed
 
 - Any write, create, update, delete, tag or attach permission.
