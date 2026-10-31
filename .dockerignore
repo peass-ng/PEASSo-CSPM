@@ -32,7 +32,6 @@ tests/fixtures/**
 !tests/fixtures/azure_nsp_query_cmk_production_native_20261020.json.gz
 !tests/fixtures/azure_sql_tde_parent_identity_predecessor_20261020.json.gz
 docs
-examples
 *.tfstate
 *.tfstate.*
 *.pem

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import importlib.util
 import itertools
 import sys
@@ -29,7 +28,6 @@ def check(root: Path) -> dict[str, int]:
     repo = Path(__file__).resolve().parent.parent
     cloud = load_module('cloudpeass_parity_classifier', root / 'src/CloudPEASS/permission_risk_classifier.py')
     counts = {}
-    documented = list(csv.DictReader((repo / 'docs/hacktricks-permission-inventory.csv').open()))
     for provider in ('aws', 'gcp', 'azure'):
         catalog = yaml.safe_load((repo / f'{provider}_permissions_cat.yaml').read_text())
         catalog_sets = {level: set(values) for level, values in catalog.items()}
@@ -37,10 +35,6 @@ def check(root: Path) -> dict[str, int]:
         permissions = set(catalog_permissions)
         permissions.update(cloud._load_yaml(provider).get('severity_overrides', {}))
         permissions.update(cloud._load_yaml(provider).get('non_permission_identifiers', []))
-        permissions.update(row['permission'] for row in documented if row['provider'] == provider)
-        for row in documented:
-            if row['provider'] == provider:
-                assert row['severity'] == cloud.classify_permission(provider, row['permission'], unknown_default='medium'), (provider, row['permission'], 'stale source inventory')
         combinations = cloud.load_criticality_combinations(provider)
         assert combinations == blue.load_criticality_combinations(provider), provider
         permissions.update(p for combos in combinations.values() for combo in combos for p in combo)

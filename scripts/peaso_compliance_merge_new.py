@@ -108,12 +108,11 @@ def merge(ledger_root: Path, shard_dir: Path, extra_shards=()) -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ledger-root", type=Path, default=ROOT / "docs/compliance-ledgers")
-    parser.add_argument("--shard-dir", type=Path, default=ROOT / "docs/compliance-ledgers/.work/shards")
+    parser.add_argument("--ledger-root", type=Path, required=True)
+    parser.add_argument("--shard-dir", type=Path, required=True)
     parser.add_argument("--extra-shard", type=Path, action="append", default=[],
                         help="Explicit additional provider-family description file under shard-dir")
-    parser.add_argument("--output", type=Path,
-                        default=ROOT / "docs/compliance-ledgers/.work/implemented-new-checks.json")
+    parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args(argv)
     merged = merge(args.ledger_root, args.shard_dir, args.extra_shard)

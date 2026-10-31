@@ -58,8 +58,6 @@ SOURCE_CORRECTION = {
     "prior_frozen_status": "historical_superseded_for_this_check",
     "current_canonical_spec_sha256": _digest(CORRECTED_SPEC),
     "current_predicate_sha256": _digest(PREDICATE),
-    "source_contract_path": "docs/compliance-ledgers/new-checks-aws.json#aws.pci.iam.wildcard_action_scoped_resource",
-    "source_description_path": "docs/compliance-ledgers/descriptions/implemented-new-checks.json#aws.pci.iam.wildcard_action_scoped_resource",
     "criterion_scope": "Customer-managed default policies, attached or unattached; individual resource ARN; declared Action/NotAction shape",
     "erratum": "The signed predicate says customer managed but names the mixed iam_policy projection; use the native Local customer-policy universe.",
 }

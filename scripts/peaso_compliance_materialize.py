@@ -6,7 +6,6 @@ script never rebuilds it or turns a reference mapping into a requirement pass.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import gzip
 import os
 import struct
@@ -21,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 PACK = ROOT / "peaso/rulepacks"
 FRONTEND = ROOT / "frontend/src/frameworkCatalog.json"
-LEDGER = ROOT / "docs/compliance-ledgers"
+# Reviewed check IDs from the compliance research index, reduced to what validation uses.
+CHECK_INDEX = PACK / "compliance_check_index.json"
 
 
 def deterministic_gzip(data: bytes) -> bytes:
@@ -50,7 +50,7 @@ def render_documents() -> dict[Path, bytes]:
                                       full_requirements, manifest, proposal_provenance_for, runtime_metadata)
     from peaso.collectors import supported_types
     from peaso.server.catalog_view import frameworks_view_from_catalog
-    from scripts.peaso_compliance_compile import lookup_index, spec_digest, verified_file
+    from scripts.peaso_compliance_compile import lookup_index, spec_digest
 
     clear_caches()
     packed = _compliance()
@@ -74,14 +74,15 @@ def render_documents() -> dict[Path, bytes]:
     canonical = full_requirements()
     if lookup_index(canonical, requirements["full_pack_sha256"]) != requirements:
         raise ValueError("Compact lookup differs from canonical signed requirement pack")
-    signed = hashlib.sha256((LEDGER / "manifest.json").read_bytes()).hexdigest()
-    if requirements["source_manifest_sha256"] != signed or descriptions["source_manifest_sha256"] != signed:
-        raise ValueError("Compiled packs do not match the current supervisor manifest")
+    signed = requirements["source_manifest_sha256"]
+    if descriptions["source_manifest_sha256"] != signed:
+        raise ValueError("Compiled requirement and description packs come from different sources")
+    check_index = json.loads(CHECK_INDEX.read_text())
     from peaso.checks import CHECK_ALIASES, resolve_check_id
     native_ids = {check.id for check in CHECKS}
     if len(native_ids) != len(CHECKS):
         raise ValueError("Duplicate registered native check")
-    indexed = {row["id"] for row in json.loads((LEDGER / "inputs/check-index.json").read_text())}
+    indexed = set(check_index["indexed_check_ids"])
     # Retain reviewed metadata for archived reports without advertising runnable controls.
     analysis_ids = {row["id"] for row in ANALYSIS_CHECKS} | MANUAL_ONLY_ANALYSIS_CHECK_IDS
     reviewed_ids = set(descriptions["checks"])
@@ -110,13 +111,7 @@ def render_documents() -> dict[Path, bytes]:
             declared = collected | declared_types(check.provider)
             if check.id not in bulk_manifest['checks'] or not set(check.dependencies+[check.kind]) <= declared:
                 raise ValueError("New check kind or dependency is not collected: " + check.id)
-    supervisor = json.loads((LEDGER / "manifest.json").read_text())
-    thematic_extensions = set()
-    for entry in supervisor.get("native_extensions", []):
-        extension, _ = verified_file(LEDGER, entry, prefix="native-extensions/")
-        for row in extension["checks"]:
-            if row["requirements"] == []:
-                thematic_extensions.add(row["spec"]["id"])
+    thematic_extensions = set(check_index["thematic_extension_check_ids"])
     for cid, tags in requirements["by_check"].items():
         if resolve_check_id(cid) not in active_ids or (not tags and cid not in thematic_extensions):
             raise ValueError("Requirement map contains an absent or untagged check")

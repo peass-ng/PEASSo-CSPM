@@ -145,9 +145,7 @@ jobs:
         id: benchmark
         if: ${{ matrix.shard == 0 }}
         # Measure before the large suite imports its fixtures and allocates worker heaps.
-        # The budgets are production startup bounds. Without this, the
-        # test-only "always" mode from tests/conftest.py leaks into the
-        # measured child process (240 CPU s instead of ~25 on CI).
+        # The budgets are production startup bounds.
         run: >-
           python -m pytest -q -s -p no:cacheprovider -rs --junitxml=benchmark-report.xml
           tests/test_peaso_perf_benchmark.py

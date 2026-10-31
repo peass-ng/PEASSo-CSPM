@@ -631,21 +631,18 @@ def compile_verified(ledger_root: Path, audit_matrix: dict, native_catalog: dict
                 raise ValueError("Ledger decisions differ from pinned matrix requirements")
         if count != entry.get("requirements_total"):
             raise ValueError("Ledger requirement count differs from manifest")
-    # Fixture ledgers may contain none of the two production-only duplicates.
-    # When either signed proposal is present, demand its *whole* exact row set;
-    # the canonical production ledger must retain both even if one is removed.
-    canonical = ledger_root.resolve() == (Path(__file__).resolve().parent.parent / "docs/compliance-ledgers").resolve()
+    # When either signed duplicate proposal is present, demand its *whole* exact row set.
     expected_equivalents = set()
-    if canonical or REVIEWED_EQUIVALENT_PROPOSAL["id"] in proposed:
+    if REVIEWED_EQUIVALENT_PROPOSAL["id"] in proposed:
         expected_equivalents.add((REVIEWED_EQUIVALENT_PROPOSAL["framework_id"],
                                   REVIEWED_EQUIVALENT_PROPOSAL["requirement_id"],
                                   REVIEWED_EQUIVALENT_PROPOSAL["id"]))
-    if canonical or REVIEWED_CLOUDTRAIL_EQUIVALENT["id"] in proposed:
+    if REVIEWED_CLOUDTRAIL_EQUIVALENT["id"] in proposed:
         expected_equivalents.update((framework_id, requirement_id, REVIEWED_CLOUDTRAIL_EQUIVALENT["id"])
                                     for framework_id, requirement_id in REVIEWED_CLOUDTRAIL_EQUIVALENT["rows"])
     from peaso.finding_priority import source_priority
     expected_rds = REVIEWED_RDS_CLUSTER_EQUIVALENT
-    if expected_rds["survivor"] in native and (canonical or expected_rds["id"] in proposed):
+    if expected_rds["survivor"] in native and expected_rds["id"] in proposed:
         _reviewed_rds_signed_specs(proposed)
         expected_equivalents.update((framework_id, requirement_id, expected_rds["id"])
                                     for framework_id, requirement_id in expected_rds["rows"])

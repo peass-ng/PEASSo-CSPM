@@ -19,9 +19,6 @@ def sync(source: Path, target: Path, *, check: bool = False) -> None:
     k8s = k8s.replace('Path(__file__).resolve().parent.parent / \"CloudPEASS\" / \"risk_rules\" / \"k8s.yaml\"', 'Path(__file__).resolve().parent.parent / \"risk_rules\" / \"k8s.yaml\"')
     k8s = k8s.replace('from .models import PermissionKey', 'from dataclasses import dataclass\n\n\n' + key)
     files[target / 'bluepeass/k8s_risks.py'] = k8s
-    files[target / 'docs/permission-severity-audit.csv'] = (source / 'docs/permission-severity-audit.csv').read_text()
-    files[target / 'docs/permission-identifier-corrections.csv'] = (source / 'docs/permission-identifier-corrections.csv').read_text()
-    files[target / 'docs/hacktricks-permission-inventory.csv'] = (source / 'docs/hacktricks-permission-inventory.csv').read_text()
     stale = []
     for path, contents in files.items():
         if check:

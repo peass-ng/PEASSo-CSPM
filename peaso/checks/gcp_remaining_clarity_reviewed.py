@@ -17031,8 +17031,7 @@ NATIVE_EXTENSION_REVIEWS = json.loads(r'''
       "predicate_qualname": "evaluate",
       "source_qualname": "evaluate"
     },
-    "source": "peaso/checks/gcp_image_secret_review_20261019.py",
-    "native_source_integration_review": "docs/gcp-review/cloudrun-image-integration.json"
+    "source": "peaso/checks/gcp_image_secret_review_20261019.py"
   },
   "gcp.review.artifactregistry.selected_file_secret_indicators": {
     "fixture_sources": [
@@ -17540,7 +17539,6 @@ NATIVE_EXTENSION_REVIEWS = json.loads(r'''
 NATIVE_EXTENSION_REVIEWS.update(json.loads(r'''
 {
   "gcp.review.cloudtasks.selected_payload_secret_indicators": {
-    "admission_path": "docs/compliance-ledgers/native-extensions/gcp-selected-content-20261020.json",
     "source": "peaso/checks/gcp_task_routine_secret_review_20261020.py",
     "fixture_sources": [
       {
@@ -17557,7 +17555,6 @@ NATIVE_EXTENSION_REVIEWS.update(json.loads(r'''
     }
   },
   "gcp.review.bigquery.selected_routine_secret_indicators": {
-    "admission_path": "docs/compliance-ledgers/native-extensions/gcp-selected-content-20261020.json",
     "source": "peaso/checks/gcp_task_routine_secret_review_20261020.py",
     "fixture_sources": [
       {

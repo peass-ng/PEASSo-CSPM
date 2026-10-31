@@ -81,12 +81,7 @@ def optimize_source_archive(path, *, max_members, max_member_bytes, max_uncompre
                             "release.json", "peaso_release.json", "peaso/rulepacks/compliance_lookup.json",
                             "peaso/rulepacks/compliance_requirements.json", "peaso/rulepacks/runtime_metadata.json", "peaso/rulepacks/check_descriptions.json",
                             "peaso/rulepacks/native_catalog.json",
-                            "peaso/rulepacks/upstream_manifest.json",
-                            "docs/compliance-ledgers/descriptions/implemented-new-checks.json",
-                            "docs/compliance-ledgers/new-checks-azure.json",
-                            "docs/compliance-ledgers/aws-nist-ffiec-nydfs.json",
-                            "docs/compliance-ledgers/azure-pci.json", "docs/compliance-ledgers/inputs/aws-nist-ffiec-nydfs.json",
-                            "docs/compliance-ledgers/azure-cis.json", "docs/compliance-ledgers/inputs/aws-other.json"}:
+                            "peaso/rulepacks/upstream_manifest.json"}:
                         candidate = zopfli_compress(data, numiterations=15)[2:-4]
                         if len(candidate) < len(packed):
                             packed, selected = candidate, "zopfli/15"

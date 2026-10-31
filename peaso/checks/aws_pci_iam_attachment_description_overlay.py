@@ -22,7 +22,6 @@ def description(original):
             "signed_spec_sha256": SIGNED_SPEC_SHA256,
             "base_row_sha256": ORIGINAL_DESCRIPTION_SHA256,
             "source_relationship": "Clarifies the signed configured-attachment predicate; the original signed pack remains unchanged and does not require observed service activity.",
-            "source_contract_path": "docs/compliance-ledgers/new-checks-aws.json#aws.pci.iam.policy_attached_to_active_principal",
             "official_references": [
                 "https://docs.aws.amazon.com/IAM/latest/APIReference/API_UserDetail.html",
                 "https://docs.aws.amazon.com/IAM/latest/APIReference/API_ManagedPolicyDetail.html",
