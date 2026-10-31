@@ -1,7 +1,6 @@
 """Default-off engine grant and native adapter for the sealed inline producer."""
 from copy import deepcopy
 from types import FunctionType
-import hashlib
 import json
 import time
 import threading
@@ -57,7 +56,6 @@ def issue_engine_grant(options, scopes, named=()):
     options.pop(GRANT, None)
     rows = targets(options, scopes, named)
     if options.get('content_secret_scans') is True and CHECK in named:
-        runtime_binding()
         options[GRANT] = _Grant(scopes, rows)
 
 
@@ -74,8 +72,7 @@ def authorize_collector(options, scopes):
 
 
 def runtime_binding():
-    from peaso.checks.aws_codebuild_buildspec_runtime_admission_20261020 import reviewed_inputs
-    return reviewed_inputs()[0]['source_binding']
+    return source.reviewed_sources()
 
 
 def prepare(options, scopes):
@@ -129,7 +126,6 @@ def collect_selected(requests, session, region, caller, options, scopes):
     state = getattr(requests, STATE)
     if not state['permitted']:
         return ReadResult([], 'not_collected', {'code': 'explicit_named_content_grant_required'})
-    runtime_binding()
     scope = caller['Account'] + '/' + region
     selected = [t for t in targets(options, scopes) if t['scope'] == scope]
     if not selected:

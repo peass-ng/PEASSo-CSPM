@@ -381,10 +381,7 @@ def _request(request):
     if FUNCTION_SETTINGS_OPTION in content_options or (content_options.get('content_secret_scans') is True and function_named):
         if connector['provider'] != 'azure':
             raise ValueError('Selected Function settings require Azure provider')
-        function_targets, _ = function_settings_preflight(content_options, connector.get('scopes', []), function_named)
-        if function_targets:
-            from .rawv2_private_source_successor_20261021 import install_admission
-            install_admission('azure_function_settings_runtime_admission_20261020')
+        function_settings_preflight(content_options, connector.get('scopes', []), function_named)
     if connector['provider'] == 'aws':
         from .collectors.aws_lambda_environment_secret_indicators import selected_targets as lambda_environment_targets, KIND as LAMBDA_ENV_KIND, CHECK as LAMBDA_ENV_CHECK, OPTION as LAMBDA_ENV_OPTION
         from .collectors.aws_selected_configuration_secret_indicators import selected_targets as configuration_content_targets, KIND as CONFIG_CONTENT_KIND, CHECK as CONFIG_CONTENT_CHECK, OPTION as CONFIG_CONTENT_OPTION

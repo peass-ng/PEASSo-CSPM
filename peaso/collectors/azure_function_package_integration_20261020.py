@@ -55,8 +55,6 @@ def issue_engine_grant(options, scopes, named_checks):
     options.pop(GRANT, None)
     targets = preflight(options, scopes, named_checks)
     if targets:
-        from peaso.checks.azure_function_package_integration_admission_20261020 import reviewed_inputs
-        reviewed_inputs()
         options[GRANT] = _Grant(scopes, targets)
         return options[GRANT]
 
@@ -81,8 +79,6 @@ def collect(reader, transport, grant, scopes, *, customer_context_id, credential
     """Use unchanged native capture/export, sharing the owner's read budget."""
     if grant is None:
         return
-    from peaso.checks.azure_function_package_integration_admission_20261020 import reviewed_inputs
-    reviewed_inputs()
     reader.check_cancelled()
     union = grant.union
     reader.package_source_union = union

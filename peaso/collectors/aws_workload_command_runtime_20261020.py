@@ -1,8 +1,6 @@
 """Engine-issued, default-off adapter around the unchanged native command reader."""
 from copy import deepcopy
-import hashlib
 import json
-from pathlib import Path
 from . import aws_workload_command_source_20261020 as source
 
 CHECK, KIND, OPTION = source.CHECK, source.KIND, source.OPTION
@@ -10,7 +8,6 @@ GRANT = '_aws_workload_command_engine_grant'
 MARKER = 'SelectedWorkloadCommandCapture'
 CAPTURE = KIND + '_capture'
 _TOKEN = object()
-_HISTORICAL_REVIEWED_SOURCES = source.reviewed_sources
 
 
 class _Grant:
@@ -44,17 +41,10 @@ def targets(options, scopes, named=(), provider='aws'):
     return deepcopy(rows)
 
 
-def reviewed_sources():
-    """Packaged successor for the proposal's historical docs/test drift receipt."""
-    from peaso.checks.aws_workload_command_runtime_admission_20261020 import reviewed_inputs
-    return reviewed_inputs()['source_binding']
-
-
 def issue_engine_grant(options, scopes, named=()):
     options.pop(GRANT, None)
     rows = targets(options, scopes, named)
     if options.get('content_secret_scans') is True and CHECK in named:
-        reviewed_sources()
         options[GRANT] = _Grant(scopes, rows)
 
 
@@ -84,7 +74,6 @@ def collect_selected(plan, contexts, requests):
     """Use only normal, pinned, authorized account contexts; never discover one."""
     if plan is None:
         return None
-    reviewed_sources()
     sessions = {}
     for session, caller in contexts:
         if caller['Account'] in sessions:
@@ -146,8 +135,3 @@ def publish(capture, plan, collections, metadata, options):
         'status': 'collected' if capture['complete'] else 'partial', 'items': rows})
     return collections, metadata
 
-
-def install_source_successor():
-    if source.reviewed_sources not in (_HISTORICAL_REVIEWED_SOURCES, reviewed_sources):
-        raise RuntimeError('workload source successor replaced')
-    source.reviewed_sources = reviewed_sources

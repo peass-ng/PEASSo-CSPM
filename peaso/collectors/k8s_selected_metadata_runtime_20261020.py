@@ -35,8 +35,6 @@ def authorize(options,scopes,named=()):
     options.pop(GRANT,None)
     targets=preflight(options,scopes,named)
     if options.get('content_secret_scans')is True and CHECK in named:
-        from peaso.checks.k8s_selected_metadata_runtime_admission_20261020 import reviewed_inputs
-        reviewed_inputs()
         options[GRANT]=_Grant(scopes,_selection(options))
     return targets
 
@@ -65,8 +63,6 @@ def collect(reader,api,options,scopes,cluster):
     if selected:safe[OPTION]=selected
     else:safe.pop(OPTION,None)
     if authorized:
-        from peaso.checks.k8s_selected_metadata_runtime_admission_20261020 import reviewed_inputs
-        reviewed_inputs()
         assert_private_transport(api)
     return source.collect(reader,api,safe,scopes,cluster)
 

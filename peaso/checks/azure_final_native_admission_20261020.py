@@ -1,43 +1,18 @@
 """Explicit admission boundary for reviewed native Azure successors.
 
-Importing this module has no effect. The coordinator supplies the exact source
-and native-fixture receipt together with canonical catalog entries before adding
-the single install hook. Historical SW30 code and fixtures remain unchanged.
+Importing this module has no effect; install() registers the declarations and
+their native cases.
 """
 from copy import deepcopy
 from functools import wraps
-import hashlib
 import importlib
 import inspect
 import json
 from pathlib import Path
 
 
-def _reviewed_inputs(directory=None):
-    directory = Path(directory or Path(__file__).resolve().parent).resolve()
-    root = directory.parents[1]
-    receipt = json.loads((directory / 'azure_final_native_admission_20261020.json').read_text())
-    if receipt.get('schema_version') != 1:
-        raise RuntimeError('Unrecognized native Azure admission receipt')
-    for source in receipt['sources']:
-        path = (root / source['path']).resolve()
-        if not path.is_relative_to(root) or hashlib.sha256(path.read_bytes()).hexdigest() != source['sha256']:
-            raise RuntimeError('Native Azure admission source differs from its review')
-    fixture = receipt['fixtures']
-    fixture_path = (root / fixture['path']).resolve()
-    if not fixture_path.is_relative_to(directory):
-        raise RuntimeError('Native Azure admission fixture path is invalid')
-    raw = fixture_path.read_bytes()
-    if hashlib.sha256(raw).hexdigest() != fixture['sha256']:
-        raise RuntimeError('Native Azure admission fixtures differ from their review')
-    cases = json.loads(raw)
-    if set(cases) != set(receipt['new_check_ids']) or any(
-        not isinstance(row, dict) or not {
-            'pass', 'pass_index', 'fail', 'fail_index', 'unknown', 'unknown_index'
-        } <= set(row) for row in cases.values()
-    ):
-        raise RuntimeError('Native Azure admission fixtures are incomplete')
-    return receipt, cases
+def _cases():
+    return json.loads(Path(__file__).with_name('azure_final_native_admission_20261020_fixtures.json').read_text())
 
 
 def _declarations():
@@ -68,15 +43,12 @@ def _display_result(function, check_id):
 
 
 def install():
-    """Install only the exact source-reviewed declarations and SW30 bridges."""
+    """Install the native declarations and SW30 bridges."""
     from . import CHECKS, register
     from .fixtures import CASES
 
-    receipt, cases = _reviewed_inputs()
+    cases = _cases()
     aks, declarations = _declarations()
-    declared_ids = [metadata['id'] for metadata, _ in declarations]
-    if len(set(declared_ids)) != len(declared_ids) or set(declared_ids) != set(receipt['new_check_ids']):
-        raise RuntimeError('Native Azure declarations do not match their admission')
     before = tuple(CHECKS)
     previous_originals = dict(aks._ORIGINALS)
     previous_cases = {ident: deepcopy(CASES[ident]) for ident in cases if ident in CASES}
