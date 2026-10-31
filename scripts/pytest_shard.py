@@ -17,12 +17,10 @@ import sys
 
 
 TESTS = Path("tests")
-# 19 jobs no longer fit the 40-minute job limit: each job spends a fixed
-# ~10 minutes importing the always-mode native catalog in the xdist
-# controller and its workers before the first test, and run 40869224500
-# cancelled six shards at 93-99% of their tests.
-SHARDS = 32
+# The shard count comes from the caller (the CI matrix passes --shards); the
+# collection hook reads it back from the environment, so any count works.
 _SHARD_ENV = "PEASO_CI_PYTEST_SHARD"
+_SHARDS_ENV = "PEASO_CI_PYTEST_SHARDS"
 
 # Seconds summed from the completed JUnit files in Actions run 39701781083.
 # The previous run was interrupted on shards 0 and 6, so unmeasured files use
@@ -115,18 +113,20 @@ def _weight(path: Path) -> float:
     return HISTORIC_SECONDS.get(path.name, max(1, path.stat().st_size * 0.0003))
 
 
+def _splits(path: Path, count: int) -> int:
+    return min(SPLIT_COUNTS.get(path.name, 1), count)
+
+
 def partition(files: list[Path], count: int) -> list[list[Path]]:
     if count < 1 or count > len(files):
         raise ValueError("shard count must be between 1 and the number of test files")
-    if count != SHARDS and any(path.name in SPLIT_COUNTS for path in files):
-        raise ValueError(f"split-module scheduling requires {SHARDS} shards")
     shards: list[list[Path]] = [[] for _ in range(count)]
     # Shard zero runs the isolated performance gate before its ordinary tests.
-    weights = [240.0 if count == SHARDS else 0.0] + [0.0] * (count - 1)
+    weights = [240.0] + [0.0] * (count - 1)
     units = [
-        (path, slot, _weight(path) / SPLIT_COUNTS.get(path.name, 1))
+        (path, slot, _weight(path) / _splits(path, count))
         for path in files
-        for slot in range(SPLIT_COUNTS.get(path.name, 1))
+        for slot in range(_splits(path, count))
     ]
     for path, _, weight in sorted(units, key=lambda unit: (-unit[2], str(unit[0]), unit[1])):
         choices = [i for i in range(count) if path not in shards[i]]
@@ -149,7 +149,7 @@ def _verify(files: list[Path], shards: list[list[Path]]) -> None:
     if set(placements) != set(files) or any(not shard for shard in shards):
         raise RuntimeError("test shard file coverage is incomplete")
     for path in files:
-        if len(placements[path]) != SPLIT_COUNTS.get(path.name, 1):
+        if len(placements[path]) != _splits(path, len(shards)):
             raise RuntimeError(f"incorrect shard count for {path}")
 
 
@@ -175,7 +175,7 @@ def pytest_collection_modifyitems(config, items) -> None:
     if shard_text is None:
         return
     shard = int(shard_text)
-    placements = _placements(partition(test_files(), SHARDS))
+    placements = _placements(partition(test_files(), int(os.environ[_SHARDS_ENV])))
     selected, deselected = [], []
     for item in items:
         path = Path(item.path).relative_to(Path.cwd())
@@ -214,7 +214,7 @@ def main() -> int:
     selected = set(shards[args.shard])
     ignored = [f"--ignore={path}" for path in files if path not in selected]
     command = [sys.executable, "-m", "pytest", "-p", "scripts.pytest_shard", *pytest_args, *ignored, str(TESTS)]
-    env = {**os.environ, _SHARD_ENV: str(args.shard)}
+    env = {**os.environ, _SHARD_ENV: str(args.shard), _SHARDS_ENV: str(args.shards)}
     return subprocess.call(command, env=env)
 
 
