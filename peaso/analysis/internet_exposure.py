@@ -23139,6 +23139,17 @@ def _k8s_external_backend(snapshot, inventory, resource):
     return a
 
 
+def _local_host(host):
+    """Loopback names and non-global IP literals never leave the node or private network."""
+    host = host.lower().rstrip(".")
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return not ipaddress.ip_address(host).is_global
+    except ValueError:
+        return False
+
+
 def _k8s_third_party_data(snapshot, inventory, resource):
     """Find API-declared external receivers or configuration sources, without reading content."""
     kind, data = resource["type"], resource["data"]
@@ -23150,7 +23161,8 @@ def _k8s_third_party_data(snapshot, inventory, resource):
             url = (webhook.get("clientConfig") or {}).get("url")
             if isinstance(url, str):
                 host = urlsplit(url).hostname
-                if host and not host.endswith((".svc", ".svc.cluster.local", ".cluster.local")):
+                if host and not host.endswith((".svc", ".svc.cluster.local", ".cluster.local")) \
+                        and not _local_host(host):
                     targets.append(host)
     elif kind == "configsync_rootsync":
         spec = data.get("spec") or {}

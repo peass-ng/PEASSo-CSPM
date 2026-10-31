@@ -12,6 +12,8 @@ from peaso.report_quality import normalize_unknown_reasons
     ({"conditions": ["target_inventory_not_collected"]}, "unresolved_conditions: target_inventory_not_collected"),
     ({"missing_facts": [{"field": "ServicesLastAccessed"}]}, "missing_facts: ServicesLastAccessed"),
     ({"missing_fields": ["Attributes.DisableApiTermination"]}, "missing_facts: Attributes.DisableApiTermination"),
+    ({"unresolved": [{"layer": "security_group", "reason": "node firewall unavailable"}]},
+     "unresolved_layers: security_group: node firewall unavailable"),
     ({}, "unknown_reason_not_supplied"),
 ])
 def test_unknown_reason_uses_existing_evidence_only(evidence, reason):

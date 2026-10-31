@@ -40,6 +40,10 @@ def normalize_unknown_reasons(findings):
                     state = gap.get("status")
                     gaps.append(gap["type"] + ("(" + state + ")" if isinstance(state, str) else ""))
         conditions = _labels(evidence.get("conditions"))
+        unresolved = sorted({f"{gap['layer']}: {gap['reason']}" for gap in evidence.get("unresolved", [])
+                             if isinstance(gap, dict) and isinstance(gap.get("layer"), str)
+                             and isinstance(gap.get("reason"), str) and gap["reason"].strip()}
+                            if isinstance(evidence.get("unresolved"), (list, tuple)) else ())
         if isinstance(supplied, str) and supplied.strip():
             reason = supplied
         elif facts:
@@ -48,6 +52,8 @@ def normalize_unknown_reasons(findings):
             reason = "incomplete_inventory: " + ", ".join(sorted(set(gaps)))
         elif conditions:
             reason = "unresolved_conditions: " + ", ".join(conditions)
+        elif unresolved:
+            reason = "unresolved_layers: " + "; ".join(unresolved)
         else:
             reason = "unknown_reason_not_supplied"
         output.append(dict(finding, evidence=dict(evidence, reason=reason)))
