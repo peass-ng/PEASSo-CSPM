@@ -20,6 +20,20 @@ def _field(item, key, expected):
     return value
 
 
+class _Reason(Unavailable):
+    """An UNKNOWN whose concrete cause the collector already named."""
+
+
+def _safe_code(value):
+    if isinstance(value, str) and re.fullmatch(r'[a-z_]+(?:: [a-z_]+(?:, [a-z_]+)*)?', value) and len(value) <= 300:
+        return value
+    return None
+
+
+def _incomplete(reason, base):
+    return reason == base or (isinstance(reason, str) and reason.startswith(base + ': ') and _safe_code(reason) == reason)
+
+
 def evaluate(kind, item, index):
     try:
         field, _, label, operation = SURFACES[kind]
@@ -32,6 +46,13 @@ def evaluate(kind, item, index):
         own, native = _arn(identity, 'ecr' if kind == 'ecr_repository' else 'lambda', region)
         if own != account: raise Unavailable('foreign account')
         _member(item, index, kind, field, scope)
+        source = item.get('PackageContentSource')
+        if isinstance(source, dict) and source.get('collection_status') != 'collected':
+            # The collector names why content was not read (image package,
+            # size bound, opt-out, download failure, ...); keep that cause.
+            error = source.get('error')
+            code = _safe_code(error.get('code')) if isinstance(error, dict) else None
+            raise _Reason(code or 'package_content_' + (_safe_code(source.get('collection_status')) or 'unavailable'))
         source = get(item, 'PackageContentSource', dict)
         if get(source, 'collection_status', str) != 'collected': raise Unavailable('content unavailable')
         if kind == 'lambda_function':
@@ -57,7 +78,9 @@ def evaluate(kind, item, index):
                 or _field(indicator, 'AccountId', str) != account or _field(indicator, 'Region', str) != region
                 or _field(indicator, 'SourceOperation', str) != operation): raise Unavailable('projection provenance absent')
         complete = _field(indicator, 'NativeResponseComplete', bool)
-        if indicator['collection_status'] != ('collected' if complete else 'partial') or indicator['Reason'] != (None if complete else 'image_content_incomplete' if kind == 'ecr_repository' else 'package_content_incomplete'):
+        base = 'image_content_incomplete' if kind == 'ecr_repository' else 'package_content_incomplete'
+        if indicator['collection_status'] != ('collected' if complete else 'partial') or not (
+                indicator['Reason'] is None if complete else _incomplete(indicator['Reason'], base)):
             raise Unavailable('contradictory completeness')
         refs = _field(indicator, 'References', list)
         if len(refs) > 5000: raise Unavailable('observation limit')
@@ -71,15 +94,22 @@ def evaluate(kind, item, index):
             if kind == 'ecr_repository' and not _digest(ref['LayerDigest']): raise Unavailable('invalid layer reference')
         present = _field(indicator, 'HighConfidenceSecretPresent', bool)
         if present != bool(refs): raise Unavailable('contradictory presence')
-        if not complete and not present: raise Unavailable('partial negative')
+        if not complete and not present: raise _Reason(indicator['Reason'])
         return ('FAIL' if present else 'PASS'), {
             'observed': label + (': selected secret indicators observed.' if present else ': no selected indicators observed in the complete bounded source.'),
             'resource_id': identity, 'references': refs,
             'secret_leaks': [dict(leak, locations=[dict(loc, **({'layer': ref['LayerDigest']} if 'LayerDigest' in ref else {})) for loc in leak['locations']]) for ref in refs for leak in ref.get('Leaks', [])],
             'coverage': 'Offline Kingfisher and TruffleHog plus supplemental patterns; bounded content only, no execution or credential validation.',
             'source_complete': complete}
-    except (Unavailable, ValueError, TypeError, KeyError, AttributeError):
-        return 'UNKNOWN', {'observed': 'Complete, matching optional package indicator evidence is unavailable.'}
+    except _Reason as reason:
+        return 'UNKNOWN', {'observed': 'Complete, matching optional package indicator evidence is unavailable.',
+                           'reason': str(reason)}
+    except Unavailable as exc:
+        return 'UNKNOWN', {'observed': 'Complete, matching optional package indicator evidence is unavailable.',
+                           'reason': 'package_indicator_evidence_invalid: ' + str(exc)[:200]}
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return 'UNKNOWN', {'observed': 'Complete, matching optional package indicator evidence is unavailable.',
+                           'reason': 'package_indicator_evidence_malformed'}
 
 
 def function_code(item, index=None): return evaluate('lambda_function', item, index or {})

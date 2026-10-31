@@ -597,6 +597,49 @@ def test_bound_tar_preserves_proven_positive_before_later_bad_header(monkeypatch
 
 
 @pytest.mark.parametrize('detected', [True, False])
+def test_ecr_image_repeating_one_layer_digest_is_scanned(monkeypatch, detected):
+    # Real images can list the same (e.g. empty) layer blob more than once.
+    requests, session, item, ops, calls, downloads, payloads = sdk(monkeypatch, 'ecr_repository', detected)
+    config = json.loads(payloads[URL + '-config'])
+    config['rootfs']['diff_ids'] *= 2
+    config_raw = json.dumps(config).encode()
+    payloads[URL + '-config'] = config_raw
+    document = json.loads(ops['batch_get_image']['images'][0]['imageManifest'])
+    document['config'].update(size=len(config_raw), digest=digest(config_raw))
+    document['layers'] *= 2
+    _replace_manifest(ops, document)
+    old = ops['get_download_url_for_layer']
+    ops['get_download_url_for_layer'] = lambda **kw: (
+        {'layerDigest': kw['layerDigest'], 'downloadUrl': URL + '-config'}
+        if kw['layerDigest'] == digest(config_raw) else old(**kw))
+    result = p.ENRICHERS['ecr_repository'](requests, session, REGION, [item])[0]
+    status, evidence = c.image_layers(result, index('ecr_repository', result))
+    assert status == ('FAIL' if detected else 'PASS')
+
+
+@pytest.mark.parametrize('field,value,reason', [
+    ('PackageType', 'Image', 'lambda_image_package'),
+    ('CodeSize', p.ZIP_LIMIT + 1, 'package_size_bound'),
+])
+def test_lambda_without_reviewable_zip_names_reason_without_download(monkeypatch, field, value, reason):
+    requests, session, item, ops, calls, downloads, _ = sdk(monkeypatch, 'lambda_function')
+    item[field] = value
+    result = p.ENRICHERS['lambda_function'](requests, session, REGION, [item])[0]
+    status, evidence = FUNCTIONS['lambda_function'](result, index('lambda_function', result))
+    assert status == 'UNKNOWN' and evidence['reason'] == reason
+    assert 'get_function' not in [op for _, op, _ in calls] and not downloads
+
+
+def test_partial_image_negative_names_its_incomplete_cause():
+    item, ix = c._fixture('ecr_repository', False)
+    marker = item['PackageContentSource']['PackageSecretIndicators']
+    marker.update(NativeResponseComplete=False, collection_status='partial',
+                  Reason='image_content_incomplete: binary_member')
+    status, evidence = c.image_layers(item, ix)
+    assert status == 'UNKNOWN' and 'binary_member' in evidence['reason']
+
+
+@pytest.mark.parametrize('detected', [True, False])
 def test_lambda_get_function_qualified_arn_reply_is_scanned(monkeypatch, detected):
     # GetFunction called with Qualifier=$LATEST answers with the qualified ARN.
     requests, session, item, ops, calls, downloads, _ = sdk(monkeypatch, 'lambda_function', detected)

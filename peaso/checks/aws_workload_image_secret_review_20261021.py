@@ -5,6 +5,7 @@ from peaso import oci_index_20261021 as oci_index
 
 from peaso.aws_image_selection_20261021 import DIGEST, REPO, partition
 from peaso.collectors.aws_package_content_indicators import SCHEMA, CATEGORIES, _path
+from peaso.checks.aws_package_content_review_20261019 import _incomplete
 from peaso.collectors.aws_workload_image_secret_native_20261021 import KIND, OPTION, ENABLE, selected
 
 CHECK = 'aws.review.workload.selected_image_secret_indicators'
@@ -21,6 +22,7 @@ DESCRIPTION = {'description': 'Inspects exactly selected Lambda, ECS task defini
 
 
 def evaluate(row):
+    reason = None
     try:
         target = row['selection']
         account, region = target['scope'].split('/')
@@ -63,7 +65,8 @@ def evaluate(row):
                 or type(marker.get('References')) is not list
                 or len(marker['References']) > 5000
                 or marker.get('collection_status') != ('collected' if marker['NativeResponseComplete'] else 'partial')
-                or marker.get('Reason') != (None if marker['NativeResponseComplete'] else 'image_content_incomplete')
+                or not (marker.get('Reason') is None if marker['NativeResponseComplete']
+                        else _incomplete(marker.get('Reason'), 'image_content_incomplete'))
                 or marker['HighConfidenceSecretPresent'] != bool(marker['References'])): raise ValueError()
         graph = marker.get('IndexGraph')
         children = set()
@@ -114,13 +117,15 @@ def evaluate(row):
                 raise ValueError('parent_workload_binding_changed')
             return 'FAIL', {'observed': 'The selected image contains a likely secret in a verified child image. Its value is hidden.' if graph else 'A likely secret was found in the immutable image referenced by this workload. Its value is hidden.',
                 'source_complete': complete, 'complete': complete, 'references': marker['References'], 'secret_leaks': leaks}
+        if not complete and marker.get('Reason'):
+            reason = marker['Reason']
         if complete:
             return 'PASS', {'observed': 'The selected image index and every supported child completed without a detected secret.' if graph else 'Both detectors completed without finding a supported secret in the selected immutable ECR image’s supported content.',
                 'source_complete': True, 'complete': True, 'references': [], 'secret_leaks': []}
     except (ValueError, KeyError, TypeError, AttributeError, IndexError):
         pass
     return 'UNKNOWN', {'observed': 'The selected workload’s immutable image or its content could not be fully verified.',
-        'source_complete': False, 'references': []}
+        'source_complete': False, 'references': [], **({'reason': reason} if reason else {})}
 
 
 def evaluate_item(item, index):

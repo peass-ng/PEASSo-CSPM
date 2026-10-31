@@ -63,6 +63,31 @@ def _failure(code='package_content_unavailable'):
     return ReadFailure('not_collected', code)
 
 
+class Unsupported(ValueError):
+    """A specific, provider-text-free reason bounded package content cannot be assessed."""
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+# Inner read failures whose code already names the honest cause.
+_PRESERVED_CODES = {'package_download_unavailable', 'call_limit', 'content_secret_scans_disabled'}
+
+
+def _projection_code(exc):
+    if isinstance(exc, Unsupported):
+        return exc.code
+    if getattr(exc, 'code', None) in _PRESERVED_CODES:
+        return exc.code
+    return 'package_projection_unavailable'
+
+
+def incomplete_reason(base, causes):
+    """Partial-content reason: the stable base code plus the concrete causes observed."""
+    causes = sorted(c for c in set(causes) if isinstance(c, str) and re.fullmatch(r'[a-z_]+', c))
+    return base + (': ' + ', '.join(causes) if causes else '')
+
+
 def _digest(value):
     return isinstance(value, str) and re.fullmatch(r'sha256:[0-9a-f]{64}', value) is not None
 
@@ -433,6 +458,8 @@ def _lambda(response, operation, arguments, requests, region):
         account, resource = _arn(identity, 'lambda', region)
         configuration = response['Configuration']
         version = arguments['Qualifier']
+        if isinstance(configuration, dict) and configuration.get('PackageType') == 'Image':
+            raise Unsupported('lambda_image_package')
         # GetFunction with a Qualifier answers with the qualified ARN
         # (name:$LATEST or name:N); the unqualified form is also accepted.
         if (not re.fullmatch(r'function:[A-Za-z0-9_-]{1,64}', resource)
@@ -453,6 +480,7 @@ def _lambda(response, operation, arguments, requests, region):
             raise ValueError('layer identity/version mismatch')
         code = response['Content']
         size, expected = code['CodeSize'], code['CodeSha256']
+    if type(size) is int and size > ZIP_LIMIT: raise Unsupported('package_size_bound')
     if type(size) is not int or not 0 < size <= ZIP_LIMIT or not isinstance(expected, str): raise ValueError('package size/hash missing')
     expected_digest = base64.b64decode(expected, validate=True)
     if len(expected_digest) != 32: raise ValueError('package hash malformed')
@@ -466,7 +494,8 @@ def _lambda(response, operation, arguments, requests, region):
     except PartialArchive as partial:
         refs, complete = partial.refs, False
     return {'PackageSecretIndicators': marker(identity, account, region, 'lambda:' + operation, refs, complete=complete,
-            code=None if complete else 'package_content_incomplete'), 'SourceVersion': version}
+            code=None if complete else incomplete_reason('package_content_incomplete', {'engine_incomplete'})),
+            'SourceVersion': version}
 
 
 def _ecr_arguments(arguments):
@@ -477,10 +506,18 @@ def _ecr_arguments(arguments):
     return account, repo
 
 
-def _scan_reader(reader, size, name, requests, remaining, enqueue=None):
-    """Scan a regular file in overlapping, bounded windows through private capture."""
-    if not isinstance(name, str) or len(name) > 256 or size > FILE_LIMIT or remaining[0] < size:
-        return [], False
+def _scan_reader(reader, size, name, requests, remaining, enqueue=None, causes=None):
+    """Scan a regular file in overlapping, bounded windows through private capture.
+
+    When ``causes`` is a set, the concrete reason a file stays uncovered is added to it.
+    """
+    causes = set() if causes is None else causes
+    if not isinstance(name, str) or len(name) > 256:
+        causes.add('path_bound'); return [], False
+    if size > FILE_LIMIT:
+        causes.add('file_size_bound'); return [], False
+    if remaining[0] < size:
+        causes.add('content_budget_bound'); return [], False
     refs, overlap, consumed = [], b'', 0
     while consumed < size:
         requests.check_deadline()
@@ -490,19 +527,20 @@ def _scan_reader(reader, size, name, requests, remaining, enqueue=None):
         consumed += len(chunk)
         remaining[0] -= len(chunk)
         if b'\0' in chunk:
-            return refs, False
+            causes.add('binary_member'); return refs, False
         payload = overlap + chunk
         if enqueue is not None:
-            if not enqueue(payload, name): return refs, False
+            if not enqueue(payload, name):
+                causes.add('engine_incomplete'); return refs, False
         else:
             try:
                 found = _scan(payload, name, requests)
                 if len(refs) + len(found) > REFERENCE_LIMIT:
-                    return refs, False
+                    causes.add('reference_bound'); return refs, False
                 refs.extend(found)
             except PartialArchive as partial:
                 refs.extend(partial.refs)
-                return refs, False
+                causes.add('engine_incomplete'); return refs, False
         overlap = payload[-SCAN_OVERLAP:]
     return refs, True
 
@@ -544,7 +582,7 @@ def _image(response, arguments, requests, session, region):
             type(manifest.get('schemaVersion')) is not int or
             manifest['schemaVersion'] != 2 or manifest.get('mediaType') not in oci_index.ALL_MANIFEST_TYPES or
             image.get('imageManifestMediaType') != manifest['mediaType']):
-        raise ValueError('unsupported manifest or multiarch index')
+        raise Unsupported('unsupported_image_manifest')
     if manifest['mediaType'] in oci_index.INDEX_TYPES:
         from .aws_image_vulnerability_native_20261021 import Reader
         def _require_index(ok):
@@ -623,24 +661,28 @@ def _image(response, arguments, requests, session, region):
         return {'PackageSecretIndicators': result, 'ImageDigest': digest}
     layers, config = manifest.get('layers'), manifest.get('config')
     if not isinstance(layers, list) or not layers or len(layers) > MEMBER_LIMIT or not isinstance(config, dict):
-        raise ValueError('incomplete image')
+        raise Unsupported('unsupported_image_manifest')
     descriptors, seen, compressed = [], set(), 0
     for descriptor in [config] + layers:
         ld, size, typ = descriptor['digest'], descriptor['size'], descriptor['mediaType']
+        # Identical layers may repeat in one image (for example an empty or a
+        # re-applied layer); every occurrence is a valid, ordered descriptor.
+        # Only the config digest must stay distinct from the layers.
         if (set(descriptor) - {'digest', 'size', 'mediaType', 'annotations'} or not _digest(ld) or
-                ld in seen or type(size) is not int or
-                not 0 < size <= (1024 * 1024 if descriptor is config else ECR_LAYER_LIMIT) or
+                (descriptor is not config and ld == config.get('digest')) or type(size) is not int or
                 typ not in (CONFIG_TYPES if descriptor is config else TAR_TYPES)):
-            raise ValueError('unsupported descriptor')
+            raise Unsupported('unsupported_image_layer')
+        if not 0 < size <= (1024 * 1024 if descriptor is config else ECR_LAYER_LIMIT):
+            raise Unsupported('image_size_bound')
         seen.add(ld); compressed += size
-        if compressed > ECR_IMAGE_LIMIT: raise ValueError('image compressed limit')
+        if compressed > ECR_IMAGE_LIMIT: raise Unsupported('image_size_bound')
         descriptors.append((ld, size))
     with requests._lock:
         if not hasattr(requests, '_package_scan_local'):
             requests._package_scan_local = threading.local()
     state = requests._package_scan_local
     state.budget = [ECR_IMAGE_LIMIT]
-    refs, complete, paths, output_bytes = [], True, [], [0]
+    refs, complete, paths, output_bytes, causes = [], True, [], [0], set()
     def add_refs(found, ld):
         nonlocal complete
         for ref in found:
@@ -648,6 +690,7 @@ def _image(response, arguments, requests, session, region):
             size = len(json.dumps(projected, separators=(',', ':')).encode())
             if len(refs) >= REFERENCE_LIMIT or output_bytes[0] + size > OUTPUT_LIMIT:
                 complete = False
+                causes.add('reference_bound')
                 return
             refs.append(projected)
             output_bytes[0] += size
@@ -672,11 +715,13 @@ def _image(response, arguments, requests, session, region):
                             add_refs(partial.refs, ld)
                             failed_files.add(file_key)
                             complete = False
+                            causes.add('engine_incomplete')
                             continue
                     count = file_counts.get(file_key, 0) + len(found)
                     if count > REFERENCE_LIMIT:
                         failed_files.add(file_key)
                         complete = False
+                        causes.add('reference_bound')
                         continue
                     file_counts[file_key] = count
                     add_refs(found, ld)
@@ -731,7 +776,8 @@ def _image(response, arguments, requests, session, region):
                                     image_digest=digest, layer=ld,
                                     check_ids={'aws.review.ecr_repository.package_content_secret_indicators'}):
                     found, covered = _scan_reader(reader, size, name, requests, remaining,
-                        enqueue=lambda payload, path: enqueue_window(payload, path, ld, file_key))
+                        enqueue=lambda payload, path: enqueue_window(payload, path, ld, file_key),
+                        causes=causes)
                 add_refs(found, ld)
                 if not covered: complete = False
             suffix = 'amazonaws.com.cn' if _partition(region) == 'aws-cn' else 'amazonaws.com'
@@ -742,16 +788,24 @@ def _image(response, arguments, requests, session, region):
                                  lambda *args: None, check=requests.check_deadline,
                                  partial_callback=observe)
             flush_pending()
-            if result['expanded_bytes'] > ECR_EXPANDED_LIMIT: complete = False
-            if result.get('links_skipped', 0) or result.get('partial', False): complete = False
+            if result['expanded_bytes'] > ECR_EXPANDED_LIMIT:
+                complete = False; causes.add('expanded_size_bound')
+            if result.get('links_skipped', 0):
+                complete = False; causes.add('symlink_members')
+            if result.get('partial', False):
+                complete = False; causes.add('archive_partial')
         except PartialArchive as partial:
             add_refs(partial.refs, descriptors[0][0])
+            complete = False; causes.add('engine_incomplete')
+        except Exception as exc:
             complete = False
-        except Exception:
-            complete = False
+            causes.add(exc.code if isinstance(exc, Unsupported) else
+                       'layer_download_unavailable' if getattr(exc, 'code', None) == 'package_download_unavailable'
+                       else 'image_archive_unreadable')
         finally:
             try: flush_pending()
-            except Exception: complete = False
+            except Exception:
+                complete = False; causes.add('engine_incomplete')
             if hasattr(state, 'active'): del state.active
     requests.check_deadline()
     for ld, _ in descriptors[1:]:
@@ -760,7 +814,8 @@ def _image(response, arguments, requests, session, region):
                           resource_id=identity, scope=account + '/' + region,
                           image_digest=digest, layer=ld)
     return {'PackageSecretIndicators': marker(identity, account, region, 'ecr:batch_get_image', refs,
-            complete=complete, code=None if complete else 'image_content_incomplete'), 'ImageDigest': digest}
+            complete=complete, code=None if complete else incomplete_reason('image_content_incomplete', causes)),
+            'ImageDigest': digest}
 
 def project_response(response, service, operation, arguments, *, request_context=None, region=None):
     """Root dispatcher invokes before Future.set_result; never return raw SDK data."""
@@ -775,8 +830,8 @@ def project_response(response, service, operation, arguments, *, request_context
         if service == 'lambda': return _lambda(response, operation, arguments, requests, region)
         if operation == 'get_download_url_for_layer': return _layer(response, arguments, requests, region)
         return _image(response, arguments, requests, session, region)
-    except Exception:
-        raise _failure('package_projection_unavailable') from None
+    except Exception as exc:
+        raise _failure(_projection_code(exc)) from None
     finally:
         # Budgets retain integers only; erase at the outer image boundary.
         if service == 'ecr' and operation == 'batch_get_image' and isinstance(request_context, tuple) and len(request_context) == 2:
@@ -810,6 +865,15 @@ def enrich(kind, requests, session, region, items):
                 version = item['Version']
                 if own != account or native != 'function:' + resource or not isinstance(version, str) or not re.fullmatch(r'(?:\$LATEST|[1-9][0-9]*)', version):
                     raise ValueError('foreign function')
+                # Container-image functions have no ZIP package (their image is
+                # reviewed through its ECR repository) and oversized ZIPs exceed
+                # the bound; neither needs a GetFunction call to know that.
+                if item.get('PackageType') == 'Image':
+                    source = {'collection_status': 'not_collected', 'error': {'code': 'lambda_image_package'}}
+                    raise Unsupported('lambda_image_package')
+                if type(item.get('CodeSize')) is int and item['CodeSize'] > ZIP_LIMIT:
+                    source = {'collection_status': 'not_collected', 'error': {'code': 'package_size_bound'}}
+                    raise Unsupported('package_size_bound')
                 source = requests.detail(session, 'lambda', region, 'get_function', _metadata_profile=PROFILE, FunctionName=identity, Qualifier=version)
             elif kind == 'lambda_layer_version':
                 identity, version = item['LayerVersionArn'], item['Version']
