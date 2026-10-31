@@ -987,15 +987,23 @@ def page_matches(matches, offset, budget):
     return output, None, total
 
 
-def reuse_image_layer(leaks, **source):
+def reuse_image_layer(leaks, *, check_ids=None, **source):
     """Join only evidence already scanned under this exact native layer digest.
 
     AWS caches redacted layer projections. Reusing encrypted observations of
     those verified bytes preserves image provenance without rereading a source.
+    ``check_ids`` rebinds the reused locations to another consumer of the same
+    image (a Lambda function running that digest); otherwise they keep theirs.
     """
     with _lock:
         if _active is None:
             return
+        if check_ids is not None:
+            check_ids = set(check_ids)
+            if _active.selected_checks is not None:
+                check_ids &= _active.selected_checks
+            if not check_ids:
+                return
         fingerprints = {leak.get('fingerprint') for leak in leaks}
         fingerprints.update(component for fp in list(fingerprints) for component in _active.related.get(fp, ()))
         with _active.batch():
@@ -1008,7 +1016,8 @@ def reuse_image_layer(leaks, **source):
                         continue
                     observed = dict(location, **source)
                     for detector in list(row['detectors']):
-                        _active.remember(row['value'], fp, observed, detector['engine'], detector['rule'], location.get('_check_ids', ()))
+                        _active.remember(row['value'], fp, observed, detector['engine'], detector['rule'],
+                                         check_ids if check_ids is not None else location.get('_check_ids', ()))
 
 
 def load_group_details(artifacts, cipher, tenant, scan_id, findings, *, offset=0):
