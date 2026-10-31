@@ -3709,6 +3709,16 @@ def test_service_absent_from_region_is_not_an_inventory_gap(code, absent):
     assert any(g["type"] == "machinelearning_model" for g in gaps) is not absent
 
 
+
+@pytest.mark.parametrize("kind,absent", [("eventbridge_custom_bus", True), ("machinelearning_model", False)])
+def test_inventory_on_api_no_sdk_models_is_not_an_inventory_gap(kind, absent):
+    missing = dict(coll(kind, [], status="not_collected", service="events"), error={"code": "sdk_service_unavailable"})
+    report = analyze(aws(missing))
+    gaps = [g for f in report["findings"] if f["check_id"] == CHECK and f["resource_id"] == "inventory:internet_exposure"
+            for g in f["evidence"]["gaps"]]
+    assert any(g["type"] == kind for g in gaps) is not absent
+
+
 # -------------------------------------------------------------------- GCP
 
 GSCOPE = "projects/p1"

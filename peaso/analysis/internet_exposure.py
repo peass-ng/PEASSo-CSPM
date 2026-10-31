@@ -53,6 +53,9 @@ AVAILABLE = ("collected", "empty", "partial")
 # Collector proof that the service keeps no resources in the scanned Region:
 # nothing there can be exposed, so the Region's inventory is not incomplete.
 REGION_ABSENT_CODES = frozenset({"unsupported_region_service", "ecr_public_requires_us_east_1_scope"})
+# Inventories modelled on an AWS API that no released SDK exposes yet. No account
+# can hold these resources, so an unreadable inventory is not an exposure gap.
+UNRELEASED_API_TYPES = frozenset({"eventbridge_custom_bus"})
 # Facts the collectors would need for a complete model (routed to collector owners).
 STATIC_GAPS = {
     "aws": [],
@@ -38328,7 +38331,8 @@ def coverage_findings(snapshot, resources):
     collected = {(c["scope"], c["type"]): c.get("status") for c in snapshot.get("collections", [])}
     absent = {(c["scope"], c["type"]) for c in snapshot.get("collections", [])
               if provider == "aws" and c.get("status") == "not_collected" and not c.get("items")
-              and isinstance(c.get("error"), dict) and c["error"].get("code") in REGION_ABSENT_CODES}
+              and isinstance(c.get("error"), dict) and (c["error"].get("code") in REGION_ABSENT_CODES
+                  or c["type"] in UNRELEASED_API_TYPES and c["error"].get("code") == "sdk_service_unavailable")}
     output = []
     for scope in snapshot.get("scopes", []):
         gaps = []
