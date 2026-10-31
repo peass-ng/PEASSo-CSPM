@@ -69,3 +69,11 @@ def test_catalog_resource_roles_are_collected_per_catalog():
     assert child["items"][0]["catalogId"] == "cat1"
     assert child["items"][0]["roles"] == [{"displayName": "Member"}]
     assert reader.urls == ["https://graph.microsoft.com/v1.0/identityGovernance/entitlementManagement/catalogs/cat1/resources?$expand=roles,scopes"]
+
+
+def test_expanded_v1_catalog_relationship_binds_the_package_catalog():
+    reader = Reader(rows=[{"id": "ap1", "displayName": "p", "catalog": {"id": "cat1"}}])
+    MODULE.collect(reader, object(), {MODULE.RESOURCE}, T, "https://graph.microsoft.com")
+    assert reader.collections[0]["items"][0]["catalogId"] == "cat1"
+    assert reader.collections[1]["items"][0]["catalogId"] == "cat1"
+

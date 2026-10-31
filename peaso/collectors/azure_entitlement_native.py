@@ -23,7 +23,19 @@ def required_types(selected):
     return needed
 
 
+def _bind_catalog_ids(reader, tenant_scope):
+    """Graph v1.0 exposes a package's catalog only as the expanded ``catalog`` relationship."""
+    for collection in reader.collections:
+        if collection.get("type") != PARENT or collection.get("scope") != tenant_scope:
+            continue
+        for package in collection.get("items", ()):
+            catalog = package.get("catalog") if isinstance(package, dict) else None
+            if isinstance(catalog, dict) and isinstance(catalog.get("id"), str) and catalog["id"]:
+                package.setdefault("catalogId", catalog["id"])
+
+
 def collect(reader, request, wanted, tenant_scope, graph):
+    _bind_catalog_ids(reader, tenant_scope)
     if CATALOG_RESOURCE in wanted:
         catalogs = [c for c in reader.collections if c.get("type") == CATALOG
                     and c.get("scope") == tenant_scope]

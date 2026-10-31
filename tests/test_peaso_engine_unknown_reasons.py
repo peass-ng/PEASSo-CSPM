@@ -14,6 +14,8 @@ from peaso.report_quality import normalize_unknown_reasons
     ({"missing_fields": ["Attributes.DisableApiTermination"]}, "missing_facts: Attributes.DisableApiTermination"),
     ({"unresolved": [{"layer": "security_group", "reason": "node firewall unavailable"}]},
      "unresolved_layers: security_group: node firewall unavailable"),
+    ({"unresolved": [{"layer": "authorization", "reason": "downstream access unresolved"}]},
+     "unresolved_layers: authorization: downstream access unresolved"),
     ({}, "unknown_reason_not_supplied"),
 ])
 def test_unknown_reason_uses_existing_evidence_only(evidence, reason):

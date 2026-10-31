@@ -66,6 +66,7 @@ def fixture(mode):
  if mode=='settings_denied':r[SETTINGS]=azure.AzureReadError('forbidden',403)
  if mode=='workspace_denied':r[WORKSPACE]=azure.AzureReadError('forbidden',403)
  if mode=='unsupported_discovery':r[CATS]=azure.AzureReadError('ResourceTypeNotSupported',400)
+ if mode=='unsupported_discovery_forbidden_code':r[CATS]=azure.AzureReadError('BadRequest',400)
  if mode in ('resource_second_page','resource_partial','resource_page_limit'):
   r[LIST]=lambda q:({'value':resources}if mode!='resource_partial'else azure.AzureReadError('forbidden',403))if'page'in q else{'value':[],'nextLink':azure.ARM+LIST+'?page=2'}
  if mode in ('category_second_page','category_partial','category_duplicate_page'):
@@ -89,9 +90,9 @@ def capture(mode):
  ('good','PASS'),('group','PASS'),('no_groups','PASS'),('disabled','FAIL'),('missing_settings','FAIL'),('missing_workspace','FAIL'),('workspace_not_found','UNKNOWN'),
  ('empty_resources','NOT_APPLICABLE'),('no_categories','NOT_APPLICABLE'),('metrics_only','NOT_APPLICABLE'),
  ('resource_second_page','PASS'),('category_second_page','PASS'),('settings_second_page','PASS'),
- ('unresolved_storage_children','UNKNOWN'),('unmapped_resource','UNKNOWN'),('unmapped_nested','UNKNOWN'),('unmapped_extension','UNKNOWN'),('nested_type_id_mismatch','UNKNOWN'),('extension_type_id_mismatch','UNKNOWN'),('resource_type_id_mismatch','UNKNOWN'),('foreign_resource','UNKNOWN'),('foreign_category','UNKNOWN'),('foreign_setting','UNKNOWN'),('foreign_workspace','UNKNOWN'),('wrong_workspace_type','UNKNOWN'),('foreign_workspace_scope','UNKNOWN'),('traversal_workspace','UNKNOWN'),('query_workspace','UNKNOWN'),('unsupported_sink','UNKNOWN'),
+ ('unresolved_storage_children','UNKNOWN'),('unmapped_resource','NOT_APPLICABLE'),('unmapped_nested','NOT_APPLICABLE'),('unmapped_extension','NOT_APPLICABLE'),('nested_type_id_mismatch','UNKNOWN'),('extension_type_id_mismatch','UNKNOWN'),('resource_type_id_mismatch','UNKNOWN'),('foreign_resource','UNKNOWN'),('foreign_category','UNKNOWN'),('foreign_setting','UNKNOWN'),('foreign_workspace','UNKNOWN'),('wrong_workspace_type','UNKNOWN'),('foreign_workspace_scope','UNKNOWN'),('traversal_workspace','UNKNOWN'),('query_workspace','UNKNOWN'),('unsupported_sink','UNKNOWN'),
  ('duplicate_resource','UNKNOWN'),('duplicate_category','UNKNOWN'),('duplicate_setting','UNKNOWN'),('category_id_name_mismatch','UNKNOWN'),('category_duplicate_page','UNKNOWN'),('settings_duplicate_page','UNKNOWN'),
- ('missing_logs','UNKNOWN'),('unknown_group','UNKNOWN'),('unknown_category','UNKNOWN'),('malformed_enabled','UNKNOWN'),('malformed_groups','UNKNOWN'),('foreign_continuation','UNKNOWN'),('unsupported_discovery','UNKNOWN'),('workspace_unknown404','UNKNOWN'),
+ ('missing_logs','UNKNOWN'),('unknown_group','UNKNOWN'),('unknown_category','UNKNOWN'),('malformed_enabled','UNKNOWN'),('malformed_groups','UNKNOWN'),('foreign_continuation','UNKNOWN'),('unsupported_discovery','NOT_APPLICABLE'),('unsupported_discovery_forbidden_code','UNKNOWN'),('workspace_unknown404','UNKNOWN'),
  ('resource_denied','DENIED'),('categories_denied','DENIED'),('settings_denied','DENIED'),('workspace_denied','DENIED'),('resource_partial','DENIED'),('category_partial','DENIED'),('settings_partial','DENIED'),('resource_page_limit','UNKNOWN'),('resource_limit','UNKNOWN')])
 def test_actual_arm_shapes_to_frozen_engine(mode,expected):
  finding,snapshot,api=capture(mode)
@@ -103,13 +104,24 @@ def test_collect_live_registry_dispatch(monkeypatch):
  snapshot=collect_live(connector,requirements=['resource_diagnostic_setting'])
  assert evaluate_snapshot(snapshot,checks=[CHECK])['findings'][0]['status']=='PASS'
 
-@pytest.mark.parametrize('mode',['unmapped_resource','unmapped_nested','unmapped_extension'])
-def test_valid_unmapped_resource_is_unknown_not_malformed(mode):
- _,snapshot,_=capture(mode)
- collection=next(c for c in snapshot['collections']if c['type']=='resource_diagnostic_setting')
- assert collection['status']=='unknown'
- assert collection['error']['code']=='diagnostic_resource_type_unmapped'
- assert collection['items']==[]
+def test_any_resource_type_is_read_and_unsupported_types_are_skipped_once():
+ watcher=BASE+'Microsoft.Network/networkWatchers/watcher'
+ disks=[BASE+'Microsoft.Compute/disks/d'+str(n) for n in range(3)]
+ wcats=watcher+'/providers/Microsoft.Insights/diagnosticSettingsCategories'
+ wsettings=watcher+'/providers/Microsoft.Insights/diagnosticSettings'
+ r=fixture('good')
+ r[LIST]['value']+= [parent(watcher,'Microsoft.Network/networkWatchers',{})]+[parent(d,'Microsoft.Compute/disks',{}) for d in disks]
+ r[wcats]={'value':[{'id':wcats+'/Flows','name':'Flows','type':'Microsoft.Insights/diagnosticSettingsCategories','properties':{'categoryType':'Logs','categoryGroups':['allLogs']}}]}
+ r[wsettings]={'value':[]}
+ for d in disks:r[d+'/providers/Microsoft.Insights/diagnosticSettingsCategories']=azure.AzureReadError('ResourceTypeNotSupported',400)
+ api=API(r);connector={'provider':'azure','scopes':[SUB],'options':{'retries':0}}
+ snap=azure.collect(connector,plan_collection({'connector':connector,'checks':[CHECK]}),transport=api)
+ collection=next(c for c in snap['collections']if c['type']=='resource_diagnostic_setting')
+ assert collection['status']=='collected'
+ assert {row['id'] for row in collection['items']}=={RESOURCE,watcher}
+ assert sum('Microsoft.Compute/disks/' in url and 'diagnosticSettingsCategories' in url for url in api.calls)==1
+ assert evaluate_snapshot(snap,checks=[CHECK])['findings'][0]['status']=='FAIL'
+
 
 @pytest.mark.parametrize('mode',['nested_type_id_mismatch','extension_type_id_mismatch'])
 def test_divergent_nested_type_and_identity_remains_malformed(mode):

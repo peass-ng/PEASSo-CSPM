@@ -34,6 +34,10 @@ def _risk_policy_present(reader, tenant):
     if len(sources) != 1:
         raise ValueError('one complete tenant-bound Conditional Access inventory required')
     source = sources[0]
+    if source.get('status') not in ('collected', 'empty'):
+        # A denied or unread parent leaves the entitlement unknown, not malformed.
+        from .azure import AzureReadError
+        raise AzureReadError('native_parent_inventory_incomplete')
     if (source.get('scope', '').casefold() != scope.casefold() or
             source.get('status') not in ('collected', 'empty') or
             not isinstance(source.get('items'), list) or
@@ -170,7 +174,7 @@ def collect(reader, request, wanted, transport):
         return
     try:
         relevant = _risk_policy_present(reader, tenant)
-    except ValueError as exc:
+    except (ValueError, AzureReadError) as exc:
         reader.unavailable(KIND, scope, 'Microsoft.Graph', exc)
         return
     if not relevant:

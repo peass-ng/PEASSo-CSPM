@@ -482,3 +482,20 @@ def test_empty_group_compliance_mappings_keep_partial_assurance():
     selected = [tag for tag in tags if tag['framework_id'] == 'pci_4.0_azure']
     assert {tag['requirement_id'] for tag in selected} == {'7.2.5.1.1', '8.2.6.1'}
     assert all(tag['decision'] == 'PARTIAL' and tag['runtime_status'] == 'partial' for tag in selected)
+
+
+@pytest.mark.parametrize('owner,first_party', [(None, False), ('f8cdef31-a31e-4b4a-93e4-5f571e91255a', True)])
+def test_principal_missing_from_a_complete_report_names_the_report_and_owner(owner, first_party):
+    item = identity(**({} if owner is None else {'appOwnerOrganizationId': owner}))
+    index = capture(item, reports=[report('service_principal_activity', [principal_record(appId=OTHER)])])
+    status, evidence = subject.evaluate_principal(item, index)
+    assert status == 'UNKNOWN'
+    assert 'servicePrincipalSignInActivities report has no row' in evidence['reason']
+    assert ('Microsoft first-party' in evidence['reason']) is first_party
+
+
+def test_recent_attempt_without_success_states_its_reason():
+    item = identity()
+    index = capture(item, reports=[report('service_principal_activity', [principal_record('2026-10-20T12:00:00Z')])])
+    status, evidence = subject.evaluate_principal(item, index)
+    assert status == 'UNKNOWN' and 'no successful sign-in date' in evidence['reason']

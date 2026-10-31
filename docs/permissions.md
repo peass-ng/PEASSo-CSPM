@@ -107,6 +107,10 @@ For Entra ID checks, grant these application permissions and give admin consent:
 `Directory.Read.All`, `Policy.Read.All`, `AuditLog.Read.All`, `Reports.Read.All`,
 `RoleManagement.Read.Directory`, `Organization.Read.All`.
 
+Optional, for PIM for Groups and access-package checks: `PrivilegedAccess.Read.AzureADGroup`,
+`RoleManagementPolicy.Read.AzureADGroup` and `EntitlementManagement.Read.All`. Without them those
+inventories are reported as denied.
+
 ### Auth methods
 
 | Mode | Methods |
@@ -145,6 +149,11 @@ Secret scanning of content (function packages, logs, notebooks, build files, con
 and similar) and image CVE scanning are off unless you select specific targets. Each selected
 surface needs its own extra read permission, for example `pods/log` in Kubernetes or pull access
 to a container registry. These scans are described in [secrets-and-images.md](secrets-and-images.md).
+
+In Azure, scanning App Service and Function app settings for secrets needs
+`Microsoft.Web/sites/config/list/action` (and `Microsoft.Web/sites/slots/config/list/action` for
+deployment slots). Reader does not include it, because the action returns setting values. Without
+it, the finding says the app settings could not be read and names the missing action.
 
 ## What is never needed
 

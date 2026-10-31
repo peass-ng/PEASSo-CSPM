@@ -51,19 +51,31 @@ def sql_snapshot(mode='complete'):
     mapping[SCOPE + '/providers/Microsoft.SqlVirtualMachine/sqlVirtualMachines'] = {'value': [] if mode == 'not_sql' else [sql]}
     mapping[SCOPE + '/providers/Microsoft.Security/assessments'] = {'value': [assessment]}
     def findings(query):
+        if mode == 'retired':
+            import io
+            from urllib.error import HTTPError
+            body = json.dumps({'Error': {'Code': 'SubAssessmentsDeprecated', 'Message': 'fixture'}}).encode()
+            raise HTTPError(azure.ARM + SCOPE, 404, 'Not Found', {}, io.BytesIO(body))
         if mode == 'denied' or mode == 'partial' and '$skiptoken' in query:
             raise azure.AzureReadError('forbidden', 403)
         result = {'value': [] if mode == 'missing' else [finding]}
         if mode == 'partial': result['nextLink'] = azure.ARM + SCOPE + '/providers/Microsoft.Security/subAssessments?api-version=2019-01-01-preview&$skiptoken=next'
         return result
     mapping[SCOPE + '/providers/Microsoft.Security/subAssessments'] = findings
-    api = Transport(mapping)
+    class GraphTransport(Transport):
+        def request(self, url, *, body=None, audience=azure.ARM):
+            if body is not None and 'subassessments' in str(body.get('query', '')):
+                self.calls.append(url)
+                assert body['subscriptions'] == [SCOPE.rsplit('/', 1)[-1]]
+                return {'data': [copy.deepcopy(finding)], 'totalRecords': 1}
+            return super().request(url, body=body, audience=audience)
+    api = GraphTransport(mapping)
     policy = {'status': 'collected', 'scope': SCOPE, 'checks': {SQL_CHECK: {'assessmentKeys': ['stable-key'],
         'maxReportAgeSeconds': 3600, 'requiredFindingIds': ['finding-1'], 'findingSetComplete': True}}}
     return collect(['vm', 'security_assessment', 'sql_vm', 'security_subassessment'], api, compliance_policy=policy), api
 
 
-@pytest.mark.parametrize('mode,expected', [('complete', 'PASS'), ('unhealthy', 'FAIL'), ('not_sql', 'NOT_APPLICABLE'),
+@pytest.mark.parametrize('mode,expected', [('complete', 'PASS'), ('retired', 'PASS'), ('unhealthy', 'FAIL'), ('not_sql', 'NOT_APPLICABLE'),
     ('missing', 'UNKNOWN'), ('denied', 'UNKNOWN'), ('partial', 'UNKNOWN'), ('foreignsql', 'UNKNOWN'),
     ('foreignfinding', 'UNKNOWN'), ('foreignbinding', 'UNKNOWN'),
     ('stalereport', 'UNKNOWN'), ('missingreporttime', 'UNKNOWN'),
@@ -73,7 +85,7 @@ def test_sql_vm_native_join_and_security_finding_status(mode, expected):
     assert verdict(snapshot, SQL_CHECK) == expected
     assert 'private-marker' not in json.dumps(snapshot)
     assert all(url.startswith(azure.ARM + '/') for url in api.calls)
-    if mode == 'complete':
+    if mode in ('complete', 'retired'):
         row = envelope(snapshot, 'security_subassessment')['items'][0]
         assert row['assessment_key'] == 'stable-key'
         assert row['_provenance']['source_operation'] == 'SubAssessments_ListAll'

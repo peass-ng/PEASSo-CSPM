@@ -327,7 +327,10 @@ def test_forked_child_never_reuses_parent_connections():
     import os
     if not hasattr(os, "fork"):
         pytest.skip("fork unavailable")
-    sentinel = object()
+    class Socket:
+        def fileno(self):
+            return 99
+    sentinel = Socket()
     class Connection:
         sock = sentinel
         def close(self):
@@ -352,3 +355,17 @@ def test_forked_child_never_reuses_parent_connections():
         assert azure._KEEPALIVE_POOL.acquire(key) is not None
     finally:
         azure._KEEPALIVE_POOL.idle.pop(key, None)
+
+
+@pytest.mark.parametrize("damage", ["closed_descriptor", "unusable_socket"])
+def test_idle_connection_without_a_usable_socket_is_replaced(server, monkeypatch, damage):
+    assert _get(server, "/first")[0] == 200
+    (connection, _), = [entry for entries in server.pool.idle.values() for entry in entries]
+    if damage == "closed_descriptor":
+        connection.sock.detach()
+    else:
+        def broken(_timeout):
+            raise OSError(9, "Bad file descriptor")
+        monkeypatch.setattr(connection.sock, "settimeout", broken)
+    assert _get(server, "/second") == (200, b'{"path": "/second"}')
+    assert server.connections == 2

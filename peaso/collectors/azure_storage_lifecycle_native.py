@@ -223,6 +223,18 @@ def _version_payload(reader, account, policy):
     return payload
 
 
+def _policy_absent(exc):
+    """ARM answers 404 ManagementPolicyNotFound when an account has no lifecycle policy."""
+    from .azure import _arm_error_code, _status_code
+    return _status_code(exc) in (404, '404') and _arm_error_code(exc) == 'ManagementPolicyNotFound'
+
+
+def _absent_policy(account):
+    # No policy is a complete observation: the account has zero lifecycle rules.
+    return {'id': account + '/managementPolicies/default', 'type': 'Microsoft.Storage/storageAccounts/managementPolicies',
+            'properties': {'policy': {'rules': []}}, 'read_complete': True, 'policy_present': False}
+
+
 def collect(reader, request, scopes, wanted, options):
     review = normalize(options)
     if review and review['scope'].casefold() not in {s.casefold() for s in scopes}:
@@ -240,7 +252,7 @@ def collect(reader, request, scopes, wanted, options):
             try:
                 policies[key] = _native_policy(reader.call(request, ARM + account + '/managementPolicies/default?api-version=' + API_VERSION), account)
             except Exception as exc:
-                policies[key] = exc
+                policies[key] = _absent_policy(account) if _policy_absent(exc) else exc
         if isinstance(policies[key], Exception):
             raise policies[key]
         return policies[key]

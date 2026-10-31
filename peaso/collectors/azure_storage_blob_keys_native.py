@@ -57,9 +57,9 @@ def _inventory(reader, scope, kind):
 def _get(reader, request, rid, typ):
     raw = reader.call(request, ARM + rid + '?api-version=' + VERSION)
     if (str(_object(raw).get('id', '')).casefold() != rid.casefold()
-            or str(raw.get('type', '')).casefold() != typ.casefold()
-            or not isinstance(raw.get('etag'), str) or not raw['etag']):
-        raise ValueError('native storage GET identity or ETag unavailable')
+            or str(raw.get('type', '')).casefold() != typ.casefold()):
+        # ARM omits etag on storage account and encryption scope GETs.
+        raise ValueError('native storage GET identity unavailable')
     return raw
 
 

@@ -148,6 +148,11 @@ def _native(index, kind, scope):
     return source
 
 
+# Tenants that own Microsoft first-party applications.
+MICROSOFT_TENANTS = frozenset({'f8cdef31-a31e-4b4a-93e4-5f571e91255a', '72f988bf-86f1-41af-91ab-2d7cd011db47',
+                               'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'})
+
+
 def _unavailable(source, message):
     raise EvidenceError(message, 'DENIED' if source.get('status') == 'denied' else 'UNKNOWN')
 
@@ -261,6 +266,13 @@ def principal_activity(item, index):
     source, mapping = _report_map(index, 'service_principal_activity')
     row = mapping.get(app)
     if row is None:
+        if source.get('status') in ('collected', 'empty') and app not in mapping:
+            # The report lists only apps with a recorded sign-in; Microsoft
+            # first-party apps added to every tenant are usually absent.
+            owner = str(item.get('appOwnerOrganizationId') or '').casefold()
+            who = ' (a Microsoft first-party app)' if owner in MICROSOFT_TENANTS else ''
+            _unavailable(source, 'the servicePrincipalSignInActivities report has no row for this app' + who
+                         + '; that report lists only apps with a recorded sign-in, so no use is recorded but the last-use date is unknown')
         _unavailable(source, 'service principal is absent from activity results; usage is unresolved')
     now = instant(context['created_at'])
     status, last, basis = _latest_activity(row, 'lastSignInActivity', now)
@@ -282,6 +294,7 @@ def principal_activity(item, index):
     elif status == 'PASS':
         evidence['summary'] = f'Service principal {name} has a successful sign-in on {last.date().isoformat()}.\nThat recorded use is within the 90-day inactivity interval.\nIts activity does not indicate an abandoned identity in this interval.'
     else:
+        evidence['reason'] = 'the latest recorded sign-in attempt has no successful sign-in date'
         evidence['summary'] = f'Service principal {name} has a sign-in attempt on {last.date().isoformat()}.\nA successful-use timestamp is unavailable for this activity.\nIt is unclear whether the identity still serves an active workload.'
     return status, evidence
 

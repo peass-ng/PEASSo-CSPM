@@ -230,7 +230,9 @@ ENDPOINTS.update(azure_network_catalog.ENDPOINTS)
 # Microsoft.Insights/diagnosticSettings (HTTP 400 on every item in live tenants).
 # Requesting them only produced UNKNOWN coverage noise and wall time.
 NO_DIAGNOSTIC_KINDS = frozenset({"resource_group", "security_pricing", "security_contact", "security_setting", "security_assessment",
-                                 "jit_network_access_policy", "resource_link", "policy_assignment", "network_watcher", "defender_auto_provisioning_setting"})
+                                 "jit_network_access_policy", "resource_link", "policy_assignment", "network_watcher", "defender_auto_provisioning_setting",
+                                 # Azure rejects diagnostic settings on this type (ResourceTypeNotSupported).
+                                 "managed_identity"})
 # Kinds that are not tracked resources, so the subscription-wide ARM resource
 # list (GET /subscriptions/{id}/resources) cannot prove they are absent.
 RESOURCE_INDEX_EXEMPT = frozenset({"resource_group", "security_pricing", "security_contact", "security_setting", "security_assessment",
@@ -1483,7 +1485,7 @@ DIRECTORY = {
     "directory_role_eligibility_instance": "roleManagement/directory/roleEligibilityScheduleInstances?$select=id,principalId,roleDefinitionId,directoryScopeId,startDateTime,endDateTime,memberType",
     "directory_role_assignment_instance": "roleManagement/directory/roleAssignmentScheduleInstances?$select=id,principalId,roleDefinitionId,directoryScopeId,startDateTime,endDateTime,memberType",
     "directory_oauth2_permission_grant": "oauth2PermissionGrants?$select=id,clientId,consentType,principalId,resourceId,scope",
-    azure_entitlement_native.PARENT: "identityGovernance/entitlementManagement/accessPackages?$select=id,catalogId,displayName",
+    azure_entitlement_native.PARENT: "identityGovernance/entitlementManagement/accessPackages?$select=id,displayName&$expand=catalog($select=id)",
     azure_entitlement_native.CATALOG: "identityGovernance/entitlementManagement/catalogs?$select=id,displayName",
     azure_entitlement_native.ROLE_ASSIGNMENT: "roleManagement/entitlementManagement/roleAssignments?$select=id,principalId,roleDefinitionId,appScopeId,directoryScopeId",
 }
@@ -1770,7 +1772,8 @@ class _KeepAlivePool:
                 entries = self.idle.get(key)
                 while entries:
                     connection, stamp = entries.pop()
-                    if now - stamp <= self.idle_seconds and connection.sock is not None:
+                    if (now - stamp <= self.idle_seconds and connection.sock is not None and
+                            connection.sock.fileno() != -1):
                         self.reused += 1
                         return connection
                     stale.append(connection)
@@ -1861,8 +1864,14 @@ class _KeepAliveHTTPSHandler(HTTPSHandler):
                 with self._pool.lock:
                     self._pool.created += 1
             else:
-                connection.timeout = req.timeout
-                connection.sock.settimeout(req.timeout)
+                try:
+                    connection.timeout = req.timeout
+                    connection.sock.settimeout(req.timeout)
+                except OSError:
+                    # An idle socket whose descriptor is already gone cannot
+                    # carry a request; open a fresh connection instead.
+                    connection.close()
+                    continue
             try:
                 try:
                     connection.request(req.get_method(), req.selector, req.data, headers,
@@ -2278,6 +2287,61 @@ def _retry_after(exc):
         except (TypeError, ValueError, OverflowError):
             pass
     return 2.0
+
+
+def _arm_error_code(exc):
+    """The ARM/Graph JSON ``error.code`` of an HTTP error, read once and memoised on the exception."""
+    for candidate in (exc, getattr(exc, "__cause__", None)):
+        if candidate is None:
+            continue
+        cached = getattr(candidate, "_peaso_error_code", False)
+        if cached is not False:
+            return cached
+        code = None
+        if callable(getattr(candidate, "read", None)) and getattr(candidate, "code", None) is not None:
+            try:
+                body = json.loads(candidate.read(65536) or b"{}")
+                error = body.get("error") or body.get("Error") if isinstance(body, dict) else None
+                value = error.get("code") or error.get("Code") if isinstance(error, dict) else None
+                code = value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,79}", value) else None
+            except Exception:
+                code = None
+            try:
+                candidate._peaso_error_code = code
+            except Exception:
+                pass
+            return code
+    return None
+
+
+# A resource provider that is not registered on a subscription cannot hold
+# resources there (registration happens on first create and blocks removal
+# while resources exist), so its list answer is a complete empty inventory.
+_PROVIDER_NOT_REGISTERED = frozenset(("SubscriptionNotRegistered", "MissingSubscriptionRegistration"))
+
+
+def _pim_group_pages(reader, request, url):
+    """PIM-for-Groups pages; Graph answers 400 ResourceTypeNotSupported for groups PIM
+    cannot manage (on-premises synced and dynamic groups), which therefore hold no PIM rows."""
+    started = False
+    try:
+        for page in reader.pages(request, url, audience=GRAPH, next_key="@odata.nextLink"):
+            started = True
+            yield page
+    except Exception as exc:
+        if started or _status_code(exc) not in (400, "400") or _arm_error_code(exc) != "ResourceTypeNotSupported":
+            raise
+
+
+def _read_failure(exc, items):
+    """Collection status and safe error for a list job that raised."""
+    if (not items and _status_code(exc) in (404, 409, "404", "409")
+            and _arm_error_code(exc) in _PROVIDER_NOT_REGISTERED):
+        return "collected", None
+    status, error = _safe_error(exc)
+    if items or getattr(exc, "code", "") in ("resource_limit", "page_limit", "call_limit", "graph_truncated", "scope_limit", "collection_cancelled"):
+        status = "partial"
+    return status, error
 
 
 def _status_code(exc):
@@ -2698,9 +2762,7 @@ class _Reader:
                         raise ValueError('duplicate native policy assignment identity')
                     items.setdefault(normalized, projected)
         except Exception as exc:
-            status, error = _safe_error(exc)
-            if items or getattr(exc, "code", "") in ("resource_limit", "page_limit", "call_limit", "graph_truncated", "scope_limit", "collection_cancelled"):
-                status = "partial"
+            status, error = _read_failure(exc, items)
         if status == "collected" and not items:
             status = "empty"
         result = {"type": kind, "scope": scope, "service": service, "status": status, "items": list(items.values())}
@@ -2889,9 +2951,7 @@ class _ReaderExposure(_Reader):
                         raise ValueError('duplicate native policy assignment identity')
                     items.setdefault(normalized, projected)
         except Exception as exc:
-            status, error = _safe_error(exc)
-            if items or getattr(exc, "code", "") in ("resource_limit", "page_limit", "call_limit", "graph_truncated", "scope_limit", "collection_cancelled"):
-                status = "partial"
+            status, error = _read_failure(exc, items)
         if status == "collected" and not items:
             status = "empty"
         result = {"type": kind, "scope": scope, "service": service, "status": status, "items": list(items.values())}
@@ -5138,7 +5198,7 @@ def collect(connector, requirements=None, *, transport=None):
                 query = urlencode({"$filter": f"groupId eq '{group_id}'"})
                 url = GRAPH + "/v1.0/identityGovernance/privilegedAccess/group/" + endpoint + "?" + query
                 def eligibility_rows(url=url, group_id=group_id):
-                    for page in reader.pages(request, url, audience=GRAPH, next_key="@odata.nextLink"):
+                    for page in _pim_group_pages(reader, request, url):
                         for row in page:
                             if (not isinstance(row, dict) or not isinstance(row.get("id"), str)
                                     or str(row.get("groupId", "")).casefold() != group_id.casefold()
@@ -5185,7 +5245,7 @@ def collect(connector, requirements=None, *, transport=None):
                                    "$expand": "policy($expand=rules)"})
                 url = GRAPH + "/v1.0/policies/roleManagementPolicyAssignments?" + query
                 def policy_rows(url=url, group_id=group_id, access_id=access_id):
-                    for page in reader.pages(request, url, audience=GRAPH, next_key="@odata.nextLink"):
+                    for page in _pim_group_pages(reader, request, url):
                         for row in page:
                             if (not isinstance(row, dict) or not isinstance(row.get("id"), str)
                                     or str(row.get("scopeId", "")).casefold() != group_id.casefold()

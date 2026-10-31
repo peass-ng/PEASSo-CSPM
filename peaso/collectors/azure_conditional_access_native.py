@@ -59,6 +59,10 @@ def _requested_groups(reader, tenant):
     if len(sources) != 1:
         raise ValueError('one complete tenant-bound Conditional Access policy inventory required')
     source = sources[0]
+    if source.get('status') not in ('collected', 'empty'):
+        # A denied or unread parent leaves membership unknown, not malformed.
+        from .azure import AzureReadError
+        raise AzureReadError('native_parent_inventory_incomplete')
     if (source.get('scope', '').casefold() != scope.casefold() or
             source.get('status') not in ('collected', 'empty') or
             not isinstance(source.get('items'), list) or
@@ -132,7 +136,7 @@ def _collect_group_membership(reader, request, transport):
         return
     try:
         groups = _requested_groups(reader, tenant)
-    except ValueError as exc:
+    except (ValueError, AzureReadError) as exc:
         reader.unavailable(GROUP_KIND, scope, 'Microsoft.Graph', exc)
         return
     if not groups:
