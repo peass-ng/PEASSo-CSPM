@@ -31,10 +31,13 @@ def load(path):
 
 
 class Fixture:
-    def __init__(self,bodies,*,shared=False,corrupt=None):
+    def __init__(self,bodies,*,shared=False,corrupt=None,overlap=0):
         self.bodies=bodies;self.shared=shared;self.corrupt=corrupt
-        self.lock=threading.Lock();self.bandwidth=threading.Lock()
-        self.active=self.peak=self.bytes=self.calls=0
+        self.lock=threading.Condition();self.bandwidth=threading.Lock()
+        self.active=self.peak=self.bytes=self.calls=self.open=0
+        # overlap=N holds the first N responses until N requests are in
+        # flight, so parallel fan-out is proven rather than left to timing.
+        self.barrier=threading.Barrier(overlap,timeout=30) if overlap else None
         owner=self
         class Handler(BaseHTTPRequestHandler):
             protocol_version='HTTP/1.0'
@@ -43,8 +46,9 @@ class Fixture:
                 key=self.path[1:].split('?',1)[0];body=owner.bodies[key]
                 if key == owner.corrupt:body=body[:-1]+bytes([body[-1]^1])
                 with owner.lock:
-                    owner.active+=1;owner.peak=max(owner.peak,owner.active);owner.calls+=1
+                    owner.active+=1;owner.calls+=1;wait=owner.barrier and owner.calls<=owner.barrier.parties
                 try:
+                    if wait:owner.barrier.wait()
                     self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers()
                     for i in range(0,len(body),65536):
                         chunk=body[i:i+65536]
@@ -56,20 +60,31 @@ class Fixture:
                         with owner.lock:owner.bytes+=len(chunk)
                 except (BrokenPipeError,ConnectionResetError):pass
                 finally:
-                    with owner.lock:owner.active-=1
+                    with owner.lock:owner.active-=1;owner.lock.notify_all()
         self.server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
         self.thread=threading.Thread(target=self.server.serve_forever,kwargs={'poll_interval':.01})
     def __enter__(self):self.thread.start();return self
     def __exit__(self,*args):
         self.server.shutdown();self.thread.join();self.server.server_close()
+    def idle(self,timeout=30):
+        # The client can finish reading (or abort) before the handler thread
+        # leaves its finally block; wait for that instead of racing it.
+        with self.lock:return self.lock.wait_for(lambda:self.active==0,timeout)
     def opener(self,*handlers):
-        base=build_opener(*handlers);port=self.server.server_port
+        base=build_opener(*handlers);port=self.server.server_port;owner=self
         class Response:
-            def __init__(self,response,url):self.response=response;self.url=url
+            # Client-side concurrency: counted from open until the caller
+            # closes the response, independent of server thread scheduling.
+            def __init__(self,response,url):
+                self.response=response;self.url=url
+                with owner.lock:owner.open+=1;owner.peak=max(owner.peak,owner.open)
             def __getattr__(self,key):return getattr(self.response,key)
             def geturl(self):return self.url
             def __enter__(self):self.response.__enter__();return self
-            def __exit__(self,*args):return self.response.__exit__(*args)
+            def __exit__(self,*args):
+                try:return self.response.__exit__(*args)
+                finally:
+                    with owner.lock:owner.open-=1
         class Opener:
             def open(self,url,**kwargs):
                 assert isinstance(url,str) and url.startswith(PREFIX)
@@ -89,7 +104,7 @@ def measure(pipeline,bodies,shared,*,parallel):
     descs=[dict(digest=key,size=len(body)) for key,body in bodies.items()]
     original=content.build_opener
     try:
-        with tempfile.TemporaryDirectory(prefix='peaso-layer-pipeline-') as folder, Fixture(bodies,shared=shared) as fixture:
+        with tempfile.TemporaryDirectory(prefix='peaso-layer-pipeline-') as folder, Fixture(bodies,shared=shared,overlap=2 if parallel else 0) as fixture:
             root=Path(folder);root.chmod(0o700);content.build_opener=fixture.opener
             start=time.perf_counter()
             if parallel:paths=pipeline.download_layers(reader,'fixture',descs,root,'sha256:'+'a'*64)
@@ -100,7 +115,7 @@ def measure(pipeline,bodies,shared,*,parallel):
             expected=[entry for desc in descs for entry in (
                 {'operation':'ecr:get_download_url_for_layer','status':'collected'},
                 {'operation':'ecr:signed_layer_download','status':'collected','digest':desc['digest'],'bytes':desc['size']})]
-            assert reader.ledger==expected and fixture.active==0
+            assert reader.ledger==expected and fixture.idle() and fixture.open==0
             return dict(wall_seconds=elapsed,http_requests=fixture.calls,transferred_bytes=fixture.bytes,
                 sdk_calls=reader.calls,all_request_calls=q.calls,peak_http=fixture.peak,
                 ordered_hashes=[hashlib.sha256(body).hexdigest() for body in bodies.values()],

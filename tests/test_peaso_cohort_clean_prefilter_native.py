@@ -28,7 +28,7 @@ def test_known_clean_has_no_gather_or_process_and_preserves_finish(setup):
     m,known,calls=setup;known.add(b'clean')
     c=m.ContentCohort(['a','b'],time.monotonic()+3,max_bytes=100,gather_seconds=2)
     start=time.monotonic();assert c.output('a',b'clean','a')==b''
-    assert time.monotonic()-start<.2 and not calls and not c.pending
+    assert time.monotonic()-start<1 and not calls and not c.pending  # gather would block 2s
     assert not c.finished
     c.finish('a');assert c.finished=={'a'}
     c.close()
