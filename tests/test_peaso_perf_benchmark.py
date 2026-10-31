@@ -35,10 +35,10 @@ PROFILES = {
 # Fresh-process measurements: Linux/3.12 3.93 CPU s, 313 MB; macOS/3.13
 # 2.57 CPU s, 340 MB. Rebaseline the small profile for that catalog growth;
 # keep the 10x limits and per-finding/report bounds unchanged.
-# The combined native registry now loads at startup: main (48b70bc2) peaks at
-# 528 MB and Linux CI at 514 MB, so the 1x process budget is 600 MB.
+# With source attestation gone, main (134eca96) peaks at 348 MB on macOS and
+# 319 MB on Linux CI, so the 1x process budget is back to 450 MB.
 BUDGETS = {
-    "1x": {"cpu_sec": 6, "wall_sec": 60, "maxrss_mb": 600},
+    "1x": {"cpu_sec": 6, "wall_sec": 60, "maxrss_mb": 450},
     "10x": {"cpu_sec": 90, "wall_sec": 600, "maxrss_mb": 1000},
 }
 # Report size is budgeted on principle instead of as a fixed constant. The old fixed 12 MB came from a
@@ -56,10 +56,9 @@ BUDGETS = {
 #    resources per check type, so its rate is the 1x rate scaled by 10 (not separately re-measured).
 # Native source admissions are a one-off process startup cost. Keep their
 # own bound visible instead of charging them to each snapshot evaluation.
-# The combined native registry includes source admission at process startup.
-# Reviewed Linux 3.12 cold startup reached 35.48 CPU s; keep a finite 45 s
-# startup bound while preserving separate evaluation, wall-time and RSS limits.
-NATIVE_CATALOG_BUDGETS = {"native_catalog_cpu_sec": 45, "native_catalog_wall_sec": 60}
+# Startup no longer verifies source admissions: Linux CI loads the registry in
+# 1.7 CPU s (it was 35 s), so the startup bound is 10 s.
+NATIVE_CATALOG_BUDGETS = {"native_catalog_cpu_sec": 10, "native_catalog_wall_sec": 20}
 FINDING_BYTES = 600
 REPORT_KB_PER_CHECK = {"1x": 14, "10x": 140}
 
