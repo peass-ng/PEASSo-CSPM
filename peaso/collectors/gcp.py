@@ -233,6 +233,15 @@ def sanitize(value):
     return value
 
 
+# Services whose DISABLED state a check, analysis or privilege-escalation rule reads by name.
+WATCHED_DISABLED_SERVICES = frozenset(name + ".googleapis.com" for name in (
+    "admin", "aiplatform", "alloydb", "bigquery", "bigquerydatatransfer", "cloudasset", "cloudaudit", "cloudbuild",
+    "clouderrorreporting", "cloudidentity", "cloudresourcemanager", "cloudscheduler", "composer", "compute",
+    "configdelivery", "container", "containeranalysis", "containerscanning", "dataflow", "datapipelines", "dataplex",
+    "dataproc", "developerconnect", "domains", "eventarcpublishing", "firestore", "generativelanguage", "groupssettings",
+    "iam", "iap", "integrations", "logging", "osconfig", "progressiverollout", "run", "storage", "workflowexecutions"))
+
+
 class ReadError(Exception):
     def __init__(self, status="unavailable", code="read_failed", *, http_status=None, reason=None):
         super().__init__(code)
@@ -5914,8 +5923,32 @@ class GCPCollector:
             return
         values.update(matches)
 
+    def prune_disabled_services(self):
+        """Keep enabled services and only the disabled ones some check, analysis or API key names.
+
+        services.list returns the whole ~13k public catalog per project, nearly all DISABLED.
+        Every consumer either reads ENABLED rows or asks about one named service, so the
+        other DISABLED rows only inflate the snapshot and report.
+        """
+        for (kind, scope), collection in self.collections.items():
+            if kind != "service_usage" or not isinstance(collection.get("items"), list):
+                continue
+            wanted = set(WATCHED_DISABLED_SERVICES)
+            keys = self.collections.get(("api_key", scope), {}).get("items") or []
+            for key in keys:
+                targets = (key.get("restrictions") or {}).get("apiTargets") if isinstance(key, dict) else None
+                for target in targets if isinstance(targets, list) else []:
+                    if isinstance(target, dict) and isinstance(target.get("service"), str):
+                        wanted.add(target["service"])
+            kept = [row for row in collection["items"] if not isinstance(row, dict) or row.get("state") != "DISABLED"
+                    or not isinstance(row.get("name"), str) or row["name"].rsplit("/services/", 1)[-1] in wanted]
+            if len(kept) != len(collection["items"]):
+                collection["omitted_disabled_services"] = len(collection["items"]) - len(kept)
+                collection["items"] = kept
+
     def finish(self):
         from peaso.snapshot import make_snapshot
+        self.prune_disabled_services()
         envelopes, hierarchy_discovery = [], []
         for key, collection in sorted(self.collections.items()):
             if key[1] == "discovery":
