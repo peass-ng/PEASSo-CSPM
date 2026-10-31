@@ -27,7 +27,8 @@ class AdaptiveTH:
         self.large_lanes = threading.Condition()
         self.large_active, self.large_bytes, self.large_probed = 0, 0, False
         try:
-            space = os.statvfs('/dev/shm')
+            from .secret_scanning_batch import _staging_root
+            space = os.statvfs(_staging_root(0) or '/dev/shm')
             self.large_capacity = space.f_blocks * space.f_frsize
         except (OSError, AttributeError):
             self.large_capacity = None

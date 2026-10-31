@@ -113,7 +113,7 @@ def prepared_output(payload, path):
     return output
 
 
-def _volatile_shm_available(total):
+def _linux_shm_available(total):
     """Require the exact /dev/shm mount to be volatile, with spare capacity."""
     if sys.platform != 'linux' or os.path.islink('/dev/shm') or not os.path.ismount('/dev/shm'):
         return False
@@ -124,6 +124,28 @@ def _volatile_shm_available(total):
             return False
     space = os.statvfs('/dev/shm')
     return space.f_bavail * space.f_frsize >= total + 1024 * 1024
+
+
+def _staging_root(total):
+    """Return where batch content may be staged, or None.
+
+    Linux uses volatile /dev/shm. Other platforms (macOS has no /dev/shm)
+    stage in a private 0700 directory under the user's temp dir that is
+    removed as soon as the batch finishes, so content never outlives the scan.
+    """
+    if sys.platform == 'linux':
+        return '/dev/shm' if _linux_shm_available(total) else None
+    root = tempfile.gettempdir()
+    try:
+        space = os.statvfs(root)
+    except (OSError, AttributeError):
+        return None
+    return root if space.f_bavail * space.f_frsize >= total + 1024 * 1024 else None
+
+
+def _volatile_shm_available(total):
+    """True when a private staging area with spare capacity exists."""
+    return _staging_root(total) is not None
 
 
 def _prepare_trufflehog_batch(items, timeout):
@@ -180,7 +202,11 @@ def _prepare_trufflehog_batch(items, timeout):
                 raise ValueError('scanner output bound')
             prepared.update(group)
         return prepared
-    with tempfile.TemporaryDirectory(prefix='peaso-scan-', dir='/dev/shm') as directory:
+    root = _staging_root(0)
+    if root is None:
+        _metric_reason('volatile_shm_unavailable')
+        return None
+    with tempfile.TemporaryDirectory(prefix='peaso-scan-', dir=root) as directory:
         os.chmod(directory, 0o700)
         paths = {}
         for index, payload in enumerate(payloads):

@@ -17,6 +17,7 @@ def bounded_tmpfs(monkeypatch, tmp_path):
     monkeypatch.setattr(batch.tempfile, 'TemporaryDirectory',
         lambda **kw: original(prefix='synthetic-capacity-', dir=tmp_path))
     monkeypatch.setattr(batch, '_volatile_shm_available', lambda size: size <= 2 * MIB)
+    monkeypatch.setattr(batch, '_staging_root', lambda size: str(tmp_path))
     monkeypatch.setattr(scanning, '_trufflehog', lambda: '/synthetic-tool')
     calls = []
     def run(argv, payload, timeout):

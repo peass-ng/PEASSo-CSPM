@@ -24,6 +24,7 @@ def prepared(monkeypatch, tmp_path):
         lambda **kwargs: temporary(prefix='synthetic-only-', dir=tmp_path)))
     monkeypatch.setattr(batch, '_volatile_shm_available',
         lambda size: calls['sizes'].append(size) or True)
+    monkeypatch.setattr(batch, '_staging_root', lambda size: str(tmp_path))
     monkeypatch.setattr(scanning, '_prepared_trufflehog_output', batch.prepared_output)
     monkeypatch.setattr(scanning, '_trufflehog', lambda: '/synthetic-trufflehog')
     monkeypatch.setattr(scanning, '_scan_kingfisher', lambda *a: [])
