@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       - name: Check out the pinned HackTricks Cloud pages
@@ -167,7 +167,7 @@ jobs:
         # Each shard collects its assigned files; split modules select disjoint node IDs.
         # loadfile keeps module fixtures on one worker within each job.
         run: >-
-          python scripts/pytest_shard.py --shard ${{ matrix.shard }} --shards 32 --
+          python scripts/pytest_shard.py --shard ${{ matrix.shard }} --shards 16 --
           -q -p no:cacheprovider -n auto --dist loadfile -rs --durations=25
           --ignore=tests/test_peaso_perf_benchmark.py
           --deselect=tests/test_peaso_privesc.py::test_perf_10k_principals
