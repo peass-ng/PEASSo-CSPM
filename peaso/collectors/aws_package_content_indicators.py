@@ -8,7 +8,7 @@ from peaso.secret_evidence import source_context, reuse_image_layer
 import base64
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
-from contextvars import copy_context
+from contextvars import ContextVar, copy_context
 from copy import deepcopy
 import hashlib
 import io
@@ -56,6 +56,19 @@ TAR_TYPES = {'application/vnd.oci.image.layer.v1.tar', 'application/vnd.oci.imag
              'application/vnd.docker.image.rootfs.diff.tar.gzip'}
 CONFIG_TYPES = {'application/vnd.oci.image.config.v1+json', 'application/vnd.docker.container.image.v1+json'}
 CATEGORIES = {'private_key', 'cloud_credential', 'password_assignment', 'secret'}
+ECR_CHECK = 'aws.review.ecr_repository.package_content_secret_indicators'
+FUNCTION_CHECK = 'aws.review.lambda_function.package_content_secret_indicators'
+# One image scan serves both the ECR repository and a Lambda function that runs
+# that digest: private evidence is recorded for both checks once, then bound to
+# the function's identity without rereading or rescanning any layer.
+IMAGE_CHECKS = frozenset({ECR_CHECK, FUNCTION_CHECK})
+LAMBDA_IMAGE_OPERATION = 'lambda:get_function+ecr:batch_get_image'
+_ECR_IMAGE_URI = re.compile(
+    r'([0-9]{12})\.dkr\.ecr\.([a-z]{2}(?:-[a-z0-9]+)+-[0-9])\.(amazonaws\.com(?:\.cn)?)/'
+    r'([a-z0-9][a-z0-9._/-]{0,255}?)(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@(sha256:[0-9a-f]{64})')
+# A Lambda function may run an image in another account's registry. Only the
+# function path authorizes that exact foreign repository, for this call chain.
+_FOREIGN_IMAGE = ContextVar('peaso_lambda_foreign_image', default=None)
 
 
 def _failure(code='package_content_unavailable'):
@@ -269,7 +282,7 @@ def _download_image_layers(requests, session, region, account, repo, digest,
             try:
                 with source_context(resource_id=identity, scope=account + '/' + region,
                                     image_digest=digest, layer=ld,
-                                    check_ids={'aws.review.ecr_repository.package_content_secret_indicators'}):
+                                    check_ids=IMAGE_CHECKS):
                     safe = requests.detail(session, 'ecr', region, 'get_download_url_for_layer',
                                            _metadata_profile=PROFILE, _cache_refresh=True,
                                            registryId=account, repositoryName=repo, layerDigest=ld)
@@ -462,22 +475,68 @@ def marker(identity, account, region, operation, refs, *, complete=True, code=No
             'HighConfidenceSecretPresent': bool(refs), 'Reason': code}
 
 
+def parse_ecr_image_uri(uri):
+    """``<account>.dkr.ecr.<region>.amazonaws.com[.cn]/<repo>[:tag]@sha256:<hex>`` parts.
+
+    Raises ``Unsupported`` naming why a URI cannot bind one immutable ECR image.
+    """
+    if not isinstance(uri, str) or len(uri) > 1024:
+        raise Unsupported('lambda_image_uri_unavailable')
+    match = _ECR_IMAGE_URI.fullmatch(uri)
+    if match is None:
+        if re.fullmatch(r'[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com(?:\.cn)?/[^@]+', uri):
+            raise Unsupported('lambda_image_digest_unresolved')
+        raise Unsupported('lambda_image_not_ecr')
+    account, region, suffix, repo, digest = match.groups()
+    try:
+        partition = _partition(region)
+        _ecr_arguments({'registryId': account, 'repositoryName': repo})
+    except ValueError:
+        raise Unsupported('lambda_image_not_ecr') from None
+    if (partition == 'aws-cn') != (suffix == 'amazonaws.com.cn'):
+        raise Unsupported('lambda_image_not_ecr')
+    return {'RegistryId': account, 'Region': region, 'RepositoryName': repo, 'ImageDigest': digest,
+            'ImageUri': f'{account}.dkr.ecr.{region}.{suffix}/{repo}@{digest}'}
+
+
+def _lambda_image_reference(code):
+    """Prefer the digest Lambda resolved at deployment; a tag never binds an image."""
+    if not isinstance(code, dict):
+        raise Unsupported('lambda_image_uri_unavailable')
+    if code.get('RepositoryType') not in (None, 'ECR'):
+        raise Unsupported('lambda_image_not_ecr')
+    resolved = code.get('ResolvedImageUri')
+    if resolved is None:
+        declared = code.get('ImageUri')
+        if isinstance(declared, str) and '@sha256:' in declared:
+            resolved = declared
+        elif isinstance(declared, str):
+            # Parse only to name the cause: non-ECR, or ECR without a digest.
+            parse_ecr_image_uri(declared)
+            raise Unsupported('lambda_image_digest_unresolved')
+    return parse_ecr_image_uri(resolved)
+
+
 def _lambda(response, operation, arguments, requests, region):
     if operation == 'get_function':
         identity = arguments['FunctionName']
         account, resource = _arn(identity, 'lambda', region)
         configuration = response['Configuration']
         version = arguments['Qualifier']
-        if isinstance(configuration, dict) and configuration.get('PackageType') == 'Image':
-            raise Unsupported('lambda_image_package')
+        image = isinstance(configuration, dict) and configuration.get('PackageType') == 'Image'
         # GetFunction with a Qualifier answers with the qualified ARN
         # (name:$LATEST or name:N); the unqualified form is also accepted.
         if (not re.fullmatch(r'function:[A-Za-z0-9_-]{1,64}', resource)
                 or not isinstance(configuration, dict) or not isinstance(version, str)
                 or configuration.get('FunctionArn') not in (identity, identity + ':' + version)
                 or configuration.get('Version') != version or not isinstance(version, str)
-                or not re.fullmatch(r'(?:\$LATEST|[1-9][0-9]*)', version) or configuration.get('PackageType') != 'Zip'):
+                or not re.fullmatch(r'(?:\$LATEST|[1-9][0-9]*)', version)
+                or configuration.get('PackageType') not in ('Zip', 'Image')):
             raise ValueError('function identity/version/format mismatch')
+        if image:
+            # Only the immutable image reference leaves this projection; the
+            # image itself is read and scanned through the ECR image path.
+            return {'PackageImage': _lambda_image_reference(response.get('Code')), 'SourceVersion': version}
         code, size, expected = response['Code'], configuration['CodeSize'], configuration['CodeSha256']
         if code.get('RepositoryType') != 'S3': raise ValueError('unsupported function code location')
     else:
@@ -581,6 +640,11 @@ def _image(response, arguments, requests, session, region):
     digest = ids[0]['imageDigest']
     identity = f'arn:{_partition(region)}:ecr:{region}:{account}:repository/{repo}@{digest}'
     from .aws_ecr_manifest_aliases import select_digest_image
+    failures = response.get('failures')
+    if (response.get('images') == [] and isinstance(failures, list) and failures
+            and all(isinstance(f, dict) and f.get('failureCode') == 'ImageNotFound'
+                    and f.get('imageId', {'imageDigest': digest}).get('imageDigest') == digest for f in failures)):
+        raise Unsupported('image_digest_not_found')
     image = select_digest_image(response.get('images'), response.get('failures'), account, repo, digest)
     raw = image['imageManifest']
     if (image.get('registryId') != account or image.get('repositoryName') != repo or
@@ -718,7 +782,7 @@ def _image(response, arguments, requests, session, region):
                     requests.check_deadline()
                     with source_context(resource_id=identity, scope=account + '/' + region,
                                         image_digest=digest, layer=ld,
-                                        check_ids={'aws.review.ecr_repository.package_content_secret_indicators'}):
+                                        check_ids=IMAGE_CHECKS):
                         try:
                             found = _scan(payload, name, requests)
                         except PartialArchive as partial:
@@ -775,7 +839,7 @@ def _image(response, arguments, requests, session, region):
             with source_context(resource_id=identity, scope=account + '/' + region,
                                 image_digest=digest, layer=descriptors[0][0], native=document,
                                 location_kind='configuration', path='image-config',
-                                check_ids={'aws.review.ecr_repository.package_content_secret_indicators'}):
+                                check_ids=IMAGE_CHECKS):
                 add_refs(_scan('\n'.join(texts).encode(), 'image-config', requests), descriptors[0][0])
             remaining = [CONTENT_LIMIT]
             def observe(name, reader, size, layer_index):
@@ -784,7 +848,7 @@ def _image(response, arguments, requests, session, region):
                 file_key = object()
                 with source_context(resource_id=identity, scope=account + '/' + region,
                                     image_digest=digest, layer=ld,
-                                    check_ids={'aws.review.ecr_repository.package_content_secret_indicators'}):
+                                    check_ids=IMAGE_CHECKS):
                     found, covered = _scan_reader(reader, size, name, requests, remaining,
                         enqueue=lambda payload, path: enqueue_window(payload, path, ld, file_key),
                         causes=causes)
@@ -837,7 +901,9 @@ def project_response(response, service, operation, arguments, *, request_context
         own = _own_account(requests, session, region)
         candidate = (_arn(arguments.get('FunctionName') if operation == 'get_function' else arguments.get('LayerName'), 'lambda', region)[0]
                      if service == 'lambda' else arguments.get('registryId'))
-        if candidate != own: raise ValueError('foreign content request')
+        if candidate != own and not (service == 'ecr' and _FOREIGN_IMAGE.get() == (
+                arguments.get('registryId'), arguments.get('repositoryName'), region)):
+            raise ValueError('foreign content request')
         if service == 'lambda': return _lambda(response, operation, arguments, requests, region)
         if operation == 'get_download_url_for_layer': return _layer(response, arguments, requests, region)
         return _image(response, arguments, requests, session, region)
@@ -860,6 +926,73 @@ def _own_account(requests, session, region):
     return account
 
 
+_LAMBDA_IMAGE_READ_CODES = {
+    'RepositoryNotFoundException': 'lambda_image_repository_not_found',
+    'ImageNotFoundException': 'lambda_image_not_found',
+    'image_digest_not_found': 'lambda_image_not_found',
+}
+_DENIED_CODES = {'AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation', 'ForbiddenException'}
+
+
+def _lambda_image_source(requests, session, region, account, identity, version, function):
+    """Scan the function's exact resolved ECR image digest and bind it to the function.
+
+    The ECR read is the same profiled ``batch_get_image`` request the repository
+    check issues, so one scan-local Future (and the scan-wide layer capture)
+    serves both: a digest already scanned for its repository is not read again.
+    The scanner's own credentials read the image; Lambda's pull access is not used.
+    """
+    def unknown(code):
+        return {'collection_status': 'not_collected', 'error': {'code': code}}
+    image = function.get('PackageImage')
+    if not isinstance(image, dict) or not isinstance(image.get('ImageUri'), str):
+        return unknown('lambda_image_uri_unavailable')
+    try:
+        bound = parse_ecr_image_uri(image['ImageUri'])
+    except Unsupported as exc:
+        return unknown(exc.code)
+    if bound != image or function.get('SourceVersion') != version:
+        return unknown('lambda_image_binding_unavailable')
+    registry, image_region, repo, digest = (bound['RegistryId'], bound['Region'],
+                                            bound['RepositoryName'], bound['ImageDigest'])
+    foreign = registry != account
+    token = _FOREIGN_IMAGE.set((registry, repo, image_region)) if foreign else None
+    try:
+        requests.check_deadline()
+        scanned = requests.detail(session, 'ecr', image_region, 'batch_get_image', _metadata_profile=PROFILE,
+                                  registryId=registry, repositoryName=repo, imageIds=[{'imageDigest': digest}])
+    finally:
+        if token is not None:
+            _FOREIGN_IMAGE.reset(token)
+    if scanned.get('collection_status') != 'collected':
+        error = scanned.get('error')
+        code = error.get('code') if isinstance(error, dict) else None
+        if scanned.get('collection_status') == 'denied' or code in _DENIED_CODES:
+            return unknown('lambda_image_cross_account_denied' if foreign else 'lambda_image_read_denied')
+        code = _LAMBDA_IMAGE_READ_CODES.get(code, code)
+        return unknown(code if isinstance(code, str) and re.fullmatch(r'[a-z_]{1,100}', code)
+                       else 'lambda_image_read_unavailable')
+    indicator = scanned.get('PackageSecretIndicators')
+    expected = f'arn:{_partition(image_region)}:ecr:{image_region}:{registry}:repository/{repo}@{digest}'
+    if (not isinstance(indicator, dict) or scanned.get('ImageDigest') != digest
+            or indicator.get('ResourceId') != expected or indicator.get('AccountId') != registry
+            or indicator.get('Region') != image_region or type(indicator.get('References')) is not list
+            or type(indicator.get('NativeResponseComplete')) is not bool):
+        return unknown('lambda_image_binding_unavailable')
+    refs = deepcopy(indicator['References'])
+    # Bind the private matches already recorded for these exact layers to the
+    # function, so its finding shows image digest, layer and file path.
+    for ld in sorted({ref.get('LayerDigest') for ref in refs if ref.get('Leaks')} - {None}):
+        reuse_image_layer([leak for ref in refs if ref.get('LayerDigest') == ld for leak in ref['Leaks']],
+                          check_ids={FUNCTION_CHECK}, resource_id=identity, scope=account + '/' + region,
+                          image_digest=digest, layer=ld, source=bound['ImageUri'])
+    complete = indicator['NativeResponseComplete']
+    return {'collection_status': 'collected', 'SourceVersion': version,
+            'ImageUri': bound['ImageUri'], 'ImageDigest': digest,
+            'PackageSecretIndicators': marker(identity, account, region, LAMBDA_IMAGE_OPERATION, refs,
+                                              complete=complete, code=None if complete else indicator.get('Reason'))}
+
+
 def enrich(kind, requests, session, region, items):
     enabled = getattr(requests, 'content_secret_scans', False) is True
     try: account = _own_account(requests, session, region) if enabled else None
@@ -876,16 +1009,15 @@ def enrich(kind, requests, session, region, items):
                 version = item['Version']
                 if own != account or native != 'function:' + resource or not isinstance(version, str) or not re.fullmatch(r'(?:\$LATEST|[1-9][0-9]*)', version):
                     raise ValueError('foreign function')
-                # Container-image functions have no ZIP package (their image is
-                # reviewed through its ECR repository) and oversized ZIPs exceed
-                # the bound; neither needs a GetFunction call to know that.
-                if item.get('PackageType') == 'Image':
-                    source = {'collection_status': 'not_collected', 'error': {'code': 'lambda_image_package'}}
-                    raise Unsupported('lambda_image_package')
-                if type(item.get('CodeSize')) is int and item['CodeSize'] > ZIP_LIMIT:
+                # Oversized ZIPs exceed the bound; that needs no GetFunction call.
+                # Container-image functions are scanned through their exact
+                # resolved ECR image digest (see _lambda_image_source).
+                if item.get('PackageType') != 'Image' and type(item.get('CodeSize')) is int and item['CodeSize'] > ZIP_LIMIT:
                     source = {'collection_status': 'not_collected', 'error': {'code': 'package_size_bound'}}
                     raise Unsupported('package_size_bound')
                 source = requests.detail(session, 'lambda', region, 'get_function', _metadata_profile=PROFILE, FunctionName=identity, Qualifier=version)
+                if source.get('collection_status') == 'collected' and 'PackageImage' in source:
+                    source = _lambda_image_source(requests, session, region, account, identity, version, source)
             elif kind == 'lambda_layer_version':
                 identity, version = item['LayerVersionArn'], item['Version']
                 own, native = _arn(identity, 'lambda', region)

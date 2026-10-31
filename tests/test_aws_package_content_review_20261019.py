@@ -618,7 +618,6 @@ def test_ecr_image_repeating_one_layer_digest_is_scanned(monkeypatch, detected):
 
 
 @pytest.mark.parametrize('field,value,reason', [
-    ('PackageType', 'Image', 'lambda_image_package'),
     ('CodeSize', p.ZIP_LIMIT + 1, 'package_size_bound'),
 ])
 def test_lambda_without_reviewable_zip_names_reason_without_download(monkeypatch, field, value, reason):
@@ -648,3 +647,139 @@ def test_lambda_get_function_qualified_arn_reply_is_scanned(monkeypatch, detecte
     status, evidence = FUNCTIONS['lambda_function'](result, index('lambda_function', result))
     assert status == ('FAIL' if detected else 'PASS') and evidence['source_complete'] is True
     assert downloads
+
+
+FOREIGN = '999999999999'
+
+
+def image_function(monkeypatch, detected=True, *, registry=ACCOUNT, enabled=True, uri=None):
+    """A container-image Lambda whose resolved image is the synthetic ECR image."""
+    requests, session, repository, ops, calls, downloads, payloads = sdk(
+        monkeypatch, 'ecr_repository', detected, enabled=enabled)
+    image = ops['batch_get_image']['images'][0]
+    image['registryId'] = registry
+    image_digest = image['imageId']['imageDigest']
+    item = {'FunctionArn': arn('lambda', 'function:imagefn'), 'FunctionName': 'imagefn',
+            'Version': '$LATEST', 'PackageType': 'Image'}
+    resolved = uri or f'{registry}.dkr.ecr.{REGION}.amazonaws.com/example@{image_digest}'
+    ops['get_function'] = {'Configuration': {**item, 'CodeSize': 0, 'CodeSha256': 'unused'},
+        'Code': {'RepositoryType': 'ECR', 'ImageUri': f'{registry}.dkr.ecr.{REGION}.amazonaws.com/example:latest',
+                 'ResolvedImageUri': resolved}}
+    return requests, session, item, repository, ops, calls, downloads, image_digest
+
+
+def lambda_result(requests, session, item):
+    result = p.ENRICHERS['lambda_function'](requests, session, REGION, [item])[0]
+    return result, c.function_code(result, index('lambda_function', result))
+
+
+def _layer_digest(ops):
+    return json.loads(ops['batch_get_image']['images'][0]['imageManifest'])['layers'][0]['digest']
+
+
+def _kingfisher_finds_secret(monkeypatch):
+    from peaso import secret_scanning
+    monkeypatch.setattr(secret_scanning, '_scan_kingfisher', lambda payload, path, timeout: (
+        [(SECRET, 'synthetic', 1)] if SECRET.encode() in payload else []))
+
+
+@pytest.mark.parametrize('detected', [True, False])
+def test_image_lambda_scans_its_resolved_ecr_image(monkeypatch, detected):
+    requests, session, item, _, ops, calls, downloads, image_digest = image_function(monkeypatch, detected)
+    result, (status, evidence) = lambda_result(requests, session, item)
+    assert status == ('FAIL' if detected else 'PASS'), evidence
+    assert evidence['image_digest'] == image_digest
+    assert evidence['image_uri'] == f'{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/example@{image_digest}'
+    assert evidence['resource_id'] == item['FunctionArn']
+    if detected:
+        assert ('config.py', _layer_digest(ops)) in {(ref['File'], ref['LayerDigest']) for ref in evidence['references']}
+    assert len(downloads) == 2 and SECRET not in json.dumps(result)
+
+
+def test_image_lambda_secret_leak_carries_layer_and_file(monkeypatch):
+    _kingfisher_finds_secret(monkeypatch)
+    requests, session, item, _, ops, _, _, _ = image_function(monkeypatch, True)
+    _, (status, evidence) = lambda_result(requests, session, item)
+    assert status == 'FAIL'
+    assert {(loc['path'], loc.get('layer')) for leak in evidence['secret_leaks']
+            for loc in leak['locations']} == {('config.py', _layer_digest(ops))}
+
+
+def test_image_digest_shared_with_ecr_repository_downloads_layers_once(monkeypatch):
+    requests, session, item, repository, ops, calls, downloads, _ = image_function(monkeypatch, True)
+    ecr = p.ENRICHERS['ecr_repository'](requests, session, REGION, [repository])[0]
+    assert c.image_layers(ecr, index('ecr_repository', ecr))[0] == 'FAIL'
+    def reads(): return len(downloads), [op for _, op, _ in calls].count('get_download_url_for_layer')
+    before = reads()
+    _, (status, _) = lambda_result(requests, session, item)
+    assert status == 'FAIL'
+    assert reads() == before
+    assert [op for _, op, _ in calls].count('batch_get_image') == 1
+
+
+def test_cross_account_image_read_with_scanner_credentials(monkeypatch):
+    requests, session, item, _, _, calls, downloads, _ = image_function(monkeypatch, True, registry=FOREIGN)
+    _, (status, evidence) = lambda_result(requests, session, item)
+    assert status == 'FAIL', evidence
+    assert {args.get('registryId') for _, op, args in calls if op == 'batch_get_image'} == {FOREIGN}
+
+
+def _client_error(code):
+    def fail(**kw):
+        from botocore.exceptions import ClientError
+        raise ClientError({'Error': {'Code': code, 'Message': SECRET}}, 'BatchGetImage')
+    return fail
+
+
+@pytest.mark.parametrize('case,reason', [
+    ('cross_account_denied', 'lambda_image_cross_account_denied'),
+    ('own_account_denied', 'lambda_image_read_denied'),
+    ('repository_deleted', 'lambda_image_repository_not_found'),
+    ('digest_deleted', 'lambda_image_not_found'),
+    ('non_ecr', 'lambda_image_not_ecr'),
+    ('tag_only', 'lambda_image_digest_unresolved'),
+    ('oversize', 'image_size_bound'),
+    ('disabled', 'content_secret_scans_disabled'),
+])
+def test_unscannable_function_image_names_its_reason(monkeypatch, case, reason):
+    registry = FOREIGN if case == 'cross_account_denied' else ACCOUNT
+    uri = {'non_ecr': 'docker.io/library/python@sha256:' + '1' * 64}.get(case)
+    requests, session, item, _, ops, calls, downloads, image_digest = image_function(
+        monkeypatch, True, registry=registry, enabled=case != 'disabled', uri=uri)
+    if case == 'tag_only':
+        ops['get_function']['Code'].pop('ResolvedImageUri')
+    elif case in ('cross_account_denied', 'own_account_denied'):
+        ops['batch_get_image'] = _client_error('AccessDeniedException')
+    elif case == 'repository_deleted':
+        ops['batch_get_image'] = _client_error('RepositoryNotFoundException')
+    elif case == 'digest_deleted':
+        ops['batch_get_image'] = {'images': [], 'failures': [{'imageId': {'imageDigest': image_digest},
+                                  'failureCode': 'ImageNotFound', 'failureReason': 'Requested image not found'}]}
+    elif case == 'oversize':
+        monkeypatch.setattr(p, 'ECR_IMAGE_LIMIT', 3)
+    result, (status, evidence) = lambda_result(requests, session, item)
+    assert (status, evidence['reason']) == ('UNKNOWN', reason)
+    assert not downloads and SECRET not in json.dumps(result)
+
+
+def test_image_lambda_private_evidence_binds_function_image_layer_and_path(monkeypatch):
+    from peaso import secret_evidence as private
+    from peaso.secret_findings import deduplicate_secret_findings
+    _kingfisher_finds_secret(monkeypatch)
+    requests, session, item, _, ops, _, _, image_digest = image_function(monkeypatch, True)
+    cipher = private.EphemeralCipher()
+    with private.capture(cipher, tenant='owner', scan_id='scan', selected_checks={p.FUNCTION_CHECK}) as sink:
+        _, (status, evidence) = lambda_result(requests, session, item)
+        document = sink.document()
+    assert status == 'FAIL'
+    finding = {'id': 'f', 'provider': 'aws', 'check_id': p.FUNCTION_CHECK, 'status': 'FAIL',
+               'resource_id': 'inventory-hash', 'native_resource_id': item['FunctionArn'],
+               'scope': ACCOUNT + '/' + REGION, 'frameworks': [], 'evidence': evidence}
+    grouped, = deduplicate_secret_findings([finding])
+    detail = private.details(grouped, document, cipher, tenant='owner', scan_id='scan')
+    assert detail['status'] == 'available'
+    assert [m['value'] for m in detail['matches']] == [SECRET]
+    location, = detail['matches'][0]['locations']
+    assert (location['resource_id'], location['image_digest'], location['layer'], location['path']) == (
+        item['FunctionArn'], image_digest, _layer_digest(ops), 'config.py')
+    assert location['source'] == f'{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/example@{image_digest}'

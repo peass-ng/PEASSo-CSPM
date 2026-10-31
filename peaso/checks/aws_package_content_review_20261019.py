@@ -2,7 +2,8 @@
 import re
 from .facts import Unavailable, get
 from .aws_configuration_secret_review_20261019 import _member
-from peaso.collectors.aws_package_content_indicators import SCHEMA, CATEGORIES, _arn, _digest, _path
+from peaso.collectors.aws_package_content_indicators import (SCHEMA, CATEGORIES, LAMBDA_IMAGE_OPERATION, _arn, _digest, _path,
+                                                             parse_ecr_image_uri)
 
 SURFACES = {
     'lambda_function': ('FunctionArn', 'lambda_function', 'Lambda ZIP code', 'lambda:get_function'),
@@ -37,6 +38,7 @@ def _incomplete(reason, base):
 def evaluate(kind, item, index):
     try:
         field, _, label, operation = SURFACES[kind]
+        image = None
         context = get(index, 'context', dict)
         account, scope = get(context, 'Account', str), get(context, 'scope', str)
         if get(context, 'provider', str) != 'aws' or not re.fullmatch(r'[0-9]{12}', account) or not scope.startswith(account + '/'):
@@ -59,6 +61,12 @@ def evaluate(kind, item, index):
             if native != 'function:' + get(item, 'FunctionName', str) or get(source, 'SourceVersion', str) != get(item, 'Version', str):
                 raise Unavailable('function version mismatch')
             if not re.fullmatch(r'(?:\$LATEST|[1-9][0-9]*)', item['Version']): raise Unavailable('invalid version')
+            if 'ImageUri' in source:
+                # A container-image function: its exact resolved ECR digest was scanned.
+                image = parse_ecr_image_uri(get(source, 'ImageUri', str))
+                if image['ImageUri'] != source['ImageUri'] or get(source, 'ImageDigest', str) != image['ImageDigest']:
+                    raise Unavailable('function image mismatch')
+                operation, label = LAMBDA_IMAGE_OPERATION, 'Lambda container image'
         elif kind == 'lambda_layer_version':
             number = get(item, 'Version', int)
             if (number < 1 or native != 'layer:' + get(item, 'LayerName', str) + ':' + str(number)
@@ -78,29 +86,35 @@ def evaluate(kind, item, index):
                 or _field(indicator, 'AccountId', str) != account or _field(indicator, 'Region', str) != region
                 or _field(indicator, 'SourceOperation', str) != operation): raise Unavailable('projection provenance absent')
         complete = _field(indicator, 'NativeResponseComplete', bool)
-        base = 'image_content_incomplete' if kind == 'ecr_repository' else 'package_content_incomplete'
+        layered = kind == 'ecr_repository' or image is not None
+        base = 'image_content_incomplete' if layered else 'package_content_incomplete'
         if indicator['collection_status'] != ('collected' if complete else 'partial') or not (
                 indicator['Reason'] is None if complete else _incomplete(indicator['Reason'], base)):
             raise Unavailable('contradictory completeness')
         refs = _field(indicator, 'References', list)
         if len(refs) > 5000: raise Unavailable('observation limit')
         for ref in refs:
-            if not isinstance(ref, dict) or set(ref) - {'Leaks'} != ({'File', 'Categories', 'LayerDigest'} if kind == 'ecr_repository' else {'File', 'Categories'}):
+            if not isinstance(ref, dict) or set(ref) - {'Leaks'} - ({'ChildManifestDigest'} if image is not None else set()) != (
+                    {'File', 'Categories', 'LayerDigest'} if layered else {'File', 'Categories'}):
                 raise Unavailable('invalid reference')
+            if 'ChildManifestDigest' in ref and not _digest(ref['ChildManifestDigest']): raise Unavailable('invalid image reference')
             if _path(get(ref, 'File', str)) != ref['File']: raise Unavailable('unsafe reference path')
             cats = get(ref, 'Categories', list)
             if not cats or any(not isinstance(c, str) or c not in CATEGORIES for c in cats) or len(set(cats)) != len(cats):
                 raise Unavailable('invalid categories')
-            if kind == 'ecr_repository' and not _digest(ref['LayerDigest']): raise Unavailable('invalid layer reference')
+            if layered and not _digest(ref['LayerDigest']): raise Unavailable('invalid layer reference')
         present = _field(indicator, 'HighConfidenceSecretPresent', bool)
         if present != bool(refs): raise Unavailable('contradictory presence')
         if not complete and not present: raise _Reason(indicator['Reason'])
-        return ('FAIL' if present else 'PASS'), {
+        evidence = {
             'observed': label + (': selected secret indicators observed.' if present else ': no selected indicators observed in the complete bounded source.'),
             'resource_id': identity, 'references': refs,
             'secret_leaks': [dict(leak, locations=[dict(loc, **({'layer': ref['LayerDigest']} if 'LayerDigest' in ref else {})) for loc in leak['locations']]) for ref in refs for leak in ref.get('Leaks', [])],
             'coverage': 'Offline Kingfisher and TruffleHog plus supplemental patterns; bounded content only, no execution or credential validation.',
             'source_complete': complete}
+        if image is not None:
+            evidence.update(image_uri=image['ImageUri'], image_digest=image['ImageDigest'])
+        return ('FAIL' if present else 'PASS'), evidence
     except _Reason as reason:
         return 'UNKNOWN', {'observed': 'Complete, matching optional package indicator evidence is unavailable.',
                            'reason': str(reason)}
@@ -121,7 +135,7 @@ REVISION = '1783527c1147f584f30b60f2d7ccc8a53b4a63b7'
 DETAILS = [
  ('lambda_function', 'function_code', 'awslambda', 'awslambda_function_no_secrets_in_code',
   '04100a02f56417b63d50e3f1d1e7ba648f897c3980f558b81a8681b0f09e10b8',
-  'Own-account exact listed function version ZIP only, at most 8 MiB compressed. Image functions are UNKNOWN. CodeSha256 and CodeSize must match the downloaded package; configuration and code locations never enter shared caching.',
+  'Own-account exact listed function version ZIP, at most 8 MiB compressed. Container-image functions are scanned through the exact resolved ECR image digest with the scanner credentials and the ECR image bounds; an unreadable, foreign-denied, deleted or non-ECR image is UNKNOWN. CodeSha256 and CodeSize must match the downloaded package; configuration and code locations never enter shared caching.',
   'Remove embedded credentials from the Lambda deployment ZIP, rotate confirmed exposed values, and redeploy using managed references.'),
  ('lambda_layer_version', 'layer_content', 'awslambda', 'awslambda_layer_no_secrets_in_content',
   '6981f74363ad419de07818aba6538a508311c86d093072503fb4c8d1ba165936',
