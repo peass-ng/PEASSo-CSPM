@@ -7,7 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / 'peaso/ai/_vendor/chack'
-PIN = '7e258d0602b9aa065bfa2d06aa53be5fe525531f'
+PIN = '53ab40167c4df367e2e7ca980f1bf3ac8c0b3375'
 
 
 def test_vendored_helpers_and_data_match_exact_worker_pin():
@@ -45,7 +45,7 @@ from peaso.storage import SQLiteStore
 from peaso.ai._vendor.chack import model_aliases
 # The exact pinned resolver retains the central alias service, stubbed here.
 model_aliases.requests.get = lambda *a, **k: SimpleNamespace(
-    raise_for_status=lambda: None, json=lambda: {'model_aliases': {'OPENAI_BEST_QUALITY': 'gpt-5.6-sol'}})
+    raise_for_status=lambda: None, json=lambda: {'model_aliases': {'OPENAI_BEST_QUALITY': 'gpt-6-sol'}})
 claims = {'exp': time.time()+7200, 'https://api.openai.com/auth': {'chatgpt_account_id': 'fixture-account'}}
 token = 'e30.'+base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')+'.fixture'
 os.environ['CODEX_ACCESS_TOKEN'] = token
@@ -55,7 +55,7 @@ def response(method, url, headers, body=None):
     calls.append((method, url, body))
     if '/codex/models' in url:
         return {'models': [{'slug': model, 'supported_reasoning_levels': [{'effort': 'high'}]}
-                           for model in ('gpt-5.6-sol', 'gpt-5.3-codex')]}
+                           for model in ('gpt-6-sol', 'gpt-5.3-codex')]}
     if method == 'GET' and 'api.anthropic.com' in url:
         return {'id': 'claude-sonnet-4-6', 'capabilities': {'effort': {'supported': True, 'high': {'supported': True}}}}
     return {'id': 'validated-response', 'status': 'completed', 'type': 'message'}
@@ -75,7 +75,7 @@ with tempfile.TemporaryDirectory() as directory:
     settings = SimpleNamespace(identity_dir=root/'identity', auth_mode='cognito')
     # Real default path: YAML + alias resolution + model/effort + live preflight.
     default = providers.model_access(token)
-    assert default.model == 'gpt-5.6-sol' and default.thinking == 'high'
+    assert default.model == 'gpt-6-sol' and default.thinking == 'high'
     auth.require_local_codex(settings, store, 'alice')
     status = get(user=user)
     assert status['available'] and status['source'] == 'hacktricks' and status['selection'] is None
