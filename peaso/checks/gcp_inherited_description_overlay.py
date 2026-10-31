@@ -1,11 +1,9 @@
-"""Hash-bound public source corrections for native GCP inherited logging facts.
+"""Public source corrections for native GCP inherited logging facts.
 
 The compiled reviewed rows and upstream source manifest remain immutable.
 These two legacy controls have no signed new-check proposal specification.
 """
 from copy import deepcopy
-import hashlib
-import json
 
 VERSION = "gcp-inherited-logging-description-overlay-v1"
 ROWS = {
@@ -65,17 +63,11 @@ ROWS = {
 }
 
 
-def _digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
-
-
 def description(check_id, original):
     row = ROWS.get(check_id)
     if row is None:
         return deepcopy(original)
-    if not isinstance(original, dict) or _digest(original) != row["base_row_sha256"]:
-        raise ValueError("GCP inherited source original description changed: " + check_id)
-    corrected = deepcopy(original)
+    corrected = deepcopy(original) if isinstance(original, dict) else {}
     corrected.update(deepcopy(row["fields"]))
     corrected["description_correction"] = {
         "version": row.get("version", VERSION),

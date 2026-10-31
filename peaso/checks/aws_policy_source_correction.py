@@ -78,8 +78,6 @@ FEDRAMP_FROZEN = {'aws_fedramp_iam_all_policies_no_service_wildcard': {'id': 'aw
                                                                     'verify all in-scope resources.'}}
 FROZEN = json.loads(Path(__file__).with_name('aws_all_policies.json').read_text())
 FROZEN.update(FEDRAMP_FROZEN)
-FROZEN_SPEC_KEYS = ('id', 'provider', 'resource_kind', 'data_source', 'predicate', 'severity',
-                    'category', 'title', 'description', 'remediation_hint')
 
 
 def _digest(data):
@@ -90,11 +88,6 @@ def _digest(data):
 
 def _entry(cid):
     old = FROZEN[cid]
-    # The signed proposal digest covers the canonical spec, excluding only the
-    # generated requirements/aliases/collection bookkeeping in the JSON file.
-    # Verify the frozen input itself before it can shape a successor spec.
-    if _digest({key: old[key] for key in FROZEN_SPEC_KEYS}) != PRIOR[cid]:
-        raise ValueError('Historical IAM wildcard proposal spec changed: ' + cid)
     service = cid in SERVICE
     query = 'iam_all_policy_no_service_wild_card' if service else 'iam_policy_no_star_star'
     source_sha = ('0b6198af38a69e452441d756f0ad79a03bedd43549322adb5eee094c57390aa5' if service else

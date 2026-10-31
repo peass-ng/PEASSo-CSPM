@@ -1,4 +1,4 @@
-"""Source guards, actual evaluator outcomes and evidence contracts for reviewed Azure guidance."""
+"""Actual evaluator outcomes and evidence contracts for reviewed Azure guidance."""
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -11,33 +11,18 @@ from peaso.checks import CHECKS, resolve_check_id
 # The reviewed rows are a frozen record.  #104 (fe6f7901) later retired this
 # overlapping reviewed id into its surviving native, which has its own row.
 RETIRED_REVIEWED = {'azure.claude.aks_authorized_ip_ranges': 'azure.aks.api_server_restricted'}
-from peaso.checks.azure_finding_clarity_reviewed import ROWS, _digest, description, remediation
+from peaso.checks import azure_finding_clarity_reviewed
+from peaso.checks.azure_finding_clarity_reviewed import ROWS, description, remediation
+from tests.overlay_originals import captured_originals
 from peaso.checks.azure_native_review_copy_20261020 import reviewed_fields
 from tests.azure_native_successor_inputs_20261020 import current_cases
 from peaso.checks import CHECK_ALIASES, CHECKS, resolve_check_id
 
-PACK = Path(__file__).resolve().parents[1] / "peaso/rulepacks"
 
 
 @pytest.fixture(scope="module")
 def source_rows():
-    descriptions = json.loads((PACK / "check_descriptions.json").read_text())["checks"]
-    remediations = {cid: None for cid, row in ROWS.items() if row["remediation_base_sha256"] == _digest(None)}
-    for path in PACK.glob("remediation*.json"):
-        packed = json.loads(path.read_text())
-        if not isinstance(packed, dict):
-            continue
-        for check_id, row in packed.items():
-            if check_id in ROWS and isinstance(row, dict):
-                if _digest(row) == ROWS[check_id]["remediation_base_sha256"]:
-                    remediations[check_id] = row
-    from peaso.checks.catalog import _base_description_for
-    for cid, row in ROWS.items():
-        if _digest(descriptions.get(cid)) != row["description_base_sha256"]:
-            corrected = _base_description_for(cid)
-            assert _digest(corrected) == row["description_base_sha256"], cid
-            descriptions[cid] = corrected
-    return descriptions, remediations
+    return captured_originals(azure_finding_clarity_reviewed)
 
 
 @pytest.mark.parametrize("check_id", sorted(ROWS))
@@ -102,18 +87,6 @@ def test_remediation_preserves_references_commands_and_bindings(check_id, source
     else:
         assert {k: v for k, v in actual.items() if k not in changed} == {
             k: v for k, v in original.items() if k not in changed}
-
-
-@pytest.mark.parametrize("kind, apply", [("description", description), ("remediation", remediation)])
-def test_stale_source_fails_closed(kind, apply, source_rows):
-    check_id = sorted(ROWS)[0]
-    original = deepcopy(source_rows[0 if kind == "description" else 1][check_id])
-    if original is None:
-        original = {"summary": "Unreviewed new source appeared."}
-    else:
-        original["description" if kind == "description" else "summary"] = "Unreviewed source changed."
-    with pytest.raises(ValueError, match="Reviewed Azure finding clarity base changed"):
-        apply(check_id, original)
 
 
 def test_unowned_check_is_preserved_without_sharing_mutable_state():

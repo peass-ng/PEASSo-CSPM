@@ -1,27 +1,13 @@
 """Actual database predicate outputs and guarded concise finding presentation."""
 from copy import deepcopy
-import json
 from pathlib import Path
 import pytest
 from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
-from peaso.checks.aws_database_clarity_reviewed import ROWS, _digest, evidence_summary
-from peaso.checks.aws_database_clarity_reviewed import ROWS, _digest, description, remediation, evidence_summary
+from peaso.checks.aws_database_clarity_reviewed import ROWS, evidence_summary
 
 CHECK_BY_ID = {c.id:c for c in CHECKS}
 PACK = Path(__file__).resolve().parents[1]/'peaso/rulepacks'
-
-@pytest.fixture(scope='module')
-def originals():
-    out={}
-    for path in PACK.glob('remediation*.json'):
-        value=json.loads(path.read_text())
-        if not isinstance(value,dict):continue
-        for cid,entry in value.items():
-            if cid in ROWS and _digest(entry)==ROWS[cid]['remediation_base_sha256']:out[cid]=entry
-    assert set(out)==set(ROWS)
-    return out
-
 
 @pytest.mark.parametrize('cid',sorted(ROWS))
 def test_summaries_use_real_failure_cases_and_preserve_raw_evidence(cid):

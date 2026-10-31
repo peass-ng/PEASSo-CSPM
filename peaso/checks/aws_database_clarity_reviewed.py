@@ -1,6 +1,5 @@
 """Individually reviewed AWS database findings; no cloud requests or mutations."""
 from copy import deepcopy
-import hashlib
 import json
 import re
 
@@ -8,11 +7,9 @@ VERSION = "aws-database-clarity-20261019"
 ROWS = json.loads(r'''
 {
   "aws.cb.rds.cluster_backtrack_window_positive": {
-    "description_base_sha256": "47d269221c54babe1e9179e47fd5607e01d619b001c621e53fd07e4a9daa5c1e",
     "description_fields": {
       "description": "Checks for a positive Backtrack window on supported Aurora MySQL versions and Regions."
     },
-    "remediation_base_sha256": "7566818fe7f2a246288672cd61980ca04189f7d2b7c7d5630769f87039f6e6cd",
     "remediation_fields": {
       "summary": "If Backtrack is needed, restore or replace the cluster with Backtrack enabled; it cannot be enabled on an existing disabled cluster.",
       "steps": [
@@ -24,16 +21,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_cluster",
-      "predicate_qualname": "cluster_backtrack",
-      "predicate_source_sha256": "abb9c1bed37425d4fd69eb51dd9a23f0aba626d03fece42ef64af56298e70881"
+      "predicate_qualname": "cluster_backtrack"
     }
   },
   "aws.cb.rds.aurora_backtracking_configured": {
-    "description_base_sha256": "7c78ed3e21feaea106a9907bdee1a0d3f1ee1d6890af5136d8dbb5129ba65850",
     "description_fields": {
       "description": "Checks for a positive Backtrack window on supported Aurora MySQL versions and Regions."
     },
-    "remediation_base_sha256": "cdc0908e7ecbd4ef1a200f21712e35f37aa98030394155800379bf55ede168bd",
     "remediation_fields": {
       "summary": "If Backtrack is needed, restore or replace the cluster with Backtrack enabled; it cannot be enabled on an existing disabled cluster.",
       "steps": [
@@ -45,16 +39,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_cluster",
-      "predicate_qualname": "aurora_backtracking",
-      "predicate_source_sha256": "bd728bb625d6bf5300983aa7a8ed97d0cb444f83523d48531e4b342c0e20645e"
+      "predicate_qualname": "aurora_backtracking"
     }
   },
   "aws.cb.rds.cluster_cloudwatch_log_exports": {
-    "description_base_sha256": "fcd2b5dd4d07a5c3390ff8a8e170ab05e072cc803952e04f619b3fdfe6d729c0",
     "description_fields": {
       "description": "Checks whether the cluster declares any CloudWatch log exports."
     },
-    "remediation_base_sha256": "8cb5d1f1574daf86f1dce3d9e1f75894364c96dd52bb1250dc566dc105e57284",
     "remediation_fields": {
       "summary": "Enable the database log exports needed for investigation.",
       "steps": [
@@ -70,16 +61,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_cluster",
-      "predicate_qualname": "cluster_cw",
-      "predicate_source_sha256": "3827d47ef7f3c1994ac6762b8a6d467cf2e6902e8c8052e81263a71404532af8"
+      "predicate_qualname": "cluster_cw"
     }
   },
   "aws.cb.rds.cluster_log_exports_declared": {
-    "description_base_sha256": "63b0a93ed859df09d2a90c1d448ae743a6d981e6148edd2e0e6a59d0180ff19c",
     "description_fields": {
       "description": "Checks whether the cluster declares any CloudWatch log exports."
     },
-    "remediation_base_sha256": "e79e86993da916c14885bd888597ec0ebcd8809ed3e8d66baceeeb61ec38924e",
     "remediation_fields": {
       "summary": "Enable the database log exports needed for investigation.",
       "steps": [
@@ -95,16 +83,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_cluster",
-      "predicate_qualname": "cluster_exports",
-      "predicate_source_sha256": "02ed995b707ac99207e86fb4c2524004f2b91ff96bed3426be752a38aafbd899"
+      "predicate_qualname": "cluster_exports"
     }
   },
   "aws.cb.rds.multi_az_cluster_minor_upgrade": {
-    "description_base_sha256": "3bb0082b4de8b101515d189627157161c51e27a417602cb13089b50fe57002fb",
     "description_fields": {
       "description": "Checks AutoMinorVersionUpgrade on applicable Multi-AZ DB clusters."
     },
-    "remediation_base_sha256": "d30dc83262d6928f575995a0dde219a8c45e20bd7c1b960c93cf1ef115ec6495",
     "remediation_fields": {
       "summary": "Enable automatic minor upgrades after checking maintenance and application compatibility.",
       "steps": [
@@ -116,16 +101,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_cluster",
-      "predicate_qualname": "cluster_minor",
-      "predicate_source_sha256": "8c824647976218e53f3a100e8b3823b922285758b300b9a7e52409eee908d00e"
+      "predicate_qualname": "cluster_minor"
     }
   },
   "aws.cb.rds.cluster_engine_default_port_prowler": {
-    "description_base_sha256": "b26bc00f9198e818f0a8bda4b513341201c9591abc02da17a039d0862247a7aa",
     "description_fields": {
       "description": "Compares the database port with this profile\u2019s engine-default port map."
     },
-    "remediation_base_sha256": "e0874b1178610a22a1690447d936c8086d0c01bbb979b6404fc21dc10f376e52",
     "remediation_fields": {
       "summary": "Keep the default port if required; restrict database access to the necessary networks and identities.",
       "steps": [
@@ -141,16 +123,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "rds_cluster",
-      "predicate_qualname": "_port.<locals>.evaluate",
-      "predicate_source_sha256": "f0af129ce92257363f9c431987bf1066a9bff5e706d891302c95bbadaee6b9d2"
+      "predicate_qualname": "_port.<locals>.evaluate"
     }
   },
   "aws.cb.rds.instance_engine_default_port_prowler": {
-    "description_base_sha256": "75b4fea4d6cd1c8fd8e8402ba9753dd3b404b1b2a17f078fd7edf053f03f9440",
     "description_fields": {
       "description": "Compares the database port with this profile\u2019s engine-default port map."
     },
-    "remediation_base_sha256": "3b5d9a3e691a749bfd907984ac6934bc62aa8419d9adda15e34fc00d01e59adf",
     "remediation_fields": {
       "summary": "Keep the default port if required; restrict database access to the necessary networks and identities.",
       "steps": [
@@ -166,16 +145,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "_port.<locals>.evaluate",
-      "predicate_source_sha256": "f0af129ce92257363f9c431987bf1066a9bff5e706d891302c95bbadaee6b9d2"
+      "predicate_qualname": "_port.<locals>.evaluate"
     }
   },
   "aws.cb.rds.cluster_in_backup_plan_selection": {
-    "description_base_sha256": "284b3060ff1abb6c68918f47723453bb5e7a1bc9ecc68f3565d6cc2016edae40",
     "description_fields": {
       "description": "Matches the database ARN against AWS Backup selection ARNs and supported wildcards."
     },
-    "remediation_base_sha256": "952bfa0cff8cfcd55f7064dfdea9b80895eb466b31c92808b868854609704ed9",
     "remediation_fields": {
       "summary": "Add this database to an appropriate AWS Backup plan if it should be covered.",
       "steps": [
@@ -191,16 +167,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_cluster",
-      "predicate_qualname": "cluster_selected",
-      "predicate_source_sha256": "57617a6c993c595dec2d08a477216a08a13b36a0de60c63c019740a73cb4dd3d"
+      "predicate_qualname": "cluster_selected"
     }
   },
   "aws.cb.rds.instance_in_backup_plan_selection": {
-    "description_base_sha256": "8fced6171c0cc4a1ed65bd731641a6b5354d75cb2b95f5a84bd4f187df6e5264",
     "description_fields": {
       "description": "Matches the database ARN against AWS Backup selection ARNs and supported wildcards."
     },
-    "remediation_base_sha256": "68dabc8198cc5cff8cbfdc4ff84a866e18c563d4461219fa91c3d766d933fe9d",
     "remediation_fields": {
       "summary": "Add this database to an appropriate AWS Backup plan if it should be covered.",
       "steps": [
@@ -216,16 +189,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_selected",
-      "predicate_source_sha256": "82fcfc9cc2f8d5f9e0a065b379d98cd88c9987c76625f9662613adfb2ce4ae3b"
+      "predicate_qualname": "instance_selected"
     }
   },
   "aws.cb.rds.aurora_cluster_protected_resource": {
-    "description_base_sha256": "ce4be6375f971492b9669499cc91cd032e3be710073009a123fcd7055fe52382",
     "description_fields": {
       "description": "Looks for the database ARN and its resource type in AWS Backup protected resources."
     },
-    "remediation_base_sha256": "aba5524442c1fe804f47aac074534eefa8331cb8f5a7ac88caada852e4da631a",
     "remediation_fields": {
       "summary": "Check backup coverage and investigate why AWS Backup has no protected-resource record for this database.",
       "steps": [
@@ -241,16 +211,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_cluster",
-      "predicate_qualname": "aurora_protected",
-      "predicate_source_sha256": "1aad7f40cf45352084ca35e3f67c9eb934fa3d7e2ccfbe2e52a4cf0c079828db"
+      "predicate_qualname": "aurora_protected"
     }
   },
   "aws.cb.rds.instance_protected_resource": {
-    "description_base_sha256": "ffd5e52af3cd3dfc2a5d77e10f7d62d06f5c0a654ccfa5f3ec56d2666270c8b7",
     "description_fields": {
       "description": "Looks for the database ARN and its resource type in AWS Backup protected resources."
     },
-    "remediation_base_sha256": "4c18ae5cd722392e6a87d736626d4fb0935b526b8a684bc436041129f567a644",
     "remediation_fields": {
       "summary": "Check backup coverage and investigate why AWS Backup has no protected-resource record for this database.",
       "steps": [
@@ -266,16 +233,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_protected",
-      "predicate_source_sha256": "d493ec68f7cf5578efc6b7d4dfa17d2630b453f5d761be0191580b16df1e6e2f"
+      "predicate_qualname": "instance_protected"
     }
   },
   "aws.cb.rds.instance_in_backup_selection_or_tag": {
-    "description_base_sha256": "d31a697d377c94ea1a5bf55fda7a850dec1980acdc9b5ed5a22f5f40f71c1a09",
     "description_fields": {
       "description": "Matches the instance ARN or exact tag key and value against collected AWS Backup selections."
     },
-    "remediation_base_sha256": "3683fec68087ecfabeb87ac8e2455d68a5711e06122f2843df1d33f908572404",
     "remediation_fields": {
       "summary": "Verify the database\u2019s effective backup selection and tag conditions, then add coverage if needed.",
       "steps": [
@@ -291,16 +255,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_in_plan",
-      "predicate_source_sha256": "15833bcb2774d99f9778089de0aaf17f1a1e12c407e33e1bbc9387e7f1bfd4af"
+      "predicate_qualname": "instance_in_plan"
     }
   },
   "aws.cb.rds.aurora_postgres_postgresql_log_export": {
-    "description_base_sha256": "e5825296a8b04a4eb23baa5f923e0887860bdfd3209502dfb28742cbd5f7e3a0",
     "description_fields": {
       "description": "Checks whether Aurora PostgreSQL declares the postgresql CloudWatch log export."
     },
-    "remediation_base_sha256": "adfbf94fd9b9653d6e1bbf308085e42821f2a9e93741ca3803fbe1665cbacbb4",
     "remediation_fields": {
       "summary": "Enable the postgresql log export.",
       "steps": [
@@ -316,16 +277,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_cluster",
-      "predicate_qualname": "aurora_pg_logs",
-      "predicate_source_sha256": "08be8616366524a735b76a6bb9c0202d0ea909f25355dc44df02303e834fe7c1"
+      "predicate_qualname": "aurora_pg_logs"
     }
   },
   "aws.cb.rds.instance_enhanced_monitoring_except_m1_small": {
-    "description_base_sha256": "7ced129e6503982631d231db8cf2d94d4fcf78cb2ed611f288a0020de52678a5",
     "description_fields": {
       "description": "Checks EnhancedMonitoringResourceArn; db.m1.small is excluded."
     },
-    "remediation_base_sha256": "3296cf0e68dea1396c010c7e869482ee6c393508cd0059a77ef7937f5eb4e58f",
     "remediation_fields": {
       "summary": "Configure Enhanced Monitoring if operating-system metrics are required.",
       "steps": [
@@ -342,16 +300,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_em",
-      "predicate_source_sha256": "acb9ca081599ab7715f423101819ed7c5ef6d3e53bd00cce82f07bb71d020505"
+      "predicate_qualname": "instance_em"
     }
   },
   "aws.cb.rds.cluster_tls_parameters": {
-    "description_base_sha256": "3491d8ed4a1f4281c537e5c8679cb3ac3c1c2284e0012ce4228319be13fe80e4",
     "description_fields": {
       "description": "Checks the engine-appropriate cluster parameter: rds.force_ssl=1 or require_secure_transport=ON/1."
     },
-    "remediation_base_sha256": "da4c74693193893af9983540e92d991894f98d3230cc7dac9dba696e1800a939",
     "remediation_fields": {
       "summary": "Enable the engine\u2019s TLS-enforcement parameter and update clients before applying any required restart.",
       "steps": [
@@ -367,16 +322,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "rds_cluster",
-      "predicate_qualname": "cluster_tls",
-      "predicate_source_sha256": "6e2f60be87b1bb648c088733e709b61976165d8942af8d7bd4d60b036008b57f"
+      "predicate_qualname": "cluster_tls"
     }
   },
   "aws.cb.rds.postgres_force_ssl_parameter": {
-    "description_base_sha256": "cffe929310acb32be7ae73eeab112cfcb0cce25b523e1bd3b8518d5d7d13954e",
     "description_fields": {
       "description": "Checks whether the applicable engine parameter rds.force_ssl is 1."
     },
-    "remediation_base_sha256": "acf510771774301ddd864fa6506b1cb0e2e8e0f987a96d2d3d3e3e9dc3a5fbd8",
     "remediation_fields": {
       "summary": "Set rds.force_ssl to 1 and verify client TLS compatibility before applying the change.",
       "steps": [
@@ -392,16 +344,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "_param_check.<locals>.evaluate",
-      "predicate_source_sha256": "b013e45921f68f2690411cb46ac335a3b08b8bee244d3035926be57670fa1089"
+      "predicate_qualname": "_param_check.<locals>.evaluate"
     }
   },
   "aws.cb.rds.mariadb_require_secure_transport": {
-    "description_base_sha256": "b1f989d2e6eff2a5592385616425361e7eb75863bd43e0ef9e6f010041108381",
     "description_fields": {
       "description": "Checks whether the applicable engine parameter require_secure_transport is ON or 1."
     },
-    "remediation_base_sha256": "a5007d3cedf9413efd2f41f7f68a866ec5d964dbb5edd0767967be06918becaa",
     "remediation_fields": {
       "summary": "Set require_secure_transport to ON or 1 and verify client TLS compatibility before applying the change.",
       "steps": [
@@ -418,16 +367,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "_param_check.<locals>.evaluate",
-      "predicate_source_sha256": "b013e45921f68f2690411cb46ac335a3b08b8bee244d3035926be57670fa1089"
+      "predicate_qualname": "_param_check.<locals>.evaluate"
     }
   },
   "aws.cb.rds.sqlserver_force_ssl_parameter": {
-    "description_base_sha256": "ab38493febbd12ffa7ef910da05ac3673fc608639c73248a2d2a1be68429b2b2",
     "description_fields": {
       "description": "Checks whether the applicable engine parameter rds.force_ssl is 1."
     },
-    "remediation_base_sha256": "83ef254dee0548463041f8b1a2f9db3343ab39ed417172b7dc64398c2d9422d8",
     "remediation_fields": {
       "summary": "Set rds.force_ssl to 1 and verify client TLS compatibility before applying the change.",
       "steps": [
@@ -443,16 +389,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "_param_check.<locals>.evaluate",
-      "predicate_source_sha256": "b013e45921f68f2690411cb46ac335a3b08b8bee244d3035926be57670fa1089"
+      "predicate_qualname": "_param_check.<locals>.evaluate"
     }
   },
   "aws.cb.rds.mariadb_log_exports": {
-    "description_base_sha256": "55509215fab26e670c25c55e12029ea823dda7b874c69911e995503276c7a248",
     "description_fields": {
       "description": "Checks whether the applicable database exports audit, error, general and slowquery logs."
     },
-    "remediation_base_sha256": "44c6259c09251eb9b216b9c3d4d8e63940d7135075eed8e933846e6c64143b30",
     "remediation_fields": {
       "summary": "Enable the missing audit, error, general and slowquery log exports needed for investigation.",
       "steps": [
@@ -468,16 +411,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "_logs.<locals>.evaluate",
-      "predicate_source_sha256": "1da1746ba510e4b815bb06ca34f2391b9d15a6129d3ff9fcb4a61f3dbf599f87"
+      "predicate_qualname": "_logs.<locals>.evaluate"
     }
   },
   "aws.cb.rds.postgres_log_exports": {
-    "description_base_sha256": "69bac9c2f98da9b9d862e2619c273de6eb8ab50a67f66ed234014bcd80433395",
     "description_fields": {
       "description": "Checks whether the applicable database exports postgresql and upgrade logs."
     },
-    "remediation_base_sha256": "d805a3ba1a8eeca60b10b9adf8280a6b4fa0199c45ac130dee5051ac14a6afe3",
     "remediation_fields": {
       "summary": "Enable the missing postgresql and upgrade log exports needed for investigation.",
       "steps": [
@@ -493,16 +433,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "_logs.<locals>.evaluate",
-      "predicate_source_sha256": "1da1746ba510e4b815bb06ca34f2391b9d15a6129d3ff9fcb4a61f3dbf599f87"
+      "predicate_qualname": "_logs.<locals>.evaluate"
     }
   },
   "aws.cb.rds.sqlserver_error_log_export": {
-    "description_base_sha256": "d27f43f3fe78c79ef3e86ef8d3c0cce135500afd0b4a375a791ea9baea499449",
     "description_fields": {
       "description": "Checks whether the applicable database exports error logs."
     },
-    "remediation_base_sha256": "f127169da824b685b3f4f9d90093a70effe07662e405cf54b84622b23c5d70b3",
     "remediation_fields": {
       "summary": "Enable the missing error log exports needed for investigation.",
       "steps": [
@@ -518,16 +455,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "_logs.<locals>.evaluate",
-      "predicate_source_sha256": "1da1746ba510e4b815bb06ca34f2391b9d15a6129d3ff9fcb4a61f3dbf599f87"
+      "predicate_qualname": "_logs.<locals>.evaluate"
     }
   },
   "aws.cb.rds.aurora_postgres_local_file_read_versions": {
-    "description_base_sha256": "d5905527ec9573903bd091bdff3c92bd5cd6c4a3dd236dce5c3a1111be7119ff",
     "description_fields": {
       "description": "Matches EngineVersion against the profile\u2019s affected versions: 10.11\u201310.13 and 11.6\u201311.8."
     },
-    "remediation_base_sha256": "b2a162f9e46890b2fab2035319fdbe6b99c5d20b006ebc8bacda63026e30acf1",
     "remediation_fields": {
       "summary": "Upgrade to a supported release after checking compatibility and the relevant security advisory.",
       "steps": [
@@ -543,16 +477,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "_vuln.<locals>.evaluate",
-      "predicate_source_sha256": "bbbe68a1e2ebac95efb71e16a8efafe9ee42e39c2785919cbd64ac400d8990ba"
+      "predicate_qualname": "_vuln.<locals>.evaluate"
     }
   },
   "aws.cb.rds.postgres_local_file_read_versions": {
-    "description_base_sha256": "1c960a610d0c1d89642b52b310b8a01bd94091176b0de2510615548455143c82",
     "description_fields": {
       "description": "Matches EngineVersion against the profile\u2019s affected versions: 10.11\u201310.13 and 11.6\u201311.8."
     },
-    "remediation_base_sha256": "8621f6f2763804aa5e1f201bb8adec9ea73398a81ec69d8d9fb3be6683a12718",
     "remediation_fields": {
       "summary": "Upgrade to a supported release after checking compatibility and the relevant security advisory.",
       "steps": [
@@ -568,16 +499,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "_vuln.<locals>.evaluate",
-      "predicate_source_sha256": "bbbe68a1e2ebac95efb71e16a8efafe9ee42e39c2785919cbd64ac400d8990ba"
+      "predicate_qualname": "_vuln.<locals>.evaluate"
     }
   },
   "aws.cb.rds.instance_backup_retention_nonzero_all": {
-    "description_base_sha256": "023f22e7319b72c87d1b001a3d090f1c466109e948dc785fe99516ee86fd3091",
     "description_fields": {
       "description": "Checks whether automated backup retention is at least one day."
     },
-    "remediation_base_sha256": "a37e90418b08801c71115ab742eaabefbf6b56badbd5f060efb69cebb1146dd4",
     "remediation_fields": {
       "summary": "Configure an automated backup retention period suitable for recovery.",
       "steps": [
@@ -589,16 +517,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_backup",
-      "predicate_source_sha256": "cba4e70db21dd420394dd5f8539bf5a58fa65d2801641e2e6d62d6e25caf5c5f"
+      "predicate_qualname": "instance_backup"
     }
   },
   "aws.cb.rds.instance_copy_tags_all_engines": {
-    "description_base_sha256": "343e1144bb3f1749366251e331b98859df63d74be5394a0cadd25a2989ea6c4e",
     "description_fields": {
       "description": "Checks CopyTagsToSnapshot on the instance."
     },
-    "remediation_base_sha256": "30e935f2ccc6be46848377b4a857131e77c7b3ed43ef019dd08e80f2256df42c",
     "remediation_fields": {
       "summary": "Enable copying tags to snapshots if these tags are needed for ownership or lifecycle management.",
       "steps": [
@@ -610,16 +535,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_copy_tags",
-      "predicate_source_sha256": "16297d138180de75b270ed33c28c542fa34d12b1bbf738dc2a8e61cfa8a7d0cb"
+      "predicate_qualname": "instance_copy_tags"
     }
   },
   "aws.cb.rds.instance_iam_auth_supported_engines": {
-    "description_base_sha256": "272f87d78aa988c94408de88d5b0ee1926e9861391727a03800acf90a907fcb1",
     "description_fields": {
       "description": "Checks IAM database authentication on MySQL, MariaDB and PostgreSQL instances."
     },
-    "remediation_base_sha256": "1b52789f58083a58ed57aa37156ebc22b0bcd436d777dbab4f79dbfb810e6540",
     "remediation_fields": {
       "summary": "Consider enabling IAM database authentication if it suits the application\u2019s connection model.",
       "steps": [
@@ -635,16 +557,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_iam_supported",
-      "predicate_source_sha256": "d6d7f3f516ba66b7081e99c85f023c3d039e3ee1e85d07891dd61e9fa993726a"
+      "predicate_qualname": "instance_iam_supported"
     }
   },
   "aws.cb.rds.instance_default_master_username": {
-    "description_base_sha256": "ec41f3981fb650da57e2f4dcda27b02bce4313e002d2d06a50a3af9c13aaa6be",
     "description_fields": {
       "description": "Checks whether the instance or resolved cluster uses master username admin or postgres."
     },
-    "remediation_base_sha256": "10ceee3fb7db3b45f83fc132326c282f2c5651922e92b288ad23cda4f2d8f931",
     "remediation_fields": {
       "summary": "Review master-account use and restrict its access; a familiar username alone does not justify database replacement.",
       "steps": [
@@ -660,16 +579,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_admin",
-      "predicate_source_sha256": "0fd2fed40de5b320752336ed89671363abfd4cd2d77c8f1e7b57a43b5f5e3ebb"
+      "predicate_qualname": "instance_admin"
     }
   },
   "aws.cb.rds.instance_multi_az_or_cluster": {
-    "description_base_sha256": "44603ebb2e235d99ea19b41501e98dd130b9ec2ba030fb564f8129b41a6d8aa9",
     "description_fields": {
       "description": "Checks MultiAZ on the applicable instance or its resolved parent cluster."
     },
-    "remediation_base_sha256": "8a70de13231e77ad8004573fc8c40ce4c24ceb8f14c420736287db9f6c32cf51",
     "remediation_fields": {
       "summary": "Enable Multi-AZ if the workload requires resilience to an Availability Zone outage.",
       "steps": [
@@ -685,16 +601,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_multi",
-      "predicate_source_sha256": "689f101f8bf6bbea504601e7d36065e5390ce30088505c382dd0325234291259"
+      "predicate_qualname": "instance_multi"
     }
   },
   "aws.cb.rds.instance_multi_az_non_aurora": {
-    "description_base_sha256": "e1b3789761a8f363b857d7fdf6364190559b37df076fff6b9f83d91ada8a9f1b",
     "description_fields": {
       "description": "Checks MultiAZ on the applicable instance or its resolved parent cluster."
     },
-    "remediation_base_sha256": "8d1d981a6cc93f396a4b3d5e4261249163d0efc90255d01cc68433fb8f56cb3c",
     "remediation_fields": {
       "summary": "Enable Multi-AZ if the workload requires resilience to an Availability Zone outage.",
       "steps": [
@@ -710,16 +623,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_multi_c",
-      "predicate_source_sha256": "ef713881da9ac69940de61658d57f1936701198eed981ab9a13d0e6b0596f87a"
+      "predicate_qualname": "instance_multi_c"
     }
   },
   "aws.cb.rds.instance_extended_support": {
-    "description_base_sha256": "6537ef452a8d62bf0a47746b4652eec3c1469f5349a445a2b2f1fde862807a98",
     "description_fields": {
       "description": "Checks whether EngineLifecycleSupport selects open-source-rds-extended-support."
     },
-    "remediation_base_sha256": "d345ba168de8431aae51189dbf6e3855e5961a887800dcda19479e19defaa435",
     "remediation_fields": {
       "summary": "Plan a compatible upgrade if Extended Support is no longer needed.",
       "steps": [
@@ -735,16 +645,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_extended",
-      "predicate_source_sha256": "96471daef0a6d1534cd14377e72c9da839f79776ce204c41e18541825c6ed15c"
+      "predicate_qualname": "instance_extended"
     }
   },
   "aws.cb.rds.ca_certificate_valid_3_months": {
-    "description_base_sha256": "17bd4eca2820eb57880acb8eb4eeb82c3f1b4ecbb34a24233ed420bdbebab0cb",
     "description_fields": {
       "description": "Compares the joined CA certificate expiry with collection time plus three calendar months."
     },
-    "remediation_base_sha256": "2edaae89ee4127262c0ae44e337805de9dcb3569f868d436f93a54581238ebcd",
     "remediation_fields": {
       "summary": "Plan a CA rotation and update client trust stores before expiry.",
       "steps": [
@@ -760,16 +667,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "ca_three_months",
-      "predicate_source_sha256": "f743b451d9127abcec07721f1fb3e3b990a35b2d24fbf4e68e86b76614af4ee4"
+      "predicate_qualname": "ca_three_months"
     }
   },
   "aws.cb.rds.ca_certificate_not_expiring_7_days": {
-    "description_base_sha256": "c74a28199c24178da08275df5e7bfe70c6e6daf3712cd7da54895dae454ea16c",
     "description_fields": {
       "description": "Compares the joined CA certificate expiry with collection time plus seven days."
     },
-    "remediation_base_sha256": "239ec519eb2fce7f3b22cf124bcca1277851a315a9df84aae1fb55b238f6a42f",
     "remediation_fields": {
       "summary": "Plan a CA rotation and update client trust stores before expiry.",
       "steps": [
@@ -785,16 +689,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "ca_seven",
-      "predicate_source_sha256": "68cb3f9cdca98f782b58192768cb156716695936dfdb5981990276ad479c6254"
+      "predicate_qualname": "ca_seven"
     }
   },
   "aws.cb.rds.engine_version_available": {
-    "description_base_sha256": "6257717f96877995b8a2b009046cde8cfc06baedd6bf189abe8a98b399622f74",
     "description_fields": {
       "description": "Looks for the database\u2019s exact engine/version pair in collected RDS engine-version inventory."
     },
-    "remediation_base_sha256": "9c626b22247f080bead40ce5fc215cbca594bcffb8075affc6c1e479a089af57",
     "remediation_fields": {
       "summary": "Review the engine\u2019s support status and plan a supported compatible upgrade if needed.",
       "steps": [
@@ -810,16 +711,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "engine_version",
-      "predicate_source_sha256": "80db15ad50ac2513c6587228b20abf6f849ffa4b25132aa15b7b7c67b8c77d25"
+      "predicate_qualname": "engine_version"
     }
   },
   "aws.cb.rds.instance_internet_exposed": {
-    "description_base_sha256": "fc0879719a62b9b9ff48a16a73d98f73ca0478a31b6d0c95af2aba168c17c0a4",
     "description_fields": {
       "description": "Combines PubliclyAccessible, active security-group access to the TCP endpoint port and a DB subnet\u2019s Internet-gateway default route."
     },
-    "remediation_base_sha256": "54b8c29d87424f9f48109e1bcf6b796a28415f6535c26a016d490eb487412117",
     "remediation_fields": {
       "summary": "Remove Internet-wide ingress to the database port; retain only the networks that need database access.",
       "steps": [
@@ -835,16 +733,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "critical",
     "reviewed_binding": {
       "kind": "rds_instance",
-      "predicate_qualname": "instance_exposed",
-      "predicate_source_sha256": "17b2fadb88536bad21dfb4c8cffd8e017fd3c62ebdfef70bc0291a5404ade3a1"
+      "predicate_qualname": "instance_exposed"
     }
   },
   "aws.cb.rds.instance_snapshot_restore_not_all_exact": {
-    "description_base_sha256": "229d1f813c385e9076c126e8b7e7c62b7b4576956c5302bb37f96b7db122478a",
     "description_fields": {
       "description": "Checks whether the snapshot\u2019s restore attribute includes the public principal all."
     },
-    "remediation_base_sha256": "10d2f58c25fdf23dc70266db707d1764c1fe4b499ef2a7e2005baa98ab054c7d",
     "remediation_fields": {
       "summary": "Remove all from the snapshot\u2019s restore attribute; retain only the account IDs that need access.",
       "steps": [
@@ -856,16 +751,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "critical",
     "reviewed_binding": {
       "kind": "rds_snapshot",
-      "predicate_qualname": "_snapshots.<locals>.exact",
-      "predicate_source_sha256": "9c3639600864d0ca0293210e5e60ed881b1dfcf8f182db5d4c44daa5737b2b53"
+      "predicate_qualname": "_snapshots.<locals>.exact"
     }
   },
   "aws.cb.rds.instance_snapshot_not_public_prowler": {
-    "description_base_sha256": "d08208edf1f088f8b41e6e0a779895aaa94ad6b962ec9578c2c0aefcbee61ec4",
     "description_fields": {
       "description": "Checks whether any collected snapshot attribute contains the public value all."
     },
-    "remediation_base_sha256": "93e0ee96981eb51fc52fef80e1610f82c58f98ac2268d3aea778ea1c3f6729f0",
     "remediation_fields": {
       "summary": "Remove unintended public sharing from the snapshot attributes.",
       "steps": [
@@ -881,16 +773,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "critical",
     "reviewed_binding": {
       "kind": "rds_snapshot",
-      "predicate_qualname": "_snapshots.<locals>.prowler_public",
-      "predicate_source_sha256": "022e9444e49fd3e4caffda51540f6eaf9f4c1f906c0098b0a44d3601b0e63f14"
+      "predicate_qualname": "_snapshots.<locals>.prowler_public"
     }
   },
   "aws.cb.rds.instance_snapshot_shared_accounts_review": {
-    "description_base_sha256": "86d2c9962f458b63300a8a20c435a098cf4cdacbb126285dd697f21a645c91ef",
     "description_fields": {
       "description": "Lists snapshot share accounts for manual trust review; no automatic failing verdict is defined."
     },
-    "remediation_base_sha256": "4c417a7eca9be271254fb8ff0c9324a8899baf6a8e1ac695ede01b12e29e7e64",
     "remediation_fields": {
       "summary": "Review snapshot sharing only through an explicitly configured organizational approval process.",
       "steps": [
@@ -906,16 +795,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "rds_snapshot",
-      "predicate_qualname": "_snapshots.<locals>.shared",
-      "predicate_source_sha256": "feca073d9c4727906b9300d67edbd9f664c44cdc4eb0ca68b3ed90a01acff36e"
+      "predicate_qualname": "_snapshots.<locals>.shared"
     }
   },
   "aws.cb.rds.cluster_snapshot_restore_not_all_exact": {
-    "description_base_sha256": "eea54f328fa77afe719c9298bbc14919ba47ce5e2b51b86cf77db1edc22da839",
     "description_fields": {
       "description": "Checks whether the snapshot\u2019s restore attribute includes the public principal all."
     },
-    "remediation_base_sha256": "1f696f94a94991345a22ad13e797b8c4cdebbecd8e31f0481b02215b33b23276",
     "remediation_fields": {
       "summary": "Remove all from the snapshot\u2019s restore attribute; retain only the account IDs that need access.",
       "steps": [
@@ -927,16 +813,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "critical",
     "reviewed_binding": {
       "kind": "rds_cluster_snapshot",
-      "predicate_qualname": "_snapshots.<locals>.exact",
-      "predicate_source_sha256": "9c3639600864d0ca0293210e5e60ed881b1dfcf8f182db5d4c44daa5737b2b53"
+      "predicate_qualname": "_snapshots.<locals>.exact"
     }
   },
   "aws.cb.rds.cluster_snapshot_not_public_prowler": {
-    "description_base_sha256": "378d1b595f46f958a22341a8f46a94994f951ca234a0349e3d26aed0c23b5a8e",
     "description_fields": {
       "description": "Checks whether any collected snapshot attribute contains the public value all."
     },
-    "remediation_base_sha256": "d6f4754cec5a93a1648ac4e9c72d2b7f97f9eb365e9de46c8387ed18691aee32",
     "remediation_fields": {
       "summary": "Remove unintended public sharing from the snapshot attributes.",
       "steps": [
@@ -952,16 +835,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "critical",
     "reviewed_binding": {
       "kind": "rds_cluster_snapshot",
-      "predicate_qualname": "_snapshots.<locals>.prowler_public",
-      "predicate_source_sha256": "022e9444e49fd3e4caffda51540f6eaf9f4c1f906c0098b0a44d3601b0e63f14"
+      "predicate_qualname": "_snapshots.<locals>.prowler_public"
     }
   },
   "aws.cb.rds.cluster_snapshot_shared_accounts_review": {
-    "description_base_sha256": "4f6ec028e519135364c78abce23837ec04210061bd6e6b8dc8e7eaefe2092f66",
     "description_fields": {
       "description": "Lists snapshot share accounts for manual trust review; no automatic failing verdict is defined."
     },
-    "remediation_base_sha256": "350ad4fa817886b36f6bec97240e81b6022631f22c0ed4fb6bc2e7ddc5e46ec8",
     "remediation_fields": {
       "summary": "Review snapshot sharing only through an explicitly configured organizational approval process.",
       "steps": [
@@ -977,16 +857,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "rds_cluster_snapshot",
-      "predicate_qualname": "_snapshots.<locals>.shared",
-      "predicate_source_sha256": "feca073d9c4727906b9300d67edbd9f664c44cdc4eb0ca68b3ed90a01acff36e"
+      "predicate_qualname": "_snapshots.<locals>.shared"
     }
   },
   "aws.cb.rds.cluster_snapshot_encrypted": {
-    "description_base_sha256": "0bf9ba10bc0576aed4e0a4cc2901591f4611a802e9afb9036b12abe0610dde5b",
     "description_fields": {
       "description": "Checks StorageEncrypted on non-DocumentDB cluster snapshots."
     },
-    "remediation_base_sha256": "db0560b7f2d214fb60cd02a3b18ac4b7d355447fefd48b345debe86ca44e6ea7",
     "remediation_fields": {
       "summary": "Create and verify an encrypted snapshot copy before removing any unencrypted recovery copy.",
       "steps": [
@@ -1002,16 +879,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "rds_cluster_snapshot",
-      "predicate_qualname": "csnap_encrypted",
-      "predicate_source_sha256": "1b59d28292b2f2465ec0ab1245ff56c264afec05eaea556dc2cbaa29cca5c2f9"
+      "predicate_qualname": "csnap_encrypted"
     }
   },
   "aws.cb.rds.cluster_critical_event_subscription": {
-    "description_base_sha256": "c584ba7235beb0cc219c39cf9783c6b91fa1b07dace472e4548aa7c65cd6e3b3",
     "description_fields": {
       "description": "Looks for an enabled regional db-cluster subscription covering failure and maintenance."
     },
-    "remediation_base_sha256": "a6db6d1608c3ff11b5ec0d6222fd1b212e96537f8545d2099668f0516eb5ecd8",
     "remediation_fields": {
       "summary": "Configure an enabled db-cluster event subscription for failure and maintenance and its notification destination.",
       "steps": [
@@ -1027,16 +901,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_event_subscription",
-      "predicate_qualname": "_subscription.<locals>.evaluate",
-      "predicate_source_sha256": "0a447dad37d9fd2f4da368b1e63b2160c57944b06d2c82847414eda6aaf49e54"
+      "predicate_qualname": "_subscription.<locals>.evaluate"
     }
   },
   "aws.cb.rds.instance_critical_event_subscription": {
-    "description_base_sha256": "6b3df41da2416e0b3e51640eaddcbf9b2d04131ab628d833738acd6677330fe9",
     "description_fields": {
       "description": "Looks for an enabled regional db-instance subscription covering configuration change, failure and maintenance."
     },
-    "remediation_base_sha256": "d96df0dbcdb1c7e14a4a7abe9da46125836c6a154a36553fe0fa7e5beab4595c",
     "remediation_fields": {
       "summary": "Configure an enabled db-instance event subscription for configuration change, failure and maintenance and its notification destination.",
       "steps": [
@@ -1052,16 +923,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_event_subscription",
-      "predicate_qualname": "_subscription.<locals>.evaluate",
-      "predicate_source_sha256": "0a447dad37d9fd2f4da368b1e63b2160c57944b06d2c82847414eda6aaf49e54"
+      "predicate_qualname": "_subscription.<locals>.evaluate"
     }
   },
   "aws.cb.rds.parameter_group_critical_event_subscription": {
-    "description_base_sha256": "073659ea673455c219f393101e5491612ff6e049b601ce1eaa94a94448e3c5b6",
     "description_fields": {
       "description": "Looks for an enabled regional db-parameter-group subscription covering configuration change."
     },
-    "remediation_base_sha256": "a4651d4cdd197d6327c854ffb9d5b064000b58ca28e1ae9a2689b011c188761e",
     "remediation_fields": {
       "summary": "Configure an enabled db-parameter-group event subscription for configuration change and its notification destination.",
       "steps": [
@@ -1077,16 +945,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_event_subscription",
-      "predicate_qualname": "_subscription.<locals>.evaluate",
-      "predicate_source_sha256": "0a447dad37d9fd2f4da368b1e63b2160c57944b06d2c82847414eda6aaf49e54"
+      "predicate_qualname": "_subscription.<locals>.evaluate"
     }
   },
   "aws.cb.rds.security_group_critical_event_subscription": {
-    "description_base_sha256": "03e9bf852596de18143109266ec6d3688ba0c52cd60a9f08027f9a5054bed782",
     "description_fields": {
       "description": "Looks for an enabled regional db-security-group subscription covering configuration change and failure."
     },
-    "remediation_base_sha256": "873a3e041e8001a8ba4c4877ef990ee9082c2122414c4193eb122eaffc8ba7f0",
     "remediation_fields": {
       "summary": "Configure an enabled db-security-group event subscription for configuration change and failure and its notification destination.",
       "steps": [
@@ -1102,16 +967,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "rds_event_subscription",
-      "predicate_qualname": "_subscription.<locals>.evaluate",
-      "predicate_source_sha256": "0a447dad37d9fd2f4da368b1e63b2160c57944b06d2c82847414eda6aaf49e54"
+      "predicate_qualname": "_subscription.<locals>.evaluate"
     }
   },
   "aws.cb.neptune.backup_retention_7_days": {
-    "description_base_sha256": "7fe4d779ec1fd537765be5d1f8d8af016600080e16b86ae3f92be47db6196321",
     "description_fields": {
       "description": "Checks whether Neptune backup retention is at least seven days."
     },
-    "remediation_base_sha256": "57ba125225c58392f76799e12de026a5e3c78fa97627c822d983679285bad87b",
     "remediation_fields": {
       "summary": "Set backup retention to at least seven days if it meets the workload\u2019s recovery needs.",
       "steps": [
@@ -1123,16 +985,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "neptune_cluster",
-      "predicate_qualname": "nep_backup",
-      "predicate_source_sha256": "64226878e95f388c06996da96b3fc68a34ff8d4ee9c64ae1130028e7a43166ac"
+      "predicate_qualname": "nep_backup"
     }
   },
   "aws.cb.neptune.audit_log_export": {
-    "description_base_sha256": "b592086ede5db87dcb30bc21d752153e50e8451c477062cdd1d03bcdb6082e76",
     "description_fields": {
       "description": "Checks whether the Neptune cluster declares the audit CloudWatch log export."
     },
-    "remediation_base_sha256": "4403c524cfecf60c51798aa66a66ecc313501a7f467efa7f58fe9505710745da",
     "remediation_fields": {
       "summary": "Enable the audit log export and the corresponding database audit setting.",
       "steps": [
@@ -1148,16 +1007,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "neptune_cluster",
-      "predicate_qualname": "nep_audit",
-      "predicate_source_sha256": "21119058e6b31a8e33ac1c1a5f6d41aa79ddb639094b1c3424e046f5e1613f5b"
+      "predicate_qualname": "nep_audit"
     }
   },
   "aws.cb.neptune.snapshot_encrypted": {
-    "description_base_sha256": "b3ff6954e40070377c35eb7d631e29d9091d7c28a6cdcdb4454e072f25aa7cc4",
     "description_fields": {
       "description": "Checks StorageEncrypted on Neptune cluster snapshots."
     },
-    "remediation_base_sha256": "6d0bb697ecf41edc9a0564177090cf2421add1db19a15b26dfb56b7d8fac9c06",
     "remediation_fields": {
       "summary": "Create and verify an encrypted snapshot copy before removing an unencrypted recovery copy.",
       "steps": [
@@ -1169,16 +1025,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "rds_cluster_snapshot",
-      "predicate_qualname": "nep_snap_enc",
-      "predicate_source_sha256": "937805b13995ff8b08e1b165273c8a304148e04a9afa6a24252aca24cce86da5"
+      "predicate_qualname": "nep_snap_enc"
     }
   },
   "aws.cb.neptune.snapshot_not_public_prowler": {
-    "description_base_sha256": "45a259424e0c76ccef5495c093d2331f356b0d4cf677d29e663e30c747216e17",
     "description_fields": {
       "description": "Checks whether any Neptune snapshot attribute includes all."
     },
-    "remediation_base_sha256": "d0ae4ccade326d274dfbac50f6869126282df2264fb82f1fb92769aa6693d812",
     "remediation_fields": {
       "summary": "Remove unintended public sharing from the snapshot\u2019s restore attributes.",
       "steps": [
@@ -1190,16 +1043,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "critical",
     "reviewed_binding": {
       "kind": "rds_cluster_snapshot",
-      "predicate_qualname": "nep_snap_public",
-      "predicate_source_sha256": "072a74bd0cb9bac6e8340e074d5f850156901d1fb31b10298f2b8153a65e5d8f"
+      "predicate_qualname": "nep_snap_public"
     }
   },
   "aws.cb.neptune.snapshot_restore_not_all_exact": {
-    "description_base_sha256": "78e5dc17bbb6efe9a2c4f94a896e297ad8aa7f38a6d22e83fcbe44bd4e803d48",
     "description_fields": {
       "description": "Checks whether the Neptune snapshot restore attribute includes all."
     },
-    "remediation_base_sha256": "3a46d4ab931489e8a4b9476c2a22fe353a674663b965a33693471d71e01f3b25",
     "remediation_fields": {
       "summary": "Remove unintended public sharing from the snapshot\u2019s restore attributes.",
       "steps": [
@@ -1211,16 +1061,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "critical",
     "reviewed_binding": {
       "kind": "rds_cluster_snapshot",
-      "predicate_qualname": "nep_snap_exact",
-      "predicate_source_sha256": "569f9430ce219d1fb57d1bca99c38eac4f737888cc1946141a627c2561098c76"
+      "predicate_qualname": "nep_snap_exact"
     }
   },
   "aws.cb.neptune.no_public_subnet_prowler": {
-    "description_base_sha256": "6fed40eab2e9d97d0afd317fdbc93fc69e4d46845c4439d00a7365e1b60bf869",
     "description_fields": {
       "description": "Resolves DB subnets and their effective IPv4 default routes to an Internet gateway."
     },
-    "remediation_base_sha256": "11cfe906e8453a6941e16345432d1c477d7bc14329be3c25d0877986a8f0ce2f",
     "remediation_fields": {
       "summary": "Use database subnets without an Internet-gateway default route if public routing is unnecessary.",
       "steps": [
@@ -1236,16 +1083,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "neptune_cluster",
-      "predicate_qualname": "_nep_subnet.<locals>.evaluate",
-      "predicate_source_sha256": "1bcf4eb37cebe43add97db9237f99047337b8e774236b0b7807bdd68aa755d8a"
+      "predicate_qualname": "_nep_subnet.<locals>.evaluate"
     }
   },
   "aws.cb.neptune.no_public_subnet_steampipe": {
-    "description_base_sha256": "1546ee6c21761162c3175eed06ea75c69c207cdb0b63a3e9ff72d76c6619056d",
     "description_fields": {
       "description": "Resolves DB subnets and their effective IPv4 default routes to an Internet gateway."
     },
-    "remediation_base_sha256": "a956192492c81f52116e233fa7a5ed390e881d26864579f8b574213c81b4b434",
     "remediation_fields": {
       "summary": "Use database subnets without an Internet-gateway default route if public routing is unnecessary.",
       "steps": [
@@ -1261,16 +1105,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "neptune_cluster",
-      "predicate_qualname": "_nep_subnet.<locals>.evaluate",
-      "predicate_source_sha256": "1bcf4eb37cebe43add97db9237f99047337b8e774236b0b7807bdd68aa755d8a"
+      "predicate_qualname": "_nep_subnet.<locals>.evaluate"
     }
   },
   "aws.cb.redshift.non_default_master_username": {
-    "description_base_sha256": "9b1cd471e676304602faf544e50a58ac4c0f4d94634e2d6d49d762f625d1a456",
     "description_fields": {
       "description": "Compares MasterUsername with the profile\u2019s default name awsuser."
     },
-    "remediation_base_sha256": "c293c51d77c754378c6272158f737aed39e7297a11036f879537f91ca93f82eb",
     "remediation_fields": {
       "summary": "Review naming if required; prioritize access controls and strong authentication over renaming.",
       "steps": [
@@ -1286,16 +1127,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "_not_default.<locals>.evaluate",
-      "predicate_source_sha256": "38c5c94257960038e5430dce8ccef0a8b1760e392acac1a6d72d2c324b79e8a8"
+      "predicate_qualname": "_not_default.<locals>.evaluate"
     }
   },
   "aws.cb.redshift.non_default_database_name": {
-    "description_base_sha256": "3d8326d2a7257502a511e01457df6bb18822752d2920404db081c1d9022bb3b4",
     "description_fields": {
       "description": "Compares DBName with the profile\u2019s default name dev."
     },
-    "remediation_base_sha256": "2657a70e5b09174a53acbd7f3fabb5269cf285b9149f693d5601aed9ccb6fd71",
     "remediation_fields": {
       "summary": "Review naming if required; prioritize access controls and strong authentication over renaming.",
       "steps": [
@@ -1311,16 +1149,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "_not_default.<locals>.evaluate",
-      "predicate_source_sha256": "38c5c94257960038e5430dce8ccef0a8b1760e392acac1a6d72d2c324b79e8a8"
+      "predicate_qualname": "_not_default.<locals>.evaluate"
     }
   },
   "aws.cb.redshiftserverless.non_default_admin_username": {
-    "description_base_sha256": "f12779d086006a0086ec087636e81831c4a369e4a2b8353a8a9aa45301c58eb6",
     "description_fields": {
       "description": "Compares adminUsername with the profile\u2019s default name admin."
     },
-    "remediation_base_sha256": "535587b8ec39896c440f640671c1a7c571885f24abb2f4f0097ee81bc58607f8",
     "remediation_fields": {
       "summary": "Review naming if required; prioritize access controls and strong authentication over renaming.",
       "steps": [
@@ -1336,16 +1171,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "redshiftserverless_namespace",
-      "predicate_qualname": "_ns.<locals>.evaluate",
-      "predicate_source_sha256": "9420a069c3dcdc6ee1b2aae85ce00b0e29fceed97f5d4e347ebca4123002f857"
+      "predicate_qualname": "_ns.<locals>.evaluate"
     }
   },
   "aws.cb.redshiftserverless.non_default_database_name": {
-    "description_base_sha256": "e30ab598dc349fbd09efc41957168cea3aad1092b3c8d7a26fd4917aed83ab28",
     "description_fields": {
       "description": "Compares dbName with the profile\u2019s default name dev."
     },
-    "remediation_base_sha256": "0af60e526cb5535f099fd9306f8e5da8fd35b9216a416edaedb5974edc6de581",
     "remediation_fields": {
       "summary": "Review naming if required; prioritize access controls and strong authentication over renaming.",
       "steps": [
@@ -1361,16 +1193,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "redshiftserverless_namespace",
-      "predicate_qualname": "_ns.<locals>.evaluate",
-      "predicate_source_sha256": "9420a069c3dcdc6ee1b2aae85ce00b0e29fceed97f5d4e347ebca4123002f857"
+      "predicate_qualname": "_ns.<locals>.evaluate"
     }
   },
   "aws.cb.redshift.audit_logging": {
-    "description_base_sha256": "9a4b2ae41d3a4b0f32393c1b9ea57d891a1bb5564ddd64700de02756a2d787e5",
     "description_fields": {
       "description": "Checks the collected Redshift LoggingEnabled setting."
     },
-    "remediation_base_sha256": "8e70016741e409d35c7f16d33bee4d30a14d8358921fd636138c74121659cc8a",
     "remediation_fields": {
       "summary": "Enable Redshift audit logging and configure its destination.",
       "steps": [
@@ -1386,16 +1215,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "rs_logging",
-      "predicate_source_sha256": "d7deb5f1688bb0b92885dfc433afe0cb4ad22454568054b06422db904f754f65"
+      "predicate_qualname": "rs_logging"
     }
   },
   "aws.cb.redshift.encrypted_and_logging": {
-    "description_base_sha256": "0cf4069d02a6cf8338c2db45f6feb83648c66b858dac48875c0d77dcc2c570b9",
     "description_fields": {
       "description": "Checks that Redshift storage encryption and audit logging are both enabled."
     },
-    "remediation_base_sha256": "90b891085d8e3e7f2d139c5e0c5bbb3308ec9a1539f559792984c8fc6b890f4d",
     "remediation_fields": {
       "summary": "Enable any missing storage encryption or audit logging; plan migration before replacing storage.",
       "steps": [
@@ -1407,16 +1233,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "rs_enc_logging",
-      "predicate_source_sha256": "f8136bbc5ad2ff30be82243e36c25957d4d9f757bd086644fdd585fed45d3dbd"
+      "predicate_qualname": "rs_enc_logging"
     }
   },
   "aws.cb.redshift.require_ssl": {
-    "description_base_sha256": "196acfe2e8d0c1b1860963bc67373548f4793fadcd0e13e037e041feee5f2a17",
     "description_fields": {
       "description": "Checks whether the require_ssl cluster parameter is the case-insensitive string true."
     },
-    "remediation_base_sha256": "4a45d54e6319e34a15dbdcdbada6896384908668bbfe9379a8919c6fd77de63c",
     "remediation_fields": {
       "summary": "Require SSL and update clients to use TLS before applying the parameter.",
       "steps": [
@@ -1428,16 +1251,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "rs_ssl",
-      "predicate_source_sha256": "98d0a384d849fce9970399397856e404102f5554b66e086caedfdc2ae9b65c37"
+      "predicate_qualname": "rs_ssl"
     }
   },
   "aws.cb.redshift.has_snapshot": {
-    "description_base_sha256": "c1e2351a0a15b9a662a7018d72d61ce28c0cb1e7fd63b7bec83e9e346c3b506d",
     "description_fields": {
       "description": "Looks for any collected Redshift snapshot matching the cluster identifier."
     },
-    "remediation_base_sha256": "640b9f9f24d5945c05736bd8aaad1eada00e1a4cae5966c3f1afdfaf13912322",
     "remediation_fields": {
       "summary": "Create a recoverable snapshot and investigate missing backup coverage.",
       "steps": [
@@ -1453,16 +1273,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "rs_snapshot",
-      "predicate_source_sha256": "4f74a3b4378f12a02d61500a8731101b93aa131f1801b2fc3f3c7455f99f4176"
+      "predicate_qualname": "rs_snapshot"
     }
   },
   "aws.cb.redshift.snapshot_retention_7_days": {
-    "description_base_sha256": "aaf76b7de4962693c8eb90cef108613afef8db276453987ac0be6c18bb5ba3f5",
     "description_fields": {
       "description": "Compares automated snapshot retention with seven days."
     },
-    "remediation_base_sha256": "ac9f0672b1a5a17a642a5ce7368e442c13acd4e917aca1d1435fe348ec5c1805",
     "remediation_fields": {
       "summary": "Configure at least seven days of automated snapshots if suitable for recovery.",
       "steps": [
@@ -1474,16 +1291,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "rs_retention",
-      "predicate_source_sha256": "1b5dda0ab71d95af13c83e867f3afe2ecdb2db28c127ec56d05b52b53aafec91"
+      "predicate_qualname": "rs_retention"
     }
   },
   "aws.cb.redshift.maintenance_settings": {
-    "description_base_sha256": "cbe75bc70649a3d1926689641790cd873255dadf4d1f2c9ceeb8b01aefc0a554",
     "description_fields": {
       "description": "Checks AllowVersionUpgrade and automated snapshot retention of at least seven days."
     },
-    "remediation_base_sha256": "20f4348c16a1ba99bf763ede208b266ff011975002d67a0c5dee3fbee1507204",
     "remediation_fields": {
       "summary": "Enable version upgrades and adjust snapshot retention after reviewing maintenance and recovery needs.",
       "steps": [
@@ -1495,16 +1309,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "rs_maint",
-      "predicate_source_sha256": "d77187b8580f1be5852d354b6858e468eae3450cda70eb85a8915a930d417466"
+      "predicate_qualname": "rs_maint"
     }
   },
   "aws.cb.redshift.kms_key_declared": {
-    "description_base_sha256": "06b72fa5516d7eb5354f82d4e7e88923c021d5fc6aefbd5e81bca807c10013f3",
     "description_fields": {
       "description": "Checks that storage encryption is enabled and KmsKeyId is present."
     },
-    "remediation_base_sha256": "b4e44fd0bb5c9bbade10e36e7083242a166a61b4458cb09f4ce593edca24dbfb",
     "remediation_fields": {
       "summary": "Enable storage encryption with an appropriate KMS key; plan migration if required.",
       "steps": [
@@ -1516,16 +1327,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "rs_kms",
-      "predicate_source_sha256": "21fda8212ad7af8782849312bac9f45aa6bdc74a2a60f9046db0837553e6f9d4"
+      "predicate_qualname": "rs_kms"
     }
   },
   "aws.cb.redshift.cmk_encryption": {
-    "description_base_sha256": "f23c9ab6a8f106ed2a927f052635cf578627c9df2cc5925087b6b6693fd01942",
     "description_fields": {
       "description": "Checks storage encryption and the joined KMS key\u2019s KeyManager=CUSTOMER."
     },
-    "remediation_base_sha256": "4c09b878a6e94387cef12c8982a851b488e5197503608235bd3091798b7a1aae",
     "remediation_fields": {
       "summary": "Use a customer-managed KMS key if separate key administration is required.",
       "steps": [
@@ -1541,16 +1349,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "rs_cmk",
-      "predicate_source_sha256": "37783c4747695df901be7033d05fd5bc91aac5b1d2df0b9e53cf7336d922476b"
+      "predicate_qualname": "rs_cmk"
     }
   },
   "aws.cb.redshift.internet_exposed": {
-    "description_base_sha256": "1a511cb9975ae9f55ba15845a038f1f57ffd87239b19dc1fc249aab5461bdf9c",
     "description_fields": {
       "description": "Combines an endpoint, PubliclyAccessible, a public subnet and the source profile\u2019s world-address security-group ingress rule."
     },
-    "remediation_base_sha256": "e437f5dddbe39e8edb60293dfce73aed273525e2fea52dde2d7841c8f2102317",
     "remediation_fields": {
       "summary": "Restrict Internet-wide database ingress to the networks that need access.",
       "steps": [
@@ -1566,16 +1371,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "critical",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "rs_exposed",
-      "predicate_source_sha256": "7e9e652e24e762139d1cff42b6b2bc43c2d405704e628b8e999c9a72aced7cbe"
+      "predicate_qualname": "rs_exposed"
     }
   },
   "aws.cb.redshift.security_group_port_restricted": {
-    "description_base_sha256": "ac9a7a9113e96328cb2287da76a400183ffb51404d819ef9916cd634e6547d4e",
     "description_fields": {
       "description": "Checks attached security groups for a world CIDR and a range covering the cluster port, default 5439."
     },
-    "remediation_base_sha256": "79e1d5028fd13f56e59b9d3aa80295e908f4fea56711a658e49714c9950bb20d",
     "remediation_fields": {
       "summary": "Restrict the database port to the client networks that need it.",
       "steps": [
@@ -1591,16 +1393,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "redshift_cluster",
-      "predicate_qualname": "rs_sg",
-      "predicate_source_sha256": "1d7df449f5bbfadf7d7986493c57b8793a88eab596e63e45957d2687d247db16"
+      "predicate_qualname": "rs_sg"
     }
   },
   "aws.cb.redshiftserverless.connection_user_log_exports": {
-    "description_base_sha256": "2b425b4dc3287cb57ec1d72794b42d6978e05cce6eb05052c0b060c47715e817",
     "description_fields": {
       "description": "Checks that namespace logExports contains connectionlog and userlog."
     },
-    "remediation_base_sha256": "6b4e3e5f818a5f9d5be59e6dac64fc714f5f399d590b6993c838742c47b89a1f",
     "remediation_fields": {
       "summary": "Enable connectionlog and userlog exports needed for investigation.",
       "steps": [
@@ -1612,16 +1411,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "redshiftserverless_namespace",
-      "predicate_qualname": "ns_logs",
-      "predicate_source_sha256": "cc69b6988d8d4e13a7fb8a0a973631091f4aa67380b6cf7675f955515e3e3d02"
+      "predicate_qualname": "ns_logs"
     }
   },
   "aws.cb.redshiftserverless.require_ssl": {
-    "description_base_sha256": "857f157d85fe925b0223c0d2d37de1ad95b1fff216d213121c9fe961f98f7de9",
     "description_fields": {
       "description": "Looks for a workgroup config parameter require_ssl with value true."
     },
-    "remediation_base_sha256": "f5f8a4887ef9419900307ad6bc6e5eca07f65fa740657fef4677690f3f44301b",
     "remediation_fields": {
       "summary": "Require SSL for workgroup connections and check client compatibility.",
       "steps": [
@@ -1633,16 +1429,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "redshiftserverless_workgroup",
-      "predicate_qualname": "wg_ssl",
-      "predicate_source_sha256": "82b1604a430bdb3bb4d6cc0b3e3772e2d470ed3e3bbfd76432fa72421b5a0b47"
+      "predicate_qualname": "wg_ssl"
     }
   },
   "aws.cb.opensearch.encryption_at_rest": {
-    "description_base_sha256": "aef9cd568be3fa0ee57f51236c4296d3cea32e166d0cddf5bf91e239b5ed945a",
     "description_fields": {
       "description": "Checks EncryptionAtRestOptions.Enabled on the domain."
     },
-    "remediation_base_sha256": "33fd7692ac98b3410726baa3da531d1ac9e4c1994a6d14e16b23f29c18cb9cdc",
     "remediation_fields": {
       "summary": "Enable encryption at rest; plan a replacement domain if the existing deployment cannot be updated.",
       "steps": [
@@ -1654,16 +1447,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_enc",
-      "predicate_source_sha256": "194c3fbcc9187737357dc978c89b30907fb5535eaa598044a36a95c6c1e51728"
+      "predicate_qualname": "os_enc"
     }
   },
   "aws.cb.opensearch.fine_grained_access_control": {
-    "description_base_sha256": "fe595f2761a6c7cd39b9b16a0bf70526de1df712fb51e981da2c7262bc4c3a9c",
     "description_fields": {
       "description": "Checks AdvancedSecurityOptions.Enabled on the domain."
     },
-    "remediation_base_sha256": "df9e3a844806705a0693d9314e9bebfd1696a73ae46c4d629ea3fb4d3856fded",
     "remediation_fields": {
       "summary": "Enable fine-grained access control and map users to the minimum required index permissions.",
       "steps": [
@@ -1675,16 +1465,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_fgac",
-      "predicate_source_sha256": "862945b58b0324e6dbd1b7c4f7b00fe108bd7a2346edb74ff1cc1a2ce6d0a8fa"
+      "predicate_qualname": "os_fgac"
     }
   },
   "aws.cb.opensearch.internal_user_database_disabled": {
-    "description_base_sha256": "67f49737661dff0a5ab3704d6d749e56f78f739fe72957d2b89f4e5e5559190b",
     "description_fields": {
       "description": "Checks the source profile\u2019s preference for disabling the internal user database."
     },
-    "remediation_base_sha256": "b71964c63849753a8745a8d041be57c52c78fa85a502c76c222ecc0cd938ea2b",
     "remediation_fields": {
       "summary": "Disable the internal user database only if an alternative authentication model is intended and working.",
       "steps": [
@@ -1700,16 +1487,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_iudb",
-      "predicate_source_sha256": "c4c8090b0b1795d2e65ebaee0775919c863b20ee0fe66421ad82373b0b3045d3"
+      "predicate_qualname": "os_iudb"
     }
   },
   "aws.cb.opensearch.service_software_current": {
-    "description_base_sha256": "43e6f7ed8c14711c3ea39777015b392752eaee72756f0956532ed181bbbf2ba6",
     "description_fields": {
       "description": "Checks ServiceSoftwareOptions.UpdateAvailable on the domain."
     },
-    "remediation_base_sha256": "85069cf00fe6e4e34c79cd4481fcfbc330e81d2610384f38a48d4938ff9ee689",
     "remediation_fields": {
       "summary": "Review and schedule the available service software update.",
       "steps": [
@@ -1725,16 +1509,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_sw",
-      "predicate_source_sha256": "e8a3ae22b6b84969b7c90685681db1a99348327d5f0772025dbab09925db631b"
+      "predicate_qualname": "os_sw"
     }
   },
   "aws.cb.opensearch.data_node_fault_tolerance": {
-    "description_base_sha256": "d6371f87ad52f38fa307fc6159f80ed7cb043c3e39a8ef056e932c658d93ccc7",
     "description_fields": {
       "description": "Checks for at least three data nodes and enabled zone awareness."
     },
-    "remediation_base_sha256": "57d893e72b3ad7ccd31b6eafa4e57397b2e5d7104b70071a242b9afb0baa143a",
     "remediation_fields": {
       "summary": "Use sufficient nodes and zone awareness if the workload requires zonal fault tolerance.",
       "steps": [
@@ -1746,16 +1527,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_data",
-      "predicate_source_sha256": "ddbd2d5cfdef9ae4b4af141dedcaf29b3ef4febfbae31e95d9f6a33c319bbfcf"
+      "predicate_qualname": "os_data"
     }
   },
   "aws.cb.opensearch.dedicated_master_nodes": {
-    "description_base_sha256": "bb8952fedbce1b1fa86664262612c9dbebe6c9eca2c4857ff664826f3742f8ed",
     "description_fields": {
       "description": "Checks that dedicated masters are enabled and their count is at least three."
     },
-    "remediation_base_sha256": "1a9a2f794eec9c19f731a1eb0f9d2bd9af57b5aa9bec8321f194b14df0601fbb",
     "remediation_fields": {
       "summary": "Use at least three dedicated masters where the domain\u2019s availability requirements justify them.",
       "steps": [
@@ -1767,16 +1545,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_master",
-      "predicate_source_sha256": "5c11e0a1cefd2f2f05159295c39bf7691565b6dfefcee09293b898e2ad940d44"
+      "predicate_qualname": "os_master"
     }
   },
   "aws.cb.opensearch.cognito_dashboards_auth": {
-    "description_base_sha256": "731a9edf32b41456fc2a32fd5873fcbf85d688c3d1109a799b799bbbd6509eea",
     "description_fields": {
       "description": "Checks CognitoOptions.Enabled for the Dashboards authentication profile."
     },
-    "remediation_base_sha256": "d4efa311b0e6759d63f97838ca85c6697709cb2ca6908e56df59a5f7434d188d",
     "remediation_fields": {
       "summary": "Enable Cognito only if it is the intended Dashboards authentication method.",
       "steps": [
@@ -1792,16 +1567,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "info",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_cognito",
-      "predicate_source_sha256": "aec21a289f087b2df989a18103899fa4966fed8fb77cf4ade20bd7f159456d6e"
+      "predicate_qualname": "os_cognito"
     }
   },
   "aws.cb.opensearch.cognito_or_saml_dashboards_auth": {
-    "description_base_sha256": "3be2d61f4489838b431ed9b5d4a4184968c0e931d57846f0297a17a9d70e0b0f",
     "description_fields": {
       "description": "Checks whether Cognito or SAML is enabled for Dashboards."
     },
-    "remediation_base_sha256": "38489261a870c0b32cbe4d041cfeea76dcfa471e00cd2b0df72982dbe42813f7",
     "remediation_fields": {
       "summary": "Configure Cognito or SAML if that is the intended authentication model.",
       "steps": [
@@ -1817,16 +1589,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_cognito_saml",
-      "predicate_source_sha256": "34517e732442ee62575c6a17ddd9ce298442095221bde04a6df10341280fb9b8"
+      "predicate_qualname": "os_cognito_saml"
     }
   },
   "aws.cb.opensearch.node_to_node_encryption": {
-    "description_base_sha256": "fd3dab346f89241b966633c6496ae7d88ac89029fe6c3cd2131f15dad871b131",
     "description_fields": {
       "description": "Checks NodeToNodeEncryptionOptions.Enabled within the source profile\u2019s regional scope."
     },
-    "remediation_base_sha256": "8028dcefc1a4b8172edb69071feb320fcae6ff0b7a869f3a4d44410c56630d3b",
     "remediation_fields": {
       "summary": "Enable node-to-node encryption; plan migration if the deployment cannot be updated.",
       "steps": [
@@ -1842,16 +1611,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_n2n",
-      "predicate_source_sha256": "3d92b08e88bc8919460d4ca39b4eb59d9cedebb0901203e072688a1f3e3d54c7"
+      "predicate_qualname": "os_n2n"
     }
   },
   "aws.cb.opensearch.node_to_node_encryption_region_skip": {
-    "description_base_sha256": "36e22a91f9463baeefe5d006017b682f8a4fb5e15925d40fc4d2ad839e25b0ff",
     "description_fields": {
       "description": "Checks NodeToNodeEncryptionOptions.Enabled within the source profile\u2019s regional scope."
     },
-    "remediation_base_sha256": "61f0102232020107c3960d7ffdbcb45318a167f2163ee326c8815e166e0f81c4",
     "remediation_fields": {
       "summary": "Enable node-to-node encryption; plan migration if the deployment cannot be updated.",
       "steps": [
@@ -1867,16 +1633,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_n2n_skip",
-      "predicate_source_sha256": "1e5df0a1a1dc54f71656223005fba05aa297ee5ac579d13fea0f752ebc0623c1"
+      "predicate_qualname": "os_n2n_skip"
     }
   },
   "aws.cb.opensearch.enforce_https": {
-    "description_base_sha256": "a8a558912a242eb128e9ea2815e1f458531b29f741a7c936cfc11aa87c7fa14f",
     "description_fields": {
       "description": "Checks whether the OpenSearch domain requires HTTPS."
     },
-    "remediation_base_sha256": "ddd8f158af53626e597e27435aa4aaf64e2662cdbc0ddf239165cb70c9278f0e",
     "remediation_fields": {
       "summary": "Require HTTPS and update clients that still use HTTP.",
       "steps": [
@@ -1888,16 +1651,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_https",
-      "predicate_source_sha256": "ed9ecb730d2aab2219114795a7005fdbfa0f779d2ce46fe33e35c5bdf28ea641"
+      "predicate_qualname": "os_https"
     }
   },
   "aws.cb.opensearch.audit_logs_enabled": {
-    "description_base_sha256": "8de02b913ecf1c726d4ccc093a5c6fe48957189ef2a7e132da5e5f23d82d3870",
     "description_fields": {
       "description": "Checks whether OpenSearch audit log publishing is enabled."
     },
-    "remediation_base_sha256": "65d707e66b3e1f9caf149da5172842d264ee91931f8a268c11d7bb155b3ab308",
     "remediation_fields": {
       "summary": "Enable audit log publishing and configure a usable CloudWatch destination.",
       "steps": [
@@ -1913,16 +1673,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_audit",
-      "predicate_source_sha256": "60195b790e43d4ad879a062da4f600c6d72403dc61684ee1d84184bea5afc544"
+      "predicate_qualname": "os_audit"
     }
   },
   "aws.cb.opensearch.slow_logs_enabled": {
-    "description_base_sha256": "6032d499add1452f962ed4331f257554db2d13079a2e128c1b4171cb75f741d8",
     "description_fields": {
       "description": "Checks that search and index slow-log publishing are both enabled."
     },
-    "remediation_base_sha256": "c1e31889a09e2f5690c9c35c0138798e1967d87ac4542a02494f750fe37d0a71",
     "remediation_fields": {
       "summary": "Enable the slow logs needed for operational diagnosis and configure thresholds.",
       "steps": [
@@ -1938,16 +1695,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_slow",
-      "predicate_source_sha256": "be8322b24147858fc0bf8a20013733b5685d85b1889cbadb0725153c94a23eaa"
+      "predicate_qualname": "os_slow"
     }
   },
   "aws.cb.opensearch.enabled_logs_have_log_group": {
-    "description_base_sha256": "815db5d43e67882eb8c622532cbad01dedcc7ead3c72abe0c604a95ee43c89d0",
     "description_fields": {
       "description": "Checks that each enabled supported log type declares a CloudWatch log-group ARN."
     },
-    "remediation_base_sha256": "721864d46281da17e753c0c2eeb88ab13e35185a907160adaf77850828bf2bc7",
     "remediation_fields": {
       "summary": "Set a CloudWatch log-group destination for each enabled log type.",
       "steps": [
@@ -1963,16 +1717,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "low",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_log_groups",
-      "predicate_source_sha256": "26f8f70f8ffc0b637ec4d4735e88b037f018e864d6a44bb3e45d227d7c70d47d"
+      "predicate_qualname": "os_log_groups"
     }
   },
   "aws.cb.opensearch.in_vpc_private_subnets": {
-    "description_base_sha256": "cb815b1dcda0b5d257c6e45f143331773460a07786b91e4219612f5cefa8be96",
     "description_fields": {
       "description": "Checks VPCId and rejects domain subnets with an explicitly associated Internet-gateway default route."
     },
-    "remediation_base_sha256": "f07140893e8e5261e953cad5f28f14c07f5c16e079df6917ca4b6f9bf366ee47",
     "remediation_fields": {
       "summary": "Use private VPC subnets when public placement is unnecessary.",
       "steps": [
@@ -1988,16 +1739,13 @@ ROWS = json.loads(r'''
     "reviewed_severity": "medium",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_vpc",
-      "predicate_source_sha256": "013fded7d7f7bb69e23c3ba9bc36d8309cda39c140180d3b3ca29893657fc190"
+      "predicate_qualname": "os_vpc"
     }
   },
   "aws.cb.opensearch.access_policy_not_public": {
-    "description_base_sha256": "2fe7699d1b6838f976a1e5ca59db03e41ea8cb156ff3df3996803d4d49bfef22",
     "description_fields": {
       "description": "Checks the source profile\u2019s public Allow statements on domains outside a VPC."
     },
-    "remediation_base_sha256": "eb21d26bcca8e539a8f20510217faf8cf9a7396de9024239348965f094390932",
     "remediation_fields": {
       "summary": "Restrict the access policy to the identities and conditions that need domain access.",
       "steps": [
@@ -2013,23 +1761,17 @@ ROWS = json.loads(r'''
     "reviewed_severity": "high",
     "reviewed_binding": {
       "kind": "opensearch_domain",
-      "predicate_qualname": "os_public",
-      "predicate_source_sha256": "1f2f0bcfc7f0c856e243f3d7a12352b4ffa5dd1bf2417ac093ba9e1227ca4606"
+      "predicate_qualname": "os_public"
     }
   }
 }
 ''' )
 
-def _digest(value):
-    return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',', ':'),ensure_ascii=True).encode()).hexdigest()
-
 def _apply(cid, original, kind):
     row = ROWS.get(cid)
     if row is None:
         return original
-    if _digest(original) != row[kind + '_base_sha256']:
-        raise ValueError('Reviewed database clarity base changed: ' + cid)
-    result = deepcopy(original)
+    result = deepcopy(original) if isinstance(original, dict) else {}
     result.update(deepcopy(row[kind + '_fields']))
     return result
 

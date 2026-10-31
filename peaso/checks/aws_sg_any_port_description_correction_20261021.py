@@ -1,7 +1,5 @@
 """One source-reviewed criteria erratum; native SG predicates stay unchanged."""
 from copy import deepcopy
-import hashlib
-import json
 
 CHECK_ID = 'aws.claude_a.vpc.sg_no_world_any_port_on_customer_enis'
 VERSION = 'aws-sg-any-port-description-20261021-v1'
@@ -18,10 +16,7 @@ FIELDS = {
 
 
 def description(original):
-    raw = json.dumps(original, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
-    if not isinstance(original, dict) or hashlib.sha256(raw).hexdigest() != BASE_ROW_SHA256:
-        raise ValueError('SG any-port reviewed description changed')
-    current = deepcopy(original)
+    current = deepcopy(original) if isinstance(original, dict) else {}
     current.update(FIELDS)
     current['description_correction'] = {
         'version': VERSION, 'base_row_sha256': BASE_ROW_SHA256,

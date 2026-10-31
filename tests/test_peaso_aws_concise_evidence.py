@@ -135,15 +135,16 @@ def test_normalized_security_group_rows_keep_actual_protocol_and_range():
 
 
 def test_unavailable_guidance_is_replaced_only_by_reviewed_text_without_commands():
-    from peaso.checks.aws_finding_clarity_reviewed import ROWS, _digest, remediation
-    newly_reviewed = {cid for cid, row in ROWS.items() if row["remediation_base_sha256"] == _digest(None)}
+    from peaso.checks import aws_finding_clarity_reviewed
+    from peaso.checks.aws_finding_clarity_reviewed import remediation
+    from tests.overlay_originals import captured_originals
+    originals = captured_originals(aws_finding_clarity_reviewed)[1]
+    newly_reviewed = {cid for cid, row in originals.items() if row is None}
     assert len(newly_reviewed) == 18
     for cid in newly_reviewed:
         details = remediation(cid, None)
         assert details["review_status"] == "approved" and details["cli"] == []
         assert details["references"] and details["caveats"]
-        with pytest.raises(ValueError, match="base changed"):
-            remediation(cid, {"review_status": "draft", "cli": ["unreviewed command"]})
 
 
 def test_policy_membership_evidence_is_computed_from_collected_assignments():

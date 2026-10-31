@@ -1,10 +1,11 @@
 """Archived report copy refresh must never re-evaluate historical evidence."""
 from copy import deepcopy
-import json
 from pathlib import Path
 import pytest
 from peaso.checks.catalog import _base_description_for
-from peaso.checks.aws_remaining_clarity_reviewed import ROWS as AWS_ROWS,description as aws_description,remediation as aws_remediation,_digest
+from peaso.checks import aws_remaining_clarity_reviewed
+from peaso.checks.aws_remaining_clarity_reviewed import description as aws_description,remediation as aws_remediation
+from tests.overlay_originals import captured_originals
 from peaso.engine import hydrate_finding,CHECK_META_ENCODING
 from peaso.finding_presentation import (CORRECTED_CHECK_IDS,criteria_contract,evaluator_contract_fingerprint,
                                        refresh_finding_presentation)
@@ -14,11 +15,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def _archived_kinesis_report_row():
     cid='aws.cb.kinesis.retention_exactly_168h'
-    old_template=None
-    for path in (ROOT/'peaso/rulepacks').glob('remediation*.json'):
-        packed=json.loads(path.read_text())
-        if isinstance(packed,dict) and cid in packed and _digest(packed[cid])==AWS_ROWS[cid]['remediation_base_sha256']:
-            old_template=packed[cid];break
+    old_template=captured_originals(aws_remaining_clarity_reviewed)[1][cid]
     assert old_template is not None
     # The same per-check encoding used by immutable schema-1.1 report bundles.
     meta=dict(_base_description_for(cid),title='Kinesis retention exactly 168 hours',severity='high',_derived='rm')

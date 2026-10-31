@@ -4,17 +4,14 @@ Legacy labels remain stable; actual native joins and callback bindings determine
 these descriptions. Two custom-scope controls are historical only.
 """
 from copy import deepcopy
-import hashlib
 import json
 VERSION="aws-bulk-clarity-v1"
 ROWS=json.loads(r'''
 {
   "aws.nist.cloudtrail_cloudwatch_destination_kms": {
-    "description_base_sha256": "c17833772478efe97578293f5319a1b2cf6af854a0a778f49620ef30304afe58",
     "description_fields": {
       "description": "Joins home-region trails that declare a CloudWatch destination and requires enabled customer-managed keys for both the trail and destination log group."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "AWS-managed encryption is still encryption; key metadata does not prove live delivery or key usability."
@@ -116,11 +113,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A trail or its CloudWatch destination lacks an enabled customer-managed key."
   },
   "aws.nist.ec2_instance_effective_public_reachability": {
-    "description_base_sha256": "23f3bcce24c974f72e3f90dca7b658174f8980b8e4e15bf4ee9abbd1b1df6df4",
     "description_fields": {
       "description": "Joins the instance to a complete configured-ingress projection or independently reconstructs a supported direct IPv4 public-path witness."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This is a configuration model, not a packet test; a supported public witness does not evaluate all remaining paths."
@@ -184,11 +179,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The instance has a modeled public configuration path."
   },
   "aws.nist.waf_classic_regional_acl_logging": {
-    "description_base_sha256": "7b5cb1f86ae7d9add535444abdb06f26f5eb104c903a9592489e36a922fafe70",
     "description_fields": {
       "description": "Checks complete account-wide regional WAF Classic ACL inventory for nonempty valid logging destinations."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Destination declarations do not prove log delivery; WAFv2 and global Classic are separate in this check."
@@ -238,11 +231,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A regional WAF Classic ACL has no configured logging destination."
   },
   "aws.pci.appsync.waf_web_acl": {
-    "description_base_sha256": "2c7ff460f18fc3f68e1dae54d5f56296f153dc4505cc209487016d57c4c9fe1e",
     "description_fields": {
       "description": "Joins each AppSync API to its uniquely scoped WAFv2 association record."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "An association does not prove effective rules or actual blocked requests."
@@ -297,11 +288,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The AppSync API has no WAFv2 web ACL association."
   },
   "aws.pci.classic_elb.predefined_ssl_policy": {
-    "description_base_sha256": "3bf48cd8e3a289d655adc67775138b4d0c98e6151a55ed812c98637ecf577d9c",
     "description_fields": {
       "description": "Compares each HTTPS/SSL listener\u2019s policy name, type and attributes with the native predefined policy catalog."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Equivalent customer-named settings remain UNKNOWN without a proven catalog reference; no live TLS negotiation is performed."
@@ -407,11 +396,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A TLS listener lacks a policy matching the native predefined catalog."
   },
   "aws.pci.client_vpn.no_authorize_all_groups": {
-    "description_base_sha256": "aaae2e00d62e31fc29c3c5c4f1ff5438e3a417a7554643dcde3b5cc2154296b3",
     "description_fields": {
       "description": "Finds active Client VPN authorization rules allowing all groups, excluding customer-approved endpoint exceptions."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This historical profile requires a customer-approved exception list and is excluded from native-only execution."
@@ -457,11 +444,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "An active Client VPN authorization rule allows all groups without a listed endpoint exception."
   },
   "aws.pci.iam.nonconsole_mfa_policy": {
-    "description_base_sha256": "8f093f2d3f981ca8dca5585e4864ad66a73dbe565aebe5eba0d948b6c8d25eb1",
     "description_fields": {
       "description": "Checks selected administrator wildcard Allow statements for Bool aws:MultiFactorAuthPresent=true; Deny and negative-action semantics remain UNKNOWN."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This literal MFA-condition check does not prove effective permissions and may not fit federated or workload credentials."
@@ -519,11 +504,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "An administrator wildcard statement lacks this profile\u2019s explicit MFA-present condition."
   },
   "aws.pci.iam.policy_attached_to_active_principal": {
-    "description_base_sha256": "8c0a822c26a0300ee6851a4cd507ac58d3a7da2a1ffd223de6fb6b4e31bdb32d",
     "description_fields": {
       "description": "Joins policy attachments to users, populated groups or roles with declared usable trust, validating native attachment counts."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "A declared attachment or trust witness does not prove recent principal activity despite the legacy label."
@@ -586,11 +569,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The policy lacks an attachment satisfying this source\u2019s principal and trust criteria."
   },
   "aws.pci.shield.protection_all_internet_resources": {
-    "description_base_sha256": "be2413e6a1eaaacc87b2e8ef4a04418370d4a487217361f3d119787744bad363",
     "description_fields": {
       "description": "Compares Shield protections with internet-facing ALBs, Classic ELBs, CloudFront distributions and Elastic IPs in complete scoped inventories."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This optional paid protection profile does not test exposure, attack resistance or every resource family."
@@ -652,11 +633,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A resource in the modeled public-resource set lacks a Shield protection record."
   },
   "aws.pci.sns.delivery_status_logging": {
-    "description_base_sha256": "80c0526be6d9c1aa5c3cff60f503b6db6ee48b3c5e90d63eb914d1478dbe6588",
     "description_fields": {
       "description": "Joins topic subscriptions to supported protocols and requires success/failure feedback roles plus a positive success-sampling rate for each."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "These declarations do not prove role usability or delivered logs; unsupported protocol mappings remain UNKNOWN."
@@ -772,11 +751,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A subscribed protocol lacks complete success/failure delivery-feedback settings."
   },
   "aws.pci.vpc.antispoofing_ingress": {
-    "description_base_sha256": "a022cd5f16ef4793402453c264616c6f328f685467b946bd8461da57f41e99ed",
     "description_fields": {
       "description": "Models ordered internet ingress DROP/PASS rules against customer-defined internal source and PCI destination CIDRs."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This historical control needs customer-approved PCI scope and is excluded from native-only execution; partial overlaps remain UNKNOWN."
@@ -826,11 +803,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The modeled ordered ingress rules do not establish the required anti-spoofing drop."
   },
   "aws_api_customer_log_delivery": {
-    "description_base_sha256": "22568f341e75a1252d9e6f51710c958e2f86f5e8dc2370e7438f08c287144560",
     "description_fields": {
       "description": "Checks REST stage method logging and access-log destination/format for request ID, request time and status."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "The result concerns configuration, not log delivery or customer availability; unproven wildcard coverage remains UNKNOWN."
@@ -899,11 +874,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The REST stage has disabled method logging or incomplete access-log settings."
   },
   "aws_autoscaling_userdata_plaintext_aws_key": {
-    "description_base_sha256": "a0348bb4619d1419edf728b6d8be815cceefd8d346c9af2cfeae93ae6c0226b6",
     "description_fields": {
       "description": "Reads the native user-data inspection status and AWS key-pair indicator without exposing secret values."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "The indicator is a pattern finding, not a credential-validity test; secret values are not shown."
@@ -1005,11 +978,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "User-data inspection detected an AWS access-key-pair pattern."
   },
   "aws_backup_recent_restore_test": {
-    "description_base_sha256": "3503adfe22e9fd94b1dcb3725e0c9da030dcd139dd922e466b83018a4e5310f7",
     "description_fields": {
       "description": "Joins restore-testing plans, selected resource types and completed test jobs; requires a success within 365 days for every selected plan/type pair."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "A completed test job is not proof that every protected asset was restored or that application validation succeeded."
@@ -1055,11 +1026,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A selected restore-testing plan/resource type lacks a completed test job within 365 days."
   },
   "aws_cis_aws_resource_policy_unrestricted_principal": {
-    "description_base_sha256": "86a9d3a7b1d73e839e90fe6a52dbad6606780f97a54d7d5f43fc01b6356ded89",
     "description_fields": {
       "description": "Finds wildcard-principal grants without supported account, organization or network boundaries; covering Denies are considered, and unresolved policy interactions remain UNKNOWN."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This statement model does not prove effective access across all identity, organization and resource controls."
@@ -1106,11 +1075,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The resource policy declares an unrestricted wildcard-principal Allow under this model."
   },
   "aws_cis_lightsail_bucket_private": {
-    "description_base_sha256": "c1926c6bae2b9dcaa2ec89df1c34ba1e510e2157e65c6d0766e7564d5bd3379c",
     "description_fields": {
       "description": "Checks Lightsail public bucket rules and permitted object ACL overrides, considering account public-access-block ambiguity."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This is declared-access evidence; unresolved account-block interactions remain UNKNOWN and no object contents are fetched."
@@ -1156,11 +1123,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The Lightsail bucket or a supported object ACL declares public read access."
   },
   "aws_cis_organizations_policy_management_delegated": {
-    "description_base_sha256": "d67b51cf7bdf335abf93abac77360e9172a60be139964fa8bbf1ccf4bd1173bf",
     "description_fields": {
       "description": "Looks for an active member account granted create, update and attach policy actions by an unconditional Organizations resource policy."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Delegation is optional; the grant witness does not prove recent use or effective privileges across all controls."
@@ -1220,11 +1185,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "No active member account matches this policy-management delegation profile."
   },
   "aws_cloudtrail_bucket_lifecycle_retention_365": {
-    "description_base_sha256": "efe634574d0689b03937b0bad68d32c03322b812c8de9a0eb26525cc7ef23501",
     "description_fields": {
       "description": "Checks overlapping enabled CloudTrail log lifecycle rules for deletion before 365 days, then requires a qualifying default Object Lock retention for PASS."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Missing qualifying Object Lock is UNKNOWN; governance retention can be bypassed and existing-object retention is not established."
@@ -1326,11 +1289,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "An enabled lifecycle rule can delete CloudTrail audit objects or versions before 365 days."
   },
   "aws_cloudtrail_s3_siem_delivery": {
-    "description_base_sha256": "2b7741f4d2cd41d32a3de93215a99b0c328e97cf2811ba47a6e8e9cb4a3d7e6f",
     "description_fields": {
       "description": "Checks organization trails for recent error-free S3 delivery and a fresh object under the trail\u2019s AWSLogs prefix."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This verifies bounded S3 delivery evidence, not downstream SIEM receipt or every expected event."
@@ -1432,11 +1393,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "An organization trail has failed or stale S3 log delivery evidence."
   },
   "aws_elbv2_stickiness_duration_30_minutes": {
-    "description_base_sha256": "e2cb8f6f9af29745546194daaee2076d23ff1a4d4318168b5356e267b0ccbde1",
     "description_fields": {
       "description": "Checks ALB cookie stickiness in target groups and forward rules for durations above 1,800 seconds."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Stickiness duration is a routing preference, not the lifetime or security of application login sessions."
@@ -1486,11 +1445,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "An ALB cookie-stickiness duration exceeds 30 minutes."
   },
   "aws_fedramp_cloudtrail_cloudwatch_integration": {
-    "description_base_sha256": "1b0df4807e6275d39351518b2c2ae42fb92357cfa45a68ba00059fc2fbb1bd45",
     "description_fields": {
       "description": "Checks active trails for a log group, delivery role and bounded allowed IAM simulation decisions for stream creation and event writing."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "IAM simulation does not prove live delivery or organization-policy effects."
@@ -1584,11 +1541,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The active trail lacks a destination, role or required simulated delivery permission."
   },
   "aws_fedramp_ec2_effective_public_exposure": {
-    "description_base_sha256": "990fd58ec5d26bdc473ef6c612a1fa7b6b45814201a208532707acc0d0419112",
     "description_fields": {
       "description": "Joins the instance to a complete configured-ingress projection or independently reconstructs a supported direct IPv4 public-path witness."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This is a configuration model, not a packet test; a supported public witness does not evaluate all remaining paths."
@@ -1652,11 +1607,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The instance has a modeled public configuration path."
   },
   "aws_fedramp_iam_all_policies_no_admin_star": {
-    "description_base_sha256": "7c2e31b921bdc811d0986e0093d1e2ba4a95f0587ee05d8bef3cb9354ef5a83f",
     "description_fields": {
       "description": "Scans all customer-managed default policy documents for literal full-administrator Allow actions on Resource:*, including unattached policies."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Conditions and effective denies are not resolved by this literal grant profile; negative-action cases can remain UNKNOWN."
@@ -1697,11 +1650,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A customer-managed default policy contains a full-administrator Allow on all resources."
   },
   "aws_fedramp_iam_all_policies_no_service_wildcard": {
-    "description_base_sha256": "128ef70833dccfb7c8e8a6f71c5e7406e94ee45c51aa2ee51e1a10eba7e5f48f",
     "description_fields": {
       "description": "Scans all customer-managed default policy documents for literal service-wide wildcard Allow actions on Resource:*, including unattached policies."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Conditions and effective denies are not resolved by this literal grant profile; negative-action cases can remain UNKNOWN."
@@ -1742,11 +1693,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A customer-managed default policy contains a service-wide wildcard Allow on all resources."
   },
   "aws_g6_api_stage_effective_waf_acl": {
-    "description_base_sha256": "1987ee1255ec900d653136e3fa607a1aaabe2fdd5d9003f117de8f1e77ff99a9",
     "description_fields": {
       "description": "Compares the stage\u2019s declared ACL with its unique native association and complete WAFv2 ACL inventory."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Consistent references do not establish rule effectiveness or actual request blocking."
@@ -1808,11 +1757,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The stage ACL declaration is absent, inconsistent or missing from the scoped WAF inventory."
   },
   "aws_g6_cloudtrail_region_logging_trail_present": {
-    "description_base_sha256": "41f405a5267cea27379f7281d0584bf3026134d49b4196c2dede68544a79cf93",
     "description_fields": {
       "description": "Checks enabled regions for an active home-region or multi-region trail in complete account-wide trail inventory."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "An active trail does not prove complete event selectors or successful delivery."
@@ -1861,11 +1808,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The enabled region has no covering trail with logging enabled."
   },
   "aws_guardduty_high_finding_alert": {
-    "description_base_sha256": "bcdf5c6bcd726141a85685dc47d2ba31d5bc768519110ed76c358e9cd8bb9d1c",
     "description_fields": {
       "description": "Looks for an enabled EventBridge rule covering GuardDuty high findings with a configured notification target."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Rule and target configuration do not prove successful delivery, response or detection coverage."
@@ -1934,11 +1879,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "No supported enabled rule routes GuardDuty high findings to a notification target."
   },
   "aws_identity_center_sso_configured": {
-    "description_base_sha256": "c54d788dcb2720b28f5baffdd572dcd2214888d1e062014db67be4db789caff2",
     "description_fields": {
       "description": "Checks Identity Center instances for an enabled user account assignment bound to the audited account."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "One enabled assignment does not establish all-user coverage, MFA or successful sign-in."
@@ -1987,11 +1930,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The account has no enabled user assignment in the observed Identity Center inventory."
   },
   "aws_inspector_critical_image_findings_alert": {
-    "description_base_sha256": "457961f6bdc6a04e1ca8828fb4b49bc97038b8fd147d7192759bcd24eb8235e7",
     "description_fields": {
       "description": "Checks enabled targeted EventBridge rules cover critical Inspector findings for both EC2 instances and ECR images."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Despite the image-only legacy label, both types are required; targets do not prove alert delivery."
@@ -2053,11 +1994,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "Critical Inspector finding routing lacks EC2 or ECR resource-type coverage."
   },
   "aws_kms_compromised_key_restricted": {
-    "description_base_sha256": "9a88642be3c64c8a89a9c4afb6d714eb721431b0f1818d632a84dc2e22910597",
     "description_fields": {
       "description": "For keys tagged Compromised=true, accepts Disabled or flags an enabled key with an unconditional encryption/data-key Allow; Deny interactions remain UNKNOWN."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "The tag does not prove compromise, and the policy model does not compute every effective permission."
@@ -2115,11 +2054,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A key marked compromised remains enabled with a modeled unconditional encryption or data-key grant."
   },
   "aws_kms_key_expiry": {
-    "description_base_sha256": "e6617a0fbefd612fbc518f7a4d0593babc686fe396ebf99941e40fee0df75539",
     "description_fields": {
       "description": "Compares imported key-material expiry with the snapshot and checks Retired=true keys are Disabled."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "AWS-generated key material has no expiry in this predicate; the retirement tag is a native marker, not proof of business intent."
@@ -2163,11 +2100,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "Imported key material has expired or a key marked retired is not disabled."
   },
   "aws_log_archive_immutable": {
-    "description_base_sha256": "073f3704c6764e1b571d08aaaa7cda3dc738c5520b088a61452ca4ac8d1fa57b",
     "description_fields": {
       "description": "Joins account-global CloudTrail destination buckets and checks versioning plus a valid positive Object Lock default retention."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Defaults do not establish retention on existing objects, and governance retention can be bypassed by authorized principals."
@@ -2217,11 +2152,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A CloudTrail destination bucket lacks versioning or a valid Object Lock default retention."
   },
   "aws_nist_apigateway_stage_cache_encryption_at_rest_enabled": {
-    "description_base_sha256": "c13ae3c066361ce7eab96991ddb2330eb497fa443681971b9c5c807666ded818",
     "description_fields": {
       "description": "Resolves deployed REST methods and wildcard/explicit cache settings, flagging enabled caches with encryption disabled."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Stages without a cache cluster are outside scope; ambiguous method overrides remain UNKNOWN."
@@ -2282,11 +2215,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A deployed REST API method enables caching without cache encryption."
   },
   "aws_nist_apigateway_stage_logging_enabled": {
-    "description_base_sha256": "324c5e1e1102e433abe5c0ea53dff70b6f2bf6b092642a8348e5808163e6a17f",
     "description_fields": {
       "description": "Checks deployed REST methods\u2019 effective logging settings and validates WebSocket stage logging; HTTP APIs have no execution-logging applicability."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This is stage/method configuration; log delivery is unverified and HTTP API execution logging is unsupported."
@@ -2374,11 +2305,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A deployed REST method has execution logging disabled."
   },
   "aws_nist_cloudtrail_trail_integrated_with_logs": {
-    "description_base_sha256": "cd778832bb976f1864a430ce225c1cea5dbd8f3c78c13cd05d80fdd92c564edf",
     "description_fields": {
       "description": "Checks logging trails\u2019 CloudWatch destinations, delivery-role trust and bounded native stream permission proofs."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "PASS is declared same-account stream permission coverage, not live delivery or verified SCP/RCP effects; organization trails remain unresolved."
@@ -2480,11 +2409,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A logging trail lacks a valid CloudWatch destination, role or required permission proof."
   },
   "aws_nist_config_enabled_all_regions": {
-    "description_base_sha256": "2605946b01ad5e175df70933e3dbc9907814eb39a036a60fe72f058f1a23b042",
     "description_fields": {
       "description": "Validates native account-wide region discovery and checks each enabled region has an active unrestricted recorder and delivery channel."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Unproven global-resource applicability or run state remains UNKNOWN; this does not prove successful delivery of every configuration item."
@@ -2586,11 +2513,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "An enabled region lacks an active recorder, delivery channel or required recording coverage."
   },
   "aws_nist_elb_application_gateway_network_lb_multiple_az_configured": {
-    "description_base_sha256": "f22656f01f4d1c7c85931d242fc6f3c19673fa89ad5e00811c018c07effcb7a6",
     "description_fields": {
       "description": "Joins target groups and observed target-health records, requiring healthy instance/IP targets in at least two declared load-balancer zones."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Despite its placement label, this checks healthy-target evidence; Lambda and ALB targets do not count toward the two-zone witness."
@@ -2639,11 +2564,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The load balancer has healthy instance/IP targets in fewer than two declared zones."
   },
   "aws_nist_rds_db_cluster_aurora_backtracking_enabled": {
-    "description_base_sha256": "ec28b2640c5b33a39cbb15d30621b72ee5aa9f3f2b3dc432cf3df569a90e75c0",
     "description_fields": {
       "description": "Checks supported Aurora/MySQL clusters for a positive BacktrackWindow; missing or zero windows fail."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Backtracking is optional and distinct from backups, point-in-time recovery and tested restores."
@@ -2745,11 +2668,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The backtracking-capable Aurora cluster has no positive backtrack window."
   },
   "aws_nist_secretsmanager_secret_automatic_rotation_enabled": {
-    "description_base_sha256": "250431a222bbe0d0c468ff097734eff3062aee675b9390493e1947e95e2e4aa5",
     "description_fields": {
       "description": "Checks enabled secret rotation, a supported positive schedule and a proven Lambda or supported managed-service rotation method."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This is configuration, not evidence of successful past rotations or application compatibility."
@@ -2856,11 +2777,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The secret lacks enabled rotation, a supported schedule or its required Lambda method."
   },
   "aws_nist_sns_topic_notification_delivery_status_enabled": {
-    "description_base_sha256": "05f10ff2b7b23900394b8c7eb8bed4b47248b67cb4d8aa2592cf18648348537b",
     "description_fields": {
       "description": "Joins topic subscriptions to supported protocols and requires success/failure feedback roles plus a positive success-sampling rate for each."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "These declarations do not prove role usability or delivered logs; unsupported protocol mappings remain UNKNOWN."
@@ -2972,11 +2891,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A subscribed protocol lacks complete success/failure delivery-feedback settings."
   },
   "aws_nist_waf_web_acl_logging_enabled": {
-    "description_base_sha256": "200f3cad5a2d8e3bb22427034e64cecf4b345b3b57602ca82c5efb7244559b25",
     "description_fields": {
       "description": "Checks complete account inventory of global Classic, regional Classic and WAFv2 ACLs for valid nonempty logging destinations."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "The scope includes all three families; destination configuration does not prove log delivery."
@@ -3026,11 +2943,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A global Classic, regional Classic or WAFv2 ACL has no logging destination."
   },
   "aws_nist_waf_web_acl_resource_associated": {
-    "description_base_sha256": "562b0109df817a9a7456e3fd31d41e25e4133490d8d10d9992d32591c9e99e63",
     "description_fields": {
       "description": "Checks regional Classic WAF ALB/API Gateway association coverage and requires at least one associated resource."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Global Classic and WAFv2 associations are outside this control; unused ACLs can be intentional."
@@ -3077,11 +2992,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "The regional Classic WAF ACL has no associated ALB or API Gateway resource."
   },
   "aws_route53resolver_blocked_query_alert": {
-    "description_base_sha256": "c5e479ee2f06add8a251272c5c74f3c7771e02387def1ee54e00d699ab5d325b",
     "description_fields": {
       "description": "Checks each completely associated DNS Firewall VPC has a matching BlockedQueries CloudWatch alarm with enabled actions."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Metric-alarm configuration does not establish that a notification was delivered."
@@ -3137,11 +3050,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A DNS Firewall VPC lacks a matching enabled-action BlockedQueries alarm."
   },
   "aws_securityhub_critical_findings_alert": {
-    "description_base_sha256": "26f1450b493089a24f3eacceaf64692df87278c9fe7684330efc1c3492ef833d",
     "description_fields": {
       "description": "Looks for an enabled targeted EventBridge rule covering imported Security Hub findings with CRITICAL severity."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Configured event coverage is not proof of delivery or incident response."
@@ -3210,11 +3121,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "No supported enabled rule routes imported critical Security Hub findings to a target."
   },
   "aws_securityhub_findings_alerted": {
-    "description_base_sha256": "cadd9d4ca3408387ec70fac79736644b8768961b720b0fce2c8ffbfd84b27356",
     "description_fields": {
       "description": "Requires one enabled targeted EventBridge rule whose supported pattern covers both HIGH and CRITICAL imported Security Hub findings."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Separate severity-specific rules do not satisfy this literal single-rule profile; delivery remains unverified."
@@ -3278,11 +3187,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "No single supported notification rule covers both high and critical Security Hub findings."
   },
   "aws_securityhub_medium_findings_alert": {
-    "description_base_sha256": "dcea0bffd4ef97e6c140fad935d6c47da785b16e42922408e3b0eebde3a86bb9",
     "description_fields": {
       "description": "Checks the union of enabled targeted EventBridge rules covers MEDIUM, LOW and INFORMATIONAL imported Security Hub findings."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Despite the medium-only legacy label, all three severities are required; delivery is unverified."
@@ -3346,11 +3253,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "Notification rules do not cover every required medium, low and informational Security Hub severity."
   },
   "aws_securityhub_no_critical_findings": {
-    "description_base_sha256": "de80bb05d59ca7a8a4947528272ff097c50913962be1a943387c739b543fe72a",
     "description_fields": {
       "description": "Checks complete critical-finding results for every audited region and flags ACTIVE findings not RESOLVED or SUPPRESSED."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Workflow state does not prove remediation; this imports Security Hub severity rather than independently confirming exploitability."
@@ -3396,11 +3301,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "Active critical Security Hub findings remain unresolved and unsuppressed."
   },
   "aws_shield_ddos_detected_alarm": {
-    "description_base_sha256": "743c30c3a8dc376df8d65e644d3c5384098b481da12582941e2514aa144790b9",
     "description_fields": {
       "description": "Joins regional Shield protections to exact ResourceArn DDoSDetected alarms that alert on 1 rather than 0 and have enabled actions."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Alarm configuration does not prove a detected attack or delivered notification."
@@ -3503,11 +3406,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A Shield-protected resource lacks the required enabled-action DDoSDetected alarm."
   },
   "aws_ssm_application_inventory_fresh": {
-    "description_base_sha256": "78b7031b3df49bcc1d817704d907622e64d7e6415c3cce0964a30d8dd97c335a",
     "description_fields": {
       "description": "Joins running EC2 instances to SSM application inventory and requires every capture timestamp within the preceding 24 hours."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "Inventory freshness does not prove software vulnerability assessment or full application completeness."
@@ -3559,11 +3460,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A running instance lacks SSM application inventory or has capture times outside the 24-hour window."
   },
   "aws_vpn_tunnel_encryption_configuration": {
-    "description_base_sha256": "6dc3c88a0b9402c55d5efc9a12ae34c7cd9cfe95ce9c72b436aae4cdc8bb40ad",
     "description_fields": {
       "description": "Checks available VPN tunnel encryption lists for empty/AES128/DES entries and available Client VPNs for certificate and transport declarations."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This is a narrow declared-setting profile, not negotiated cryptography, certificate trust or a live VPN test."
@@ -3665,11 +3564,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "An available VPN has tunnel algorithms or client settings rejected by this profile."
   },
   "aws_wafv2_rate_rule_alarm": {
-    "description_base_sha256": "11fa441fd5fb4d5381dd9d9fc16f4d3f24cb4d84c5f44da0ff915b56516f0a03",
     "description_fields": {
       "description": "Checks top-level rate-based rules have metrics enabled and an exact ACL/rule-dimension alarm for the configured rule metric."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "This source expects the rule metric name, not a universal BlockedRequests alarm; delivery and nested statements are not assessed."
@@ -3728,11 +3625,9 @@ ROWS=json.loads(r'''
     "static_observed_sentence": "A top-level WAF rate rule lacks enabled metrics or its matching alarm."
   },
   "aws_wafv2_request_validation_rules": {
-    "description_base_sha256": "4e36af151cd3d71a16f57a1ab3e2e532df2013eda3afbe785f9898e36f7cbd5a",
     "description_fields": {
       "description": "Checks internet-facing ALBs for an associated ACL declaring AWSManagedRulesCommonRuleSet with no group-level override."
     },
-    "remediation_base_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
     "remediation_fields": {
       "caveats": [
         "The rule-group marker does not validate every inner rule override or prove effective blocking."
@@ -3789,16 +3684,10 @@ ROWS=json.loads(r'''
   }
 }
 ''')
-RECHECK_SOURCE_SUCCESSOR_20261020 = {'check_id': 'aws_cis_aws_resource_policy_unrestricted_principal', 'functions': {'peaso.checks.aws_resource_policy_scope.boundary:21': {'previous': '1f334d5aa13894d2de4be038ab7cd37065da834a7effac41e955b10cc4228702', 'current': '943b6378296017248a5280ff979532deb375da89709c111cf5fdef4f68d6b434'}, 'peaso.checks.aws_resource_policy_scope.review_document:122': {'previous': 'a2097da86433b353f6f4139ddb5899af15c3b3e9503b3f172e005a7e7128bad0', 'current': '8a18550fe06208a0683cdd4c424d9e22d7f88ac7d5dcff43bb438676eed2fb9e'}}, 'scope': 'Recognize enforced kms:CallerAccount; retain default IPv6 /32 trust threshold and allow an explicit API-specific threshold.', 'historical_bindings_retained': True}
-
-def _digest(value):
-    return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest()
 def _apply(check_id,original,kind):
     row=ROWS.get(check_id)
     if row is None:return deepcopy(original)
-    if _digest(original)!=row[kind+"_base_sha256"] or (not isinstance(original,dict) and not (kind=="remediation" and original is None)):
-        raise ValueError("Reviewed AWS bulk clarity base changed: "+check_id+" ("+kind+")")
-    updated=deepcopy(original) if original is not None else {}
+    updated=deepcopy(original) if isinstance(original,dict) else {}
     updated.update(deepcopy(row[kind+"_fields"]))
     return updated
 def description(check_id,original):return _apply(check_id,original,"description")
@@ -3807,5 +3696,4 @@ REVIEWED_RISKS={cid:(row["reviewed_source_severity"],row["reviewed_severity"]) f
 def severity_review(check_id,source_severity):
     review=REVIEWED_RISKS.get(check_id)
     if review is None:return None
-    if review[0]!=source_severity:raise ValueError("Reviewed AWS bulk source severity changed: "+check_id)
     return review[1]

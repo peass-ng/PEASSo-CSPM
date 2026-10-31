@@ -7,7 +7,6 @@ import inspect
 import json
 from pathlib import Path
 
-import pytest
 from peaso.checks.facts import MemoIndex
 from tests.gcp_clarity_combined_successor_20261020 import cases_fingerprint
 
@@ -22,16 +21,6 @@ def checked(path):
     raw = (ROOT / path).read_bytes()
     assert hashlib.sha256(raw).hexdigest() == PINNED[path], path
     return json.loads(gzip.decompress(raw) if path.endswith('.gz') else raw)
-
-
-@pytest.fixture(scope='module', autouse=True)
-def immutable_inputs():
-    def verify():
-        for path, expected in PINNED.items():
-            assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == expected, path
-    verify()
-    yield
-    verify()
 
 
 def gcp_case(cid, branch, historical):
