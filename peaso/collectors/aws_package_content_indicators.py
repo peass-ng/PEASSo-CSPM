@@ -285,16 +285,26 @@ def _download_image_layers(requests, session, region, account, repo, digest,
                            ld, size, load, path)
 
     paths = []
+    # An image may list the same layer blob more than once. Download it once and
+    # reuse that file: two concurrent reads of one digest would share a single
+    # provider read and leave one of the two destination files unwritten.
+    first = {}
+    for index, (ld, _) in enumerate(descriptors):
+        first.setdefault(ld, index)
+    def submit(index):
+        if first[descriptors[index][0]] == index:
+            pending[index] = pool.submit(copy_context().run, fetch, index)
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix='peaso-ecr-layer') as pool:
         pending = {}
         for index in range(min(2, len(descriptors))):
-            pending[index] = pool.submit(copy_context().run, fetch, index)
+            submit(index)
         for index in range(len(descriptors)):
             requests.check_deadline()
-            paths.append(pending.pop(index).result())
+            original = first[descriptors[index][0]]
+            paths.append(pending.pop(index).result() if original == index else paths[original])
             next_index = index + 2
             if next_index < len(descriptors):
-                pending[next_index] = pool.submit(copy_context().run, fetch, next_index)
+                submit(next_index)
     return paths
 
 

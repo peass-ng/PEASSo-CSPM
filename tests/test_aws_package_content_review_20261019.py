@@ -614,7 +614,7 @@ def test_ecr_image_repeating_one_layer_digest_is_scanned(monkeypatch, detected):
         if kw['layerDigest'] == digest(config_raw) else old(**kw))
     result = p.ENRICHERS['ecr_repository'](requests, session, REGION, [item])[0]
     status, evidence = c.image_layers(result, index('ecr_repository', result))
-    assert status == ('FAIL' if detected else 'PASS')
+    assert status == ('FAIL' if detected else 'PASS'), evidence
 
 
 @pytest.mark.parametrize('field,value,reason', [
