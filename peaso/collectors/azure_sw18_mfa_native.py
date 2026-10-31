@@ -37,6 +37,10 @@ def _inventory(reader, kind, scope, *, many=False):
         rows = [c for c in rows if c.get("scope", "").casefold().startswith(scope.casefold() + "/groups/")]
         return rows
     rows = [c for c in rows if c.get("scope", "").casefold() == scope.casefold()]
+    if len(rows) == 1 and rows[0].get("status") not in ("collected", "empty"):
+        # A denied or unread parent leaves the evidence unknown, not malformed.
+        from .azure import AzureReadError
+        raise AzureReadError("native_parent_inventory_incomplete")
     if len(rows) != 1 or rows[0].get("service") != "Microsoft.Graph" or rows[0].get("status") not in ("collected", "empty"):
         raise ValueError("incomplete or ambiguous " + kind)
     return rows[0]["items"]
