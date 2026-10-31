@@ -1485,7 +1485,7 @@ DIRECTORY = {
     "directory_role_eligibility_instance": "roleManagement/directory/roleEligibilityScheduleInstances?$select=id,principalId,roleDefinitionId,directoryScopeId,startDateTime,endDateTime,memberType",
     "directory_role_assignment_instance": "roleManagement/directory/roleAssignmentScheduleInstances?$select=id,principalId,roleDefinitionId,directoryScopeId,startDateTime,endDateTime,memberType",
     "directory_oauth2_permission_grant": "oauth2PermissionGrants?$select=id,clientId,consentType,principalId,resourceId,scope",
-    azure_entitlement_native.PARENT: "identityGovernance/entitlementManagement/accessPackages?$select=id,catalogId,displayName",
+    azure_entitlement_native.PARENT: "identityGovernance/entitlementManagement/accessPackages?$select=id,displayName&$expand=catalog($select=id)",
     azure_entitlement_native.CATALOG: "identityGovernance/entitlementManagement/catalogs?$select=id,displayName",
     azure_entitlement_native.ROLE_ASSIGNMENT: "roleManagement/entitlementManagement/roleAssignments?$select=id,principalId,roleDefinitionId,appScopeId,directoryScopeId",
 }
