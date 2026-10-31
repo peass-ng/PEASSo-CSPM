@@ -1,15 +1,13 @@
 """Actual registered Azure selected-content hooks and hosted contract."""
 from copy import deepcopy
 import json
-from pathlib import Path
 import socket
 from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
-from peaso import checks,engine,secret_scanning as scanning
+from peaso import engine,secret_scanning as scanning
 from peaso.collectors import azure
-from peaso.checks.fixtures import CASES
-from peaso.server.validation import validate_connector,OPTIONS
+from peaso.server.validation import validate_connector
 from tests import test_azure_app_settings_secret_review_20261020 as app
 from tests import test_azure_selected_configuration_secret_review_20261020 as arm
 from tests import test_azure_selected_storage_secret_review_20261020 as storage

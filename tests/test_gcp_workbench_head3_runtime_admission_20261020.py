@@ -6,13 +6,10 @@ import re
 import pytest
 
 import peaso.checks as registry
-from peaso.checks import fixtures
 from peaso.checks import gcp_workbench_head3_admission_20261020 as admission
 from peaso.collectors import gcp
 from peaso.collectors import gcp_workbench_head3_projection_20261020 as projection
 from peaso.engine import evaluate_snapshot
-from peaso.engine import evaluate_snapshot, plan_collection
-from peaso.checks import CHECKS
 
 IDS = admission.CHECK_IDS
 SCOPE = 'projects/review'

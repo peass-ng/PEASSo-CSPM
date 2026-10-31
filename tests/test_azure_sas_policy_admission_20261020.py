@@ -1,5 +1,4 @@
 """Current public evaluation and atomic admission of native SAS policy facts."""
-from dataclasses import replace
 import pytest
 from peaso import checks,engine
 from peaso.checks import azure_sas_policy_declaration_admission_20261020 as admission

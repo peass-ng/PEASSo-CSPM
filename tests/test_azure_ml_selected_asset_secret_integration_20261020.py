@@ -6,8 +6,6 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from peaso import checks,engine,secret_scanning as scanning
-from peaso.checks.fixtures import CASES
-from peaso.checks import azure_ml_selected_asset_secret_review_20261020 as consumer
 from peaso.collectors import azure,azure_ml_selected_asset_secret_indicators as source
 from peaso.server.validation import OPTIONS,validate_connector
 from peaso.snapshot import make_snapshot
