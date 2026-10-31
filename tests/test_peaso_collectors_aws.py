@@ -1091,6 +1091,8 @@ def _client_error(operation, code, message):
     ("DescribeDBClusters", "InvalidParameterValue", "Unrecognized engine name: docdb", "region_operation_unsupported"),
     ("DescribeDBInstances", "InvalidParameterValue", "Unrecognized engine name: docdb", "region_operation_unsupported"),
     ("ListDashboards", "UnsupportedUserEditionException", "Account 222233334444 is not subscribed for QuickSight", "service_not_enabled"),
+    ("DescribeHub", "InvalidAccessException", "Account 222233334444 is not subscribed to AWS Security Hub CSPM", "service_not_enabled"),
+    ("GetFindings", "InvalidAccessException", "Account 222233334444 is not subscribed to AWS Security Hub", "service_not_enabled"),
 ])
 def test_documented_service_state_replies_are_facts_not_denials(operation, code, message, state):
     failure = aws._failure(_client_error(operation, code, message))
@@ -1106,6 +1108,7 @@ def test_documented_service_state_replies_are_facts_not_denials(operation, code,
     ("GetDevEndpoints", "AccessDeniedException", ""),
     ("DescribeDBClusters", "InvalidParameterValue", "Unrecognized engine name: mysql-custom"),
     ("ListDashboards", "UnsupportedUserEditionException", "This operation is not supported for the STANDARD edition"),
+    ("DescribeHub", "InvalidAccessException", "User is not authorized to perform: securityhub:DescribeHub"),
 ])
 def test_undocumented_or_nonmatching_replies_stay_denied_or_unknown(operation, code, message):
     failure = aws._failure(_client_error(operation, code, message))

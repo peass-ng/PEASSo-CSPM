@@ -68,6 +68,9 @@ _SERVICE_STATES = (
     # Amazon DocumentDB is not offered in every region; the shared RDS API
     # then rejects the engine filter instead of returning an empty list.
     ({"DescribeDBClusters", "DescribeDBInstances"}, "InvalidParameterValue", r"Unrecognized engine name: docdb\.?", "region_operation_unsupported"),
+    # Security Hub answers every API with InvalidAccessException; only this
+    # exact message says the account has no hub in the Region.
+    (None, "InvalidAccessException", r"Account [0-9]{12} is not subscribed to AWS Security Hub(?: CSPM)?\.?", "service_not_enabled"),
     (None, "UnsupportedUserEditionException", r"Account [0-9]{12} is not subscribed for QuickSight\.?", "service_not_enabled"),
     (None, "UnknownOperationException", r"Unknown Operation\.?|Operation is disabled in this region\.?|" + _EMPTY_MESSAGE, "region_operation_unsupported"),
     ({"GetInstances", "GetRelationalDatabases", "GetStaticIps"}, "RegionSetupInProgressException",

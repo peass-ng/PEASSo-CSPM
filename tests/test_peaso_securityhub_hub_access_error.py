@@ -100,3 +100,21 @@ def test_describe_hub_success_collects_hub_and_registered_engine_can_pass():
     collection, findings = _native_decisions(read)
     assert collection["status"] == "collected"
     assert findings["aws.gap.securityhub.region_hub_enabled"] == "PASS"
+
+
+def test_describe_hub_not_subscribed_reply_is_a_missing_hub():
+    # Security Hub uses InvalidAccessException for both missing permission and
+    # an account with no hub; only the "not subscribed" reply is a missing hub.
+    session = boto3.Session(aws_access_key_id="inert", aws_secret_access_key="inert", region_name=REGION)
+    client = session.client("securityhub", region_name=REGION)
+    with Stubber(client) as stub:
+        stub.add_client_error("describe_hub", service_error_code="InvalidAccessException", http_status_code=401,
+                              service_message=f"Account {ACCOUNT} is not subscribed to AWS Security Hub CSPM")
+        requests = aws.Requests({"retry_attempts": 1})
+        requests.client = lambda _session, service, region: client
+        read = FETCHERS["securityhub_hub"](requests, session, REGION, ACCOUNT)
+        stub.assert_no_pending_responses()
+    assert read.status == "empty" and read.items == []
+    _, findings = _native_decisions(read)
+    assert findings["aws.gap.securityhub.region_hub_enabled"] == "FAIL"
+    assert findings["aws.claude_a.securityhub.enabled_with_standard_or_integration"] == "FAIL"
