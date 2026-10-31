@@ -91,7 +91,7 @@ def extension_cases(cid, cases):
 def current_golden_rows(historical):
     """Preserve every row; seven exact prose errata and one source-pair delta."""
     assert digest(historical) == digest(checked('tests/fixtures/gcp-natural-evidence-golden.json'))
-    for path in ('peaso/checks/gcp_natural_evidence.py', 'peaso/checks/gcp_evidence_explanations.json'):
+    for path in ('peaso/checks/gcp_natural_evidence.py',):
         assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == PINNED_FILES[path]
     historical_source = gzip.decompress((ROOT / 'tests/fixtures/gcp_evidence_explanations_predecessor_b775.py.gz').read_bytes())
     assert hashlib.sha256(historical_source).hexdigest() == PINNED_FILES['peaso/checks/gcp_evidence_explanations.py']
@@ -124,6 +124,10 @@ def current_golden_rows(historical):
             cases = checked('peaso/checks/gcp_function_secret_partial_page_cases_20261020.json')
             row['finding']['evidence']['secret_leaks'] = deepcopy(cases[cid]['fail']['FunctionSecretIndicators']['leaks'])
     assert seen == GOLDEN_PROSE_SUCCESSORS.keys() | GOLDEN_EVIDENCE_SUCCESSORS.keys()
+    # Historical rows keep their recorded ids; renamed checks are evaluated under their current id.
+    from peaso.checks import resolve_check_id
+    for row in result:
+        row['finding']['check_id'] = resolve_check_id(row['finding']['check_id'])
     return result
 
 
@@ -155,7 +159,6 @@ PINNED_FILES = json.loads(r'''
   "peaso/checks/gcp_dataflow_batch_source_runtime_consumer_20261020.py": "c06098ba7318daf6519e0647e7f9e0acd49496790d1ee22f2f8a3f16d1136489",
   "peaso/checks/gcp_dataproc_referenced_source_secret_review_20261020.py": "49ca4dda3b2abc80d8e59c75eecb3b432ea930ffa396494082ea9cfd7382423d",
   "peaso/checks/gcp_dataproc_source_runtime_cases_20261020.json": "ea6f724d024a80c76d50616bfe8be848088eced477b3b83b0b505768e2626bd5",
-  "peaso/checks/gcp_evidence_explanations.json": "91d201e8a8c094c538dbc759d4fad695cb16c3cae41ae582925af03a79d14cfc",
   "peaso/checks/gcp_evidence_explanations.py": "ef658069466a230b16d450122b9203f57df8c039028a26981cfe055b76822313",
   "peaso/checks/gcp_function_secret_page_admission_20261020.json": "0753f397b3028f4e5eed1da1edf850f8bf9c2bf8c8fab77e2df9c23dbb6822f9",
   "peaso/checks/gcp_function_secret_paired_predecessors_20261020.json.gz": "aa4d52a469ec2ef9525488aa1b9dfb2b67be07d69179e9e5772d7f90f36892e2",

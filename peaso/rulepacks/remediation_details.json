@@ -3484,6 +3484,88 @@
     ],
     "summary": "Restrict public TCP/UDP port 80 ingress in this firewall rule to approved sources and necessary targets."
   },
+  "gcp.claude.firewall.public_ingress_kubelet_port_10250": {
+    "caveats": [
+      "The check examines a declared allow rule, not effective reachability, priority, target attachment or hierarchical firewall policy. Source selectors and other ports may still allow exposure."
+    ],
+    "cli": [
+      {
+        "code": "gcloud compute firewall-rules describe <RESOURCE_NAME> --project=<PROJECT_ID>",
+        "label": "Inspect the firewall rule",
+        "shell": "bash"
+      },
+      {
+        "code": "gcloud compute firewall-rules update <RESOURCE_NAME> --project=<PROJECT_ID> --source-ranges=<APPROVED_CIDR>",
+        "label": "Set a reviewed source range",
+        "shell": "bash"
+      }
+    ],
+    "field_binding": {
+      "evaluator_family": "claude_gcp_k8s_compute.firewall_port",
+      "kind": "firewall",
+      "label": "TCP/UDP port 10250",
+      "target": "resource"
+    },
+    "iac": {
+      "code": "Change source_ranges and, if needed, target_tags/target_service_accounts and allow entries on the existing google_compute_firewall resource.",
+      "label": "Change the existing managed rule",
+      "language": "text"
+    },
+    "references": [
+      {
+        "title": "Google Cloud firewall rule updates",
+        "url": "https://cloud.google.com/sdk/gcloud/reference/compute/firewall-rules/update"
+      }
+    ],
+    "review_status": "approved",
+    "steps": [
+      "Inspect direction, sourceRanges, allowed protocol and port entries, and target tags/service accounts for the TCP/UDP port 10250 rule.",
+      "Replace world-open source ranges with tested approved CIDRs or narrow the target and allowed ports in the owning rule.",
+      "Test intended connections, reread the firewall rule and rerun this check; review higher-priority policies separately."
+    ],
+    "summary": "Restrict public TCP/UDP port 10250 ingress in this firewall rule to approved sources and necessary targets."
+  },
+  "gcp.claude.firewall.public_ingress_kubelet_read_only_port_10255": {
+    "caveats": [
+      "The check examines a declared allow rule, not effective reachability, priority, target attachment or hierarchical firewall policy. Source selectors and other ports may still allow exposure."
+    ],
+    "cli": [
+      {
+        "code": "gcloud compute firewall-rules describe <RESOURCE_NAME> --project=<PROJECT_ID>",
+        "label": "Inspect the firewall rule",
+        "shell": "bash"
+      },
+      {
+        "code": "gcloud compute firewall-rules update <RESOURCE_NAME> --project=<PROJECT_ID> --source-ranges=<APPROVED_CIDR>",
+        "label": "Set a reviewed source range",
+        "shell": "bash"
+      }
+    ],
+    "field_binding": {
+      "evaluator_family": "claude_gcp_k8s_compute.firewall_port",
+      "kind": "firewall",
+      "label": "TCP/UDP port 10255",
+      "target": "resource"
+    },
+    "iac": {
+      "code": "Change source_ranges and, if needed, target_tags/target_service_accounts and allow entries on the existing google_compute_firewall resource.",
+      "label": "Change the existing managed rule",
+      "language": "text"
+    },
+    "references": [
+      {
+        "title": "Google Cloud firewall rule updates",
+        "url": "https://cloud.google.com/sdk/gcloud/reference/compute/firewall-rules/update"
+      }
+    ],
+    "review_status": "approved",
+    "steps": [
+      "Inspect direction, sourceRanges, allowed protocol and port entries, and target tags/service accounts for the TCP/UDP port 10255 rule.",
+      "Replace world-open source ranges with tested approved CIDRs or narrow the target and allowed ports in the owning rule.",
+      "Test intended connections, reread the firewall rule and rerun this check; review higher-priority policies separately."
+    ],
+    "summary": "Restrict public TCP/UDP port 10255 ingress in this firewall rule to approved sources and necessary targets."
+  },
   "gcp.claude.firewall.public_ingress_microsoft_ds_port_445": {
     "caveats": [
       "The check examines a declared allow rule, not effective reachability, priority, target attachment or hierarchical firewall policy. Source selectors and other ports may still allow exposure."
@@ -3729,88 +3811,6 @@
       "Test intended connections, reread the firewall rule and rerun this check; review higher-priority policies separately."
     ],
     "summary": "Restrict public TCP/UDP port 110 ingress in this firewall rule to approved sources and necessary targets."
-  },
-  "gcp.claude.firewall.public_ingress_postgresql_port_10250": {
-    "caveats": [
-      "The check examines a declared allow rule, not effective reachability, priority, target attachment or hierarchical firewall policy. Source selectors and other ports may still allow exposure."
-    ],
-    "cli": [
-      {
-        "code": "gcloud compute firewall-rules describe <RESOURCE_NAME> --project=<PROJECT_ID>",
-        "label": "Inspect the firewall rule",
-        "shell": "bash"
-      },
-      {
-        "code": "gcloud compute firewall-rules update <RESOURCE_NAME> --project=<PROJECT_ID> --source-ranges=<APPROVED_CIDR>",
-        "label": "Set a reviewed source range",
-        "shell": "bash"
-      }
-    ],
-    "field_binding": {
-      "evaluator_family": "claude_gcp_k8s_compute.firewall_port",
-      "kind": "firewall",
-      "label": "TCP/UDP port 10250",
-      "target": "resource"
-    },
-    "iac": {
-      "code": "Change source_ranges and, if needed, target_tags/target_service_accounts and allow entries on the existing google_compute_firewall resource.",
-      "label": "Change the existing managed rule",
-      "language": "text"
-    },
-    "references": [
-      {
-        "title": "Google Cloud firewall rule updates",
-        "url": "https://cloud.google.com/sdk/gcloud/reference/compute/firewall-rules/update"
-      }
-    ],
-    "review_status": "approved",
-    "steps": [
-      "Inspect direction, sourceRanges, allowed protocol and port entries, and target tags/service accounts for the TCP/UDP port 10250 rule.",
-      "Replace world-open source ranges with tested approved CIDRs or narrow the target and allowed ports in the owning rule.",
-      "Test intended connections, reread the firewall rule and rerun this check; review higher-priority policies separately."
-    ],
-    "summary": "Restrict public TCP/UDP port 10250 ingress in this firewall rule to approved sources and necessary targets."
-  },
-  "gcp.claude.firewall.public_ingress_postgresql_port_10255": {
-    "caveats": [
-      "The check examines a declared allow rule, not effective reachability, priority, target attachment or hierarchical firewall policy. Source selectors and other ports may still allow exposure."
-    ],
-    "cli": [
-      {
-        "code": "gcloud compute firewall-rules describe <RESOURCE_NAME> --project=<PROJECT_ID>",
-        "label": "Inspect the firewall rule",
-        "shell": "bash"
-      },
-      {
-        "code": "gcloud compute firewall-rules update <RESOURCE_NAME> --project=<PROJECT_ID> --source-ranges=<APPROVED_CIDR>",
-        "label": "Set a reviewed source range",
-        "shell": "bash"
-      }
-    ],
-    "field_binding": {
-      "evaluator_family": "claude_gcp_k8s_compute.firewall_port",
-      "kind": "firewall",
-      "label": "TCP/UDP port 10255",
-      "target": "resource"
-    },
-    "iac": {
-      "code": "Change source_ranges and, if needed, target_tags/target_service_accounts and allow entries on the existing google_compute_firewall resource.",
-      "label": "Change the existing managed rule",
-      "language": "text"
-    },
-    "references": [
-      {
-        "title": "Google Cloud firewall rule updates",
-        "url": "https://cloud.google.com/sdk/gcloud/reference/compute/firewall-rules/update"
-      }
-    ],
-    "review_status": "approved",
-    "steps": [
-      "Inspect direction, sourceRanges, allowed protocol and port entries, and target tags/service accounts for the TCP/UDP port 10255 rule.",
-      "Replace world-open source ranges with tested approved CIDRs or narrow the target and allowed ports in the owning rule.",
-      "Test intended connections, reread the firewall rule and rerun this check; review higher-priority policies separately."
-    ],
-    "summary": "Restrict public TCP/UDP port 10255 ingress in this firewall rule to approved sources and necessary targets."
   },
   "gcp.claude.firewall.public_ingress_postgresql_port_5432": {
     "caveats": [

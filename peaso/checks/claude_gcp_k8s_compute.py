@@ -28,8 +28,8 @@ FIREWALL_PORTS = {
     "mongo_db_port_27017": ([27017], ("tcp", "udp")), "mysql_db_port_3306": ([3306], ("tcp", "udp")),
     "netbios_snn_port_139": ([139], ("tcp", "udp")), "oracle_db_port_1521": ([1521], ("tcp", "udp")),
     "pop3_port_110": ([110], ("tcp", "udp")), "postgresql_port_5432": ([5432], ("tcp", "udp")),
-    "telnet_port_23": ([23], ("tcp", "udp")), "postgresql_port_10250": ([10250], ("tcp", "udp")),
-    "postgresql_port_10255": ([10255], ("tcp", "udp")), "tcp_port_9090": ([9090], ("tcp",)),
+    "telnet_port_23": ([23], ("tcp", "udp")), "kubelet_port_10250": ([10250], ("tcp", "udp")),
+    "kubelet_read_only_port_10255": ([10255], ("tcp", "udp")), "tcp_port_9090": ([9090], ("tcp",)),
     "tcp_port_9200_9300": ([9200, 9300], ("tcp",)), "tcp_port_7000_7001": ([7000, 7001], ("tcp",)),
     "tcp_port_7199": ([7199], ("tcp",)), "tcp_port_8888": ([8888], ("tcp",)), "tcp_port_9042": ([9042], ("tcp",)),
     "tcp_port_9160": ([9160], ("tcp",)), "tcp_port_61620_61621": ([61620, 61621], ("tcp",)),
@@ -67,6 +67,12 @@ def firewall_port(suffix, ports, protocols):
 
 for _suffix, (_ports, _protocols) in FIREWALL_PORTS.items():
     firewall_port(_suffix, _ports, _protocols)
+
+# Ports 10250/10255 are the kubelet API and read-only ports. The earlier ids copied the upstream query names
+# (..._postgresql_port_1025x); they stay resolvable for stored scans, diffs and saved check selections.
+from . import alias_check
+alias_check(gid("firewall.public_ingress_postgresql_port_10250"), FIREWALL_PORT_IDS["kubelet_port_10250"])
+alias_check(gid("firewall.public_ingress_postgresql_port_10255"), FIREWALL_PORT_IDS["kubelet_read_only_port_10255"])
 
 
 @gcp("firewall.public_ingress_all_protocols", "firewall", "Firewall rule does not allow internet ingress over all protocols",
