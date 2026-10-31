@@ -283,6 +283,38 @@ def test_yaml_invalid_or_binary_payload_never_certifies_clean():
     with pytest.raises(ValueError): producer.decode(base64.b64encode(b'p\x00a\x00s\x00s').decode())
 
 
+class StateMachineClient:
+    """DescribeStateMachine as AWS answers it: METADATA_ONLY returns definition "{}"."""
+    def __init__(self, response, full_error=None): self.response, self.full_error, self.seen = response, full_error, []
+    def can_paginate(self, operation): return False
+    def describe_state_machine(self, **kwargs):
+        self.seen.append(kwargs)
+        if kwargs.get('includedData') == 'METADATA_ONLY': return {**deepcopy(self.response), 'definition': '{}'}
+        if self.full_error is not None:
+            from botocore.exceptions import ClientError
+            raise ClientError({'Error': {'Code': self.full_error, 'Message': 'denied'}}, 'DescribeStateMachine')
+        return deepcopy(self.response)
+
+
+@pytest.mark.parametrize('detected', [True, False])
+def test_state_machine_definition_is_read_in_full(detected):
+    from peaso.collectors import aws_facts_cb_ca as data
+    _, _, _, response, item = fixture('sfn_state_machine', detected)
+    client = StateMachineClient(response)
+    row, = data.ENRICHERS['sfn_state_machine'](aws.Requests({'retry_attempts': 1}), SimpleNamespace(client=lambda *a, **kw: client), REGION, [item])
+    assert checks.state_machine(row, index('sfn_state_machine', row))[0] == ('FAIL' if detected else 'PASS')
+
+
+def test_unreadable_state_machine_definition_keeps_metadata_and_names_reason():
+    from peaso.collectors import aws_facts_cb_ca as data
+    _, _, _, response, item = fixture('sfn_state_machine', True)
+    client = StateMachineClient(response, full_error='AccessDeniedException')
+    row, = data.ENRICHERS['sfn_state_machine'](aws.Requests({'retry_attempts': 1}), SimpleNamespace(client=lambda *a, **kw: client), REGION, [item])
+    status, evidence = checks.state_machine(row, index('sfn_state_machine', row))
+    assert status == 'UNKNOWN' and evidence['reason'].startswith('state_machine_definition_unreadable')
+    assert row['status'] == 'ACTIVE'
+
+
 def test_bool_version_cannot_impersonate_integer_and_arn_account_is_required():
     item = projected('ec2_launch_template', False)
     marker('ec2_launch_template', item)['SourceVersion'] = True

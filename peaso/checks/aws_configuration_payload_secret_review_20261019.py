@@ -42,6 +42,10 @@ def _marker(value, kind, identity, account, region, operation, coverage, version
     return set(categories)
 
 
+class _Reason(Unavailable):
+    """An UNKNOWN whose concrete cause the collector already named."""
+
+
 def evaluate(kind, item, index):
     try:
         field, source_kind, label = SURFACES[kind]
@@ -75,6 +79,11 @@ def evaluate(kind, item, index):
                 'autoscaling:DescribeLaunchConfigurations', 'additional_private_key_password_categories', selected={'private_key', 'password_assignment'})
         elif kind == 'sfn_state_machine':
             if get(item, 'status', str) != 'ACTIVE': raise Unavailable('state machine is not active')
+            payload = item.get('PayloadSecretIndicators')
+            if isinstance(payload, dict) and payload.get('collection_status') != 'collected':
+                reason = payload.get('Reason')
+                raise _Reason(reason if isinstance(reason, str) and re.fullmatch(r'[a-z_]{1,64}(?:: [a-z_]{1,64})?', reason)
+                              else 'state_machine_definition_' + str(payload.get('collection_status') or 'unavailable')[:32])
             _arn(identity, 'states', account, region)
             categories = _marker(get(item, 'PayloadSecretIndicators', dict), source_kind, identity, account, region,
                 'stepfunctions:DescribeStateMachine', 'returned_state_machine_definition')
@@ -111,8 +120,14 @@ def evaluate(kind, item, index):
             ': a selected secret indicator was observed.' if categories else ': no selected secret indicator was observed.')
         return ('FAIL' if categories else 'PASS'), {'observed': observed, 'resource_id': identity,
             'matched_categories': sorted(categories), 'partial_detector': True}
-    except (Unavailable, ValueError, TypeError, KeyError, AttributeError):
-        return 'UNKNOWN', {'observed': 'Complete matching configuration-payload evidence is unavailable.'}
+    except _Reason as reason:
+        return 'UNKNOWN', {'observed': 'Complete matching configuration-payload evidence is unavailable.', 'reason': str(reason)}
+    except Unavailable as exc:
+        return 'UNKNOWN', {'observed': 'Complete matching configuration-payload evidence is unavailable.',
+                           'reason': 'payload_evidence_unavailable: ' + str(exc)[:200]}
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return 'UNKNOWN', {'observed': 'Complete matching configuration-payload evidence is unavailable.',
+                           'reason': 'payload_evidence_malformed'}
 
 
 def launch_template(item, index=None): return evaluate('ec2_launch_template', item, index or {})

@@ -9,6 +9,7 @@ allowlists before any record is returned.
 """
 from __future__ import annotations
 import copy
+import re
 import hashlib
 
 SPECS = {
@@ -1114,8 +1115,21 @@ def _merge_enricher(kind):
         output = []
         for original in items:
             item = copy.deepcopy(original)
-            extra = {"includedData": "METADATA_ONLY"} if kind == "sfn_state_machine" else {}
-            response = requests.detail(session, service, region, operation, **{argument: item.get(key)}, **extra)
+            response = requests.detail(session, service, region, operation, **{argument: item.get(key)})
+            if kind == "sfn_state_machine" and _failed(response):
+                # The full read returns the definition the payload review needs.
+                # A customer-managed key without kms:Decrypt rejects it, so keep
+                # the metadata through METADATA_ONLY and name the definition gap.
+                full_failure = response
+                response = requests.detail(session, service, region, operation, **{argument: item.get(key)},
+                                           includedData="METADATA_ONLY")
+                if not _failed(response):
+                    code = (full_failure.get("error") or {}).get("code") if isinstance(full_failure, dict) else None
+                    response = dict(response, PayloadSecretIndicators=dict(
+                        response.get("PayloadSecretIndicators") or {}, collection_status="not_collected",
+                        NativeResponseComplete=False,
+                        Reason="state_machine_definition_unreadable" + (
+                            ": " + code.lower() if isinstance(code, str) and re.fullmatch(r"[A-Za-z_]{1,64}", code) else "")))
             body = response.get(root) if root else response
             if _failed(response):
                 _mark(item, response, operation)

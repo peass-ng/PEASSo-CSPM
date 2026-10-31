@@ -21,8 +21,11 @@ NATIVE_IDS = {'datapipeline_pipeline': 'id'}
 LIMIT = 16384
 
 
-def bad():
-    return {'Schema': SCHEMA, 'collection_status': 'malformed', 'NativeResponseComplete': False}
+def bad(reason=None):
+    marker = {'Schema': SCHEMA, 'collection_status': 'malformed', 'NativeResponseComplete': False}
+    if reason is not None:
+        marker['Reason'] = reason
+    return marker
 
 
 def decode(encoded, limit=LIMIT, gzip_ok=False):
@@ -191,6 +194,11 @@ def project_response(response, *, service, operation, arguments, region):
     if service == 'stepfunctions':
         fields = ('stateMachineArn', 'name', 'status', 'type', 'roleArn', 'loggingConfiguration', 'tracingConfiguration', 'encryptionConfiguration', 'creationDate')
         safe = {key: deepcopy(response[key]) for key in fields if key in response}
+        if arguments.get('includedData') == 'METADATA_ONLY':
+            # This read deliberately omits the definition (AWS returns "{}").
+            safe['PayloadSecretIndicators'] = {'Schema': SCHEMA, 'collection_status': 'not_collected',
+                'NativeResponseComplete': False, 'Reason': 'state_machine_definition_not_requested'}
+            return safe
         try:
             arn, text = response['stateMachineArn'], response['definition']
             if arn != arguments.get('stateMachineArn') or not isinstance(text, str) or not text or len(text.encode()) > 1048576 or response.get('status') != 'ACTIVE':
@@ -200,7 +208,7 @@ def project_response(response, *, service, operation, arguments, region):
                 raise ValueError('state machine JSON incomplete')
             safe['PayloadSecretIndicators'] = marker('state_machine', arn, [text], region, 'stepfunctions:DescribeStateMachine', 'returned_state_machine_definition')
         except (ValueError, TypeError, KeyError, UnicodeError, RecursionError):
-            safe['PayloadSecretIndicators'] = bad()
+            safe['PayloadSecretIndicators'] = bad('state_machine_definition_malformed')
         return safe
     safe = {key: deepcopy(response[key]) for key in ('NotebookInstanceLifecycleConfigName', 'NotebookInstanceLifecycleConfigArn', 'CreationTime', 'LastModifiedTime') if key in response}
     try:
