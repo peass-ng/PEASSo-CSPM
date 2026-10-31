@@ -232,7 +232,8 @@ def test_pure_consumer_provenance_and_completeness_guards(monkeypatch,mutate):
 
 def test_eight_exact_functions_dedup_across_observed_assets(monkeypatch):
     targets=[FUNCTION+str(i) for i in range(8)]
-    snapshot,trace=capture(monkeypatch,targets=targets,responses={t:native(t,{'Token':TOKEN}) for t in targets})
+    # One worker: the Stubber queue is ordered, while parallel reads are not.
+    snapshot,trace=capture(monkeypatch,targets=targets,responses={t:native(t,{'Token':TOKEN}) for t in targets},req=request(targets,max_workers=1))
     result=findings(snapshot)
     assert len(trace.calls)==8 and len(result)==1 and result[0]['status']=='FAIL'
     assert len(result[0]['evidence']['secret_leaks'][0]['locations'])==8

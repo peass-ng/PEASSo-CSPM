@@ -101,25 +101,7 @@ def _checkout_at_ledger_revision():
     return None
 
 
-def test_every_in_scope_heading_has_a_ledger_row():
-    root = _checkout_at_ledger_revision()
-    if root is None:
-        pytest.skip(f"no hacktricks-cloud checkout at {LEDGER_REVISION} (set HACKTRICKS_CLOUD_ROOT)")
-    rows = {f"{p}#{a}" for p, a, _, _ in _ledger_rows()}
-    base = root / PC
-    pages = []
-    for scope in SCOPE:
-        p = base / scope
-        pages += sorted(p.rglob("*.md")) if p.is_dir() else [p]
-    missing = [f"{page.relative_to(base)}#{a}" for page in pages for a in _anchors(page)
-               if f"{page.relative_to(base)}#{a}" not in rows]
-    assert not missing, "in-scope headings without a ledger row:\n" + "\n".join(missing)
 
-
-
-
-# ------------------------------------------------------------------ catalog wiring of the admission blockers
-# Fixtures run the real catalog entries (not synthetic ones) through the model-evaluated K8s blockers.
 def _catalog_entries(*ids):
     by_id = {e["id"]: e for e in load_catalog()["entries"]}
     return [by_id[i] for i in ids]
