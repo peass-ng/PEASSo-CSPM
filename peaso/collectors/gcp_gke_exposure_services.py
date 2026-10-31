@@ -82,8 +82,9 @@ def dns_cluster_binding(collector, scope, selection):
     config = row.get("controlPlaneEndpointsConfig")
     config = config.get("dnsEndpointConfig") if isinstance(config, dict) else None
     endpoint = config.get("endpoint") if isinstance(config, dict) else None
-    if (not isinstance(config, dict) or config.get("allowExternalTraffic") is not True
-            or not isinstance(endpoint, str) or not DNS_ENDPOINT.fullmatch(endpoint)):
+    if not isinstance(config, dict) or config.get("allowExternalTraffic") is not True:
+        raise _failure("gke_cluster_dns_endpoint_external_access_disabled")
+    if not isinstance(endpoint, str) or not DNS_ENDPOINT.fullmatch(endpoint):
         raise _failure("gke_cluster_dns_endpoint_unproved")
     context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -93,6 +94,7 @@ def dns_cluster_binding(collector, scope, selection):
 
 class ServiceReader:
     PATH = "/api/v1/services"
+    ABSENT_ON_404 = False  # True only for optional CRD-backed APIs
     OPERATION = "gke-exposure-services-list"
     def __init__(self, collector, binding, namespaces, budget):
         self.transport = collector.transport
@@ -127,6 +129,10 @@ class ServiceReader:
             del bearer
             response = connection.getresponse()
             evidence["http_status"] = response.status
+            if response.status == 404 and self.ABSENT_ON_404:
+                # The optional API group is not served: the cluster has no such objects.
+                evidence["status"] = "collected"
+                return {"items": [], "continue": "", "resourceVersion": "api-not-served"}, rid
             if response.status != 200:
                 failure_status = "denied" if response.status in (401, 403) else "unavailable"
                 evidence["status"] = failure_status
@@ -198,7 +204,7 @@ class ServiceReader:
             raise ValueError("GKE Service list continuity")
         rows = []
         for service in data["items"]:
-            if not isinstance(service, dict) or service.get("kind") != "Service" or service.get("apiVersion") != "v1":
+            if not isinstance(service, dict) or service.get("kind", "Service") != "Service" or service.get("apiVersion", "v1") != "v1":
                 raise ValueError("GKE Service resource shape")
             meta, spec = service.get("metadata"), service.get("spec")
             if not isinstance(meta, dict) or not isinstance(spec, dict):
@@ -334,8 +340,8 @@ class IngressReader(ServiceReader):
             raise ValueError("GKE Ingress list continuity")
         rows = []
         for ingress in data["items"]:
-            if (not isinstance(ingress, dict) or ingress.get("apiVersion") != "networking.k8s.io/v1"
-                    or ingress.get("kind") != "Ingress"):
+            if (not isinstance(ingress, dict) or ingress.get("apiVersion", "networking.k8s.io/v1") != "networking.k8s.io/v1"
+                    or ingress.get("kind", "Ingress") != "Ingress"):
                 raise ValueError("GKE Ingress resource shape")
             meta, spec, status = ingress.get("metadata"), ingress.get("spec"), ingress.get("status", {})
             if not isinstance(meta, dict) or not isinstance(spec, dict) or not isinstance(status, dict):
@@ -402,7 +408,7 @@ class MultiClusterIngressReader(ServiceReader):
         rows = []
         for ingress in data["items"]:
             if (not isinstance(ingress, dict) or ingress.get("apiVersion") != api_version
-                    or ingress.get("kind") != "MultiClusterIngress"):
+                    or ingress.get("kind", "MultiClusterIngress") != "MultiClusterIngress"):
                 raise ValueError("GKE MultiClusterIngress resource shape")
             meta, status = ingress.get("metadata"), ingress.get("status", {})
             if not isinstance(meta, dict) or not isinstance(status, dict):
@@ -442,6 +448,7 @@ class MultiClusterIngressReader(ServiceReader):
 
 class LegacyMultiClusterIngressReader(MultiClusterIngressReader):
     PATH = "/apis/networking.gke.io/v1beta1/multiclusteringresses"
+    ABSENT_ON_404 = True
     OPERATION = "gke-exposure-multiclusteringresses-v1beta1-list"
 
 
@@ -461,7 +468,7 @@ class PodReader(ServiceReader):
             raise ValueError("GKE Pod list continuity")
         rows = []
         for pod in data["items"]:
-            if not isinstance(pod, dict) or pod.get("apiVersion") != "v1" or pod.get("kind") != "Pod":
+            if not isinstance(pod, dict) or pod.get("apiVersion", "v1") != "v1" or pod.get("kind", "Pod") != "Pod":
                 raise ValueError("GKE Pod resource shape")
             meta, spec, status = pod.get("metadata"), pod.get("spec"), pod.get("status", {})
             if not isinstance(meta, dict) or not isinstance(spec, dict) or not isinstance(status, dict):
@@ -551,7 +558,7 @@ class NodeReader(ServiceReader):
             raise ValueError("GKE Node list continuity")
         rows = []
         for node in data["items"]:
-            if not isinstance(node, dict) or node.get("apiVersion") != "v1" or node.get("kind") != "Node":
+            if not isinstance(node, dict) or node.get("apiVersion", "v1") != "v1" or node.get("kind", "Node") != "Node":
                 raise ValueError("GKE Node resource shape")
             meta, spec, status = node.get("metadata"), node.get("spec"), node.get("status", {})
             if not isinstance(meta, dict) or not isinstance(spec, dict) or not isinstance(status, dict):
@@ -584,6 +591,7 @@ class NodeReader(ServiceReader):
 
 class GatewayReader(ServiceReader):
     PATH = "/apis/gateway.networking.k8s.io/v1/gateways"
+    ABSENT_ON_404 = True
     OPERATION = "gke-exposure-gateways-list"
 
     def project_list(self, data, path):
@@ -597,8 +605,8 @@ class GatewayReader(ServiceReader):
             raise ValueError("GKE Gateway list continuity")
         rows = []
         for gateway in data["items"]:
-            if (not isinstance(gateway, dict) or gateway.get("apiVersion") != "gateway.networking.k8s.io/v1"
-                    or gateway.get("kind") != "Gateway"):
+            if (not isinstance(gateway, dict) or gateway.get("apiVersion", "gateway.networking.k8s.io/v1") != "gateway.networking.k8s.io/v1"
+                    or gateway.get("kind", "Gateway") != "Gateway"):
                 raise ValueError("GKE Gateway resource shape")
             meta, spec, status = gateway.get("metadata"), gateway.get("spec"), gateway.get("status", {})
             if not isinstance(meta, dict) or not isinstance(spec, dict) or not isinstance(status, dict):
@@ -653,6 +661,7 @@ class GatewayReader(ServiceReader):
 
 class GatewayClassReader(ServiceReader):
     PATH = "/apis/gateway.networking.k8s.io/v1/gatewayclasses"
+    ABSENT_ON_404 = True
     OPERATION = "gke-exposure-gatewayclasses-list"
 
     def project_list(self, data, path):
@@ -666,8 +675,8 @@ class GatewayClassReader(ServiceReader):
             raise ValueError("GKE GatewayClass list continuity")
         rows = []
         for gateway_class in data["items"]:
-            if (not isinstance(gateway_class, dict) or gateway_class.get("apiVersion") != "gateway.networking.k8s.io/v1"
-                    or gateway_class.get("kind") != "GatewayClass"
+            if (not isinstance(gateway_class, dict) or gateway_class.get("apiVersion", "gateway.networking.k8s.io/v1") != "gateway.networking.k8s.io/v1"
+                    or gateway_class.get("kind", "GatewayClass") != "GatewayClass"
                     or not isinstance(gateway_class.get("metadata"), dict)
                     or not isinstance(gateway_class.get("spec"), dict)):
                 raise ValueError("GKE GatewayClass resource shape")
@@ -691,6 +700,7 @@ class GatewayClassReader(ServiceReader):
 
 class HTTPRouteReader(ServiceReader):
     PATH = "/apis/gateway.networking.k8s.io/v1/httproutes"
+    ABSENT_ON_404 = True
     OPERATION = "gke-exposure-httproutes-list"
 
     def project_list(self, data, path):
@@ -704,8 +714,8 @@ class HTTPRouteReader(ServiceReader):
             raise ValueError("GKE HTTPRoute list continuity")
         rows = []
         for route in data["items"]:
-            if (not isinstance(route, dict) or route.get("apiVersion") != "gateway.networking.k8s.io/v1"
-                    or route.get("kind") != "HTTPRoute"):
+            if (not isinstance(route, dict) or route.get("apiVersion", "gateway.networking.k8s.io/v1") != "gateway.networking.k8s.io/v1"
+                    or route.get("kind", "HTTPRoute") != "HTTPRoute"):
                 raise ValueError("GKE HTTPRoute resource shape")
             meta, spec, status = route.get("metadata"), route.get("spec"), route.get("status", {})
             if not isinstance(meta, dict) or not isinstance(spec, dict) or not isinstance(status, dict):
@@ -806,8 +816,8 @@ class EndpointSliceReader(ServiceReader):
             raise ValueError("GKE EndpointSlice list continuity")
         rows = []
         for entry in data["items"]:
-            if (not isinstance(entry, dict) or entry.get("apiVersion") != "discovery.k8s.io/v1"
-                    or entry.get("kind") != "EndpointSlice"):
+            if (not isinstance(entry, dict) or entry.get("apiVersion", "discovery.k8s.io/v1") != "discovery.k8s.io/v1"
+                    or entry.get("kind", "EndpointSlice") != "EndpointSlice"):
                 raise ValueError("GKE EndpointSlice resource shape")
             meta = entry.get("metadata")
             if not isinstance(meta, dict):
@@ -826,7 +836,9 @@ class EndpointSliceReader(ServiceReader):
             self.budget["resources"] += 1
             if self.budget["resources"] > MAX_SERVICES:
                 raise ValueError("GKE EndpointSlice count bound")
-            address_type, endpoints, ports = entry.get("addressType"), entry.get("endpoints"), entry.get("ports", [])
+            # The API serializes an empty endpoints or ports list as null.
+            address_type, endpoints, ports = entry.get("addressType"), entry.get("endpoints"), entry.get("ports")
+            endpoints, ports = [] if endpoints is None else endpoints, [] if ports is None else ports
             if (address_type not in ("IPv4", "IPv6", "FQDN") or not isinstance(endpoints, list)
                     or len(endpoints) > 1000 or not isinstance(ports, list) or len(ports) > 100):
                 raise ValueError("GKE EndpointSlice addresses/ports")
@@ -933,7 +945,10 @@ def dependent_jobs(collector, kind=KIND):
                         state, reason = "collected", None
                         break
                     except ReadError as exc:
-                        reason = exc.error["code"]
+                        # Keep why the IP endpoint read failed unless that endpoint was itself
+                        # unusable; the DNS fallback only applies to DNS-endpoint clusters.
+                        if bind is cluster_binding or reason == "gke_cluster_endpoint_or_ca_unproved":
+                            reason = exc.error["code"]
                         last_request = getattr(exc, "request_id", None) or last_request
                 yield [{"name": selection + "/" + resource_label + "Inventory", "cluster": selection,
                         "inventoryStatus": state, resource_label + "Count": count,

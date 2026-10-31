@@ -36023,8 +36023,11 @@ def assess(snapshot, resources, *, related_snapshots=()):
     key = ("snapshot", "internet_exposure", tuple(r.get("snapshot_id") for r in related_snapshots))
     if context is not None and context["snapshot"] is snapshot and key in context["derivations"]:
         return context["derivations"][key]
-    inventory = Inventory(snapshot, resources)
     provider = snapshot["provider"]
+    if provider == "gcp" and related_snapshots:
+        from .gke_related_workloads import join
+        resources = join(resources, related_snapshots)
+    inventory = Inventory(snapshot, resources)
     output = []
     extra = {}
     if provider == "azure":

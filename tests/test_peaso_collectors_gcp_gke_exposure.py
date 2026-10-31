@@ -183,7 +183,7 @@ def test_dns_binding_requires_exact_source_receipt_and_enabled_endpoint():
             services.dns_cluster_binding(collector, scope, selection)
     row["controlPlaneEndpointsConfig"]["dnsEndpointConfig"].update(
         endpoint="abc.r1.gke.goog", allowExternalTraffic=False)
-    with pytest.raises(ReadError, match="gke_cluster_dns_endpoint_unproved"):
+    with pytest.raises(ReadError, match="gke_cluster_dns_endpoint_external_access_disabled"):
         services.dns_cluster_binding(collector, scope, selection)
     row["controlPlaneEndpointsConfig"]["dnsEndpointConfig"]["allowExternalTraffic"] = True
     receipt["http_status"] = 403
