@@ -455,6 +455,10 @@ def collect(requests, session, region, account, recipes=None):
             if source_operation not in row["_provenance"]["source_operations"]:
                 row["_provenance"]["source_operations"].append(source_operation)
     rows = [policies[key] for key in sorted(policies)]
+    # Analysis reads this flag instead of importing the collector recipes.
+    global_ids = global_recipe_ids()
+    for row in rows:
+        row["_provenance"]["account_global"] = all(f in global_ids for f in row["_provenance"]["families"])
     if failures:
         status = "partial" if rows else "denied" if all(f["status"] == "denied" for f in failures) else "unknown"
         return ReadResult(rows, status, {"code": "resource_policy_coverage_incomplete", "families": failures})

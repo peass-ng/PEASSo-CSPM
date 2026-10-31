@@ -6446,12 +6446,8 @@ def _aws_ecr_template_pull(snapshot, inventory, resource):
 
 
 def _account_global_policy(provenance):
-    """Whether every collector family of this policy row is account-global."""
-    from peaso.collectors.aws_resource_policy_families import global_recipe_ids
-    families = provenance.get("families") if isinstance(provenance, dict) else None
-    if not isinstance(families, list) or not families:
-        return False
-    return all(family in global_recipe_ids() for family in families)
+    """Whether the collector marked every family of this policy row account-global."""
+    return isinstance(provenance, dict) and provenance.get("account_global") is True
 
 
 def _later_global_policy_copy(inventory, resource, account, arn):
