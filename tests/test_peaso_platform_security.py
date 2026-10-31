@@ -52,14 +52,14 @@ def test_hosted_access_probe_uses_dns_pinned_transport(monkeypatch):
     assert result['status'] == 'blocked'
 
 
-def test_local_kubeconfig_exec_helper_is_rejected_before_sdk_loader(tmp_path, monkeypatch):
+def test_local_kubeconfig_exec_helper_never_reaches_sdk_loader(tmp_path, monkeypatch):
     import json
     from kubernetes import config
     path = tmp_path / 'untrusted-config'
     path.write_text(json.dumps(kubeconfig({'exec': {'command': 'never-execute', 'apiVersion': 'client.authentication.k8s.io/v1'}})))
     invoked = []
     monkeypatch.setattr(config, 'new_client_from_config', lambda **kw: invoked.append(kw))
-    with pytest.raises(ValueError, match='helpers|files'):
+    with pytest.raises(ValueError, match='exec plugin could not run'):
         k8s._new_api({'method': 'kubeconfig', 'kubeconfig': str(path)})
     assert invoked == []
 

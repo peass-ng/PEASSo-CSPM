@@ -41,7 +41,8 @@ def _open_api(auth):
         return _new_api(auth)
     except KubeconfigHelperError as exc:
         raise K8sReadError("kubeconfig_exec_or_file_credentials_unsupported") from exc
-    except (ValueError, OSError) as exc:
+    except (FileNotFoundError, IsADirectoryError, PermissionError) as exc:
+        # Provider HTTP failures (urllib HTTPError is an OSError) keep their own status.
         raise K8sReadError("kubernetes_auth_invalid") from exc
 
 
@@ -448,6 +449,127 @@ def validate_inline_kubeconfig(data, context=None):
             "tls_server_name": cluster.get("tls-server-name")}
 
 
+def _local_file_text(path, base):
+    """Read a kubeconfig-referenced local file (CLI scans only)."""
+    if not isinstance(path, str) or not path:
+        raise ValueError("kubeconfig file reference must be a path")
+    path = os.path.join(base, os.path.expanduser(path))
+    with open(path, "rb") as stream:
+        payload = stream.read(1_000_001)
+    if len(payload) > 1_000_000:
+        raise ValueError("kubeconfig referenced file is too large")
+    return payload
+
+
+class _ExecCredential:
+    """Run the selected user's client-go exec plugin and re-run it when its credential expires."""
+
+    def __init__(self, spec, cluster):
+        if not isinstance(spec, dict) or not isinstance(spec.get("command"), str) or not spec["command"]:
+            raise ValueError("kubeconfig exec plugin requires a command")
+        args, env = spec.get("args") or [], spec.get("env") or []
+        if (not isinstance(args, list) or any(not isinstance(x, str) for x in args) or not isinstance(env, list)
+                or any(not isinstance(x, dict) or not isinstance(x.get("name"), str) or not isinstance(x.get("value"), str) for x in env)):
+            raise ValueError("kubeconfig exec plugin args/env are malformed")
+        self.api_version = spec.get("apiVersion") or "client.authentication.k8s.io/v1beta1"
+        self.argv, self.env = [spec["command"], *args], {x["name"]: x["value"] for x in env}
+        self.cluster = cluster if spec.get("provideClusterInfo") else None
+        self.lock, self.expires = threading.Lock(), None
+
+    def run(self):
+        import json
+        import subprocess
+        info = {"apiVersion": self.api_version, "kind": "ExecCredential", "spec": {"interactive": False}}
+        if self.cluster is not None:
+            info["spec"]["cluster"] = {"server": self.cluster.get("server"),
+                                       "certificate-authority-data": self.cluster.get("certificate-authority-data")}
+        env = {**os.environ, **self.env, "KUBERNETES_EXEC_INFO": json.dumps(info)}
+        try:
+            done = subprocess.run(self.argv, env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=120, check=False)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise KubeconfigHelperError("kubeconfig exec plugin could not run") from exc
+        if done.returncode != 0:
+            raise KubeconfigHelperError(f"kubeconfig exec plugin exited with status {done.returncode}")
+        try:
+            status = json.loads(done.stdout)["status"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise KubeconfigHelperError("kubeconfig exec plugin returned no ExecCredential status") from exc
+        if not isinstance(status, dict):
+            raise KubeconfigHelperError("kubeconfig exec plugin returned no ExecCredential status")
+        expiry = status.get("expirationTimestamp")
+        self.expires = None
+        if isinstance(expiry, str) and expiry:
+            self.expires = datetime.fromisoformat(expiry.replace("Z", "+00:00")).timestamp()
+        user = {}
+        if isinstance(status.get("token"), str) and status["token"]:
+            user["token"] = status["token"]
+        elif isinstance(status.get("clientCertificateData"), str) and isinstance(status.get("clientKeyData"), str):
+            user["client-certificate-data"] = status["clientCertificateData"]
+            user["client-key-data"] = status["clientKeyData"]
+        else:
+            raise KubeconfigHelperError("kubeconfig exec plugin returned neither a token nor a client certificate")
+        return user
+
+    def refresh(self, configuration):
+        """kubernetes.client refresh_api_key_hook: renew the bearer token shortly before expiry."""
+        with self.lock:
+            if self.expires is None or time.time() < self.expires - 60:
+                return
+            token = self.run().get("token")
+            if token:
+                configuration.api_key = {"authorization": token}
+                configuration.api_key_prefix = {"authorization": "Bearer"}
+
+
+def local_kubeconfig(raw, context=None, base="."):
+    """Resolve the selected context of a local kubeconfig for CLI scans.
+
+    Only the selected context's user and cluster are used; other users (including
+    exec helpers) are ignored. Exec plugins and referenced files are allowed here
+    because the operator runs the scan with their own local credentials. Hosted
+    scans never reach this path and keep validate_inline_kubeconfig's rules.
+    """
+    from peaso.auth.documents import credential_document
+    data = credential_document(raw) if isinstance(raw, str) else raw
+    if not isinstance(data, dict):
+        raise ValueError("kubeconfig must be an object")
+    def named(section, name):
+        found = [e for e in data.get(section) or [] if isinstance(e, dict) and e.get("name") == name]
+        if len(found) != 1:
+            raise ValueError(f"kubeconfig {section} reference is missing or duplicated")
+        return found[0]
+    selected = context or data.get("current-context")
+    match = named("contexts", selected).get("context")
+    if not isinstance(match, dict):
+        raise ValueError("kubeconfig context does not exist")
+    cluster = dict(named("clusters", match.get("cluster")).get("cluster") or {})
+    user = dict(named("users", match.get("user")).get("user") or {})
+    if "certificate-authority" in cluster:
+        cluster["certificate-authority-data"] = base64.b64encode(
+            _local_file_text(cluster.pop("certificate-authority"), base)).decode()
+    for path_key, data_key in (("client-certificate", "client-certificate-data"), ("client-key", "client-key-data")):
+        if path_key in user:
+            user[data_key] = base64.b64encode(_local_file_text(user.pop(path_key), base)).decode()
+    if "tokenFile" in user:
+        user["token"] = _local_file_text(user.pop("tokenFile"), base).decode().strip()
+    if "auth-provider" in user:
+        raise KubeconfigHelperError("kubeconfig auth-provider plugins are not supported; use an exec plugin")
+    plugin = None
+    if "exec" in user:
+        plugin = _ExecCredential(user.pop("exec"), cluster)
+        user.update(plugin.run())
+    for key in ("username", "password", "as", "as-groups", "as-user-extra"):
+        if user.get(key):
+            raise ValueError(f"kubeconfig user field {key} is not supported")
+        user.pop(key, None)
+    cluster.pop("extensions", None)
+    user.pop("extensions", None)
+    reduced = {"current-context": selected, "contexts": [{"name": selected, "context": {"cluster": "c", "user": "u"}}],
+               "clusters": [{"name": "c", "cluster": cluster}], "users": [{"name": "u", "user": user}]}
+    resolved = validate_inline_kubeconfig(reduced)
+    return dict(resolved, _exec_refresh=plugin.refresh) if plugin and resolved.get("token") else resolved
+
+
 def hosted_auth(auth):
     """Hosted probes and scans use only explicit tenant-owned inline material."""
     method = auth.get('method', 'auto')
@@ -652,14 +774,14 @@ def _new_api(auth):
         method = 'direct'
     elif method in ('kubeconfig', 'context') or (method == 'auto' and not auth.get('server')
             and not auth.get('in_cluster') and not os.getenv('KUBERNETES_SERVICE_HOST')):
-        # Parse local files as data too. Never call the SDK kubeconfig loader,
-        # which can execute exec/auth-provider helpers and read referenced files.
+        # Parse local files ourselves rather than with the SDK loader: only the
+        # selected context's user runs an exec plugin; other users are ignored.
         path = auth.get('kubeconfig') or os.getenv('KUBECONFIG') or os.path.expanduser('~/.kube/config')
         if not isinstance(path, str) or os.pathsep in path:
             raise ValueError('use one data-only kubeconfig file')
         with open(path, encoding='utf-8') as stream:
             raw = stream.read(2_000_001)
-        auth = {**auth, **validate_inline_kubeconfig(raw, auth.get('context'))}
+        auth = {**auth, **local_kubeconfig(raw, auth.get('context'), os.path.dirname(os.path.abspath(path)))}
         method = 'direct'
     direct = None if method in ("in_cluster", "in-cluster") or (method in ("kubeconfig", "context") and auth.get("kubeconfig_data") is None) else auth.get("server")
     if direct:
@@ -690,6 +812,8 @@ def _new_api(auth):
         if token:
             configuration.api_key = {"authorization": token}
             configuration.api_key_prefix = {"authorization": "Bearer"}
+            if callable(auth.get("_exec_refresh")) and not auth.get("_hosted"):
+                configuration.refresh_api_key_hook = auth["_exec_refresh"]
         cert, key = auth.get("client_cert"), auth.get("client_key")
         temporary = None
         inline = (("ca_cert_data", "ssl_ca_cert"), ("client_cert_data", "cert_file"), ("client_key_data", "key_file"))
