@@ -3689,6 +3689,18 @@ def test_coverage_finding_lists_missing_inventory():
     assert gap and gap[0]["status"] == "UNKNOWN" and {"type": "instance", "status": "denied"} in gap[0]["evidence"]["gaps"]
 
 
+@pytest.mark.parametrize("code, absent", [("unsupported_region_service", True),
+                                          ("ecr_public_requires_us_east_1_scope", True),
+                                          ("inventory_not_requested", False)])
+def test_service_absent_from_region_is_not_an_inventory_gap(code, absent):
+    missing = dict(coll("machinelearning_model", [], status="not_collected", service="machinelearning"),
+                   error={"code": code})
+    report = analyze(aws(missing))
+    gaps = [g for f in report["findings"] if f["check_id"] == CHECK and f["resource_id"] == "inventory:internet_exposure"
+            for g in f["evidence"]["gaps"]]
+    assert any(g["type"] == "machinelearning_model" for g in gaps) is not absent
+
+
 # -------------------------------------------------------------------- GCP
 
 GSCOPE = "projects/p1"

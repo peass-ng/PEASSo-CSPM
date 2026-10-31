@@ -50,6 +50,9 @@ IPV6_GUA = ipaddress.IPv6Network("2000::/3")
 ADMIN_PORTS = {22, 23, 3389, 5985, 5986, 2375, 2376, 6443, 10250, 2379, 5900}
 DATA_PORTS = {1433, 1521, 3306, 5432, 6379, 9200, 9300, 11211, 27017, 5984, 8086, 9042, 7000, 50070, 5601, 9092, 2181, 8020, 8888}
 AVAILABLE = ("collected", "empty", "partial")
+# Collector proof that the service keeps no resources in the scanned Region:
+# nothing there can be exposed, so the Region's inventory is not incomplete.
+REGION_ABSENT_CODES = frozenset({"unsupported_region_service", "ecr_public_requires_us_east_1_scope"})
 # Facts the collectors would need for a complete model (routed to collector owners).
 STATIC_GAPS = {
     "aws": [],
@@ -38323,10 +38326,15 @@ def coverage_findings(snapshot, resources):
     """One UNKNOWN per scope listing exposure inventory that is missing or never collected."""
     provider = snapshot["provider"]
     collected = {(c["scope"], c["type"]): c.get("status") for c in snapshot.get("collections", [])}
+    absent = {(c["scope"], c["type"]) for c in snapshot.get("collections", [])
+              if provider == "aws" and c.get("status") == "not_collected" and not c.get("items")
+              and isinstance(c.get("error"), dict) and c["error"].get("code") in REGION_ABSENT_CODES}
     output = []
     for scope in snapshot.get("scopes", []):
         gaps = []
         for kind in sorted(EVALUATED.get(provider, ())):
+            if (scope, kind) in absent:
+                continue
             status = collected.get((scope, kind))
             if status is None and provider == "aws":
                 # Account-global inventories (bucket) live under <account>/global.
