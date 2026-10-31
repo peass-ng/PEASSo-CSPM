@@ -20,6 +20,8 @@ from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import unquote
 
+from peaso.snapshot import STATUSES as _COLLECTION_STATUSES
+
 
 THROTTLE_RETRY_ATTEMPTS = 8
 THROTTLE_RETRY_MAX_WAIT = 16.0
@@ -2389,6 +2391,11 @@ def collect(connector, requirements=None):
         # selection despite concurrent API completion.
         unique = {}
         status, error = read.status, read.error
+        if status not in _COLLECTION_STATUSES:
+            # One reader returning an unexpected status must not invalidate
+            # the whole snapshot; keep its rows and mark the read incomplete.
+            status = "partial" if read.items else "unknown"
+            error = {**(error if isinstance(error, dict) else {}), "reason": "invalid_collection_status"}
         for original in read.items:
             if not isinstance(original, dict):
                 status, error = ("partial" if unique else "malformed"), {"code": "malformed_resource"}

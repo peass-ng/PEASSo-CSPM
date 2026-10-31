@@ -3,6 +3,7 @@
 KIND = "quicksight_dashboard_share"
 SPECS = {KIND: ("quicksight", "list_dashboards", "DashboardSummaryList")}
 NATIVE_IDS = {KIND: "NetworkResourceId"}
+_FAILURE_STATUSES = frozenset({"partial", "denied", "unknown", "malformed", "timeout", "not_collected"})
 READ_ACTIONS = {("quicksight", operation) for operation in
                 ("list_dashboards", "describe_dashboard_permissions", "describe_account_settings")}
 
@@ -72,8 +73,6 @@ def collect(requests, session, region, account):
     listed = requests.pages(session, "quicksight", region, "list_dashboards", "DashboardSummaryList",
                             _tokens=("NextToken", "NextToken"), AwsAccountId=account)
     rows, failures = [], []
-    if public is None:
-        failures.append("account_settings_incomplete")
     if listed.status not in {"collected", "empty"}:
         failures.append(listed.status)
     for summary in listed.items:
@@ -93,6 +92,12 @@ def collect(requests, session, region, account):
         rows.append({"DashboardId": ident, "DashboardArn": arn, "NetworkResourceId": arn,
                      "AccountPublicSharing": public,
                      "Permissions": detail.get("Permissions"), "LinkPermissions": detail.get("LinkPermissions")})
+    if rows and public is None:
+        # The sharing setting only qualifies existing dashboards. An account
+        # without dashboards (for example, not subscribed) has nothing to share.
+        settings_status = settings.get("collection_status")
+        failures.insert(0, settings_status if settings_status in _FAILURE_STATUSES else "unknown")
+    failures = [value if value in _FAILURE_STATUSES else "unknown" for value in failures]
     status = "partial" if rows and failures else failures[0] if failures else "collected" if rows else "empty"
     return ReadResult(rows, status, {"code": "quicksight_dashboard_shares_incomplete"} if failures else None)
 
