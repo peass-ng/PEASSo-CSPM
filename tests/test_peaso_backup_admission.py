@@ -1,48 +1,24 @@
 """Public source-grounded AWS Backup frequency and retention admission fixture."""
 from __future__ import annotations
 
-
 import copy
-import hashlib
-import json
 import math
-from pathlib import Path
 
 import pytest
 
-
 from peaso.checks import CHECKS, aws_backup_plan_frequency as backup
-
 from peaso.checks.fixtures import CASES
 from peaso.collectors import aws_policy
 from tests.archived_check_contract import evaluate_snapshot
 from peaso.snapshot import make_snapshot, validate
-import peaso
 
 
-ROOT = Path(__file__).resolve().parents[1]
-LEDGER = ROOT / "docs/compliance-ledgers"
-PACK = ROOT / "peaso/rulepacks"
 CID = backup.CHECK_ID
-FREQ, PCI = "aws_backup_plan_rule_required_frequency", "aws.pci.backup.plan_frequency_retention"
-KEYS = ("id", "provider", "resource_kind", "data_source", "predicate", "severity", "category", "title", "description", "remediation_hint")
 ACCOUNT, REGION = "123456789012", "eu-west-1"
 SCOPE = ACCOUNT + "/" + REGION
 PLAN_ID = "22222222-2222-2222-2222-222222222222"
 ARN = f"arn:aws:backup:{REGION}:{ACCOUNT}:plan:{PLAN_ID}"
 DAILY = "cron(0 5 ? * * *)"
-STEAMPIPE_FRAMEWORKS = sorted("aws-compliance.benchmark." + name for name in (
-    "acsc_essential_eight", "cisa_cyber_essentials", "fedramp_low_rev_4", "fedramp_moderate_rev_4", "ffiec",
-    "gxp_21_cfr_part_11", "gxp_eu_annex_11", "hipaa_final_omnibus_security_rule_2013", "hipaa_security_rule_2003",
-    "nist_800_171_rev_2", "nist_csf", "nist_csf_v2", "nydfs_23", "pci_dss_v321", "pci_dss_v40", "rbi_itf_nbfc", "soc_2"))
-
-
-def sha(data):
-    return hashlib.sha256(data).hexdigest()
-
-
-def spec_digest(spec):
-    return sha(json.dumps(spec, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode())
 
 
 def check():
@@ -88,7 +64,7 @@ def status(item, idx=None):
     return check().evaluate(item, index(item) if idx is None else idx)
 
 
-# ------------------------------------------------------------------ registration and imports
+# ------------------------------------------------------------------ generic fixture and unavailable inventory
 
 
 def test_generic_behavior_fixture_contract():
@@ -109,12 +85,6 @@ def test_unavailable_inventory_never_passes(collection_status, expected):
                                                      "status": collection_status, "items": []}])
     report = evaluate_snapshot(snapshot, categories=["hardening"], checks=[CID])
     assert report["findings"][0]["status"] == expected and "PASS" not in report["stats"]["by_status"]
-
-
-# ------------------------------------------------------------------ signed spec, supersession and provenance
-
-
-# ------------------------------------------------------------------ framework links and compiled packs
 
 
 # ------------------------------------------------------------------ evaluator semantics (at least one rule)

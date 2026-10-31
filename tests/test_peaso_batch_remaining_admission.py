@@ -5,38 +5,14 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
-import pytest
-
-from peaso.checks import CHECKS, resolve_check_id
+from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES
-from scripts.peaso_compliance_compile import reviewed_equivalent_proposal
-from scripts.peaso_compliance_merge_new import signed_proposals
-from peaso.checks import CHECKS, HACKTRICKS, resolve_check_id
-from scripts.peaso_compliance_compile import reviewed_equivalent_proposal, spec_digest
-
-
-
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LEDGER = ROOT / "docs/compliance-ledgers"
-POST_DFAF_IDS = set(json.loads((ROOT / "tests/fixtures/post_dfaf_integration/contract.json").read_text()))
-NEXT20_IDS = {"aws_backup_plan_rule_required_frequency", "aws_cis_elbv2_only_tls_listeners"}
-SUCCESSOR_IDS = {"azure_api_management_appinsights_ensure_is_configured_42aac6a",
-                 "gcp_logging_detect_t1136", "gcp_logging_detect_t1546"}
-NEXT_GROUP_IDS = {
-    "azure.cis.defender_external_attack_surface_monitoring_easm",
-    "azure_directory_user_keyvault_rbac_secret_expiration_set_e2e0e28",
-    "azure.other.entra_app_secret_age_90", "aws.pci.secretsmanager.kms_encryption_any",
-    "aws.nist.rds_cluster_member_enhanced_monitoring",
-    "azure.gap.monitor_log_profile_retention_365_days",
-    "azure.cis.app_service_entra_registration_enabled",
-    "aws_ecs_task_definition_credential_environment_names",
-}
 MODULES = {"peaso.checks.batch_remaining_aws", "peaso.checks.batch_remaining_azure",
            "peaso.checks.batch_remaining_gcp", "peaso.checks.batch_remaining_k8s",
            "peaso.checks.batch_remaining_azure_vm_storage"}
-EXPECTED_COUNT = 181
 ONE_SIDED_FAIL = {"gcp.apikeys.active_service_restrictions"}
 ONE_SIDED_PASS = {"gcp.logging.access_transparency_entries"}
 # These retained local-only fixtures predate native joins. They must remain
@@ -54,18 +30,8 @@ HISTORICAL_NATIVE_UNKNOWN = {cid: {"pass", "fail"} for cid in INCOMPLETE_NATIVE_
 HISTORICAL_NATIVE_UNKNOWN["gcp_logging_enumeration_alert"] = {"pass"}
 REDSHIFT_PROPOSAL = "aws_g6_redshift_automatic_version_upgrade"
 REDSHIFT_SURVIVOR = "aws.cb.redshift.allow_version_upgrade"
-REDSHIFT_CONTROL = ("aws-compliance.benchmark.nist_csf_v2",
-                    "aws-compliance.control.redshift_cluster_automatic_upgrade_major_versions_enabled")
 CLOUDTRAIL_PROPOSAL = "aws.pci.cloudtrail.authentication_events"
 CLOUDTRAIL_SURVIVOR = "aws.gap.cloudtrail.region_logging_management_events"
-CLOUDTRAIL_CONTROL_KEYS = {
-    ("pci_3.2.1_aws", "10.2.5"), ("pci_3.2.1_aws", "10.2.5.a"),
-    ("fedramp_low_revision_4_aws", "au-2"),
-    ("fedramp_moderate_revision_4_aws", "au-2-a-d"),
-    ("nist_800_53_revision_4_aws", "au_2"),
-    ("nist_800_53_revision_5_aws", "au_12_a"),
-    ("nist_800_53_revision_5_aws", "au_12_c"),
-}
 
 
 def _batch():

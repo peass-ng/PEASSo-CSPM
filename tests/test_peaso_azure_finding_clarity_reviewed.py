@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 from peaso.checks import CHECKS, resolve_check_id
 
 # The reviewed rows are a frozen record.  #104 (fe6f7901) later retired this
@@ -16,7 +15,6 @@ from peaso.checks.azure_finding_clarity_reviewed import ROWS, description, remed
 from tests.overlay_originals import captured_originals
 from peaso.checks.azure_native_review_copy_20261020 import reviewed_fields
 from tests.azure_native_successor_inputs_20261020 import current_cases
-from peaso.checks import CHECK_ALIASES, CHECKS, resolve_check_id
 
 
 
