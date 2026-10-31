@@ -1,13 +1,10 @@
 """API report projections over archived report fields.
 
 Non-privilege helpers retain reviewed engine behavior. Privilege details come
-from a build-verified API display index with exact tenant-bound catalog
+from the materialized API display index with exact tenant-bound catalog
 lookups. Request handling never imports the engine or checks registry.
 """
 import copy
-
-SOURCE_SHA256 = {'peaso/engine.py': '918d5ed91ada5a8751c698012c890e0fcf599732adca52453d0e2b33bb6e4750',
- 'peaso/remediation.py': 'eec52bbff6d447f1512009bbb939656d22420a2d7f99622b0d183b05b5b54197'}
 
 
 ADMIN_EQUIVALENT_TECHNIQUE = {

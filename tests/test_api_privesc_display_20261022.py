@@ -1,8 +1,6 @@
 """API privilege detail parity without loading engine catalogs at request time."""
 import json
 import gzip
-import hashlib
-import shutil
 from copy import deepcopy
 import subprocess
 import sys
@@ -67,19 +65,11 @@ print(json.dumps({'status': status, 'id': ident}))
     assert json.loads(result.stdout)['status'] == 'exact_strict_privesc'
 
 
-def test_paired_display_artifact_and_manifest_tamper_fails_closed(tmp_path, monkeypatch):
-    for name in ('api_privesc_display.json.gz', 'api_privesc_display_manifest.json'):
-        shutil.copyfile(display.PACK / name, tmp_path / name)
-    document = json.loads(gzip.decompress((tmp_path / 'api_privesc_display.json.gz').read_bytes()))
+def test_display_artifact_with_unindexed_current_binding_fails_closed(tmp_path, monkeypatch):
+    document = json.loads(gzip.decompress((display.PACK / 'api_privesc_display.json.gz').read_bytes()))
     document['current_binding']['effective_tree_sha256'] = '0' * 64
     raw = json.dumps(document, sort_keys=True, separators=(',', ':')).encode()
-    compressed = gzip.compress(raw, mtime=0)
-    (tmp_path / 'api_privesc_display.json.gz').write_bytes(compressed)
-    manifest_path = tmp_path / 'api_privesc_display_manifest.json'
-    manifest = json.loads(manifest_path.read_text())
-    manifest.update(json_bytes=len(raw), json_sha256=hashlib.sha256(raw).hexdigest(),
-                    gzip_sha256=hashlib.sha256(compressed).hexdigest())
-    manifest_path.write_text(json.dumps(manifest))
+    (tmp_path / 'api_privesc_display.json.gz').write_bytes(gzip.compress(raw, mtime=0))
     monkeypatch.setattr(display, 'PACK', tmp_path)
     display._load.cache_clear()
     try:
@@ -104,14 +94,8 @@ def test_compact_reference_validation(tmp_path, monkeypatch, fault):
     else:
         document['details'].append(deepcopy(document['details'][0]))
     raw = json.dumps(document, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
-    compressed = gzip.compress(raw, compresslevel=9, mtime=0)
-    digest = hashlib.sha256(compressed).hexdigest()
-    (tmp_path / 'api_privesc_display.json.gz').write_bytes(compressed)
-    manifest = json.loads((display.PACK / 'api_privesc_display_manifest.json').read_text())
-    manifest.update(json_bytes=len(raw), json_sha256=hashlib.sha256(raw).hexdigest(), gzip_sha256=digest)
-    (tmp_path / 'api_privesc_display_manifest.json').write_text(json.dumps(manifest))
+    (tmp_path / 'api_privesc_display.json.gz').write_bytes(gzip.compress(raw, compresslevel=9, mtime=0))
     monkeypatch.setattr(display, 'PACK', tmp_path)
-    monkeypatch.setattr(display, 'PINNED_GZIP_SHA256', digest)
     display._load.cache_clear()
     try:
         with pytest.raises(ValueError, match='unavailable'):
