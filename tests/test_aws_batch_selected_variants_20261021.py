@@ -110,8 +110,22 @@ def test_positive_and_clean(monkeypatch,variant):
     assert status=='PASS' and len(calls)==1 and evidence['literal_count']>=1
 
 
+def test_deregistered_revision_is_still_reviewed(monkeypatch):
+    # INACTIVE revisions stay readable with their literals, so they get an assessment.
+    inactive=lambda r:r.update(status='INACTIVE')
+    status,evidence,calls,_=run(monkeypatch,mutate=inactive)
+    assert status=='FAIL' and len(calls)==1
+    status,evidence,calls,_=run(monkeypatch,value='production',mutate=inactive)
+    assert status=='PASS'
+
+
+def test_unusable_definition_unknown_names_its_cause(monkeypatch):
+    status,evidence,_,_=run(monkeypatch,mutate=lambda r:r.update(revision=4))
+    assert status=='UNKNOWN' and evidence['reason']=='batch_identity'
+
+
 @pytest.mark.parametrize('change',[lambda r:r.update(jobDefinitionArn=ARN.replace(ACCOUNT,'000000000000')),
-                                  lambda r:r.update(revision=4),lambda r:r.update(status='INACTIVE'),
+                                  lambda r:r.update(revision=4),lambda r:r.update(status='DELETED'),
                                   lambda r:r.update(type='multinode'),lambda r:r.update(ecsProperties={'taskProperties':[]}),
                                   lambda r:r.update(platformCapabilities=['UNKNOWN']),
                                   lambda r:r['containerProperties'].update(environmentFiles=[]),

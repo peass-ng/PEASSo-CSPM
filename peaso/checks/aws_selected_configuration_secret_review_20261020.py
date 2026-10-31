@@ -12,6 +12,10 @@ DECLARATIONS=[{'id':CHECK,'provider':'aws','category':'exposure','kind':KIND,'fi
  'evidence_sentences':['A likely secret was detected in the selected AWS configuration content.','Its value is hidden; offline detection did not validate the credential.']}]
 
 
+class _Reason(ValueError):
+    """An UNKNOWN with a concrete, provider-text-free cause."""
+
+
 def evaluate(item,index):
     try:
         ctx=index['context'];scope=ctx['scope'];meta=ctx['metadata'];match=SCOPE.fullmatch(scope)
@@ -31,6 +35,9 @@ def evaluate(item,index):
         identities=[r for r in meta['caller_identities'] if r.get('Account')==account]
         if len(identities)!=1 or identities[0].get('UserId')!=parent[0]['items'][0].get('UserId'):raise ValueError()
         ident=item['id'];m=item[MARKER];surface=m['surface']
+        if m.get('status')=='unavailable' and m.get('complete') is False and m.get('identity')==ident:
+            raise _Reason(m.get('reason') if isinstance(m.get('reason'),str) and re.fullmatch(r'[a-z][a-z_]{2,63}',m['reason'])
+                          else 'selected_configuration_read_unavailable')
         if (set(m)!={'schema','kind','surface','identity','scope','account','region','partition','version','capture','principal',
                 'native_complete','complete','verification','literal_count','bytes','response_bytes','engines','leaks','requests','status','selection_locator'}
                 or m['schema']!=SCHEMA or m['kind']!=KIND or surface not in SURFACES or m['identity']!=ident
@@ -73,13 +80,21 @@ def evaluate(item,index):
         complete=(m['complete'] is True and all(e['status']=='complete' for e in engines)
                   and meta[KIND+'_redaction_complete'] is True
                   and own['status']=='collected' and len(rows)==len(selected) and {r['id'] for r in rows}==set(selected))
-        if not leaks and not complete:raise ValueError()
+        if not leaks and not complete:
+            raise _Reason('secret_engine_unavailable' if any(e['status']!='complete' for e in engines) else
+                          'selected_configuration_redaction_incomplete' if meta[KIND+'_redaction_complete'] is not True else
+                          'selected_configuration_content_incomplete' if m['complete'] is not True else
+                          'selected_configuration_inventory_partial')
         observed=('A likely secret was detected in the selected AWS configuration content. Its value is hidden; offline detection did not validate the credential.' if leaks else
                   'Both offline detectors completed without detecting a supported secret in the selected AWS configuration content. Coverage is limited to the returned literal values.')
         return ('FAIL' if leaks else 'PASS'),{'observed':observed,'secret_leaks':deepcopy(leaks),'credential_validation':'not_attempted',
             'complete':complete,'surface':surface,'engines':deepcopy(engines),'coverage':'selected_returned_literals_only','literal_count':m['literal_count']}
+    except _Reason as reason:
+        return 'UNKNOWN',{'observed':'The selected AWS configuration content was unreadable, unsupported, incomplete or unbound. Secret absence could not be assessed.',
+                          'reason':str(reason)}
     except (ValueError,TypeError,KeyError,IndexError,AttributeError,OverflowError,StopIteration):
-        return 'UNKNOWN',{'observed':'The selected AWS configuration content was unreadable, unsupported, incomplete or unbound. Secret absence could not be assessed.'}
+        return 'UNKNOWN',{'observed':'The selected AWS configuration content was unreadable, unsupported, incomplete or unbound. Secret absence could not be assessed.',
+                          'reason':'selected_configuration_evidence_unbound'}
 
 
 def install(register):

@@ -466,7 +466,10 @@ def extract(response,service,operation,args,info):
         value=mapping(row.get('environmentVariables'))
     elif surface=='batch_environment':
         row=one(response,'jobDefinitions')
-        if row.get('jobDefinitionArn')!=args['jobDefinitions'][0] or row.get('status')!='ACTIVE' or row.get('type')!='container':raise ValueError('batch_identity_state')
+        # A deregistered (INACTIVE) revision stays readable through
+        # DescribeJobDefinitions with its original literals, so it is reviewed
+        # like an ACTIVE one rather than left without an assessment.
+        if row.get('jobDefinitionArn')!=args['jobDefinitions'][0] or row.get('status') not in ('ACTIVE','INACTIVE') or row.get('type')!='container':raise ValueError('batch_identity_state')
         if (type(row.get('revision')) is not int or str(row['revision'])!=args['jobDefinitions'][0].rsplit(':',1)[1]
                 or row.get('jobDefinitionName')!=args['jobDefinitions'][0].split(':job-definition/',1)[1].rsplit(':',1)[0]):raise ValueError('batch_identity')
         value=batch_literals(row)
@@ -902,8 +905,12 @@ def project_response(response,service,operation,arguments,*,request_context=None
             else:
                 _complete_content(requests,info,marker,payload,response)
             del payload
-    except Exception:
+    except Exception as exc:
         marker['complete']=False
+        if marker['status']=='unavailable':
+            # Own ValueError codes are short identifiers; never keep provider text.
+            code=str(exc) if type(exc) is ValueError else ''
+            marker['reason']=code if re.fullmatch(r'[a-z][a-z_]{2,63}',code) else 'selected_configuration_read_unavailable'
     return {'id':info['id'],MARKER:marker,'_provenance':{'scope':info['scope'],'capture':marker['capture'],'selection_locator':info['id']}}
 
 
