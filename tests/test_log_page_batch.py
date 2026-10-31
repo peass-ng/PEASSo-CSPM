@@ -60,9 +60,10 @@ def test_full_page_preserves_public_and_private_per_event_sources(monkeypatch, p
     assert [len(group) for group in groups] == [100]
     assert all(path == 'log-message' for group in groups for _, path in group)
     assert len(serial) == (100 if preparation_fails else 0)
-    assert [row['timestamp'] for row in result['events']] == list(range(100, 200))
-    assert all(row['scanner_complete'] and row['readable'] for row in result['events'])
-    assert [i for i, row in enumerate(result['events']) if row['leaks']] == list(range(1, 100, 2))
+    # Every event is scanned; only events needing review keep a record.
+    assert result['scanned'] == 100
+    assert all(row['scanner_complete'] and row['readable'] and row['leaks'] for row in result['events'])
+    assert [row['timestamp'] - 100 for row in result['events']] == list(range(1, 100, 2))
     assert PRIMARY not in json.dumps(result) and FULL not in json.dumps(result)
     assert batch._PREPARED_BATCH.get() is None
     scanning._RESULTS.clear()
@@ -82,6 +83,5 @@ def test_unreadable_middle_event_preserves_byte_budget_and_order(monkeypatch):
         dict(logGroupName='owned-group', startTime=100, endTime=200, limit=100),
         region='us-east-1', request_context={'remaining_bytes': 24})['value']
     assert scanned == [b'first-12byte', b'last-12bytes']
-    assert [row['timestamp'] for row in result['events']] == [100, 101, 102]
-    assert [row['readable'] for row in result['events']] == [True, False, True]
-    assert [row['scanner_complete'] for row in result['events']] == [True, False, True]
+    assert result['scanned'] == 3 and result['clean_bytes'] == 24
+    assert [(row['timestamp'], row['readable'], row['scanner_complete']) for row in result['events']] == [(101, False, False)]

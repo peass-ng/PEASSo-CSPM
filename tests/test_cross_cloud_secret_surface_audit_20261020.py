@@ -82,7 +82,7 @@ def sdk_content(monkeypatch, mode, *, positive=True, denied=False, path='/config
                 'fileContent': text.encode(), 'fileSize': len(text.encode())}, {**args, 'commitSpecifier': COMMIT, 'filePath': path})
     else:
         end = int(requests.observed_at.timestamp() * 1000)
-        args = {'logGroupName': 'audit', 'startTime': end - 86400000, 'endTime': end, 'limit': 100}
+        args = {'logGroupName': 'audit', 'startTime': end - 86400000, 'endTime': end, 'limit': content.MAX_MESSAGES}
         if denied:
             stub.add_client_error('filter_log_events', service_error_code='AccessDeniedException', expected_params=args)
         else:

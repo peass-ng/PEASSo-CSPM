@@ -56,8 +56,16 @@ def _evaluate(item, index, mode):
             if type(start) is not int or type(end) is not int or not 0 <= start < end or end-start > 86400000:
                 raise Unavailable('log window unbound')
         records = sample['records']
-        if not isinstance(records, list) or len(records) > (128 if mode == 'repository' else 100) or type(sample['complete']) is not bool or type(sample['inspected_bytes']) is not int or not 0 <= sample['inspected_bytes'] <= 1048576 or not isinstance(sample['errors'], list):
+        # Log windows are read to the end: clean events fold into counters and
+        # only events needing review keep a record.
+        from peaso.collectors.aws_code_log_content_indicators import MAX_LOG_BYTES, MAX_LOG_EVENTS, MAX_LOG_RECORDS
+        record_cap, byte_cap = (128, 1048576) if mode == 'repository' else (MAX_LOG_RECORDS, MAX_LOG_BYTES)
+        clean_bytes = sample.get('clean_bytes', 0) + sample.get('omitted_bytes', 0) if mode == 'logs' else 0
+        inspected_events = sample.get('events_inspected', len(records)) if mode == 'logs' else len(records)
+        if not isinstance(records, list) or len(records) > record_cap or type(sample['complete']) is not bool or type(sample['inspected_bytes']) is not int or not 0 <= sample['inspected_bytes'] <= byte_cap or not isinstance(sample['errors'], list):
             raise Unavailable('sample bound malformed')
+        if type(clean_bytes) is not int or clean_bytes < 0 or type(inspected_events) is not int or not len(records) <= inspected_events <= MAX_LOG_EVENTS + len(records):
+            raise Unavailable('log event accounting malformed')
         witnesses, seen, counted_bytes = [], set(), 0
         for record in records:
             if not isinstance(record, dict) or type(record['readable']) is not bool or not isinstance(record['categories'], list) or any(not isinstance(c, str) or c not in CATEGORIES for c in record['categories']) or not record['readable'] and record['categories']:
@@ -77,9 +85,9 @@ def _evaluate(item, index, mode):
                 raise Unavailable('log timestamp outside selected window')
             if record['categories']:
                 witnesses.append({('path' if mode == 'repository' else 'timestamp'): locator, 'categories': record['categories']})
-        if counted_bytes != sample['inspected_bytes']:
+        if counted_bytes + clean_bytes != sample['inspected_bytes']:
             raise Unavailable('inspected byte accounting differs')
-        evidence = {'identity': identity, 'scope': sample['scope'], 'records_inspected': len(records),
+        evidence = {'identity': identity, 'scope': sample['scope'], 'records_inspected': inspected_events,
                     'witnesses': witnesses, 'complete': sample['complete'],
                     'secret_leaks': [dict(leak, locations=[dict(loc, **({'timestamp': record['timestamp']} if mode == 'logs' else {})) for loc in leak['locations']]) for record in records for leak in record.get('leaks', [])],
                     'semantics': 'Offline Kingfisher and TruffleHog plus supplemental indicators; only the stated bounded source is assessed.'}
@@ -91,7 +99,7 @@ def _evaluate(item, index, mode):
             return result(True, **evidence, observed=f'High-confidence secret categories in {len(witnesses)} sampled record(s); review bounded evidence.')
         if matching[0]['status'] != 'collected' or not sample['complete'] or sample['collection_status'] != 'collected' or sample['errors'] or any(not r['readable'] or r.get('scanner_complete') is not True for r in records):
             return unknown('incomplete negative scan', **evidence, observed='No category proved in readable records; incomplete scope requires review.')
-        return result(False, **evidence, observed=f'No supported secret categories in {len(records)} inspected record(s); only declared bounded scope assessed.')
+        return result(False, **evidence, observed=f'No supported secret categories in {inspected_events} inspected record(s); only declared bounded scope assessed.')
     except (Unavailable, KeyError, TypeError, ValueError, AttributeError):
         return unknown('content evidence missing, disabled, foreign or malformed', observed='Content scan unavailable or unbound; no secret-absence verdict.')
 
@@ -115,7 +123,7 @@ for mode, kind in KINDS.items():
     DECLARATIONS.append(declaration)
     source = ('codecommit/codecommit_repository_no_secrets/codecommit_repository_no_secrets.py' if mode == 'repository' else 'cloudwatch/cloudwatch_log_group_no_secrets_in_logs/cloudwatch_log_group_no_secrets_in_logs.py')
     sha = '151e0e4de9c1a98e96f3c1a23ba9f85e9c062efbc7ca2e0f15bcc44e8fb22304' if mode == 'repository' else 'b3a651f3371008872c5a263a004be3bf37124f0a26fbcf5523e17fd2538f32ee'
-    description = 'Optional content_secret_scans=true. At most128 UTF-8 files/128folders at a bound default commit, or100messages/10pages within24h; at most1MiB inspected bytes. Kingfisher SDK 1.4.0 and TruffleHog 3.92.5 run offline; each leak is deduplicated across engines and source locations. Both must finish for a complete negative result. Raw content never retained. GetFile cannot bound transferred bytes. No historical or unseen-content safety claim.'
+    description = 'Optional content_secret_scans=true. At most128 UTF-8 files/128folders at a bound default commit, every event within24h read to the end (bounded at 200000 events/128MiB per log group); at most1MiB repository bytes. Kingfisher SDK 1.4.0 and TruffleHog 3.92.5 run offline; each leak is deduplicated across engines and source locations. Both must finish for a complete negative result. Raw content never retained. GetFile cannot bound transferred bytes. No historical or unseen-content safety claim.'
     ADMISSION_DATA['checks'].append({'spec': {'id': IDS[mode], 'provider': 'aws', 'resource_kind': kind, 'data_source': 'ContentSecretIndicators', 'predicate': 'Proven category FAIL even on partial sample; negative incomplete/disabled UNKNOWN; complete bounded category-negative PASS only.', 'severity': 'high', 'category': 'hardening', 'title': title, 'description': description, 'remediation_hint': declaration['remediation']}, 'description': {'description': description, 'evaluated': ['ContentSecretIndicators'], 'pass_when': 'Complete declared bounded scope contains no supported category.', 'fail_when': 'Bound native content includes a high-confidence category, even on a partial sample.', 'not_applicable_when': 'Never inferred from disabled or missing content; these remain UNKNOWN.'}, 'sources': [{'url': f'https://github.com/prowler-cloud/prowler/blob/{REVISION}/prowler/providers/aws/services/{source}', 'sha256': sha}], 'requirements': [], 'review_notes': 'Partial corrected association only: bounded dual-engine detection does not imply exhaustive upstream coverage; no validator execution or content retention. No Steampipe SQL secret-content equivalence.', 'function': f'peaso.checks.aws_code_log_content_review_20261019:{mode}'})
     arn = 'arn:aws:codecommit:us-east-1:123456789012:demo' if mode == 'repository' else 'arn:aws:logs:us-east-1:123456789012:log-group:demo:*'
     sample = {'profile': 'aws-code-log-content-indicators-v1', 'identity': arn, 'account_id': '123456789012', 'region': 'us-east-1', 'collection_status': 'collected', 'scope': 'bounded_default_commit_files' if mode == 'repository' else 'bounded_log_window', 'complete': True, 'inspected_bytes': 10, 'errors': [], 'records': [{'path': '/codecommit-path/60e6c092e589ae7ea7cda13ae578d5db44659f1bd209e24be0063a9b1a561705', 'size': 10, 'inspected_bytes': 10, 'readable': True, 'scanner_complete': True, 'categories': []} if mode == 'repository' else {'timestamp': 10, 'size': 10, 'inspected_bytes': 10, 'readable': True, 'scanner_complete': True, 'categories': []}]}

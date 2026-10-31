@@ -9,7 +9,7 @@ DECLARATIONS = [dict(id=p['check'],provider='azure',category='exposure',kind=p['
     requirements=[],dependencies=[p['kind']],allow_incomplete_failure=True,ui_group='Secrets',
     title=('Selected Log Analytics message samples have no detected secrets'if name=='workspace'else'Selected Application Insights trace samples have no detected secrets'),
     remediation='Remove credential literals from application logging, rotate confirmed exposed credentials and review retained copies. Use managed identities or supported secret references.',
-    scope='Explicit selected application message samples from a fixed preceding hour only, at most100 rows total. No whole-history, ingestion, runtime, protected-store or credential-validation claim.')for name,p in source.PROFILES.items()]
+    scope='Explicit selected application message samples from a fixed preceding hour only, the whole hour up to 10000 rows total (a filled budget stays UNKNOWN). No whole-history, ingestion, runtime, protected-store or credential-validation claim.')for name,p in source.PROFILES.items()]
 
 
 def _evaluate(profile,item,index):

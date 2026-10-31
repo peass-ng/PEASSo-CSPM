@@ -21,7 +21,19 @@ PROJECTION_OPERATIONS = {('codecommit', op) for op in ('get_repository', 'get_br
 READ_ACTIONS = PROJECTION_OPERATIONS | {('codecommit', 'list_repositories')}
 SPECS = {'codecommit_repository': ('codecommit', 'list_repositories', 'repositories')}
 NATIVE_IDS = {'codecommit_repository': 'repositoryName'}
-MAX_BYTES, MAX_FILES, MAX_FOLDERS, MAX_MESSAGES = 1048576, 128, 128, 100
+MAX_BYTES, MAX_FILES, MAX_FOLDERS = 1048576, 128, 128
+# CloudWatch log windows are read to the end instead of sampled. Every page is
+# scanned and folded into counters before the next one is requested, so memory
+# (including the per-scan request cache) holds only events that need review:
+# a secret indicator, an unreadable event or an incomplete detector run. The
+# event/byte bounds below only stop pathological groups; the scan deadline
+# still applies to every page. MAX_MESSAGES is the AWS per-call maximum.
+MAX_MESSAGES = 10000
+MAX_LOG_EVENTS = 200000
+MAX_LOG_BYTES = 128 * 1024 * 1024
+MAX_LOG_PAGES = 2000
+MAX_LOG_RECORDS = 200
+SCAN_BATCH_EVENTS = 500
 CATEGORIES = {'private_key', 'cloud_credential', 'password_assignment', 'secret'}
 _LOG_SCANNER_GATE = ContextVar('aws_log_scanner_gate', default=None)
 
@@ -39,7 +51,7 @@ def validate_request(service, operation, arguments, *, region=None, request_cont
                'filter_log_events': {'logGroupName', 'startTime', 'endTime', 'limit', 'nextToken'}}
     valid = valid and set(arguments) <= allowed.get(operation, set())
     if operation in ('get_file', 'filter_log_events'):
-        valid = valid and isinstance(request_context, dict) and set(request_context) == {'remaining_bytes'} and type(request_context['remaining_bytes']) is int and 0 <= request_context['remaining_bytes'] <= MAX_BYTES
+        valid = valid and isinstance(request_context, dict) and set(request_context) == {'remaining_bytes'} and type(request_context['remaining_bytes']) is int and 0 <= request_context['remaining_bytes'] <= (MAX_LOG_BYTES if operation == 'filter_log_events' else MAX_BYTES)
     elif request_context is not None:
         valid = False
     if service == 'codecommit':
@@ -164,7 +176,9 @@ def project_response(response, service, operation, arguments, *, request_context
             events = response['events']
             if not isinstance(events, list) or len(events) > arguments['limit']:
                 raise ValueError()
-            value = {'events': [], 'nextToken': response.get('nextToken')}
+            # Clean events fold into counters; only events that need review
+            # keep a record, so a full page never sits in the request cache.
+            value = {'events': [], 'nextToken': response.get('nextToken'), 'scanned': 0, 'clean_bytes': 0}
             if value['nextToken'] is not None and not _text(value['nextToken'], 1024):
                 raise ValueError()
             remaining = request_context['remaining_bytes']
@@ -189,11 +203,14 @@ def project_response(response, service, operation, arguments, *, request_context
                                                   **{k: row[k] for k in ('timestamp', 'eventId', 'logStreamName')
                                                      if k in row}}),
                             'location_kind': 'log'})
+                        categories = sorted(set(_categories(message)) | ({'secret'} if outcome['leaks'] else set()))
+                        value['scanned'] += 1
+                        if not categories and not outcome['leaks'] and outcome['complete'] is True:
+                            value['clean_bytes'] += len(payload)
+                            continue
                         value['events'].append({'timestamp': timestamp, 'size': len(payload),
                             'readable': True, 'leaks': outcome['leaks'],
-                            'scanner_complete': outcome['complete'],
-                            'categories': sorted(set(_categories(message)) |
-                                                 ({'secret'} if outcome['leaks'] else set()))})
+                            'scanner_complete': outcome['complete'], 'categories': categories})
             for row in events:
                 timestamp, message = row['timestamp'], row['message']
                 if type(timestamp) is not int or not arguments['startTime'] <= timestamp < arguments['endTime'] or not isinstance(message, str):
@@ -204,10 +221,11 @@ def project_response(response, service, operation, arguments, *, request_context
                 if readable:
                     pending.append((timestamp, message, payload, row))
                     remaining -= size
-                    if len(pending) == MAX_MESSAGES:
+                    if len(pending) == SCAN_BATCH_EVENTS:
                         flush()
                 else:
                     flush()
+                    value['scanned'] += 1
                     value['events'].append({'timestamp': timestamp, 'size': size, 'readable': False,
                         'leaks': [], 'scanner_complete': False, 'categories': []})
             flush()
@@ -319,26 +337,40 @@ def scan_logs(requests, session, region, item):
         if 'repositoryId' in item:
             raise ValueError()
         scan.update(identity=arn, group=name, account_id=arn.split(':')[4], start=end-86400000, end=end)
-        token, seen = None, set()
-        for _ in range(min(getattr(requests, 'max_pages', None) or 10, 10)):
-            args = {'logGroupName': name, 'startTime': scan['start'], 'endTime': end, 'limit': MAX_MESSAGES-len(scan['records'])}
+        scan.update(events_inspected=0, clean_bytes=0, records_omitted=0, omitted_bytes=0)
+        token, seen, needs_review = None, set(), False
+        explicit_pages = getattr(requests, 'max_pages', None)
+        for _ in range(min(explicit_pages or MAX_LOG_PAGES, MAX_LOG_PAGES)):
+            limit = min(MAX_MESSAGES, MAX_LOG_EVENTS - scan['events_inspected'])
+            args = {'logGroupName': name, 'startTime': scan['start'], 'endTime': end, 'limit': limit}
             if token is not None:
                 args['nextToken'] = token
-            row = _call(requests, session, region, 'logs', 'filter_log_events', remaining_bytes=MAX_BYTES-scan['inspected_bytes'], **args)
+            row = _call(requests, session, region, 'logs', 'filter_log_events', remaining_bytes=MAX_LOG_BYTES-scan['inspected_bytes'], **args)
+            scanned = row.get('scanned', len(row['events']))
+            scan['events_inspected'] += scanned
+            scan['clean_bytes'] += row.get('clean_bytes', 0)
+            scan['inspected_bytes'] += row.get('clean_bytes', 0)
             for event in row['events']:
-                readable = event['readable'] and scan['inspected_bytes'] + event['size'] <= MAX_BYTES
+                readable = event['readable'] and scan['inspected_bytes'] + event['size'] <= MAX_LOG_BYTES
                 if readable:
                     scan['inspected_bytes'] += event['size']
+                needs_review |= not readable or event.get('scanner_complete') is not True
+                if len(scan['records']) >= MAX_LOG_RECORDS:
+                    scan['records_omitted'] += 1
+                    scan['omitted_bytes'] += event['size'] if readable else 0
+                    continue
                 scan['records'].append({'timestamp': event['timestamp'], 'size': event['size'], 'inspected_bytes': event['size'] if readable else 0, 'readable': readable, 'categories': event['categories'] if readable else [], 'leaks': event.get('leaks', []), 'scanner_complete': event.get('scanner_complete', False)})
             from peaso.progress import PHASES, emit_progress
             emit_progress(getattr(requests, 'progress_callback', None),
                 phase='scanning_content' if 'scanning_content' in PHASES else 'collecting',
-                provider='aws', completed=len(scan['records']), total=None, dynamic_total=True)
+                provider='aws', completed=scan['events_inspected'], total=None, dynamic_total=True)
             token = row['nextToken']
             if token is None:
-                scan['complete'] = all(r['readable'] and r.get('scanner_complete', False) for r in scan['records'])
+                # Every event in the window was read: complete unless one of
+                # them could not be inspected or retained for review.
+                scan['complete'] = not needs_review and not scan['records_omitted']
                 break
-            if token in seen or len(scan['records']) >= MAX_MESSAGES:
+            if token in seen or scan['events_inspected'] >= MAX_LOG_EVENTS:
                 break
             seen.add(token)
         scan['collection_status'] = 'collected' if scan['complete'] else 'partial'
@@ -355,8 +387,8 @@ def _enricher(scanner, *, parallel_logs=False):
         output = copy.deepcopy(items)
         # A global call/item cap must retain input-order admission. Each log
         # group otherwise owns its own page, byte, and message budgets. Keep
-        # only two scans in flight: a group can stage up to MAX_BYTES of log
-        # text and start its own bounded detector process.
+        # only two scans in flight: each holds at most one response page of
+        # log text and starts its own bounded detector process.
         parallel = (parallel_logs and len(output) > 1
                     and getattr(requests, 'content_secret_scans', False) is True
                     and getattr(requests, 'max_calls', None) is None

@@ -268,12 +268,11 @@ def test_log_page_batches_messages_and_retains_each_event_source(monkeypatch):
                 request_context={'remaining_bytes': code_log.MAX_BYTES})['value']
     assert [len(group) for group in groups] == [100]
     assert all(path == 'log-message' for group in groups for _, path in group)
-    assert [row['timestamp'] for row in result['events']] == list(range(100, 200))
+    assert result['scanned'] == 100
     assert all(row['scanner_complete'] for row in result['events'])
-    assert [i for i, row in enumerate(result['events']) if row['leaks']] == [3, 70]
-    assert all({d['engine'] for leak in result['events'][i]['leaks']
-                for d in leak['detectors']} == {'kingfisher', 'trufflehog'}
-               for i in (3, 70))
+    assert [row['timestamp'] - 100 for row in result['events'] if row['leaks']] == [3, 70]
+    assert all({d['engine'] for leak in row['leaks'] for d in leak['detectors']}
+               == {'kingfisher', 'trufflehog'} for row in result['events'])
     # Private capture runs on the caller; the Kingfisher worker deliberately
     # has no thread-local source context. Inspect actual persisted locations.
     contexts = cipher.decrypt(sink.records[scanning._fingerprint(TOKEN_A)])['locations']
@@ -310,10 +309,10 @@ def test_log_batch_preparation_failure_keeps_event_coverage_and_positive(
         'filter_log_events', {'logGroupName': 'owned', 'startTime': 100,
                               'endTime': 200, 'limit': 2}, region='us-east-1',
         request_context={'remaining_bytes': code_log.MAX_BYTES})['value']['events']
-    assert len(calls) == 2 and all(row['readable'] for row in result)
-    assert result[0]['leaks'] and result[1]['leaks'] == []
+    # The clean event folds into counters; only the positive keeps a record.
+    assert len(calls) == 2 and len(result) == 1 and result[0]['readable']
+    assert result[0]['timestamp'] == 101 and result[0]['leaks']
     assert result[0]['scanner_complete'] is (not serial_fails)
-    assert result[1]['scanner_complete'] is True
     assert {d['engine'] for leak in result[0]['leaks']
             for d in leak['detectors']} == ({'kingfisher'} if serial_fails else
                                             {'kingfisher', 'trufflehog'})
@@ -330,8 +329,7 @@ def test_log_message_budget_keeps_unreadable_gap_and_later_coverage(monkeypatch)
     result = code_log.project_response({'events': messages}, 'logs',
         'filter_log_events', {'logGroupName': 'owned', 'startTime': 100,
                               'endTime': 200, 'limit': 3}, region='us-east-1',
-        request_context={'remaining_bytes': 6})['value']['events']
-    assert [row['readable'] for row in result] == [True, False, True]
-    assert [row['scanner_complete'] for row in result] == [True, False, True]
-    assert [row['size'] for row in result] == [3, 9, 3]
+        request_context={'remaining_bytes': 6})['value']
+    assert result['scanned'] == 3 and result['clean_bytes'] == 6
+    assert [(row['timestamp'], row['readable'], row['size']) for row in result['events']] == [(102, False, 9)]
     assert seen == [b'one', b'two']

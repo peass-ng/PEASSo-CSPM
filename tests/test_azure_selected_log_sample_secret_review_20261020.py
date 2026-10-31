@@ -103,7 +103,7 @@ def collect(monkeypatch,surface='AppTraces',literal='mode=ready',*,real=False,tr
                         query=json.loads(body);assert set(query)=={'query','timespan'}
                         assert int(headers['Content-Length'])==len(body)
                         start,end=query['timespan'].split('/');assert(source.instant(end)-source.instant(start)).total_seconds()==3600
-                        limit=int(query['query'].rsplit(' | take ',1)[1]);assert 1<=limit<=100
+                        limit=int(query['query'].rsplit(' | take ',1)[1]);assert 1<=limit<=source.MAX_ROWS
                         # Independently spell the expected native request, no source route builder.
                         prefix=('traces | where timestamp between (datetime('+start+') .. datetime('+end+')) | project Timestamp=timestamp, Message=message'if p=='application'else
                             s+' | where TimeGenerated between (datetime('+start+') .. datetime('+end+')) | where _SubscriptionId =~ "'+SCOPE.rsplit('/',1)[1]+'" | project Timestamp=TimeGenerated, Message, WorkspaceCustomerId=TenantId, SourceResourceId=_ResourceId')
@@ -193,7 +193,7 @@ def test_native_partial_malformed_denied_scope_matrix(monkeypatch,surface,mutati
             if mutation=='column_order':table['columns'].reverse()
             if mutation=='missing_column':table['columns'].pop()
             if mutation=='empty_rows':table['rows']=[]
-            if mutation=='too_many_rows':table['rows']*=101
+            if mutation=='too_many_rows':table['rows']*=source.MAX_ROWS+1
             if mutation=='bad_row':row[1]=None
             if mutation=='row_time':row[0]='2000-01-01T00:00:00Z'
             if mutation=='future_time':row[0]='2999-01-01T00:00:00Z'
@@ -302,7 +302,7 @@ def test_pure_consumer_rejects_forged_missing_or_incoherent_proof(monkeypatch,su
     if mutation=='window':marker['window_start']='2000-01-01T00:00:00Z'
     if mutation=='snapshot_time':index['context']['created_at']='2000-01-01T00:00:00Z'
     if mutation=='row_time':marker['last_row_at']='2999-01-01T00:00:00Z'
-    if mutation=='row_count':marker['row_count']=101
+    if mutation=='row_count':marker['row_count']=source.MAX_ROWS+1
     if mutation=='engine':marker['parts'][0]['engines'][0]['version']='invented'
     if mutation=='parts':marker['parts'][0]['complete']=False
     if mutation=='duplicate':index['collections'][kind][0]['items'].append(deepcopy(item))
@@ -329,7 +329,8 @@ def test_real_streaming_limits_close_and_never_scan(monkeypatch,surface,fault_ki
 
 
 @pytest.mark.parametrize('hit',[False,True])
-def test_global_100row_budget_prevents_next_target_query_and_whole_profile_clean(monkeypatch,hit):
+def test_global_row_budget_prevents_next_target_query_and_whole_profile_clean(monkeypatch,hit):
+    monkeypatch.setattr(source,'MAX_ROWS',100)
     targets=[('AppTraces',target('AppTraces')),('FunctionAppLogs',target('FunctionAppLogs'))]
     snapshot,rows,trace=collect(monkeypatch,literal=TOKEN if hit else'mode=ready',targets=targets,row_count=100)
     assert len(trace.bodies)==1 and trace.bodies[0]['query'].endswith(' | take 100')
@@ -376,3 +377,26 @@ def test_portable_actual_native_samples_replay_in_fresh_process(capture):
     if capture['expected_status']!='UNKNOWN':assert capture['real_detectors']is True
 
 
+
+
+@pytest.mark.parametrize('surface',SURFACES)
+@pytest.mark.parametrize('total',[150,5000])
+@pytest.mark.parametrize('hit',[False,True])
+def test_whole_window_read_secret_at_end(monkeypatch,surface,total,hit):
+    def last_row(_surface,operation,data):
+        if operation=='query':
+            rows=data['tables'][0]['rows']
+            for row in rows[3000:]:row[0]=rows[2999][0]  # keep every row inside the one-hour window
+            if hit:rows[-1][1]='token='+TOKEN
+        return data
+    snapshot,rows,trace=collect(monkeypatch,surface,row_count=total,transform=last_row)
+    marker=own(snapshot,surface)['items'][0][source.MARKER]
+    assert marker['row_count']==total
+    assert {r['status']for r in rows}=={'FAIL'if hit else'PASS'}
+
+
+@pytest.mark.parametrize('surface',SURFACES)
+def test_window_filling_row_budget_is_not_clean(monkeypatch,surface):
+    monkeypatch.setattr(source,'MAX_ROWS',150)
+    snapshot,rows,trace=collect(monkeypatch,surface,row_count=150)
+    assert {r['status']for r in rows}=={'UNKNOWN'}
