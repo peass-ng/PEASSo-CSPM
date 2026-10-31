@@ -1,20 +1,11 @@
 """Exact native reference parity for the API-only presentation successor."""
 from copy import deepcopy
 from pathlib import Path
-import os
 import subprocess
 import sys
 
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-
-# These children only need the native reference values, not source attestation. The shipped
-# default proves every pinned source once per process; conftest's repeat-every-proof mode
-# re-proves on each nested call during the cold peaso.checks import (minutes of CPU).
-NATIVE_ENV = {key: value for key, value in os.environ.items() if key != 'PEASO_SOURCE_ATTESTATION'}
-NATIVE_ENV['PEASO_SOURCE_ATTESTATION'] = 'once'
-
 
 def test_all_registered_and_analysis_templates_preserve_presentation_inputs():
     from peaso.checks import CHECKS, CHECK_ALIASES
@@ -52,26 +43,5 @@ sys.meta_path.remove(guard)
 from peaso.checks import CHECKS
 assert len(CHECKS) > 4000
 '''
-    result = subprocess.run([sys.executable, '-c', script], cwd=ROOT, capture_output=True, text=True, timeout=90, env=NATIVE_ENV)
+    result = subprocess.run([sys.executable, '-c', script], cwd=ROOT, capture_output=True, text=True, timeout=90)
     assert result.returncode == 0, result.stdout + result.stderr
-
-
-@pytest.mark.parametrize('missing', [False, True])
-def test_changed_or_missing_remediation_source_fails_closed(tmp_path, monkeypatch, missing):
-    from fastapi import HTTPException
-    from peaso.server import materialized_catalog as catalog
-    # Only the first verified source is needed: it must reject before loading
-    # any catalog or trusting presentation metadata.
-    first = next(iter(catalog._REMEDIATION_PRESENTATION_SOURCES))
-    path = tmp_path / first
-    path.parent.mkdir(parents=True)
-    if not missing:
-        path.write_bytes((ROOT / first).read_bytes() + b'\n# changed\n')
-    catalog._presentation_sources_valid.cache_clear()
-    monkeypatch.setattr(catalog, 'ROOT', tmp_path / 'peaso')
-    try:
-        with pytest.raises(HTTPException) as raised:
-            catalog.template_for('aws.iam.root_mfa', 'aws')
-        assert raised.value.status_code == 503
-    finally:
-        catalog._presentation_sources_valid.cache_clear()

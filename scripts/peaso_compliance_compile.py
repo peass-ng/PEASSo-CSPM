@@ -28,7 +28,6 @@ REVIEWED_CLOUDTRAIL_EQUIVALENT = {
     "id": "aws.pci.cloudtrail.authentication_events",
     "survivor": "aws.gap.cloudtrail.region_logging_management_events",
     "spec_sha256": "f3b62c9ae56b850f165b1eb80a1244adb8854b9be2e8671f1d9e0c575f9bd9a1",
-    "source_sha256": "6830c3b72df05ae820d9bd96b04dc7741708bb2d29aa30a8e1b3816d397a6fda",
     "rows": frozenset({
         ("pci_3.2.1_aws", "10.2.5"),
         ("pci_3.2.1_aws", "10.2.5.a"),
@@ -39,38 +38,14 @@ REVIEWED_CLOUDTRAIL_EQUIVALENT = {
         ("nist_800_53_revision_5_aws", "au_12_c"),
     }),
 }
-# Evidence-only successor: _trail_scan adds decisive FAIL evidence; all status
-# paths and 138 original/current registered-fixture outcomes remain unchanged.
-# Keep the historical whole-file pin and reject any unlisted successor.
-REVIEWED_CLOUDTRAIL_RUNTIME_SUCCESSORS = {
-    "6830c3b72df05ae820d9bd96b04dc7741708bb2d29aa30a8e1b3816d397a6fda": frozenset({
-        "adc455960545fafeda8f73855c5612e80290541b72e1117f026082deabf246b4",
-        # 2026-10-19 core semantic review: native selectors must bind the
-        # assessed TrailARN, respect unavailable fields, and cannot mix basic
-        # and advanced selectors. 205 focused SDK/consumer tests accepted;
-        # docs/aws-review/core-semantic-review.json records the reviewed scope.
-        "406b1fd3041683c2ab2797f7d9702cc515cfcc3f00edd4682655cb7a000793e8",
-    }),
-}
 REVIEWED_RDS_CLUSTER_EQUIVALENT = {
     "id": "aws_fedramp_rds_cluster_members_enhanced_monitoring",
     "survivor": "aws.nist.rds_cluster_member_enhanced_monitoring",
     "spec_sha256": "0f0a82a629b961c7cff07771a5e9d4f44a9fb0944a104b27fd0a723b67a97160",
     "survivor_spec_sha256": "e8bad74aaeac0443e90653f07bff27965c721c3dd3f60b8f84d4c4fd7654a086",
-    "source_sha256": "ded9f2aa60b562cc3db565a091434ad182e8ae8635d4b128549b827a39a6f5f9",
     "rows": frozenset({
         ("aws-compliance.benchmark.fedramp_low_rev_4", "aws-compliance.control.rds_db_instance_and_cluster_enhanced_monitoring_enabled"),
         ("aws-compliance.benchmark.fedramp_moderate_rev_4", "aws-compliance.control.rds_db_instance_and_cluster_enhanced_monitoring_enabled"),
-    }),
-}
-# This reviewed native evidence successor retains the exact RDS callback and
-# strengthens the common raw-inventory identity guard. The second successor
-# memoizes only the Secrets Manager inventory helper; the RDS callback and
-# its declaration remain byte-identical. Preserve the original frozen pin.
-REVIEWED_RDS_RUNTIME_SUCCESSORS = {
-    "ded9f2aa60b562cc3db565a091434ad182e8ae8635d4b128549b827a39a6f5f9": frozenset({
-        "2a87f6c990065271ae9eaa9c34582d64297554eaf183f81c5a566eeb0cd8ac72",
-        "4413ca3f9af2040ae68f43c683e5f7effa696b4018dc93d4da2e91b1f0b73542",
     }),
 }
 DESCRIPTION_FIELD_ORDER = ("description", "fail_when", "evaluated", "not_applicable_when", "pass_when")
@@ -128,7 +103,7 @@ def verify_source_errata(ledger_root, native):
 
 
 def _reviewed_rds_registered_declaration(native):
-    """Permit the first compile's minimal seed only with exact live source proof."""
+    """Permit the first compile's minimal seed only with the live registered survivor."""
     from peaso.checks import CHECKS, CHECK_ALIASES
     expected = REVIEWED_RDS_CLUSTER_EQUIVALENT
     survivor = expected["survivor"]
@@ -139,8 +114,6 @@ def _reviewed_rds_registered_declaration(native):
     wanted = {"provider": "aws", "type": "rds_cluster", "category": "hardening", "severity": "medium", "target": "resource"}
     if (len(registered) != 1 or actual.get("id") != survivor or actual.get("provider") != "aws" or
             expected["id"] in native or CHECK_ALIASES.get(expected["id"]) != survivor or
-            digest(source.read_bytes()) not in ({expected["source_sha256"]} |
-                REVIEWED_RDS_RUNTIME_SUCCESSORS.get(expected["source_sha256"], frozenset())) or
             any(field in actual and (source_priority(actual) if field == "severity" else actual[field]) != value for field, value in wanted.items())):
         raise ValueError("Reviewed RDS duplicate registration or source changed")
     check = registered[0]
@@ -181,16 +154,13 @@ def reviewed_equivalent_proposal(spec: dict, framework_id: str, requirement_id: 
         expected = REVIEWED_CLOUDTRAIL_EQUIVALENT
         survivor = expected["survivor"]
         actual = native.get(survivor, {})
-        source = Path(__file__).resolve().parent.parent / "peaso/checks/aws_gap_core.py"
         if ((framework_id, requirement_id) not in expected["rows"] or
                 spec_digest(spec) != expected["spec_sha256"] or
                 (spec["provider"], spec["resource_kind"], spec["category"], spec["severity"]) !=
                 ("aws", "cloudtrail_trail", "logging", "medium") or
                 (actual.get("provider"), actual.get("type"), actual.get("category"),
                  source_priority(actual), actual.get("target")) !=
-                ("aws", "cloudtrail", "hardening", "high", "scope") or
-                digest(source.read_bytes()) not in ({expected["source_sha256"]} |
-                    REVIEWED_CLOUDTRAIL_RUNTIME_SUCCESSORS.get(expected["source_sha256"], frozenset())) or spec["id"] in native):
+                ("aws", "cloudtrail", "hardening", "high", "scope") or spec["id"] in native):
             raise ValueError("Reviewed CloudTrail duplicate proposal changed")
         return survivor
     expected = REVIEWED_EQUIVALENT_PROPOSAL

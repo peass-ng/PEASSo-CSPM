@@ -53,10 +53,7 @@ def validate_task(definition):
                     {'sourceVolume': name + '-scratch', 'containerPath': '/tmp', 'readOnly': False}]
                 or container.get('volumesFrom')
                 or container.get('secrets') or container.get('environmentFiles')
-                # Immutable images prove sources at build time. This single
-                # public constant grants no identity or additional capability.
-                or container.get('environment') not in (None, [], [
-                    {'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted'}])
+                or container.get('environment') not in (None, [])
                 or container.get('repositoryCredentials')
                 or linux.get('capabilities', {}).get('add')
                 or linux.get('capabilities', {}).get('drop') != ['ALL']

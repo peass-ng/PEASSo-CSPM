@@ -31,9 +31,6 @@ locals {
     PEASO_ANALYZER_MEMORY_GIB               = tostring(var.worker_resources.analyzer.memory / 1024)
     PEASO_STATE_DIR                         = "/tmp/peaso/state"
     PEASO_IDENTITY_DIR                      = "/tmp/peaso/identity"
-    # No runtime source proofs in production: package_api proves these exact
-    # Lambda bytes in always mode at build time, fail closed, and CI proves the commit.
-    PEASO_SOURCE_ATTESTATION = "trusted"
   })
 }
 resource "aws_cloudwatch_log_group" "api" {

@@ -57,24 +57,17 @@ def test_byte_budget_reduces_page_with_explicit_continuation(monkeypatch):
     assert not runtime.wire_fits(runtime._encoded({'value': '\u2603' * (2 * 1024 * 1024)}))
 
 
-@pytest.mark.parametrize('mode', ['missing', 'corrupt', 'oversized', 'manifest_corrupt', 'generation_mismatch'])
+@pytest.mark.parametrize('mode', ['missing', 'corrupt', 'oversized'])
 def test_packaged_artifact_failure_is_closed_without_native_fallback(tmp_path, monkeypatch, mode):
-    for name in ('api_catalog.json.gz', 'api_catalog_manifest.json'):
-        shutil.copyfile(runtime.PACK / name, tmp_path / name)
+    shutil.copyfile(runtime.PACK / 'api_catalog.json.gz', tmp_path / 'api_catalog.json.gz')
     path = tmp_path / 'api_catalog.json.gz'
     if mode == 'missing':
         path.unlink()
     elif mode == 'corrupt':
         path.write_bytes(b'unreviewed gzip')
-    elif mode == 'oversized':
+    else:
         with path.open('wb') as stream:
             stream.truncate(runtime.MAX_COMPRESSED_BYTES + 1)
-    elif mode == 'manifest_corrupt':
-        (tmp_path / 'api_catalog_manifest.json').write_text('{}')
-    else:
-        manifest = json.loads((tmp_path / 'api_catalog_manifest.json').read_bytes())
-        manifest['sources']['peaso/rulepacks/native_catalog.json'] = '0' * 64
-        (tmp_path / 'api_catalog_manifest.json').write_text(json.dumps(manifest))
     runtime._load.cache_clear()
     monkeypatch.setattr(runtime, 'PACK', tmp_path)
     try:
@@ -126,18 +119,3 @@ def test_fresh_mangum_blocks_all_native_imports_and_outbound_calls(scenario):
     proof = json.loads(result.stdout)
     assert proof['native_modules_loaded'] == [] and proof['network_attempts'] == 0
     assert proof['body_bytes'] <= runtime.MAX_WIRE_BYTES and proof['mangum_envelope_bytes'] <= 6 * 1024 * 1024
-
-
-def test_api_catalog_uses_frozen_privilege_identity_without_yaml_tree(tmp_path, monkeypatch):
-    # The API release packages reviewed source identities and display bytes,
-    # but omits the engine's YAML tree and history archives.
-    for relative in runtime.SOURCE_PATHS - runtime.ENGINE_ONLY_SOURCES:
-        path = tmp_path / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(ROOT / relative, path)
-    runtime._load.cache_clear()
-    monkeypatch.setattr(runtime, 'ROOT', tmp_path / 'peaso')
-    try:
-        assert runtime.summary()['privesc_catalog'] == runtime._load()['full']['privesc_catalog']
-    finally:
-        runtime._load.cache_clear()

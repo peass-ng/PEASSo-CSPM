@@ -514,24 +514,21 @@ def test_failed_agent_result_is_never_accepted_during_deprovisioning(configured,
     assert tasks.stops and len(storage.deleted) == 3
 
 
-@pytest.mark.parametrize('names', [(), ('agent',), ('relay',), ('agent', 'relay')])
-def test_only_exact_trusted_build_constant_is_allowed(names):
+@pytest.mark.parametrize('environment', [None, []])
+def test_empty_environment_is_allowed(environment):
     item = definition()
     for container in item['containerDefinitions']:
-        if container['name'] in names:
-            container['environment'] = [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted'}]
+        container['environment'] = environment
     fargate.validate_task(item)
 
 
 @pytest.mark.parametrize('environment', [
-    [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'once'}],
-    [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted', 'extra': 'inert'}],
-    [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted'}] * 2,
-    [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted'}, {'name': 'AWS_PROFILE', 'value': 'inert'}],
-    [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted'}, {'name': 'PATH', 'value': '/tmp'}],
-    {'PEASO_SOURCE_ATTESTATION': 'trusted'},
+    [{'name': 'PEASO_SOURCE_ATTESTATION', 'value': 'trusted'}],
+    [{'name': 'AWS_PROFILE', 'value': 'inert'}],
+    [{'name': 'PATH', 'value': '/tmp'}],
+    {'PATH': '/tmp'},
 ])
-def test_trusted_build_constant_does_not_admit_other_environment(environment):
+def test_task_environment_variables_are_rejected(environment):
     item = definition()
     item['containerDefinitions'][0]['environment'] = environment
     with pytest.raises(RuntimeError, match='unsafe_ai_task_definition'):

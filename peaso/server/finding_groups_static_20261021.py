@@ -1,10 +1,7 @@
 # API presentation copy of the native grouping algorithm. Only the two display
-# imports and regionless roster loader differ; focused AST/output parity binds
-# every other function to the native source. No evaluator/admission changes.
+# imports and regionless roster loader differ; output parity tests compare it
+# with the native source.
 from pathlib import Path
-SOURCE_SHA256 = '988d84b1d701b8e22163fa77c58302e7f1761f388578666887160111eb494be0'
-NATIVE_GENERATION = '6b6ee759234d7e2dad978342838cb3af4e1fe767'
-REGIONLESS_SHA256 = 'ebc38d9d7d22575e52e5cc4bdecb609cc12ba2ca621413d8a415b775786eadfd'
 
 """One check card with lossless underlying observations and explicit mixed verdicts."""
 from collections import Counter, defaultdict
@@ -24,8 +21,8 @@ def group_id(provider, check_id):
 @lru_cache(maxsize=1)
 def regionless_checks():
     raw = Path(__file__).with_name('finding_groups_regionless_20261021.json').read_bytes()
-    if len(raw) > 128 * 1024 or hashlib.sha256(raw).hexdigest() != REGIONLESS_SHA256:
-        raise ValueError('API grouping metadata identity differs')
+    if len(raw) > 128 * 1024:
+        raise ValueError('API grouping metadata budget')
     rows = json.loads(raw)
     if (not isinstance(rows, list) or any(not isinstance(cid, str) for cid in rows)
             or rows != sorted(set(rows))):

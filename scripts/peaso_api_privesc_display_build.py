@@ -1,8 +1,7 @@
-"""Build API-only privilege display rows from verified engine catalogs.
+"""Build API-only privilege display rows from the engine catalogs.
 
-Run after the main API catalog materializer. This script runs in the engine
-build environment; its two output files are the only privilege history data
-needed by the API package.
+This script runs in the engine build environment; its output file is the only
+privilege history data needed by the API package.
 """
 import ast
 import gzip
@@ -10,7 +9,6 @@ import hashlib
 import inspect
 import json
 from pathlib import Path
-import re
 import struct
 import sys
 import zlib
@@ -20,16 +18,13 @@ from peaso.privesc import versioned_catalog as catalog
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / 'peaso/rulepacks'
-FROZEN_SOURCES = ('peaso/privesc/schema.py', 'peaso/privesc/versioned_catalog.py',
-                  'risk_rules/hacktricks-privesc-source.json')
 
 
 def deterministic_gzip(data):
     """Platform-independent gzip member, matching peaso_compliance_materialize.
 
     gzip.compress(mtime=0) lets zlib stamp its build's OS byte (macOS 19, Unix 3),
-    so the pinned gzip_sha256 differed between macOS and Linux CI for identical
-    content. The header is fixed (no name, mtime 0, XFL 2, OS 255).
+    so identical content produced different bytes on macOS and Linux. The header is fixed (no name, mtime 0, XFL 2, OS 255).
     """
     compressor = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS, 8, zlib.Z_DEFAULT_STRATEGY)
     body = compressor.compress(data) + compressor.flush()
@@ -110,24 +105,10 @@ def archived_loaders():
     return loaders
 
 
-def _pinned_existing():
-    """Read the prior release artifact before a one-time compact migration."""
-    reader = ROOT / 'peaso/server/privesc_display_catalog.py'
-    pin = re.search(r"(?m)^PINNED_GZIP_SHA256 = '([0-9a-f]{64})'$", reader.read_text())
-    if pin is None:
-        raise ValueError('display reader pin missing')
-    manifest = json.loads((PACK / 'api_privesc_display_manifest.json').read_bytes())
-    compressed = (PACK / 'api_privesc_display.json.gz').read_bytes()
-    if (hashlib.sha256(compressed).hexdigest() != pin.group(1)
-            or manifest['gzip_sha256'] != pin.group(1)):
-        raise ValueError('previous display gzip identity mismatch')
-    raw = gzip.decompress(compressed)
-    if (len(raw) != manifest['json_bytes'] or
-            hashlib.sha256(raw).hexdigest() != manifest['json_sha256']):
-        raise ValueError('previous display document identity mismatch')
-    previous = json.loads(raw)
-    if (previous['catalog_document_sha256'] != manifest['catalog_document_sha256']
-            or previous['schema_version'] != 1 or len(previous['bindings']) < 100):
+def _existing():
+    """Read the current display artifact for incremental rebuilds."""
+    previous = json.loads(gzip.decompress((PACK / 'api_privesc_display.json.gz').read_bytes()))
+    if previous['schema_version'] != 1 or len(previous['bindings']) < 100:
         raise ValueError('previous display schema mismatch')
     return previous
 
@@ -167,9 +148,9 @@ def _compact(document):
     return document
 
 
-def _incremental_current_documents(main_manifest, current, cases, previous_manifest, previous_tree):
-    """Reuse pinned history when only the previous and new current bindings change."""
-    previous = _compact(_pinned_existing())
+def _incremental_current_documents(current, cases, previous_manifest, previous_tree):
+    """Reuse existing history when only the previous and new current bindings change."""
+    previous = _compact(_existing())
     old_current = previous['current_binding']
     if (old_current['manifest_sha256'] != previous_manifest
             or old_current['effective_tree_sha256'] != previous_tree
@@ -232,51 +213,36 @@ def _incremental_current_documents(main_manifest, current, cases, previous_manif
         if not references:
             raise ValueError(f'empty verified catalog: {version}')
         bindings.append([*key, references])
-    document = {'schema_version': 1, 'catalog_document_sha256': main_manifest['document_sha256'],
-                'catalog_source_identities': {name: main_manifest['sources'][name] for name in FROZEN_SOURCES},
-                'current_binding': current, 'legacy_manifest': catalog.LEGACY_MANIFEST,
+    document = {'schema_version': 1, 'current_binding': current, 'legacy_manifest': catalog.LEGACY_MANIFEST,
                 'legacy_revision': catalog.LEGACY_REVISION, 'bindings': bindings, 'details': details}
-    return _documents(_compact(document), main_manifest)
+    return _documents(_compact(document))
 
 
 def render_documents():
-    main_manifest = json.loads((PACK / 'api_catalog_manifest.json').read_bytes())
     current = catalog.current_binding()
-    if sys.argv[1:] == ['--rebind-only']:
-        previous = _pinned_existing()
-        if previous['current_binding'] != current:
-            raise ValueError('current privilege binding changed; full rebuild required')
-        exact = {(values['manifest_sha256'], values.get('effective_tree_sha256'),
-                  values['source_revision'], status) for _, status, values in binding_cases()}
-        if exact != {(row[0], row[1], row[2], row[3]) for row in previous['bindings']}:
-            raise ValueError('historical bindings changed; full rebuild required')
-        document = {key: value for key, value in previous.items() if not key.startswith('_')}
-        document['catalog_document_sha256'] = main_manifest['document_sha256']
-        document['catalog_source_identities'] = {name: main_manifest['sources'][name] for name in FROZEN_SOURCES}
-        return _documents(_compact(document), main_manifest)
     cases = binding_cases()
     if sys.argv[1:] == ['--incremental-apim-anchor-685']:
-        return _incremental_current_documents(main_manifest, current, cases,
+        return _incremental_current_documents(current, cases,
                                               catalog.APIM_ANCHOR_685_PREVIOUS_MANIFEST,
                                               catalog.APIM_ANCHOR_685_PREVIOUS_TREE)
     if sys.argv[1:] == ['--incremental-appstream']:
-        return _incremental_current_documents(main_manifest, current, cases,
+        return _incremental_current_documents(current, cases,
                                               catalog.APPSTREAM_RESOURCE_700_PREVIOUS_MANIFEST,
                                               catalog.APPSTREAM_RESOURCE_700_PREVIOUS_TREE)
     if sys.argv[1:] == ['--incremental-reviewed-685']:
-        return _incremental_current_documents(main_manifest, current, cases,
+        return _incremental_current_documents(current, cases,
                                               catalog.REVIEWED_685_PREVIOUS_MANIFEST,
                                               catalog.REVIEWED_685_PREVIOUS_TREE)
     if sys.argv[1:] == ['--incremental-beanstalk-685']:
-        return _incremental_current_documents(main_manifest, current, cases,
+        return _incremental_current_documents(current, cases,
                                               catalog.BEANSTALK_685_PREVIOUS_MANIFEST,
                                               catalog.BEANSTALK_685_PREVIOUS_TREE)
     if sys.argv[1:] == ['--incremental-cloud-source-685']:
-        return _incremental_current_documents(main_manifest, current, cases,
+        return _incremental_current_documents(current, cases,
                                               catalog.CLOUD_SOURCE_685_PREVIOUS_MANIFEST,
                                               catalog.CLOUD_SOURCE_685_PREVIOUS_TREE)
     if sys.argv[1:] == ['--incremental-ecs-register-685']:
-        return _incremental_current_documents(main_manifest, current, cases,
+        return _incremental_current_documents(current, cases,
                                               catalog.ECS_REGISTER_685_PREVIOUS_MANIFEST,
                                               catalog.ECS_REGISTER_685_PREVIOUS_TREE)
     if sys.argv[1:]:
@@ -317,31 +283,17 @@ def render_documents():
     if (current['manifest_sha256'], current['effective_tree_sha256'], current['source_revision']) not in {
             (row[0], row[1], row[2]) for row in bindings}:
         raise ValueError('current binding absent from display index')
-    document = {'schema_version': 1, 'catalog_document_sha256': main_manifest['document_sha256'],
-                'catalog_source_identities': {name: main_manifest['sources'][name] for name in FROZEN_SOURCES},
-                'current_binding': current, 'legacy_manifest': catalog.LEGACY_MANIFEST,
+    document = {'schema_version': 1, 'current_binding': current, 'legacy_manifest': catalog.LEGACY_MANIFEST,
                 'legacy_revision': catalog.LEGACY_REVISION, 'bindings': bindings, 'details': details}
-    return _documents(_compact(document), main_manifest)
+    return _documents(_compact(document))
 
 
-def _documents(document, main_manifest):
+def _documents(document):
     raw = encoded(document)
     compressed = deterministic_gzip(raw)
     if gzip.decompress(compressed) != raw:
         raise ValueError('display gzip round trip differs')
-    gzip_digest = hashlib.sha256(compressed).hexdigest()
-    manifest = {'schema_version': 1, 'catalog_document_sha256': main_manifest['document_sha256'],
-                'json_bytes': len(raw), 'json_sha256': hashlib.sha256(raw).hexdigest(),
-                'gzip_sha256': gzip_digest}
-    reader = ROOT / 'peaso/server/privesc_display_catalog.py'
-    source = reader.read_text()
-    pinned = re.sub(r"(?m)^PINNED_GZIP_SHA256 = '(?:pending|[0-9a-f]{64})'$",
-                    f"PINNED_GZIP_SHA256 = '{gzip_digest}'", source)
-    if pinned == source and gzip_digest not in source:
-        raise ValueError('display reader identity pin missing')
-    return {PACK / 'api_privesc_display.json.gz': compressed,
-            PACK / 'api_privesc_display_manifest.json': encoded(manifest) + b'\n',
-            reader: pinned.encode()}
+    return {PACK / 'api_privesc_display.json.gz': compressed}
 
 
 if __name__ == '__main__':

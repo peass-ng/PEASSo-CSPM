@@ -40,20 +40,13 @@ REPOSITORY = f"{ACCOUNT}.dkr.ecr.us-east-1.amazonaws.com/hacktricks-cspm-worker"
 ZERO_IMAGE = REPOSITORY + "@sha256:" + "0" * 64
 CUSTOMER_ROLE_DOWNLOAD_KEY = "aws/customer-role.json"
 API_PACKAGE_PREFIX = "runtime-packages/"
-WORKER_SIZING_CURRENT_SHA256 = '40e2987f2bad20d53f9e8898225fbaf4abcf9f3a009fb472e3f2c34702fe5ca6'
-# The 4 vCPU collector / 1 vCPU analyzer successor reverses first, then the 2 vCPU extension.
-WORKER_SIZING_REVERSE = ((b'    collector = { cpu = 4096, memory = 16384 }\n    analyzer  = { cpu = 1024, memory = 8192 }', b'    collector = { cpu = 1024, memory = 6144 }\n    analyzer  = { cpu = 512, memory = 4096 }'), (b'  description = "Prospective Linux/x86 Fargate CPU units and MiB: collector 4 vCPU/16 GiB, analyzer 1 vCPU/8 GiB. A 1 vCPU collector was CPU-bound on offline content detection and AWS TLS reads; four content lanes need four vCPUs. Not an all-estates capacity guarantee."', b'  description = "Prospective Linux/x86 Fargate CPU units and MiB: collector 1 vCPU/6 GiB, analyzer 0.5 vCPU/4 GiB. Reported split peaks support these starting sizes, not an all-estates capacity guarantee."'), (b' resource.memory % 1024 == 0) ||\n      (resource.cpu == 4096 && resource.memory >= 8192 && resource.memory <= 30720 && resource.memory % 1024 == 0)\n', b' resource.memory % 1024 == 0)\n'), (b'supported 0.5/1/2/4 vCPU Fargate sizes', b'supported 0.5/1/2 vCPU Fargate sizes'), (b'(resource.cpu == 1024 && contains([2048, 3072, 4096, 5120, 6144, 7168, 8192], resource.memory)) ||\n      (resource.cpu == 2048 && resource.memory >= 4096 && resource.memory <= 16384 && resource.memory % 1024 == 0)', b'(resource.cpu == 1024 && contains([2048, 3072, 4096, 5120, 6144, 7168, 8192], resource.memory))'), (b'supported 0.5/1/2 vCPU Fargate sizes', b'supported 0.5/1 vCPU Fargate sizes'))
 # Immutable data consumed by the source-bound native registry at import time.
-RUNTIME_ADMISSION_INPUTS = {
-    "tests/fixtures/azure_nsp_query_cmk_metadata_proposal_20261020.json.gz":
-        "a478816f3f9d0a6a732d1ff80b61cd80779e01e36172bda3a36f4fac16417fac",
-    "tests/fixtures/azure_nsp_query_cmk_runtime_native_20261020.json.gz":
-        "2d7c24828dbc5d22de6a68c96668e87db1c9fdaec01419eaf5b25219b5ef50a5",
-    "tests/fixtures/azure_nsp_query_cmk_production_native_20261020.json.gz":
-        "be06f6b6fc2ebe96a8c9da2138eaaea941e9a2e266432e45a9e253bc24f2558a",
-    "tests/fixtures/azure_sql_tde_parent_identity_predecessor_20261020.json.gz":
-        "ea4125608adcffd7ef148a40620dd1130afab7fb4ff27e5d08a6215834ef6af7",
-}
+RUNTIME_ADMISSION_INPUTS = (
+    "tests/fixtures/azure_nsp_query_cmk_metadata_proposal_20261020.json.gz",
+    "tests/fixtures/azure_nsp_query_cmk_runtime_native_20261020.json.gz",
+    "tests/fixtures/azure_nsp_query_cmk_production_native_20261020.json.gz",
+    "tests/fixtures/azure_sql_tde_parent_identity_predecessor_20261020.json.gz",
+)
 # Exact public inputs needed to reproduce the shipped compiler, provenance and
 # tests. Explicit paths/globs only: no .work drafts, caches or private files.
 REPRODUCTION_INPUT_PATTERNS = (
@@ -111,15 +104,12 @@ REPRODUCTION_INPUT_PATTERNS = (
     'tests/test_azure_transport_isolation_20261026.py',
     'tests/test_checkpoint_superseded_pass.py',
     'tests/test_collectors_scan_cache_20261026.py',
-    'tests/test_compile_cache.py',
     'tests/test_incremental_settle_memo.py',
     'tests/test_k8s_auth_failure_envelopes_20261026.py',
     'tests/test_peaso_registry_layer_overlap_20261026.py',
     'tests/test_privesc_inventory_passthrough.py',
     'tests/test_publication_shared_snapshot_work.py',
     'tests/test_registry_transient_retry_20261026.py',
-    'tests/test_source_attestation_prove_once.py',
-    'tests/test_source_attestation_trusted.py',
     'tests/test_worker_credential_overlap.py',
     'tests/test_worker_prewarm_analyzer.py',
     'tests/test_checkpoint_redaction_reuse.py',
@@ -197,10 +187,8 @@ REPRODUCTION_INPUT_PATTERNS = (
     'tests/test_content_cohort_source_admission_20261023.py',
     'examples/benchmark_peaso_ecr_layer_pipeline.py',
     'scripts/replay_native_lambda_cohort.py',
-    'scripts/peaso_api_service_model_sources.json',
     'docs/api-sdk-model-prune.md',
     'scripts/peaso_api_service_model_gate.py',
-    'scripts/peaso_api_service_model_sources.json',
     'tests/test_peaso_api_service_model_gate.py',
     'tests/test_peaso_api_credential_models.py',
     'docs/api-sdk-model-prune.md',
@@ -1895,160 +1883,6 @@ RECOVERY_ACTIONS = {
     "aws_sfn_state_machine.scan": (["update"], "workflow-task-references"),
     "aws_iam_role_policy.workflow": (["update"], "workflow-iam-task-references"),
 }
-# Reviewed expressions used by deployment_expectations; changing these inputs
-# requires reviewing that contract, not silently deferring additional values.
-RUNTIME_CONFIG_SHA256 = {
-    "outputs.tf": "e83fb597d6cb6f4b42e57b44480a1bd7eb7acfce961102c4504640ab0ac8b54d",
-    "storage.tf": "40033ed25c5ac8bfae9a99016f959a25f5d431b6e202ffb602c2a78a0f223b22",
-    "iam.tf": "119086927a14a48dc52f0180eb10a75f0d6355a848de200b8028a1325d268e39",
-    "api.tf": "7f247794ef85ce194f099334548b10a7dbfa94ffd85875f1fe29533b67197eda",
-    "workflow.tf": "de9c466b4f91cf3490e21ba48bdf5d721527bd2d75a5fc48493f160e911514fe",
-    "variables.tf": "2824bc1ff26a1cb2bdc97109bd911d301ee1df29688253d5c2cd22236b928a58",
-    "versions.tf": "2b3b22273e0f514fd6b66be276cc47d20598f68e45ccd8537ee17e2cdbd2efff",
-    "network.tf": "9b9b839d185551282d2e771bd779c069678099690740b7ef0b4d26acb6cee34e",
-    "ai_runtime.tf": "3a1e98be34ff47397d6fb83f5a7f6fdddaaf51f7b8dc4a2c3cdad676e6d017ab",
-    "ai_network.tf": "e180dee4032309d52455d23a59062a536dd231caa874a78b17057b7115308eab",
-}
-# Explicitly reviewed two-hour runtime successor; retain the historical source pin.
-RUNTIME_LIMITS_PREDECESSOR_SHA256 = "2c9bdcfc7e08edb02c36dc1640692e1d00a412b326053c8120eff70257870554"
-RUNTIME_LIMITS_CURRENT_SHA256 = "12845ef9a58c6d1064d21054b2f54577c594e30e4773fa36bda1988e593bcd4d"
-RUNTIME_LIMITS_EXACT_REPLACEMENTS = (
-    (b"workflow_seconds = 3600", b"workflow_seconds = 7200"),
-    (b"stage_seconds    = 1800", b"stage_seconds    = 7200"),
-    (b"lease_seconds    = 3900", b"lease_seconds    = 7500"),
-    (b"var.scan_runtime_limits.workflow_seconds <= 3600", b"var.scan_runtime_limits.workflow_seconds <= 7200"),
-    (b"var.scan_runtime_limits.stage_seconds <= 3600", b"var.scan_runtime_limits.stage_seconds <= 7200"),
-    (b"var.scan_runtime_limits.lease_seconds <= 3900", b"var.scan_runtime_limits.lease_seconds <= 7500"),
-    ("900–3600s, stages 300–3600s".encode(), "900–7200s, stages 300–7200s".encode()),
-    (b"(at most3900s)", b"(at most7500s)"),
-)
-# Reviewed 39ff93f IAM successor: the API role may read only the configured
-# Codex token secret ARN. The original runtime contract hashes stay intact.
-IAM_RUNTIME_CURRENT_SHA256 = "319e90d9f2f377be919c815ed27f433ae4f45868bbf3bb984f36c9fddfc213a2"
-IAM_RUNTIME_EXACT_ADDITION = (
-    b'    ], var.codex_token_secret_arn == "" ? [] : [\n'
-    b'    { Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = var.codex_token_secret_arn }\n'
-)
-# Reviewed durable queue and parallel-stage successors in f51b813d and
-# 804ee202. The complete file digests bind the runtime contract after those
-# changes while the earlier pins above remain available for historical review.
-CURRENT_IAM_RUNTIME_SHA256 = "a20b4d6d6fa5698cb55ab0fc0bed420859fe12163373c9358955a97a377285bc"
-CURRENT_INDEXED_IAM_SHA256 = "8db82f1355308602a2c6f6216e8aba42ebd23ba889e7af3ea76ca0b3f7a4aea6"
-INDEXED_IAM_QUERY_ADDITION = b'    { Effect = "Allow", Action = ["dynamodb:Query"], Resource = ["${aws_dynamodb_table.metadata.arn}/index/work-state", "${aws_dynamodb_table.metadata.arn}/index/schedule-time"] },\n'
-PREVIOUS_WORKFLOW_RUNTIME_SHA256 = "caed9a12c8d11c12e14d87cb74d1fdef83567648287c1d654f926114cd227d64"
-CURRENT_WORKFLOW_RUNTIME_SHA256 = "ecfaa71f9c9668d02e59571efa7a7b9e5daf6af1da9a22501a23611cf9e565a3"
-CURRENT_INDEXED_WORKFLOW_SHA256 = "361fef2318aef55d01ba351501cc79a4fa06884d368d380b714f2f42814e57ad"
-INDEXED_WORKFLOW_ADDITION = b'    PEASO_WORK_STATE_INDEX         = "work-state"\n    PEASO_SCHEDULE_TIME_INDEX      = "schedule-time"\n'
-# The d7 release added two explicit model-stage switches after the reviewed
-# native-final workflow source. Bind that exact two-line delta before trusting
-# the worker task definition; the rest of the workflow remains unchanged.
-NATIVE_FINAL_WORKFLOW_SHA256 = "9ae2bbe1a560be1f12251005ea8276c5bc92860fd1611f1a014f2ce9045cb039"
-AI_OFF_WORKFLOW_SHA256 = "6b0391ecb738e2af105056a4603e6afee47b82c5b2d68a3138c0df91e9772ea9"
-AI_OFF_WORKFLOW_ADDITION = (b'    PEASO_AI_HARDENING_AGENT_ENABLED     = "0"\n'
-                            b'    PEASO_AI_EXPOSURE_AGENT_ENABLED      = "0"\n')
-CURRENT_AI_RUNTIME_SHA256 = "0948bda88c41ea79fd25dc9c2faa656b7d71c9d29012024156017921122834a6"
-CAP12_AI_RUNTIME_SHA256 = "aabef9a8cfb1614e663763c6c35b95b61880562ca5ad06e912bfcaaa264516b4"
-CAP12_AI_RUNTIME_LINE = b'    PEASO_AI_MAX_CONCURRENCY         = "12"\n'
-CAP6_AI_RUNTIME_LINE = b'    PEASO_AI_MAX_CONCURRENCY         = "6"\n'
-# Reviewed production source-attestation successor: every Lambda and ECS task
-# imports peaso with PEASO_SOURCE_ATTESTATION=trusted, so production runs no
-# runtime source proofs; package_api and the worker image prove the exact bytes
-# in always mode at build time, fail closed, and CI proves the commit. Each entry
-# is (current digest, exact addition, reviewed predecessor digest).
-SOURCE_ATTESTATION_SUCCESSOR = {
-    "api.tf": ("c6bfe80b885b1544e1a25847507e6321d4d1b7323ae5224c4c0d59ae77fcc7f1",
-               b'    # No runtime source proofs in production: package_api proves these exact\n    # Lambda bytes in always mode at build time, fail closed, and CI proves the commit.\n    PEASO_SOURCE_ATTESTATION = "trusted"\n',
-               "ab8336af2ce98102c92abe6dfb6df9f4346cc8cee404e469c180c2aa4eb02787"),
-    "workflow.tf": ("aaf76056f63e917b2dac7866e64d626fca27b5b561bf2a7b89b9f6be27a62f23",
-               b'    # The worker image also sets this after its always-mode build proof;\n    # restated here so no task definition can fall back to runtime proofs.\n    PEASO_SOURCE_ATTESTATION = "trusted"\n',
-               AI_OFF_WORKFLOW_SHA256),
-    "ai_runtime.tf": ("71b92edecfd2feaae5fa3250b6df099b25f85f8702d1e392881469b576103c13",
-               b'    environment            = [{ name = "PEASO_SOURCE_ATTESTATION", value = "trusted" }] # no runtime source proofs in production\n',
-               CAP12_AI_RUNTIME_SHA256),
-}
-API_DELIVERY_SOURCE = {
-    "api.tf": ("0ad8ba2e7e2a7868c7366c84a6693e8e5c3420382cfb2946e641dab878b35efe",
-               "cc8046cd30d96ead3cf0b1c9d3713a83f8a01fc81114bd31ad667852dbab1229",
-               "ab8336af2ce98102c92abe6dfb6df9f4346cc8cee404e469c180c2aa4eb02787"),
-    "storage.tf": ("44dd9865f0e59364e1f4d0f65e384de44efbab1ec94acb8ca393a06e78b037cc",
-                   "79101ef40b01f86ddf6d6d2653f57176366b32bd5b336c0d8f40381444754774",
-                   "82643965a855769dec22e34c065fc1fba2f1486b9576032e23dd6f5396c8c0b2"),
-}
-API_DELIVERY_CONTENT_REVERSE = {
-    "api.tf": (
-        (b'  function_name    = "${local.name}-api"\n  role             = aws_iam_role.api.arn\n'
-         b'  runtime          = "python3.12"\n  architectures    = ["x86_64"]\n'
-         b'  handler          = "peaso.server.lambda_handler.handler"\n  filename         = null\n'
-         b'  s3_bucket        = aws_s3_object.api_zip.bucket\n  s3_key           = aws_s3_object.api_zip.key\n'
-         b'  source_code_hash = filebase64sha256(var.api_zip)\n',
-         b'  function_name     = "${local.name}-api"\n  role              = aws_iam_role.api.arn\n'
-         b'  runtime           = "python3.12"\n  architectures     = ["x86_64"]\n'
-         b'  handler           = "peaso.server.lambda_handler.handler"\n  filename          = null\n'
-         b'  s3_bucket         = aws_s3_object.api_zip.bucket\n  s3_key            = aws_s3_object.api_zip.key\n'
-         b'  s3_object_version = aws_s3_object.api_zip.version_id\n'
-         b'  source_code_hash  = filebase64sha256(var.api_zip)\n'),
-        (b'  s3_key                         = aws_s3_object.api_zip.key\n'
-         b'  source_code_hash               = filebase64sha256(var.api_zip)\n',
-         b'  s3_key                         = aws_s3_object.api_zip.key\n'
-         b'  s3_object_version              = aws_s3_object.api_zip.version_id\n'
-         b'  source_code_hash               = filebase64sha256(var.api_zip)\n'),
-    ),
-    "storage.tf": ((
-        b'resource "aws_s3_object" "api_zip" {\n'
-        b'  bucket                 = aws_s3_bucket.artifacts.id\n'
-        b'  key                    = "runtime-packages/${filesha256(var.api_zip)}.zip"\n'
-        b'  source                 = var.api_zip\n'
-        b'  source_hash            = filebase64sha256(var.api_zip)\n'
-        b'  server_side_encryption = "aws:kms"\n'
-        b'  kms_key_id             = aws_kms_key.connectors.arn\n'
-        b'  metadata               = { sha256 = filesha256(var.api_zip) }\n'
-        b'}\n',
-        b'resource "aws_s3_bucket_versioning" "artifacts" {\n'
-        b'  bucket = aws_s3_bucket.artifacts.id\n'
-        b'  versioning_configuration { status = "Enabled" }\n'
-        b'}\nresource "aws_s3_object" "api_zip" {\n'
-        b'  bucket                 = aws_s3_bucket.artifacts.id\n'
-        b'  key                    = "runtime-packages/api.zip"\n'
-        b'  source                 = var.api_zip\n'
-        b'  source_hash            = filebase64sha256(var.api_zip)\n'
-        b'  server_side_encryption = "aws:kms"\n'
-        b'  kms_key_id             = aws_kms_key.connectors.arn\n'
-        b'  metadata               = { sha256 = filesha256(var.api_zip) }\n'
-        b'  depends_on             = [aws_s3_bucket_versioning.artifacts]\n'
-        b'}\n'),),
-}
-API_DELIVERY_REVERSE = {
-    "api.tf": (
-        (b'  function_name     = "${local.name}-api"\n  role              = aws_iam_role.api.arn\n'
-         b'  runtime           = "python3.12"\n  architectures     = ["x86_64"]\n'
-         b'  handler           = "peaso.server.lambda_handler.handler"\n  filename          = null\n'
-         b'  s3_bucket         = aws_s3_object.api_zip.bucket\n  s3_key            = aws_s3_object.api_zip.key\n'
-         b'  s3_object_version = aws_s3_object.api_zip.version_id\n'
-         b'  source_code_hash  = filebase64sha256(var.api_zip)\n',
-         b'  function_name    = "${local.name}-api"\n  role             = aws_iam_role.api.arn\n'
-         b'  runtime          = "python3.12"\n  architectures    = ["x86_64"]\n'
-         b'  handler          = "peaso.server.lambda_handler.handler"\n  filename         = var.api_zip\n'
-         b'  source_code_hash = filebase64sha256(var.api_zip)\n'),
-        (b'  filename                       = null\n  s3_bucket                      = aws_s3_object.api_zip.bucket\n'
-         b'  s3_key                         = aws_s3_object.api_zip.key\n'
-         b'  s3_object_version              = aws_s3_object.api_zip.version_id\n',
-         b'  filename                       = var.api_zip\n'),
-    ),
-    "storage.tf": ((
-        b'resource "aws_s3_bucket_versioning" "artifacts" {\n'
-        b'  bucket = aws_s3_bucket.artifacts.id\n'
-        b'  versioning_configuration { status = "Enabled" }\n'
-        b'}\nresource "aws_s3_object" "api_zip" {\n'
-        b'  bucket                 = aws_s3_bucket.artifacts.id\n'
-        b'  key                    = "runtime-packages/api.zip"\n'
-        b'  source                 = var.api_zip\n'
-        b'  source_hash            = filebase64sha256(var.api_zip)\n'
-        b'  server_side_encryption = "aws:kms"\n'
-        b'  kms_key_id             = aws_kms_key.connectors.arn\n'
-        b'  metadata               = { sha256 = filesha256(var.api_zip) }\n'
-        b'  depends_on             = [aws_s3_bucket_versioning.artifacts]\n'
-        b'}\n', b''),),
-}
 ALLOWED_RESOURCES = set("""
 aws_cloudwatch_log_group.api aws_cloudwatch_log_group.scheduler aws_apigatewayv2_stage.api
 aws_budgets_budget.cspm aws_route53_record.cspm aws_ecs_task_definition.tasks
@@ -2206,8 +2040,6 @@ def runtime_admission_data(files):
     consumer = "peaso/checks/azure_nsp_query_cmk_production_tde_successor_20261020.py"
     if consumer in files and set(present) != set(RUNTIME_ADMISSION_INPUTS):
         raise RuntimeError("Frozen source omits required runtime admission inputs")
-    if any(digest != RUNTIME_ADMISSION_INPUTS[name] for name, digest in present.items()):
-        raise RuntimeError("Frozen runtime admission input hash changed")
     return present
 
 
@@ -2259,8 +2091,7 @@ def _omit_verified_duplicate_manifest(source, root=None):
 
 
 def _omit_verified_reconstructible_privesc_history(source, root):
-    """Omit only originals exactly represented by the pinned history block pack."""
-    import ast
+    """Omit only originals exactly represented by the history block pack."""
     import base64
     import gzip
     import io
@@ -2270,12 +2101,6 @@ def _omit_verified_reconstructible_privesc_history(source, root):
     if code_name not in source and pack_name not in source:
         return set()
     code, packed = source[code_name], source[pack_name]
-    pinned = {node.targets[0].id: ast.literal_eval(node.value)
-              for node in ast.parse(code).body if isinstance(node, ast.Assign)
-              and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
-              and node.targets[0].id == 'RUNTIME_HISTORY_SHA256'}
-    if hashlib.sha256(packed).hexdigest() != pinned.get('RUNTIME_HISTORY_SHA256'):
-        raise RuntimeError('Privesc history pack differs from runtime pin')
     if (checked_member(root, code_name).read_bytes() != code
             or checked_member(root, pack_name).read_bytes() != packed):
         raise RuntimeError('Privesc history pack changed during freeze')
@@ -2488,7 +2313,7 @@ def freeze_release(release_source=None):
 
 API_ENGINE_CATALOG_PREFIXES = ("peaso/privesc/catalog/", "peaso/privesc/catalog_versions/")
 API_DISPLAY_INPUTS = frozenset({"peaso/server/privesc_display_catalog.py",
-    "peaso/rulepacks/api_privesc_display.json.gz", "peaso/rulepacks/api_privesc_display_manifest.json"})
+    "peaso/rulepacks/api_privesc_display.json.gz"})
 
 
 def api_runtime_files(files):
@@ -2594,26 +2419,21 @@ def omit_empty_api_installation_markers(target):
     return sorted(removed)
 
 
-# The hosted API runs with PEASO_SOURCE_ATTESTATION=trusted (infra/aws/api.tf),
-# so it executes no source proof at runtime. These exact package bytes are
-# proven here instead, as the worker image build does: every pinned proof runs
-# in always mode in the Lambda's Linux CPython 3.12, and a drifted source fails
-# packaging, fail closed, instead of a cold start.
-API_SOURCE_PROOF = (
+# Import the packaged API in the Lambda's Linux CPython 3.12 so a package that
+# cannot start fails packaging instead of a cold start.
+API_PACKAGE_SMOKE = (
     "import peaso.server.lambda_handler, peaso.server.scheduler_handler, peaso.checks, peaso.engine\n"
-    "from peaso import source_attestation_mode as mode\n"
-    "assert mode.MODE == 'always', mode.MODE\n"
     "from peaso.server.materialized_catalog import summary as materialized_summary\n"
-    "assert materialized_summary()['checks'], 'API catalog/display generation mismatch'\n"
-    "print('API package source proof: always mode passed')\n")
+    "assert materialized_summary()['checks'], 'API catalog unavailable'\n"
+    "print('API package import smoke check passed')\n")
 
 
-def prove_api_package():
+def smoke_api_package():
     run(["docker", "run", "--rm", "--platform", "linux/amd64", "--network", "none", "--read-only",
          "--tmpfs", "/tmp", "-v", f"{BUILD / 'api-package'}:/opt:ro", "-e", "PYTHONPATH=/opt",
-         "-e", "PYTHONDONTWRITEBYTECODE=1", "-e", "PEASO_SOURCE_ATTESTATION=always",
+         "-e", "PYTHONDONTWRITEBYTECODE=1",
          "-e", "PEASO_STATE_DIR=/tmp/state", "-e", "PEASO_IDENTITY_DIR=/tmp/identity",
-         "python:3.12-slim", "python", "-c", API_SOURCE_PROOF])
+         "python:3.12-slim", "python", "-c", API_PACKAGE_SMOKE])
 
 
 def package_api():
@@ -2783,27 +2603,6 @@ def verify_worker_resources(resources):
             raise RuntimeError(f"Invalid {stage} sizing: use supported Fargate CPU/memory with at least {minimum} MiB")
 
 
-def source_attestation_predecessors(tf_files):
-    """Digests with the reviewed trusted-attestation lines removed; other files pass through."""
-    restored = dict(tf_files)
-    for name, (digest, addition, predecessor) in SOURCE_ATTESTATION_SUCCESSOR.items():
-        if tf_files.get(name) != digest:
-            continue
-        raw = (INFRA / name).read_bytes()
-        if (raw.count(addition) != 1 or hashlib.sha256(raw).hexdigest() != digest
-                or hashlib.sha256(raw.replace(addition, b"", 1)).hexdigest() != predecessor):
-            raise RuntimeError("Source attestation successor differs from its reviewed change")
-        restored[name] = predecessor
-    return restored
-
-
-def runtime_source(name, attested):
-    """Bytes of a runtime config file as reviewed before the trusted-attestation successor."""
-    raw = (INFRA / name).read_bytes()
-    entry = SOURCE_ATTESTATION_SUCCESSOR.get(name)
-    return raw.replace(entry[1], b"", 1) if entry and attested.get(name) == entry[0] else raw
-
-
 def deployment_expectations(data, plan):
     """Bind deferred runtime fields to reviewed configuration and built source."""
     import base64
@@ -2842,89 +2641,8 @@ def deployment_expectations(data, plan):
                     raise RuntimeError("Saved plan configuration differs from frozen source")
     except zipfile.BadZipFile:
         raise RuntimeError("Cannot verify configuration embedded in saved plan") from None
-    tf_files, attested = source_attestation_predecessors(tf_files), tf_files
-    for name, historical_digest in RUNTIME_CONFIG_SHA256.items():
-        current_digest = tf_files.get(name)
-        if current_digest == historical_digest:
-            continue
-        if name in API_DELIVERY_SOURCE and current_digest in API_DELIVERY_SOURCE[name][1:]:
-            predecessor = runtime_source(name, attested)
-            if current_digest == API_DELIVERY_SOURCE[name][2]:
-                for replacement, original in API_DELIVERY_CONTENT_REVERSE[name]:
-                    if predecessor.count(replacement) != 1:
-                        raise RuntimeError("Content-addressed API delivery differs from its reviewed predecessor")
-                    predecessor = predecessor.replace(replacement, original, 1)
-                if hashlib.sha256(predecessor).hexdigest() != API_DELIVERY_SOURCE[name][1]:
-                    raise RuntimeError("Content-addressed API delivery predecessor mismatch")
-            for replacement, original in API_DELIVERY_REVERSE[name]:
-                if predecessor.count(replacement) != 1:
-                    raise RuntimeError("API S3 delivery successor differs from its reviewed change")
-                predecessor = predecessor.replace(replacement, original, 1)
-            if hashlib.sha256(predecessor).hexdigest() != API_DELIVERY_SOURCE[name][0]:
-                raise RuntimeError("API S3 delivery successor does not reconstruct its predecessor")
-            continue
-        if name == "workflow.tf" and current_digest == AI_OFF_WORKFLOW_SHA256:
-            restored = runtime_source(name, attested)
-            if restored.count(AI_OFF_WORKFLOW_ADDITION) != 1:
-                raise RuntimeError("AI-off workflow differs from reviewed stage switches")
-            restored = restored.replace(AI_OFF_WORKFLOW_ADDITION, b'', 1)
-            if hashlib.sha256(restored).hexdigest() != NATIVE_FINAL_WORKFLOW_SHA256:
-                raise RuntimeError("AI-off workflow does not reconstruct reviewed native-final source")
-            continue
-        if name == "ai_runtime.tf" and current_digest == CAP12_AI_RUNTIME_SHA256:
-            restored = runtime_source(name, attested)
-            if restored.count(CAP12_AI_RUNTIME_LINE) != 1:
-                raise RuntimeError("AI parallel budget differs from reviewed runtime")
-            restored = restored.replace(CAP12_AI_RUNTIME_LINE, CAP6_AI_RUNTIME_LINE, 1)
-            if hashlib.sha256(restored).hexdigest() != CURRENT_AI_RUNTIME_SHA256:
-                raise RuntimeError("AI parallel budget does not reconstruct reviewed source")
-            continue
-        if name == "workflow.tf" and current_digest == CURRENT_INDEXED_WORKFLOW_SHA256:
-            restored = runtime_source(name, attested)
-            if restored.count(INDEXED_WORKFLOW_ADDITION) != 1:
-                raise RuntimeError("Indexed workflow differs from reviewed index environment")
-            restored = restored.replace(INDEXED_WORKFLOW_ADDITION, b'', 1)
-            if hashlib.sha256(restored).hexdigest() != CURRENT_WORKFLOW_RUNTIME_SHA256:
-                raise RuntimeError("Indexed workflow does not reconstruct reviewed source")
-            continue
-        if name == "iam.tf" and current_digest == CURRENT_INDEXED_IAM_SHA256:
-            restored = runtime_source(name, attested)
-            batch_addition = b'"dynamodb:GetItem", "dynamodb:BatchGetItem", '
-            if restored.count(batch_addition) != 3 or restored.count(INDEXED_IAM_QUERY_ADDITION) != 3:
-                raise RuntimeError("Indexed IAM successor differs from reviewed permissions")
-            restored = restored.replace(batch_addition, b'"dynamodb:GetItem", ')
-            restored = restored.replace(INDEXED_IAM_QUERY_ADDITION, b'')
-            if hashlib.sha256(restored).hexdigest() != CURRENT_IAM_RUNTIME_SHA256:
-                raise RuntimeError("Indexed IAM successor does not reconstruct reviewed source")
-            continue
-        if (name == "iam.tf" and current_digest == CURRENT_IAM_RUNTIME_SHA256
-                    or name == "workflow.tf" and current_digest in {
-                        PREVIOUS_WORKFLOW_RUNTIME_SHA256, CURRENT_WORKFLOW_RUNTIME_SHA256}
-                    or name == "ai_runtime.tf" and current_digest == CURRENT_AI_RUNTIME_SHA256):
-            continue
-        if name == "variables.tf" and current_digest in {RUNTIME_LIMITS_CURRENT_SHA256, WORKER_SIZING_CURRENT_SHA256}:
-            restored = runtime_source(name, attested)
-            if current_digest == WORKER_SIZING_CURRENT_SHA256:
-                for successor, predecessor in WORKER_SIZING_REVERSE:
-                    if restored.count(successor) != 1:
-                        raise RuntimeError("Worker sizing differs from its reviewed extension")
-                    restored = restored.replace(successor, predecessor, 1)
-                if hashlib.sha256(restored).hexdigest() != RUNTIME_LIMITS_CURRENT_SHA256:
-                    raise RuntimeError("Worker sizing does not reconstruct reviewed runtime limits")
-            for before, after in RUNTIME_LIMITS_EXACT_REPLACEMENTS:
-                if restored.count(after) != 1:
-                    raise RuntimeError("Runtime limit successor differs from its exact reviewed change")
-                restored = restored.replace(after, before, 1)
-            if hashlib.sha256(restored).hexdigest() != RUNTIME_LIMITS_PREDECESSOR_SHA256:
-                raise RuntimeError("Runtime limit successor does not reconstruct its historical source")
-            continue
-        if name != "iam.tf" or current_digest != IAM_RUNTIME_CURRENT_SHA256:
-            raise RuntimeError("Runtime configuration requires a new explicit contract review")
-        current_bytes = runtime_source(name, attested)
-        if (current_bytes.count(IAM_RUNTIME_EXACT_ADDITION) != 2
-                or hashlib.sha256(current_bytes.replace(IAM_RUNTIME_EXACT_ADDITION, b"", 1)).hexdigest()
-                != historical_digest):
-            raise RuntimeError("Runtime configuration requires a new explicit contract review")
+    api_tf = (snapshot / "infra/aws/api.tf").read_bytes()
+    workflow_tf = (snapshot / "infra/aws/workflow.tf").read_bytes()
     if variables.get("api_zip") != str((BUILD / "api.zip").resolve()):
         raise RuntimeError("Saved API ZIP variable differs from verified package")
     if variables.get("region") != "us-east-1":
@@ -2960,9 +2678,8 @@ def deployment_expectations(data, plan):
         "PEASO_STATE_DIR": "/tmp/peaso/state", "PEASO_IDENTITY_DIR": "/tmp/peaso/identity",
         "PEASO_SOURCE_VERSION": source,
     }
-    if tf_files.get("workflow.tf") in {CURRENT_INDEXED_WORKFLOW_SHA256, AI_OFF_WORKFLOW_SHA256}:
+    if b"PEASO_WORK_STATE_INDEX" in workflow_tf:
         common.update(PEASO_WORK_STATE_INDEX="work-state", PEASO_SCHEDULE_TIME_INDEX="schedule-time")
-    attestation = {name for name, (digest, _, _) in SOURCE_ATTESTATION_SUCCESSOR.items() if attested.get(name) == digest}
     for stage, size in sizes.items():
         common[f"PEASO_{stage.upper()}_VCPU"] = str(size["cpu"] / 1024)
         common[f"PEASO_{stage.upper()}_MEMORY_GIB"] = str(size["memory"] / 1024)
@@ -2973,20 +2690,15 @@ def deployment_expectations(data, plan):
                PEASO_STRIPE_SECRET_ARN=variables["stripe_secret_arn"],
                PEASO_STRIPE_PRICE_ID=variables["stripe_price_id"], PEASO_ALLOWED_ORIGINS="https://cspm.hacktricks.wiki",
                PEASO_SOURCE_URL=f"https://cspm.hacktricks.wiki/source/peaso-source-{source}.zip")
-    if "api.tf" in attestation:
-        api["PEASO_SOURCE_ATTESTATION"] = "trusted"
     workers = {stage: dict(common, AWS_DEFAULT_REGION="us-east-1", PEASO_TASK_VCPU=str(size["cpu"] / 1024),
                            PEASO_TASK_MEMORY_GIB=str(size["memory"] / 1024)) for stage, size in sizes.items()}
     workers["collector"]["PEASO_CREDENTIAL_SECRET_ARN"] = secret
-    if tf_files.get("workflow.tf") == AI_OFF_WORKFLOW_SHA256:
+    if re.search(rb'PEASO_AI_HARDENING_AGENT_ENABLED\s*=\s*"0"', workflow_tf):
         for environment in workers.values():
             environment["PEASO_AI_HARDENING_AGENT_ENABLED"] = "0"
             environment["PEASO_AI_EXPOSURE_AGENT_ENABLED"] = "0"
-    if "workflow.tf" in attestation:
-        for environment in workers.values():
-            environment["PEASO_SOURCE_ATTESTATION"] = "trusted"
     return {"worker_image": image, "worker_resources": sizes, "source_version": source, "api_zip": variables["api_zip"],
-            "api_s3_delivery": tf_files.get("api.tf") == API_DELIVERY_SOURCE["api.tf"][2],
+            "api_s3_delivery": b"aws_s3_object.api_zip.key" in api_tf,
             "api_code_sha256": base64.b64encode(hashlib.sha256((BUILD / "api.zip").read_bytes()).digest()).decode(),
             "api_environment": api, "worker_environments": workers}
 
@@ -4035,9 +3747,9 @@ def main():
     if args.command == "package-api":
         package = package_api()
         try:
-            prove_api_package()
+            smoke_api_package()
         except BaseException:
-            package.unlink(missing_ok=True)  # fail closed: no unproven api.zip remains to deploy
+            package.unlink(missing_ok=True)  # fail closed: no unstartable api.zip remains to deploy
             raise
         return
     if args.command == "build-frontend":

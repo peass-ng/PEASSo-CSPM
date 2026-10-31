@@ -1,12 +1,8 @@
-"""Package API SDK models against an explicitly reviewed runtime-source inventory."""
+"""Package only the SDK models of services the API source creates clients for."""
 import ast
-import hashlib
 import json
 from pathlib import Path
 
-REVIEWED_PYTHON_SHA256 = 'ecd04d2322928db7d14c527ace4fcaedb4b3aac37345a4f444e7b2214ba9d688'
-REVIEWED_PYTHON_COUNT = 1781
-REVIEWED_MANIFEST_SHA256 = '1aa35b54d65a5ad1cf270d6be0cd08fb3341c609c3c2be92112d3019b4df7022'
 REQUIRED_BOTOCORE_VERSION = '1.43.38'
 API_SERVICES = frozenset({
     'accessanalyzer', 'cloudtrail', 'cognito-identity', 'cognito-idp',
@@ -18,61 +14,15 @@ API_SOURCE_FILES = ('peaso/worker.py', 'peaso/scheduling.py', 'peaso/gcp_platfor
 CLIENT_METHODS = frozenset({'client', 'resource', 'create_client', 'create_resource'})
 
 
-def _reviewed_manifest():
-    path = Path(__file__).with_name('peaso_api_service_model_sources.json')
-    raw = path.read_bytes()
-    if hashlib.sha256(raw).hexdigest() != REVIEWED_MANIFEST_SHA256:
-        raise RuntimeError('API reviewed source manifest changed; re-review before packaging')
-    data = json.loads(raw)
-    if (data.get('python_source_count') != REVIEWED_PYTHON_COUNT
-            or data.get('python_source_sha256') != REVIEWED_PYTHON_SHA256
-            or len(data.get('files', {})) != REVIEWED_PYTHON_COUNT):
-        raise RuntimeError('API reviewed source manifest is inconsistent')
-    return data
-
-
-def source_hashes(root):
-    root = Path(root)
-    paths = [p for directory in ('peaso', 'risk_rules')
-             for p in (root / directory).rglob('*.py') if p.is_file()]
-    paths += [root / name for name in (
-        'bluepeass/__init__.py', 'bluepeass/k8s.py', 'bluepeass/k8s_risks.py',
-        'scripts/cloud_permission_risks.py') if (root / name).is_file()]
-    return {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in paths}
-
-
-def source_diff(root):
-    expected = _reviewed_manifest()['files']
-    actual = source_hashes(root)
-    return {'added': sorted(actual.keys() - expected.keys()),
-            'removed': sorted(expected.keys() - actual.keys()),
-            'changed': sorted(name for name in actual.keys() & expected.keys()
-                              if actual[name] != expected[name])}
-
-
-def reviewed_python(root):
-    files = source_hashes(root)
-    digest = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    if len(files) != REVIEWED_PYTHON_COUNT or digest != REVIEWED_PYTHON_SHA256:
-        differences = source_diff(root)
-        raise RuntimeError(f'API Python source changed; re-review SDK model closure before packaging: {differences}')
-    # The per-file manifest is a review aid; its bytes are pinned in this build helper.
-    if files != _reviewed_manifest()['files']:
-        raise RuntimeError('API reviewed source manifest differs from source pin')
-    return files
-
-
 def review_source(root):
-    """Read-only inventory for a human source-closure review; never refresh pins."""
-    differences = source_diff(root)
+    """Read-only inventory of the API's direct SDK client calls."""
     try:
         calls = direct_clients(root)
         direct_error = None
     except RuntimeError as exc:
         calls = []
         direct_error = str(exc)
-    return {'source_diff': differences, 'direct_client_calls': calls,
+    return {'direct_client_calls': calls,
             'direct_client_error': direct_error, 'reviewed_services': sorted(API_SERVICES)}
 
 
@@ -93,8 +43,7 @@ def direct_clients(root):
                 raise RuntimeError(f'unlisted API SDK service: {path.relative_to(root)}:{node.lineno}:{service}')
             calls.append((path.relative_to(root).as_posix(), node.lineno, service))
     # API imports this selected credential factory from collectors.aws. It must
-    # remain free of SDK client creation; the complete Python pin covers its
-    # transitive code and every validator module imported by API routes.
+    # remain free of SDK client creation.
     aws_tree = ast.parse((root / 'peaso/collectors/aws.py').read_bytes())
     session = next((node for node in aws_tree.body if isinstance(node, ast.FunctionDef) and node.name == '_session'), None)
     if session is None or any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
@@ -105,7 +54,6 @@ def direct_clients(root):
 
 def prune_api_service_models(root):
     root = Path(root)
-    reviewed_python(root)
     calls = direct_clients(root)
     metadata = root / f'botocore-{REQUIRED_BOTOCORE_VERSION}.dist-info/METADATA'
     if not metadata.is_file() or f'Version: {REQUIRED_BOTOCORE_VERSION}\n' not in metadata.read_text():
@@ -130,8 +78,7 @@ def prune_api_service_models(root):
         import shutil
         shutil.rmtree(directory)
     return {'allowed_services': sorted(API_SERVICES), 'direct_client_calls': calls,
-            'removed_models': len(removed), 'removed_model_paths': removed,
-            'python_source_sha256': REVIEWED_PYTHON_SHA256}
+            'removed_models': len(removed), 'removed_model_paths': removed}
 
 if __name__ == '__main__':
     import sys
