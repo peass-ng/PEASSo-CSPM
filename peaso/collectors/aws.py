@@ -319,6 +319,28 @@ class ReadResult:
     error: dict | None = None
 
 
+_ANALYZER_READ = threading.local()
+
+
+def _analyzer_read_only(operation):
+    """Access Analyzer is read only: list/get existing analyzers and findings."""
+    from .aws_access_analyzer_lifecycle import READ_ONLY_OPERATIONS
+    if operation not in READ_ONLY_OPERATIONS:
+        raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
+
+
+def _guarded_client(requests, session, service, region, operation):
+    """Build a client; Access Analyzer only after its read-only operation check."""
+    if service != "accessanalyzer":
+        return requests.client(session, service, region)
+    _analyzer_read_only(operation)
+    _ANALYZER_READ.allowed = True
+    try:
+        return requests.client(session, service, region)
+    finally:
+        _ANALYZER_READ.allowed = False
+
+
 class Requests:
     """Scan-local, single-flight request cache with one global attempt budget."""
     def __init__(self, options, *, sleep=time.sleep):
@@ -397,7 +419,7 @@ class Requests:
             raise ReadFailure("timeout", "intentional_scan_deadline")
 
     def client(self, session, service, region, *, _metadata_profile=None):
-        if service == "accessanalyzer":
+        if service == "accessanalyzer" and not getattr(_ANALYZER_READ, "allowed", False):
             raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
         from botocore.config import Config
         from .aws_request_pool import canonical_wrapper
@@ -469,7 +491,7 @@ class Requests:
 
     def call(self, session, service, region, operation, *, _cache_refresh=False, _uncached_credential_exchange=False, _metadata_profile=None, _projection_context=None, _codecommit_routes=None, **arguments):
         if service == "accessanalyzer":
-            raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
+            _analyzer_read_only(operation)
         from .aws_request_pool import SHARED_PROFILES, canonical_wrapper, shared_reads
         session = canonical_wrapper(self, session)
         if _metadata_profile == 'aws-build-deployment-referenced-source-v1':
@@ -639,7 +661,7 @@ class Requests:
             with self._lock:
                 if self.max_calls is not None and self.calls >= self.max_calls:
                     raise ReadFailure("not_collected", "call_limit")
-            client = self.client(session, service, region, _metadata_profile=_metadata_profile) if _metadata_profile in ('aws-lambda-environment-content-v1', 'aws-selected-configuration-content-v1') else self.client(session, service, region)
+            client = self.client(session, service, region, _metadata_profile=_metadata_profile) if _metadata_profile in ('aws-lambda-environment-content-v1', 'aws-selected-configuration-content-v1') else _guarded_client(self, session, service, region, operation)
             if _metadata_profile == 'aws-selected-configuration-content-v1':
                 projection_contract.validate_native_client(client, service, region)
             if (service == 'sts' and self.content_secret_scans
@@ -903,7 +925,7 @@ class Requests:
         operation that botocore declares without a paginator; an unpaginated
         response carrying a continuation token is never reported complete."""
         if service == "accessanalyzer":
-            raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
+            _analyzer_read_only(operation)
         import jmespath
         from .aws_request_pool import canonical_wrapper
         session = canonical_wrapper(self, session)
@@ -912,7 +934,7 @@ class Requests:
             with self._lock:
                 if self.max_calls is not None and self.calls >= self.max_calls and not any(key[:4] == (id(session), service, region, operation) for key in self._cache):
                     raise ReadFailure("not_collected", "call_limit")
-            client = self.client(session, service, region)
+            client = _guarded_client(self, session, service, region, operation)
             # SDK pagination metadata handles IAM Marker, S3 continuation,
             # CloudWatch nextToken, ELB NextMarker and multi-token APIs correctly.
             cfg = client.get_paginator(operation)._pagination_cfg if client.can_paginate(operation) else {}
@@ -3058,7 +3080,7 @@ def collect(connector, requirements=None):
                 register_context(requests, session, identity, regions_for(identity["Account"]))
     metadata["access_analyzer_lifecycle"] = []
     if "access_analyzer" in wanted:
-        metadata["collection"] = "saved-access-analyzer-results-only"
+        metadata["collection"] = "read-existing-access-analyzers"
     analyzer_lifecycle = AnalyzerLifecycle(requests, metadata["access_analyzer_lifecycle"], progress_callback)
     # Retain collection ordering; Access Analyzer preparation is inert and
     # never makes a live service call.

@@ -2,9 +2,7 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 
-import boto3
 import pytest
-from botocore.stub import Stubber
 from peaso.collectors import aws
 from peaso.collectors.aws_facts_cb_ca import _analyzer_findings
 from peaso.checks import CHECKS
@@ -32,18 +30,6 @@ def summary(kind):
 def analyzer(findings):
     return dict(arn=ARN, name='unused', type='ACCOUNT_UNUSED_ACCESS', status='ACTIVE', Findings=findings,
                 configuration={'unusedAccess': {'unusedAccessAge': 90}})
-
-
-def test_live_access_analyzer_sdk_is_banned_before_any_request(monkeypatch):
-    session = boto3.Session(aws_access_key_id='inert', aws_secret_access_key='inert')
-    client = session.client('accessanalyzer', region_name='us-east-1')
-    stub = Stubber(client)
-    monkeypatch.setattr(aws.Requests, 'client', lambda *args, **kwargs: client)
-    with stub:
-        with pytest.raises(aws.ReadFailure) as failure:
-            _analyzer_findings(aws.Requests({}), session, 'us-east-1', [analyzer([])])
-        stub.assert_no_pending_responses()
-    assert (failure.value.status, failure.value.code) == ('not_collected', 'access_analyzer_live_api_banned')
 
 
 def test_recorded_finding_pages_keep_all_four_unused_types_and_metadata():
