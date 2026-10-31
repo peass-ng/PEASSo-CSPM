@@ -356,7 +356,23 @@ def test_standard_dot_prefix_root_and_links(tmp_path, archive_format):
     assert not (tmp_path / 'usr').exists() and not (tmp_path / 'dev').exists()
 
 
+def test_slash_root_directory_entry_is_the_root_marker(tmp_path):
+    # Some image builders emit a '/' directory as the first layer member.
+    args = small_image(tmp_path, [[
+        ('/', tarfile.DIRTYPE, b'', 0, 0, ''),
+        ('etc', tarfile.DIRTYPE, b'', 0, 0, ''),
+        ('etc/app.conf', tarfile.REGTYPE, b'payload', 0, 0, ''),
+    ]])
+    observed = {}
+    archive.visit_files(*args, lambda name, reader, size, index:
+                        observed.setdefault(name, reader.read()))
+    assert observed == {'etc/app.conf': b'payload'}
+
+
 @pytest.mark.parametrize('entries,reason', [
+    ([('/', tarfile.DIRTYPE, b'', 0, 0, ''),
+      ('.', tarfile.DIRTYPE, b'', 0, 0, '')], 'duplicate_tar_member'),
+    ([('/etc/file', tarfile.REGTYPE, b'bad', 0, 0, '')], 'unsafe_image_path'),
     ([('./a', tarfile.REGTYPE, b'one', 0, 0, ''),
       ('a', tarfile.REGTYPE, b'two', 0, 0, '')], 'duplicate_tar_member'),
     ([('.', tarfile.DIRTYPE, b'', 0, 0, ''),

@@ -811,6 +811,7 @@ def _image(response, arguments, requests, session, region):
             complete = False
             causes.add(exc.code if isinstance(exc, Unsupported) else
                        'layer_download_unavailable' if getattr(exc, 'code', None) == 'package_download_unavailable'
+                       else str(exc) if isinstance(exc, ValueError) and re.fullmatch(r'[a-z_]+_bound', str(exc))
                        else 'image_archive_unreadable')
         finally:
             try: flush_pending()

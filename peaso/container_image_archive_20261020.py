@@ -350,8 +350,12 @@ def _tar_members(path, nodes, count, check, layer_index, path_budget, start=0, l
                 # GNU/Debian image layers commonly use './' and a root directory
                 # marker. Canonicalize only that leading prefix, before duplicate
                 # and traversal checks; never extract or create the root marker.
-                require(type(name) is str and bool(name) and len(name.encode('utf-8')) <= MAX_PATH,
+                require(type(name) is str and len(name.encode('utf-8')) <= MAX_PATH,
                         'image_path_bound')
+                # tarfile strips a '/' root directory entry to ''; treat it as
+                # the same root marker as './'.
+                if member.type == tarfile.DIRTYPE and name in ('', '/'):
+                    name = '.'
                 while name.startswith('./'):
                     name = name[2:]
                 if name in ('', '.'):
