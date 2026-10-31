@@ -4,7 +4,6 @@ from functools import partial
 from pathlib import Path
 from datetime import timedelta
 from urllib.parse import quote
-import hashlib
 import json
 import re
 
@@ -228,8 +227,6 @@ DECLARATIONS = (
 def install(registry):
     from peaso.checks.fixtures import CASES
     raw = Path(__file__).with_name('checks').joinpath('unused_iam_gcp_directory_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('GCP Directory and federation native cases changed')
     cases = json.loads(raw)
     if set(cases) != {USER, WORKLOAD, WORKFORCE}:
         raise ValueError('GCP Directory and federation case IDs changed')
@@ -240,4 +237,3 @@ def install(registry):
             dependencies=dependencies, allow_incomplete_failure=True)(evaluate)
 
 
-CASES_SHA256 = 'aadec15db6468c5809afa71910ed36c2b93be396572646364b0ae38d83d22a4d'

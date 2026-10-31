@@ -56,11 +56,7 @@ def test_cli_reads_auth_from_stdin_without_putting_credentials_in_argv(monkeypat
 def test_real_cli_json_and_offline_least_privilege_match(provider, tmp_path):
     snapshot, output, offline = [tmp_path / name for name in ('snapshot.json', 'report.json', 'offline.json')]
     prefix = [sys.executable, '-m', 'peaso.cli']
-    # The suite-wide PEASO_SOURCE_ATTESTATION=always re-proves every pinned source on
-    # each nested call (minutes of CPU for a cold peaso.checks import). This child
-    # does not test attestation, so it runs the shipped mode, which still proves
-    # every pinned source once on first use.
-    env = {**os.environ, 'PEASO_SOURCE_ATTESTATION': 'once'}
+    env = dict(os.environ)
     result = subprocess.run(prefix + ['scan', '--provider', provider, '--demo', '--categories', 'hardening', 'exposure', 'least_privilege',
                                      '--snapshot-output', str(snapshot), '--output', str(output), '--quiet'], capture_output=True, text=True, timeout=60, env=env)
     assert result.returncode == 0, result.stderr

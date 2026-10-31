@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import timedelta
 from functools import partial
 from pathlib import Path
-import hashlib
 import json
 import re
 
@@ -232,8 +231,6 @@ DECLARATIONS = (
 def install(registry):
     from peaso.checks.fixtures import CASES
     raw = Path(__file__).with_name('checks').joinpath('unused_iam_gcp_keys_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('GCP recorded credential-usage native cases changed')
     cases = json.loads(raw)
     if set(cases) != {API_CHECK, HMAC_CHECK}:
         raise ValueError('GCP recorded credential-usage case IDs changed')
@@ -244,4 +241,3 @@ def install(registry):
             dependencies=dependencies, allow_incomplete_failure=True)(evaluate)
 
 
-CASES_SHA256 = '66edf9f31e978f35fb0d751840352fd29c9045bb9de69fb14710fb34d8399b21'

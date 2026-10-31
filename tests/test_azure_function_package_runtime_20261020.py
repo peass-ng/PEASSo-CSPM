@@ -27,7 +27,7 @@ def test_current_admitted_saved_positive_negative_and_unknown():
     from peaso.checks import azure_function_package_integration_admission_20261020 as admission
     from peaso.checks import azure_function_package_integrated_consumer_20261020 as consumer
     from peaso.checks import CHECKS
-    receipt, cases = admission.reviewed_inputs()
+    cases = admission.native_cases()
     registered, = [check for check in CHECKS if check.id == consumer.DECLARATION['id']]
     statuses = set()
     for case in cases:

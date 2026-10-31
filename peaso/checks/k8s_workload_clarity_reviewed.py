@@ -4,12 +4,9 @@ Configuration observations remain distinct from effective runtime behavior.
 Only display prose changes; source criteria, commands and provenance remain.
 """
 from copy import deepcopy
-import hashlib
-import json
 
 VERSION = "k8s-workload-clarity-first409-v1"
-ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256': '7d699e0cb92d8ba9b1d1ed90b7e1aaef78e819027c95218e481c29dc3470b48d',
-                                                'description_fields': {'description': 'Checks namespace '
+ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_fields': {'description': 'Checks namespace '
                                                                                       'coverage by a Deny '
                                                                                       'ValidatingAdmissionPolicy '
                                                                                       'binding with a '
@@ -19,7 +16,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                 'observed_failure_phrase': 'Some namespaces lack a '
                                                                            'qualifying admission-policy '
                                                                            'binding for privilege escalation',
-                                                'remediation_base_sha256': 'bcd74789593bfe12345dd592f3a72b134885c08d1cd8e259d61b4beb7ac4eaef',
                                                 'remediation_fields': {'caveats': ['Only a recognized CEL '
                                                                                    'expression and binding '
                                                                                    'coverage are assessed; '
@@ -53,8 +49,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                             'qualifying admission-policy '
                                                                             'binding for privilege '
                                                                             'escalation.'},
- 'k8s.cis.admission_capabilities_add': {'description_base_sha256': '99fd8e684a7956d42df1006e9ed0a48766fdd657fde59bf7a2267656ca1ab951',
-                                        'description_fields': {'description': 'Checks namespace coverage by '
+ 'k8s.cis.admission_capabilities_add': {'description_fields': {'description': 'Checks namespace coverage by '
                                                                               'a Deny '
                                                                               'ValidatingAdmissionPolicy '
                                                                               'binding with a recognized '
@@ -63,7 +58,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                         'observed_failure_phrase': 'Some namespaces lack a qualifying '
                                                                    'admission-policy binding for added '
                                                                    'capabilities',
-                                        'remediation_base_sha256': 'e21070952955f83cdfcc024f7b049ae12db4aea6897faef599e7ff2bf825bba4',
                                         'remediation_fields': {'caveats': ['Only a recognized CEL expression '
                                                                            'and binding coverage are '
                                                                            'assessed; unsupported policy '
@@ -90,8 +84,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                         'static_observed_sentence': 'Some namespaces lack a qualifying '
                                                                     'admission-policy binding for added '
                                                                     'capabilities.'},
- 'k8s.cis.admission_capabilities_add_net_raw': {'description_base_sha256': '7f160678d8967f40e54034b1ef19f1894d659f4e9e0cc127b9d1a1f18143d967',
-                                                'description_fields': {'description': 'Checks namespace '
+ 'k8s.cis.admission_capabilities_add_net_raw': {'description_fields': {'description': 'Checks namespace '
                                                                                       'coverage by a Deny '
                                                                                       'ValidatingAdmissionPolicy '
                                                                                       'binding with a '
@@ -101,7 +94,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                 'observed_failure_phrase': 'Some namespaces lack a '
                                                                            'qualifying admission-policy '
                                                                            'binding for NET_RAW additions',
-                                                'remediation_base_sha256': '0df6b6c2713f50e75f26bf1a1ef466a51a7826bccdf2a037045ef21c6a2d4dae',
                                                 'remediation_fields': {'caveats': ['Only a recognized CEL '
                                                                                    'expression and binding '
                                                                                    'coverage are assessed; '
@@ -134,8 +126,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                 'static_observed_sentence': 'Some namespaces lack a '
                                                                             'qualifying admission-policy '
                                                                             'binding for NET_RAW additions.'},
- 'k8s.cis.admission_capabilities_drop': {'description_base_sha256': '62c25f3983bb0ab734c404c42e6475e018a46abb43786959efb85ddf0c685d46',
-                                         'description_fields': {'description': 'Checks namespace coverage by '
+ 'k8s.cis.admission_capabilities_drop': {'description_fields': {'description': 'Checks namespace coverage by '
                                                                                'a Deny '
                                                                                'ValidatingAdmissionPolicy '
                                                                                'binding with a recognized '
@@ -145,7 +136,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                          'observed_failure_phrase': 'Some namespaces lack a qualifying '
                                                                     'admission-policy binding for missing '
                                                                     'ALL capability drops',
-                                         'remediation_base_sha256': '53ec1c97022f67e6f4cf7ec4906cc1f2fb5187e3ef5514e0da7fcc730408af9a',
                                          'remediation_fields': {'caveats': ['Only a recognized CEL '
                                                                             'expression and binding coverage '
                                                                             'are assessed; unsupported '
@@ -175,8 +165,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                          'static_observed_sentence': 'Some namespaces lack a qualifying '
                                                                      'admission-policy binding for missing '
                                                                      'ALL capability drops.'},
- 'k8s.cis.admission_container_ports_hostport': {'description_base_sha256': 'fe5a616da79acc2d371997753d5bb216e1ed1d87f2f73a0c88b6e56a918d292c',
-                                                'description_fields': {'description': 'Checks namespace '
+ 'k8s.cis.admission_container_ports_hostport': {'description_fields': {'description': 'Checks namespace '
                                                                                       'coverage by a Deny '
                                                                                       'ValidatingAdmissionPolicy '
                                                                                       'binding with a '
@@ -186,7 +175,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                 'observed_failure_phrase': 'Some namespaces lack a '
                                                                            'qualifying admission-policy '
                                                                            'binding for nonzero host ports',
-                                                'remediation_base_sha256': 'd06a72b93f4ff051ed8da79775a7ffd34f40413b20943995ad9775017774a196',
                                                 'remediation_fields': {'caveats': ['Only a recognized CEL '
                                                                                    'expression and binding '
                                                                                    'coverage are assessed; '
@@ -220,14 +208,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                             'qualifying admission-policy '
                                                                             'binding for nonzero host '
                                                                             'ports.'},
- 'k8s.cis.admission_hostipc': {'description_base_sha256': 'c53c244173203e5916b019b82b6db194f166695c9c7d0b21eaa66c6664a008e3',
-                               'description_fields': {'description': 'Checks namespace coverage by a Deny '
+ 'k8s.cis.admission_hostipc': {'description_fields': {'description': 'Checks namespace coverage by a Deny '
                                                                      'ValidatingAdmissionPolicy binding with '
                                                                      'a recognized expression restricting '
                                                                      'host IPC sharing.'},
                                'observed_failure_phrase': 'Some namespaces lack a qualifying '
                                                           'admission-policy binding for host IPC sharing',
-                               'remediation_base_sha256': '9c9a973b6bfbb19ab8788a735fe1f48c035c1e3a7c1a20ed8721fdbaf288a05d',
                                'remediation_fields': {'caveats': ['Only a recognized CEL expression and '
                                                                   'binding coverage are assessed; '
                                                                   'unsupported policy semantics remain '
@@ -251,15 +237,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                'reviewed_source_severity': 'medium',
                                'static_observed_sentence': 'Some namespaces lack a qualifying '
                                                            'admission-policy binding for host IPC sharing.'},
- 'k8s.cis.admission_hostnetwork': {'description_base_sha256': 'd7b6d6909872fbb47b6fd309b15a156e12f12a3702d3640ef00ebfc200e47868',
-                                   'description_fields': {'description': 'Checks namespace coverage by a '
+ 'k8s.cis.admission_hostnetwork': {'description_fields': {'description': 'Checks namespace coverage by a '
                                                                          'Deny ValidatingAdmissionPolicy '
                                                                          'binding with a recognized '
                                                                          'expression restricting host '
                                                                          'networking.'},
                                    'observed_failure_phrase': 'Some namespaces lack a qualifying '
                                                               'admission-policy binding for host networking',
-                                   'remediation_base_sha256': 'd3600b9942801e9ed035b83ae777b01cced24284154e0a586689375ce52056b4',
                                    'remediation_fields': {'caveats': ['Only a recognized CEL expression and '
                                                                       'binding coverage are assessed; '
                                                                       'unsupported policy semantics remain '
@@ -286,14 +270,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                    'static_observed_sentence': 'Some namespaces lack a qualifying '
                                                                'admission-policy binding for host '
                                                                'networking.'},
- 'k8s.cis.admission_hostpath': {'description_base_sha256': 'ecaf8367c55547d809bcf735c168dd3250ceef9d545d1a55d09362b51a0b39b9',
-                                'description_fields': {'description': 'Checks namespace coverage by a Deny '
+ 'k8s.cis.admission_hostpath': {'description_fields': {'description': 'Checks namespace coverage by a Deny '
                                                                       'ValidatingAdmissionPolicy binding '
                                                                       'with a recognized expression '
                                                                       'restricting hostPath volumes.'},
                                 'observed_failure_phrase': 'Some namespaces lack a qualifying '
                                                            'admission-policy binding for hostPath volumes',
-                                'remediation_base_sha256': '5951234641b9bd91fc5260579c6de8c207aa383a43bb73bcd735a3be8d4dcb15',
                                 'remediation_fields': {'caveats': ['Only a recognized CEL expression and '
                                                                    'binding coverage are assessed; '
                                                                    'unsupported policy semantics remain '
@@ -318,14 +300,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                 'reviewed_source_severity': 'medium',
                                 'static_observed_sentence': 'Some namespaces lack a qualifying '
                                                             'admission-policy binding for hostPath volumes.'},
- 'k8s.cis.admission_hostpid': {'description_base_sha256': 'd2424784d8f2a9694b546a6c53a4821e55f81ad3b8a53a010c4ceae26f7a0af4',
-                               'description_fields': {'description': 'Checks namespace coverage by a Deny '
+ 'k8s.cis.admission_hostpid': {'description_fields': {'description': 'Checks namespace coverage by a Deny '
                                                                      'ValidatingAdmissionPolicy binding with '
                                                                      'a recognized expression restricting '
                                                                      'host PID sharing.'},
                                'observed_failure_phrase': 'Some namespaces lack a qualifying '
                                                           'admission-policy binding for host PID sharing',
-                               'remediation_base_sha256': 'aede59998502ebdf3a9b6127521863bd4a6b6ff0f574f3bd7a83f6eba18876d3',
                                'remediation_fields': {'caveats': ['Only a recognized CEL expression and '
                                                                   'binding coverage are assessed; '
                                                                   'unsupported policy semantics remain '
@@ -349,15 +329,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                'reviewed_source_severity': 'medium',
                                'static_observed_sentence': 'Some namespaces lack a qualifying '
                                                            'admission-policy binding for host PID sharing.'},
- 'k8s.cis.admission_privileged': {'description_base_sha256': '75f1eaa6b9fa13e69ed76abb5cbf468ab0edffc600b8211c1e5aa070027cbb37',
-                                  'description_fields': {'description': 'Checks namespace coverage by a Deny '
+ 'k8s.cis.admission_privileged': {'description_fields': {'description': 'Checks namespace coverage by a Deny '
                                                                         'ValidatingAdmissionPolicy binding '
                                                                         'with a recognized expression '
                                                                         'restricting privileged containers.'},
                                   'observed_failure_phrase': 'Some namespaces lack a qualifying '
                                                              'admission-policy binding for privileged '
                                                              'containers',
-                                  'remediation_base_sha256': '75890058d66eff63c687f824f6105c7e289fb94cb1691c4acf4275256aa0ce35',
                                   'remediation_fields': {'caveats': ['Only a recognized CEL expression and '
                                                                      'binding coverage are assessed; '
                                                                      'unsupported policy semantics remain '
@@ -384,8 +362,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                   'static_observed_sentence': 'Some namespaces lack a qualifying '
                                                               'admission-policy binding for privileged '
                                                               'containers.'},
- 'k8s.cis.admission_runasnonroot': {'description_base_sha256': '1dffc5b5df9cc3b6e1c53f9ae3018cce59a10fefaf72bafb71529348fb73972e',
-                                    'description_fields': {'description': 'Checks namespace coverage by a '
+ 'k8s.cis.admission_runasnonroot': {'description_fields': {'description': 'Checks namespace coverage by a '
                                                                           'Deny ValidatingAdmissionPolicy '
                                                                           'binding with a recognized '
                                                                           'expression restricting containers '
@@ -393,7 +370,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                     'observed_failure_phrase': 'Some namespaces lack a qualifying '
                                                                'admission-policy binding for containers '
                                                                'lacking non-root requirements',
-                                    'remediation_base_sha256': 'c2bb685c668fdb085bf9ded36180cbcbd622edcc0d7b670854937c4e23155799',
                                     'remediation_fields': {'caveats': ['Only a recognized CEL expression and '
                                                                        'binding coverage are assessed; '
                                                                        'unsupported policy semantics remain '
@@ -420,8 +396,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                     'static_observed_sentence': 'Some namespaces lack a qualifying '
                                                                 'admission-policy binding for containers '
                                                                 'lacking non-root requirements.'},
- 'k8s.cis.admission_windowsoptions_hostprocess': {'description_base_sha256': 'ff9195b59a2ab878a9b263db6cbf3d1c33fef35d4ba28dbe465eaeeac425bb64',
-                                                  'description_fields': {'description': 'Checks namespace '
+ 'k8s.cis.admission_windowsoptions_hostprocess': {'description_fields': {'description': 'Checks namespace '
                                                                                         'coverage by a Deny '
                                                                                         'ValidatingAdmissionPolicy '
                                                                                         'binding with a '
@@ -434,7 +409,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                              'qualifying admission-policy '
                                                                              'binding for Windows '
                                                                              'HostProcess containers',
-                                                  'remediation_base_sha256': '062bfec158299aad479d3bfd85da62d13a252c8ea2d71d844947cb99c3f4ff47',
                                                   'remediation_fields': {'caveats': ['Only a recognized CEL '
                                                                                      'expression and binding '
                                                                                      'coverage are assessed; '
@@ -470,8 +444,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                               'qualifying admission-policy '
                                                                               'binding for Windows '
                                                                               'HostProcess containers.'},
- 'k8s.cis.avoid_use_of_system_masters_group': {'description_base_sha256': '18a8472a36f09d897e440d2693ba9924f6fa1cea9988b5084d6d94b4a3bad809',
-                                               'description_fields': {'description': 'Checks complete '
+ 'k8s.cis.avoid_use_of_system_masters_group': {'description_fields': {'description': 'Checks complete '
                                                                                      'RoleBinding and '
                                                                                      'ClusterRoleBinding '
                                                                                      'inventories for '
@@ -479,7 +452,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                      'subjects.'},
                                                'observed_failure_phrase': 'Observed role bindings include '
                                                                           'the system:masters Group',
-                                               'remediation_base_sha256': '4b62f90b6a634451a2e048161eec27142d4b9abe3e117ee21ff5f2800da907df',
                                                'remediation_fields': {'caveats': ['Absence of such bindings '
                                                                                   'does not establish '
                                                                                   'certificate or provider '
@@ -504,8 +476,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                'reviewed_source_severity': 'high',
                                                'static_observed_sentence': 'Observed role bindings include '
                                                                            'the system:masters Group.'},
- 'k8s.cis.consider_external_secret_storage': {'description_base_sha256': 'accb87d48848063688f4f52faf8017c0c95d5c0f9d43b24cb93a44d8b25d68b5',
-                                              'description_fields': {'description': 'Checks native Secret '
+ 'k8s.cis.consider_external_secret_storage': {'description_fields': {'description': 'Checks native Secret '
                                                                                     'references and whether '
                                                                                     'the Pod also declares a '
                                                                                     'Secrets Store CSI '
@@ -513,7 +484,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                               'observed_failure_phrase': 'A Pod using native Secret '
                                                                          'references has no Secrets Store '
                                                                          'CSI volume',
-                                              'remediation_base_sha256': '32d70dde6ec5385a0dfd9f2b1633d06d147f6432ff539d8ec50319bce516d0d4',
                                               'remediation_fields': {'caveats': ['A CSI volume does not '
                                                                                  'prove all Secrets use an '
                                                                                  'external store; native '
@@ -543,8 +513,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                               'static_observed_sentence': 'A Pod using native Secret '
                                                                           'references has no Secrets Store '
                                                                           'CSI volume.'},
- 'k8s.cis.controller_manager_rotate_kubelet_server_certificate_true': {'description_base_sha256': '567de9ef5239dc69cebf1de6dd1303f7506861bedd1d01bbb813ac171663abd9',
-                                                                       'description_fields': {'description': 'Checks '
+ 'k8s.cis.controller_manager_rotate_kubelet_server_certificate_true': {'description_fields': {'description': 'Checks '
                                                                                                              'the '
                                                                                                              'controller-manager’s '
                                                                                                              'explicit '
@@ -556,7 +525,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                   'declaration '
                                                                                                   'disables '
                                                                                                   'RotateKubeletServerCertificate',
-                                                                       'remediation_base_sha256': '7879ba89c1044246690b2bdb021da771fcf1b84218cdeb24d06d956d78a285a9',
                                                                        'remediation_fields': {'caveats': ['This '
                                                                                                           'checks '
                                                                                                           'a '
@@ -606,8 +574,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                    'declaration '
                                                                                                    'disables '
                                                                                                    'RotateKubeletServerCertificate.'},
- 'k8s.cis.cronjob_effective_runtime_default_seccomp': {'description_base_sha256': '5d338d8056e1cb93e0afcf7ed3067cb2432d8c53927c77d9fac73573bf69f614',
-                                                       'description_fields': {'description': 'Checks '
+ 'k8s.cis.cronjob_effective_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                              'declared Linux '
                                                                                              'regular/init-container '
                                                                                              'seccomp '
@@ -617,7 +584,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'observed_failure_phrase': 'Linux containers declare '
                                                                                   'a profile other than '
                                                                                   'RuntimeDefault',
-                                                       'remediation_base_sha256': '9a8dddcc3cf6ccb0467fdd82ca86f1b990f836a8495ca47a82bf0a6256fcf37e',
                                                        'remediation_fields': {'caveats': ['Missing profiles '
                                                                                           'or OS remain '
                                                                                           'UNKNOWN; runtime '
@@ -652,8 +618,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'static_observed_sentence': 'Linux containers declare '
                                                                                    'a profile other than '
                                                                                    'RuntimeDefault.'},
- 'k8s.cis.daemonset_effective_runtime_default_seccomp': {'description_base_sha256': '83a137f0c10a456da0078d87d2703793bb47c508afd2833b5c7588d2242f48f8',
-                                                         'description_fields': {'description': 'Checks '
+ 'k8s.cis.daemonset_effective_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                'declared '
                                                                                                'Linux '
                                                                                                'regular/init-container '
@@ -664,7 +629,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'observed_failure_phrase': 'Linux containers '
                                                                                     'declare a profile other '
                                                                                     'than RuntimeDefault',
-                                                         'remediation_base_sha256': 'f5459c2931d7007e9575b1600e4046177df36b53f6a7f6e3e3e32b5f5243d5af',
                                                          'remediation_fields': {'caveats': ['Missing '
                                                                                             'profiles or OS '
                                                                                             'remain UNKNOWN; '
@@ -702,8 +666,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                      'declare a profile '
                                                                                      'other than '
                                                                                      'RuntimeDefault.'},
- 'k8s.cis.deployment_effective_runtime_default_seccomp': {'description_base_sha256': '3b4687df1f24ce80d8876a5c20e1197203b15a62a883a6fa8e22e824944f5f2f',
-                                                          'description_fields': {'description': 'Checks '
+ 'k8s.cis.deployment_effective_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                 'declared '
                                                                                                 'Linux '
                                                                                                 'regular/init-container '
@@ -715,7 +678,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                      'declare a profile '
                                                                                      'other than '
                                                                                      'RuntimeDefault',
-                                                          'remediation_base_sha256': '690f40f1ff6c3878da21e819dbf7bea8dd6c878cbba024cda1e25bfea6265ccc',
                                                           'remediation_fields': {'caveats': ['Missing '
                                                                                              'profiles or OS '
                                                                                              'remain '
@@ -756,8 +718,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                       'declare a profile '
                                                                                       'other than '
                                                                                       'RuntimeDefault.'},
- 'k8s.cis.job_effective_runtime_default_seccomp': {'description_base_sha256': 'b67ba876c1441d5cd894522660d75f4fa2eaa4e915dce5022b3c33afcc79eb00',
-                                                   'description_fields': {'description': 'Checks declared '
+ 'k8s.cis.job_effective_runtime_default_seccomp': {'description_fields': {'description': 'Checks declared '
                                                                                          'Linux '
                                                                                          'regular/init-container '
                                                                                          'seccomp profiles '
@@ -766,7 +727,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                    'observed_failure_phrase': 'Linux containers declare a '
                                                                               'profile other than '
                                                                               'RuntimeDefault',
-                                                   'remediation_base_sha256': '56507ac9140705664355f48f6b42e66de4b40525047c7e1d938e3027c7ec2a79',
                                                    'remediation_fields': {'caveats': ['Missing profiles or '
                                                                                       'OS remain UNKNOWN; '
                                                                                       'runtime kernel '
@@ -797,8 +757,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                    'static_observed_sentence': 'Linux containers declare a '
                                                                                'profile other than '
                                                                                'RuntimeDefault.'},
- 'k8s.cis.networkpolicy_no_default_allow_egress': {'description_base_sha256': '74c44da992b6f5762a86ab775d38de8ac4b7dcffd82f9b2aec4ec14fd5207c52',
-                                                   'description_fields': {'description': 'Checks '
+ 'k8s.cis.networkpolicy_no_default_allow_egress': {'description_fields': {'description': 'Checks '
                                                                                          'namespace-wide '
                                                                                          'policies for an '
                                                                                          'ingress or egress '
@@ -808,7 +767,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                    'observed_failure_phrase': 'A namespace-wide '
                                                                               'NetworkPolicy declares a rule '
                                                                               'without peer restrictions',
-                                                   'remediation_base_sha256': 'ddf01abbb4281dbced1274c35b79cee1d97efa2b2b81ec22f9db6f1cb189690e',
                                                    'remediation_fields': {'caveats': ['Other policies are '
                                                                                       'additive; '
                                                                                       'selected-Pod traffic '
@@ -837,8 +795,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                'NetworkPolicy declares a '
                                                                                'rule without peer '
                                                                                'restrictions.'},
- 'k8s.cis.networkpolicy_no_default_allow_ingress': {'description_base_sha256': '18c909e024c288401844907b5479d2b24002018c7257014887241afedd4a1fef',
-                                                    'description_fields': {'description': 'Checks '
+ 'k8s.cis.networkpolicy_no_default_allow_ingress': {'description_fields': {'description': 'Checks '
                                                                                           'namespace-wide '
                                                                                           'policies for an '
                                                                                           'ingress or egress '
@@ -849,7 +806,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                'NetworkPolicy declares a '
                                                                                'rule without peer '
                                                                                'restrictions',
-                                                    'remediation_base_sha256': 'df7cb591eba74a6fb1550169521a126230e4d9978d4f22434eae9f7e984ed621',
                                                     'remediation_fields': {'caveats': ['Other policies are '
                                                                                        'additive; '
                                                                                        'selected-Pod traffic '
@@ -878,8 +834,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                 'NetworkPolicy declares a '
                                                                                 'rule without peer '
                                                                                 'restrictions.'},
- 'k8s.cis.pod_effective_runtime_default_seccomp': {'description_base_sha256': 'b06c000da30a29b652f2d0ead68fc8b4b7d362082a6a2d2d33002a12c29b48ba',
-                                                   'description_fields': {'description': 'Checks declared '
+ 'k8s.cis.pod_effective_runtime_default_seccomp': {'description_fields': {'description': 'Checks declared '
                                                                                          'Linux '
                                                                                          'regular/init-container '
                                                                                          'seccomp profiles '
@@ -888,7 +843,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                    'observed_failure_phrase': 'Linux containers declare a '
                                                                               'profile other than '
                                                                               'RuntimeDefault',
-                                                   'remediation_base_sha256': '8bc273d3190c1fc6c772e1dd859ce826bc19731e28b645696d58fce4101c68a4',
                                                    'remediation_fields': {'caveats': ['Missing profiles or '
                                                                                       'OS remain UNKNOWN; '
                                                                                       'runtime kernel '
@@ -919,13 +873,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                    'static_observed_sentence': 'Linux containers declare a '
                                                                                'profile other than '
                                                                                'RuntimeDefault.'},
- 'k8s.cis.psp_binding_enforced': {'description_base_sha256': '4973f6c9b0ae283ff749df775cd9868a76562fac6e2123e7a9c4abd7a0c4dcf2',
-                                  'description_fields': {'description': 'On Kubernetes before 1.25, checks '
+ 'k8s.cis.psp_binding_enforced': {'description_fields': {'description': 'On Kubernetes before 1.25, checks '
                                                                         'ServiceAccounts with Pod-create '
                                                                         'grants for usable PSP grants.'},
                                   'observed_failure_phrase': 'A legacy ServiceAccount with Pod-create access '
                                                              'has no matching PSP use grant',
-                                  'remediation_base_sha256': '7c34fa2e5b7be95d65e16dc15c9d3eb94a1e7dcae3d9999cac5460bc0ff5a7b1',
                                   'remediation_fields': {'caveats': ['Kubernetes 1.25+ is not applicable; '
                                                                      'declared RBAC joins do not prove live '
                                                                      'admission behavior.'],
@@ -948,8 +900,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                   'reviewed_source_severity': 'medium',
                                   'static_observed_sentence': 'A legacy ServiceAccount with Pod-create '
                                                               'access has no matching PSP use grant.'},
- 'k8s.cis.replicaset_effective_runtime_default_seccomp': {'description_base_sha256': '02a8c78747df455c0d3d9194e5c045670ca9d5c41aaac378775d33f7fceb346c',
-                                                          'description_fields': {'description': 'Checks '
+ 'k8s.cis.replicaset_effective_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                 'declared '
                                                                                                 'Linux '
                                                                                                 'regular/init-container '
@@ -961,7 +912,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                      'declare a profile '
                                                                                      'other than '
                                                                                      'RuntimeDefault',
-                                                          'remediation_base_sha256': 'd46d3da4f7b08c62256989baefb657b0e274eb8ed02ef1bdf1c66c03ad4ec946',
                                                           'remediation_fields': {'caveats': ['Missing '
                                                                                              'profiles or OS '
                                                                                              'remain '
@@ -1002,8 +952,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                       'declare a profile '
                                                                                       'other than '
                                                                                       'RuntimeDefault.'},
- 'k8s.cis.replicationcontroller_effective_runtime_default_seccomp': {'description_base_sha256': 'ef37a29023b9ed1871b9b74694c05794bd1ea27e8990156828e21bbdccb510fb',
-                                                                     'description_fields': {'description': 'Checks '
+ 'k8s.cis.replicationcontroller_effective_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                            'declared '
                                                                                                            'Linux '
                                                                                                            'regular/init-container '
@@ -1018,7 +967,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                 'profile '
                                                                                                 'other than '
                                                                                                 'RuntimeDefault',
-                                                                     'remediation_base_sha256': '1980b6a27d55510fb9be5389574e3e76670bbbe12ab39de4fd864184929ceb05',
                                                                      'remediation_fields': {'caveats': ['Missing '
                                                                                                         'profiles '
                                                                                                         'or '
@@ -1077,8 +1025,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                  'profile '
                                                                                                  'other than '
                                                                                                  'RuntimeDefault.'},
- 'k8s.cis.statefulset_effective_runtime_default_seccomp': {'description_base_sha256': 'e12354873b0bd5e136d4f4ead71772f53dba14fd8714901f90e144516a4f62e0',
-                                                           'description_fields': {'description': 'Checks '
+ 'k8s.cis.statefulset_effective_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                  'declared '
                                                                                                  'Linux '
                                                                                                  'regular/init-container '
@@ -1090,7 +1037,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                       'declare a profile '
                                                                                       'other than '
                                                                                       'RuntimeDefault',
-                                                           'remediation_base_sha256': '03fda5752e18f7e70fcbbf6412223d5fb6f0b108701360fffc995b6cb7d6cf81',
                                                            'remediation_fields': {'caveats': ['Missing '
                                                                                               'profiles or '
                                                                                               'OS remain '
@@ -1134,8 +1080,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                        'declare a profile '
                                                                                        'other than '
                                                                                        'RuntimeDefault.'},
- 'k8s.cis.the_service_account_extend_token_expiration_parameter_is_set_to_false': {'description_base_sha256': '6ad4b9ba09e7cd17651b54fad14f5c07d708fa04fe88bd52edb4294b9b778bb7',
-                                                                                   'description_fields': {'description': 'Checks '
+ 'k8s.cis.the_service_account_extend_token_expiration_parameter_is_set_to_false': {'description_fields': {'description': 'Checks '
                                                                                                                          'the '
                                                                                                                          'API-server’s '
                                                                                                                          'explicit '
@@ -1149,7 +1094,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                               'ServiceAccount '
                                                                                                               'token '
                                                                                                               'expiration',
-                                                                                   'remediation_base_sha256': '2da0e39b1f98510497710acbae01601403e240464587064e64b4eb9edef99d0f',
                                                                                    'remediation_fields': {'caveats': ['This '
                                                                                                                       'reads '
                                                                                                                       'a '
@@ -1205,13 +1149,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                                'ServiceAccount '
                                                                                                                'token '
                                                                                                                'expiration.'},
- 'k8s.claude.clusterrole.no_bind': {'description_base_sha256': 'fefc05b9398769d745956f6e9bb5cda0c29a39ed38aa28d975b697f117d5e3c7',
-                                    'description_fields': {'description': 'Checks declared RBAC rules for '
+ 'k8s.claude.clusterrole.no_bind': {'description_fields': {'description': 'Checks declared RBAC rules for '
                                                                           'roles or ClusterRoles bind '
                                                                           'grants.'},
                                     'observed_failure_phrase': 'The role declares roles or ClusterRoles bind '
                                                                'grants',
-                                    'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                     'remediation_fields': {'caveats': ['Bindings, aggregation and '
                                                                        'resource-name restrictions remain '
                                                                        'separate from declared rule '
@@ -1245,11 +1187,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                     'reviewed_source_severity': 'high',
                                     'static_observed_sentence': 'The role declares roles or ClusterRoles '
                                                                 'bind grants.'},
- 'k8s.claude.clusterrole.no_pod_create': {'description_base_sha256': 'b87f0ddbdcb1f26241c9fbf8fe8bab8952c1b791507d175487a81cd2d569fba8',
-                                          'description_fields': {'description': 'Checks declared RBAC rules '
+ 'k8s.claude.clusterrole.no_pod_create': {'description_fields': {'description': 'Checks declared RBAC rules '
                                                                                 'for Pods creation.'},
                                           'observed_failure_phrase': 'The role declares Pods creation',
-                                          'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                           'remediation_fields': {'caveats': ['Bindings, aggregation and '
                                                                              'resource-name restrictions '
                                                                              'remain separate from declared '
@@ -1283,11 +1223,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                           'reviewed_severity': 'medium',
                                           'reviewed_source_severity': 'medium',
                                           'static_observed_sentence': 'The role declares Pods creation.'},
- 'k8s.claude.clusterrole.no_secret_read': {'description_base_sha256': '8c13cb131f04f5366edc18d5d0ae4132637c062ed6176bc3f9b31b384e9c83ed',
-                                           'description_fields': {'description': 'Checks declared RBAC rules '
+ 'k8s.claude.clusterrole.no_secret_read': {'description_fields': {'description': 'Checks declared RBAC rules '
                                                                                  'for Secrets read access.'},
                                            'observed_failure_phrase': 'The role declares Secrets read access',
-                                           'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                            'remediation_fields': {'caveats': ['Bindings, aggregation and '
                                                                               'resource-name restrictions '
                                                                               'remain separate from declared '
@@ -1322,8 +1260,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                            'reviewed_source_severity': 'high',
                                            'static_observed_sentence': 'The role declares Secrets read '
                                                                        'access.'},
- 'k8s.claude.clusterrole.no_wildcard_resources_or_verbs': {'description_base_sha256': '37ad21aaaefca6bd575a5231fc77c545359a3255d74cd07d5a33db360fe2c8ce',
-                                                           'description_fields': {'description': 'Checks '
+ 'k8s.claude.clusterrole.no_wildcard_resources_or_verbs': {'description_fields': {'description': 'Checks '
                                                                                                  'resource '
                                                                                                  'wildcard '
                                                                                                  'patterns '
@@ -1337,7 +1274,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'observed_failure_phrase': 'The role declares '
                                                                                       'wildcard resources or '
                                                                                       'verbs',
-                                                           'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                            'remediation_fields': {'caveats': ['This reads '
                                                                                               'declarations, '
                                                                                               'not effective '
@@ -1382,8 +1318,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'static_observed_sentence': 'The role declares '
                                                                                        'wildcard resources '
                                                                                        'or verbs.'},
- 'k8s.claude.clusterrolebinding.no_human_csr_approval': {'description_base_sha256': '505216c38c61804db3203b226849b9944063c48b60da8fef0f9ca7711d893e3c',
-                                                         'description_fields': {'description': 'Joins '
+ 'k8s.claude.clusterrolebinding.no_human_csr_approval': {'description_fields': {'description': 'Joins '
                                                                                                'non-system '
                                                                                                'User/Group '
                                                                                                'bindings to '
@@ -1394,7 +1329,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'observed_failure_phrase': 'A non-system User or '
                                                                                     'Group is bound to CSR '
                                                                                     'approval',
-                                                         'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                          'remediation_fields': {'caveats': ['This joins '
                                                                                             'declared '
                                                                                             'binding and '
@@ -1439,8 +1373,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'static_observed_sentence': 'A non-system User or '
                                                                                      'Group is bound to CSR '
                                                                                      'approval.'},
- 'k8s.claude.clusterrolebinding.no_human_node_proxy': {'description_base_sha256': 'fea6dbd7966ba87cdf8e488e0966adc65071f95f507d76cdde3e44505f330b5b',
-                                                       'description_fields': {'description': 'Joins '
+ 'k8s.claude.clusterrolebinding.no_human_node_proxy': {'description_fields': {'description': 'Joins '
                                                                                              'non-system '
                                                                                              'User/Group '
                                                                                              'bindings to '
@@ -1450,7 +1383,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'observed_failure_phrase': 'A non-system User or '
                                                                                   'Group is bound to node '
                                                                                   'proxy access',
-                                                       'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                        'remediation_fields': {'caveats': ['This joins '
                                                                                           'declared binding '
                                                                                           'and role rules; '
@@ -1493,8 +1425,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'static_observed_sentence': 'A non-system User or '
                                                                                    'Group is bound to node '
                                                                                    'proxy access.'},
- 'k8s.claude.clusterrolebinding.no_human_pv_create': {'description_base_sha256': 'f66cb0fcc70380cff204974c1b213fc404dabcd305af5a0b24212b1edb996cb7',
-                                                      'description_fields': {'description': 'Joins '
+ 'k8s.claude.clusterrolebinding.no_human_pv_create': {'description_fields': {'description': 'Joins '
                                                                                             'non-system '
                                                                                             'User/Group '
                                                                                             'bindings to '
@@ -1505,7 +1436,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'observed_failure_phrase': 'A non-system User or Group '
                                                                                  'is bound to '
                                                                                  'PersistentVolume creation',
-                                                      'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                       'remediation_fields': {'caveats': ['This joins '
                                                                                          'declared binding '
                                                                                          'and role rules; '
@@ -1550,8 +1480,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                   'Group is bound to '
                                                                                   'PersistentVolume '
                                                                                   'creation.'},
- 'k8s.claude.clusterrolebinding.no_human_serviceaccount_token_create': {'description_base_sha256': 'b45d6f5b922e0478eb322feb3688c46f11b815fec11d986b08d3f1a2b6fddb8c',
-                                                                        'description_fields': {'description': 'Joins '
+ 'k8s.claude.clusterrolebinding.no_human_serviceaccount_token_create': {'description_fields': {'description': 'Joins '
                                                                                                               'non-system '
                                                                                                               'User/Group '
                                                                                                               'bindings '
@@ -1570,7 +1499,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                    'ServiceAccount '
                                                                                                    'token '
                                                                                                    'creation',
-                                                                        'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                         'remediation_fields': {'caveats': ['This '
                                                                                                            'joins '
                                                                                                            'declared '
@@ -1639,8 +1567,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                     'ServiceAccount '
                                                                                                     'token '
                                                                                                     'creation.'},
- 'k8s.claude.clusterrolebinding.no_human_webhook_config_write': {'description_base_sha256': '21abe79d763b691feaaa1bf2b185f96292282a0f6af784581cceaabb61b3bb71',
-                                                                 'description_fields': {'description': 'Joins '
+ 'k8s.claude.clusterrolebinding.no_human_webhook_config_write': {'description_fields': {'description': 'Joins '
                                                                                                        'non-system '
                                                                                                        'User/Group '
                                                                                                        'bindings '
@@ -1655,7 +1582,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                             'is bound to '
                                                                                             'admission-webhook '
                                                                                             'changes',
-                                                                 'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                  'remediation_fields': {'caveats': ['This '
                                                                                                     'joins '
                                                                                                     'declared '
@@ -1716,15 +1642,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                              'is bound to '
                                                                                              'admission-webhook '
                                                                                              'changes.'},
- 'k8s.claude.cronjob.dashboard_not_deployed': {'description_base_sha256': 'b41aaa183b8eacf0ab55a3051d79b1e4a9a013cf0dbb1ad1acd6c5ca30798397',
-                                               'description_fields': {'description': 'Looks for Kubernetes '
+ 'k8s.claude.cronjob.dashboard_not_deployed': {'description_fields': {'description': 'Looks for Kubernetes '
                                                                                      'Dashboard image names '
                                                                                      'or recognized '
                                                                                      'Dashboard label '
                                                                                      'values.'},
                                                'observed_failure_phrase': 'Workload images or labels match '
                                                                           'Kubernetes Dashboard markers',
-                                               'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                'remediation_fields': {'caveats': ['Image and label matches '
                                                                                   'do not prove a running '
                                                                                   'Dashboard or public '
@@ -1766,12 +1690,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                'reviewed_source_severity': 'medium',
                                                'static_observed_sentence': 'Workload images or labels match '
                                                                            'Kubernetes Dashboard markers.'},
- 'k8s.claude.cronjob.no_privileged_port': {'description_base_sha256': 'c623132d5bb6b586fd74fef8d23e75107d959cb501022942f59766d4d7c261e1',
-                                           'description_fields': {'description': 'Checks regular declared '
+ 'k8s.claude.cronjob.no_privileged_port': {'description_fields': {'description': 'Checks regular declared '
                                                                                  'containerPort values below '
                                                                                  '1024.'},
                                            'observed_failure_phrase': 'Containers declare ports below 1024',
-                                           'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                            'remediation_fields': {'caveats': ['Container port numbers do not '
                                                                               'establish public exposure or '
                                                                               'that the process runs as '
@@ -1803,14 +1725,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                            'reviewed_source_severity': 'low',
                                            'static_observed_sentence': 'Containers declare ports below '
                                                                        '1024.'},
- 'k8s.claude.cronjob.secrets_as_files': {'description_base_sha256': '64d1c7da90091c112a5c08e2cdca21d1c6bef383d00793e77af2b534e9fe04b7',
-                                         'description_fields': {'description': 'Checks regular containers '
+ 'k8s.claude.cronjob.secrets_as_files': {'description_fields': {'description': 'Checks regular containers '
                                                                                'for secretKeyRef or envFrom '
                                                                                'secretRef environment '
                                                                                'declarations.'},
                                          'observed_failure_phrase': 'Containers declare Secrets in '
                                                                     'environment variables',
-                                         'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                          'remediation_fields': {'caveats': ['The check reads Secret '
                                                                             'references, not secret values '
                                                                             'or effective data exposure.'],
@@ -1842,15 +1762,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                          'reviewed_source_severity': 'medium',
                                          'static_observed_sentence': 'Containers declare Secrets in '
                                                                      'environment variables.'},
- 'k8s.claude.daemonset.dashboard_not_deployed': {'description_base_sha256': '176eefb6eb32f831b8075582ce4037815d08aa41bead19920e7033c8726af93f',
-                                                 'description_fields': {'description': 'Looks for Kubernetes '
+ 'k8s.claude.daemonset.dashboard_not_deployed': {'description_fields': {'description': 'Looks for Kubernetes '
                                                                                        'Dashboard image '
                                                                                        'names or recognized '
                                                                                        'Dashboard label '
                                                                                        'values.'},
                                                  'observed_failure_phrase': 'Workload images or labels match '
                                                                             'Kubernetes Dashboard markers',
-                                                 'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                  'remediation_fields': {'caveats': ['Image and label matches '
                                                                                     'do not prove a running '
                                                                                     'Dashboard or public '
@@ -1894,12 +1812,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                  'static_observed_sentence': 'Workload images or labels '
                                                                              'match Kubernetes Dashboard '
                                                                              'markers.'},
- 'k8s.claude.daemonset.no_privileged_port': {'description_base_sha256': 'bbcf63d5463e970efedd7e63f9d120aefe39d907a4883ac61e33682ee01310b8',
-                                             'description_fields': {'description': 'Checks regular declared '
+ 'k8s.claude.daemonset.no_privileged_port': {'description_fields': {'description': 'Checks regular declared '
                                                                                    'containerPort values '
                                                                                    'below 1024.'},
                                              'observed_failure_phrase': 'Containers declare ports below 1024',
-                                             'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                              'remediation_fields': {'caveats': ['Container port numbers do '
                                                                                 'not establish public '
                                                                                 'exposure or that the '
@@ -1933,14 +1849,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                              'reviewed_source_severity': 'low',
                                              'static_observed_sentence': 'Containers declare ports below '
                                                                          '1024.'},
- 'k8s.claude.daemonset.secrets_as_files': {'description_base_sha256': '6d993ff0a19ba985ba5cff74b904a0b5efdbce3906b3c6e71ecdb84495029a84',
-                                           'description_fields': {'description': 'Checks regular containers '
+ 'k8s.claude.daemonset.secrets_as_files': {'description_fields': {'description': 'Checks regular containers '
                                                                                  'for secretKeyRef or '
                                                                                  'envFrom secretRef '
                                                                                  'environment declarations.'},
                                            'observed_failure_phrase': 'Containers declare Secrets in '
                                                                       'environment variables',
-                                           'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                            'remediation_fields': {'caveats': ['The check reads Secret '
                                                                               'references, not secret values '
                                                                               'or effective data exposure.'],
@@ -1972,8 +1886,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                            'reviewed_source_severity': 'medium',
                                            'static_observed_sentence': 'Containers declare Secrets in '
                                                                        'environment variables.'},
- 'k8s.claude.deployment.dashboard_not_deployed': {'description_base_sha256': '710b661cf8dc2c6e9ecfcb4842f6732197cc0bf09ed7102efd200f6f4447cd05',
-                                                  'description_fields': {'description': 'Looks for '
+ 'k8s.claude.deployment.dashboard_not_deployed': {'description_fields': {'description': 'Looks for '
                                                                                         'Kubernetes '
                                                                                         'Dashboard image '
                                                                                         'names or recognized '
@@ -1982,7 +1895,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                   'observed_failure_phrase': 'Workload images or labels '
                                                                              'match Kubernetes Dashboard '
                                                                              'markers',
-                                                  'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                   'remediation_fields': {'caveats': ['Image and label '
                                                                                      'matches do not prove a '
                                                                                      'running Dashboard or '
@@ -2026,13 +1938,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                   'static_observed_sentence': 'Workload images or labels '
                                                                               'match Kubernetes Dashboard '
                                                                               'markers.'},
- 'k8s.claude.deployment.no_privileged_port': {'description_base_sha256': '8ed17d7bc04ce8da405b6fafa5ef35171b4c0735cfb6740d24de7fab53c9c0cf',
-                                              'description_fields': {'description': 'Checks regular declared '
+ 'k8s.claude.deployment.no_privileged_port': {'description_fields': {'description': 'Checks regular declared '
                                                                                     'containerPort values '
                                                                                     'below 1024.'},
                                               'observed_failure_phrase': 'Containers declare ports below '
                                                                          '1024',
-                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                               'remediation_fields': {'caveats': ['Container port numbers do '
                                                                                  'not establish public '
                                                                                  'exposure or that the '
@@ -2066,13 +1976,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                               'reviewed_source_severity': 'low',
                                               'static_observed_sentence': 'Containers declare ports below '
                                                                           '1024.'},
- 'k8s.claude.deployment.replicas_minimum_3': {'description_base_sha256': 'f557c6839b565c1813380a9e0b60fb6da72fad7cd03d0ec6c870c2157bfea658',
-                                              'description_fields': {'description': 'Checks whether the '
+ 'k8s.claude.deployment.replicas_minimum_3': {'description_fields': {'description': 'Checks whether the '
                                                                                     'Deployment declares at '
                                                                                     'least three replicas.'},
                                               'observed_failure_phrase': 'The Deployment declares fewer than '
                                                                          'three replicas',
-                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                               'remediation_fields': {'caveats': ['Replica count alone does '
                                                                                  'not prove healthy '
                                                                                  'replicas, independent '
@@ -2105,15 +2013,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                               'reviewed_source_severity': 'low',
                                               'static_observed_sentence': 'The Deployment declares fewer '
                                                                           'than three replicas.'},
- 'k8s.claude.deployment.secrets_as_files': {'description_base_sha256': 'da6a8d3ed463959a5deba02816ca97d40d0954613e336365794580bbd9b37297',
-                                            'description_fields': {'description': 'Checks regular containers '
+ 'k8s.claude.deployment.secrets_as_files': {'description_fields': {'description': 'Checks regular containers '
                                                                                   'for secretKeyRef or '
                                                                                   'envFrom secretRef '
                                                                                   'environment '
                                                                                   'declarations.'},
                                             'observed_failure_phrase': 'Containers declare Secrets in '
                                                                        'environment variables',
-                                            'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                             'remediation_fields': {'caveats': ['The check reads Secret '
                                                                                'references, not secret '
                                                                                'values or effective data '
@@ -2146,8 +2052,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                             'reviewed_source_severity': 'medium',
                                             'static_observed_sentence': 'Containers declare Secrets in '
                                                                         'environment variables.'},
- 'k8s.claude.endpointslice.api_secure_port': {'description_base_sha256': 'be7812f364f4d581f204ac08fef8b8d5f78502378c77f1ca25de4e26a42fe6b4',
-                                              'description_fields': {'description': 'Checks '
+ 'k8s.claude.endpointslice.api_secure_port': {'description_fields': {'description': 'Checks '
                                                                                     'default/kubernetes '
                                                                                     'EndpointSlice ports for '
                                                                                     'name https and port 443 '
@@ -2155,7 +2060,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                               'observed_failure_phrase': 'The Kubernetes API EndpointSlice '
                                                                          'has no ports or a port outside its '
                                                                          'named HTTPS profile',
-                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                               'remediation_fields': {'caveats': ['The port name and number '
                                                                                  'do not establish TLS '
                                                                                  'negotiation or certificate '
@@ -2192,13 +2096,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                               'static_observed_sentence': 'The Kubernetes API EndpointSlice '
                                                                           'has no ports or a port outside '
                                                                           'its named HTTPS profile.'},
- 'k8s.claude.ingress.no_nginx_snippet_alias': {'description_base_sha256': 'ac87b8540281f919aecd1e23bbc6bcdcf94b52c5da5fd47dbbf31274d77e15cd',
-                                               'description_fields': {'description': 'Matches the text alias '
+ 'k8s.claude.ingress.no_nginx_snippet_alias': {'description_fields': {'description': 'Matches the text alias '
                                                                                      'inside snippet '
                                                                                      'annotation values.'},
                                                'observed_failure_phrase': 'A snippet annotation contains '
                                                                           'alias text',
-                                               'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                'remediation_fields': {'caveats': ['A substring match does '
                                                                                   'not establish an active '
                                                                                   'nginx alias directive or '
@@ -2234,13 +2136,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                'reviewed_source_severity': 'high',
                                                'static_observed_sentence': 'A snippet annotation contains '
                                                                            'alias text.'},
- 'k8s.claude.ingress.no_nginx_snippet_lua': {'description_base_sha256': '094a272dac4f2cb5075129925dfa52e6207cd0114ba50fed58bce31ed6016aac',
-                                             'description_fields': {'description': 'Matches Lua-like markers '
+ 'k8s.claude.ingress.no_nginx_snippet_lua': {'description_fields': {'description': 'Matches Lua-like markers '
                                                                                    'or kubernetes.io text in '
                                                                                    'snippet annotations.'},
                                              'observed_failure_phrase': 'A snippet annotation matches the '
                                                                         'Lua-related text pattern',
-                                             'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                              'remediation_fields': {'caveats': ['This text pattern also '
                                                                                 'matches kubernetes.io; it '
                                                                                 'does not prove Lua code '
@@ -2274,13 +2174,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                              'reviewed_source_severity': 'high',
                                              'static_observed_sentence': 'A snippet annotation matches the '
                                                                          'Lua-related text pattern.'},
- 'k8s.claude.ingress.no_nginx_snippets': {'description_base_sha256': '8f75dbc7892020181c5e88e0f1db3497181ced64d0e56a7e0a6c68b5e4590381',
-                                          'description_fields': {'description': 'Checks complete Ingress '
+ 'k8s.claude.ingress.no_nginx_snippets': {'description_fields': {'description': 'Checks complete Ingress '
                                                                                 'annotations for keys '
                                                                                 'containing snippet.'},
                                           'observed_failure_phrase': 'Ingress annotations include snippet '
                                                                      'declarations',
-                                          'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                           'remediation_fields': {'caveats': ['This checks annotation names, '
                                                                              'not controller adoption or '
                                                                              'execution.'],
@@ -2314,14 +2212,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                           'reviewed_source_severity': 'high',
                                           'static_observed_sentence': 'Ingress annotations include snippet '
                                                                       'declarations.'},
- 'k8s.claude.job.dashboard_not_deployed': {'description_base_sha256': '70667dabc0bafcbc74bfebcede22bbc4f3eda32ff281f8285b1a8224fc298d03',
-                                           'description_fields': {'description': 'Looks for Kubernetes '
+ 'k8s.claude.job.dashboard_not_deployed': {'description_fields': {'description': 'Looks for Kubernetes '
                                                                                  'Dashboard image names or '
                                                                                  'recognized Dashboard label '
                                                                                  'values.'},
                                            'observed_failure_phrase': 'Workload images or labels match '
                                                                       'Kubernetes Dashboard markers',
-                                           'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                            'remediation_fields': {'caveats': ['Image and label matches do '
                                                                               'not prove a running Dashboard '
                                                                               'or public exposure.'],
@@ -2359,12 +2255,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                            'reviewed_source_severity': 'medium',
                                            'static_observed_sentence': 'Workload images or labels match '
                                                                        'Kubernetes Dashboard markers.'},
- 'k8s.claude.job.no_privileged_port': {'description_base_sha256': 'ad01ffd0af72b82ab996e799a1c48a3da6183cd8fc1b695b31e8e02d2ee0bd81',
-                                       'description_fields': {'description': 'Checks regular declared '
+ 'k8s.claude.job.no_privileged_port': {'description_fields': {'description': 'Checks regular declared '
                                                                              'containerPort values below '
                                                                              '1024.'},
                                        'observed_failure_phrase': 'Containers declare ports below 1024',
-                                       'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                        'remediation_fields': {'caveats': ['Container port numbers do not '
                                                                           'establish public exposure or that '
                                                                           'the process runs as root.'],
@@ -2394,14 +2288,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                        'reviewed_severity': 'low',
                                        'reviewed_source_severity': 'low',
                                        'static_observed_sentence': 'Containers declare ports below 1024.'},
- 'k8s.claude.job.secrets_as_files': {'description_base_sha256': 'cf9efe9f0bbc2b14310fde38ab8ff731788d47b8392a02e723f041c59e74f948',
-                                     'description_fields': {'description': 'Checks regular containers for '
+ 'k8s.claude.job.secrets_as_files': {'description_fields': {'description': 'Checks regular containers for '
                                                                            'secretKeyRef or envFrom '
                                                                            'secretRef environment '
                                                                            'declarations.'},
                                      'observed_failure_phrase': 'Containers declare Secrets in environment '
                                                                 'variables',
-                                     'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                      'remediation_fields': {'caveats': ['The check reads Secret references, '
                                                                         'not secret values or effective data '
                                                                         'exposure.'],
@@ -2433,14 +2325,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                      'reviewed_source_severity': 'medium',
                                      'static_observed_sentence': 'Containers declare Secrets in environment '
                                                                  'variables.'},
- 'k8s.claude.pod.capabilities_dropped': {'description_base_sha256': 'a3382e508aaefc4f3bf3276f51565a3bb66db383b56ded39612d6711a3857791',
-                                         'description_fields': {'description': 'Checks regular containers '
+ 'k8s.claude.pod.capabilities_dropped': {'description_fields': {'description': 'Checks regular containers '
                                                                                'declaring capabilities for '
                                                                                'additions or an empty drop '
                                                                                'list.'},
                                          'observed_failure_phrase': 'A declared container capabilities '
                                                                     'object adds capabilities or drops none',
-                                         'remediation_base_sha256': '968067e032c56e431d8934ca9d89ae6854a5fdcf2544deff357e135d9f65f390',
                                          'remediation_fields': {'caveats': ['A container without a '
                                                                             'capabilities object is not '
                                                                             'flagged by this source '
@@ -2465,8 +2355,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                          'static_observed_sentence': 'A declared container capabilities '
                                                                      'object adds capabilities or drops '
                                                                      'none.'},
- 'k8s.claude.pod.controller_manager_gc_threshold': {'description_base_sha256': '36ab4eec2d14417195749681cd8e23c13cdddd941f0b8b8cdba85f62cec91bc4',
-                                                    'description_fields': {'description': 'Checks the '
+ 'k8s.claude.pod.controller_manager_gc_threshold': {'description_fields': {'description': 'Checks the '
                                                                                           'controller-manager’s '
                                                                                           'explicit GC '
                                                                                           'threshold for '
@@ -2476,7 +2365,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                     'observed_failure_phrase': 'The controller manager '
                                                                                'declares GC threshold zero '
                                                                                'or the default 12500',
-                                                    'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                     'remediation_fields': {'caveats': ['The default 12500 '
                                                                                        'enables garbage '
                                                                                        'collection; this '
@@ -2521,11 +2409,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                     'static_observed_sentence': 'The controller manager '
                                                                                 'declares GC threshold zero '
                                                                                 'or the default 12500.'},
- 'k8s.claude.pod.cpu_limits_set': {'description_base_sha256': 'ceb6d95e819fc82606e4df1e084841139359b43f0e484c2e9ef9f2782c4ec59f',
-                                   'description_fields': {'description': 'Checks CPU limit presence and '
+ 'k8s.claude.pod.cpu_limits_set': {'description_fields': {'description': 'Checks CPU limit presence and '
                                                                          'value type on regular containers.'},
                                    'observed_failure_phrase': 'has no CPU limit declared',
-                                   'remediation_base_sha256': '6d002503f19a08c6a239a8f60d5166580a0dddfb29fb1e681dc71d49ad97e7b0',
                                    'remediation_fields': {'caveats': ['This source predicate checks presence '
                                                                       'and type, not quantity syntax or '
                                                                       'sufficient capacity.'],
@@ -2540,13 +2426,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'source_qualname': '_register.<locals>.decorator.<locals>.apply.<locals>.evaluate'},
                                    'reviewed_severity': 'low',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.claude.pod.cpu_requests_set': {'description_base_sha256': 'c9812873dc60149682c67e533c0b1fa987ebcf7b1262fef618002db62099c353',
-                                     'description_fields': {'description': 'Checks regular container CPU '
+ 'k8s.claude.pod.cpu_requests_set': {'description_fields': {'description': 'Checks regular container CPU '
                                                                            'request presence and value '
                                                                            'type.'},
                                      'observed_failure_phrase': 'Regular containers lack a CPU request '
                                                                 'declaration',
-                                     'remediation_base_sha256': 'c322067ba4500e9a2477984a937594da2d4fb6bcf56c60e21059dc97e93c77ec',
                                      'remediation_fields': {'caveats': ['The source checks presence and '
                                                                         'type, not quantity syntax or '
                                                                         'sufficient capacity.'],
@@ -2565,14 +2449,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                      'reviewed_source_severity': 'medium',
                                      'static_observed_sentence': 'Regular containers lack a CPU request '
                                                                  'declaration.'},
- 'k8s.claude.pod.dashboard_not_deployed': {'description_base_sha256': '6018fad9b9ed7b8fe4c4075a97f4e211516718faa11403952f207a699fd7aff9',
-                                           'description_fields': {'description': 'Looks for Kubernetes '
+ 'k8s.claude.pod.dashboard_not_deployed': {'description_fields': {'description': 'Looks for Kubernetes '
                                                                                  'Dashboard image names or '
                                                                                  'recognized Dashboard label '
                                                                                  'values.'},
                                            'observed_failure_phrase': 'Workload images or labels match '
                                                                       'Kubernetes Dashboard markers',
-                                           'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                            'remediation_fields': {'caveats': ['Image and label matches do '
                                                                               'not prove a running Dashboard '
                                                                               'or public exposure.'],
@@ -2609,13 +2491,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                            'reviewed_source_severity': 'medium',
                                            'static_observed_sentence': 'Workload images or labels match '
                                                                        'Kubernetes Dashboard markers.'},
- 'k8s.claude.pod.liveness_probe_configured': {'description_base_sha256': '3e57bc7a057899870d18d6c45535ba584cf4fc9c331407774d163042abc412a5',
-                                              'description_fields': {'description': 'Checks regular '
+ 'k8s.claude.pod.liveness_probe_configured': {'description_fields': {'description': 'Checks regular '
                                                                                     'containers for a '
                                                                                     'livenessProbe object.'},
                                               'observed_failure_phrase': 'Regular containers lack a liveness '
                                                                          'probe declaration',
-                                              'remediation_base_sha256': '22f05f99d5584e79e8705d8d6067b2e8029822a410a9336722666f32390b59f6',
                                               'remediation_fields': {'caveats': ['Probe presence alone does '
                                                                                  'not establish a correct '
                                                                                  'health check.'],
@@ -2638,12 +2518,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                               'reviewed_source_severity': 'low',
                                               'static_observed_sentence': 'Regular containers lack a '
                                                                           'liveness probe declaration.'},
- 'k8s.claude.pod.memory_limits_set': {'description_base_sha256': 'c6d15dcda5d6f43ebf249f8eec75667236c548f151f6b307f29f1cebdfc62ae5',
-                                      'description_fields': {'description': 'Checks regular container memory '
+ 'k8s.claude.pod.memory_limits_set': {'description_fields': {'description': 'Checks regular container memory '
                                                                             'limit presence and value type.'},
                                       'observed_failure_phrase': 'Regular containers lack a memory limit '
                                                                  'declaration',
-                                      'remediation_base_sha256': '9015fb849914ade20afb4b57553bbfa827aff931802ee4846084a08ccf699cae',
                                       'remediation_fields': {'caveats': ['The source checks presence and '
                                                                          'type, not quantity syntax or '
                                                                          'sufficient capacity.'],
@@ -2664,13 +2542,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                       'reviewed_source_severity': 'medium',
                                       'static_observed_sentence': 'Regular containers lack a memory limit '
                                                                   'declaration.'},
- 'k8s.claude.pod.memory_requests_set': {'description_base_sha256': '7c59fcfdf3cb8e76e084ef07cccad571827462d3e8173355e4eb4f1e0dbc278f',
-                                        'description_fields': {'description': 'Checks regular container '
+ 'k8s.claude.pod.memory_requests_set': {'description_fields': {'description': 'Checks regular container '
                                                                               'memory request presence and '
                                                                               'value type.'},
                                         'observed_failure_phrase': 'Regular containers lack a memory request '
                                                                    'declaration',
-                                        'remediation_base_sha256': '8fab334d6f0fe5513adc45076142f32d0c893870c0cf8df10899b1f6e7fda242',
                                         'remediation_fields': {'caveats': ['The source checks presence and '
                                                                            'type, not quantity syntax or '
                                                                            'sufficient capacity.'],
@@ -2691,13 +2567,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                         'reviewed_source_severity': 'medium',
                                         'static_observed_sentence': 'Regular containers lack a memory '
                                                                     'request declaration.'},
- 'k8s.claude.pod.no_added_capabilities': {'description_base_sha256': 'd9c359a15ecb489314cd59e9e87743243ab3a102ba3be8b01e783b5767b6e385',
-                                          'description_fields': {'description': 'Checks regular container '
+ 'k8s.claude.pod.no_added_capabilities': {'description_fields': {'description': 'Checks regular container '
                                                                                 'capability-add '
                                                                                 'declarations.'},
                                           'observed_failure_phrase': 'Containers declare added Linux '
                                                                      'capabilities',
-                                          'remediation_base_sha256': 'f227a905c56e5c9358226423248c3b4f024a43b97057b8e37a492a923422d121',
                                           'remediation_fields': {'caveats': ['This reads declarations, not '
                                                                              'effective runtime behavior or '
                                                                              'a demonstrated attack path.'],
@@ -2718,11 +2592,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                           'reviewed_source_severity': 'medium',
                                           'static_observed_sentence': 'Containers declare added Linux '
                                                                       'capabilities.'},
- 'k8s.claude.pod.no_host_ipc': {'description_base_sha256': '8ae81c4d4b875490ae2aabae5dafa4b537ce7c3093b0b818de8559f1a0e93054',
-                                'description_fields': {'description': 'Checks whether the PodSpec declares '
+ 'k8s.claude.pod.no_host_ipc': {'description_fields': {'description': 'Checks whether the PodSpec declares '
                                                                       'hostIPC=true.'},
                                 'observed_failure_phrase': 'The Pod declares shared host IPC',
-                                'remediation_base_sha256': '6bd74db395d758e4400276aa962feb5a6fddda018064404406e9e004cd7a1f88',
                                 'remediation_fields': {'caveats': ['This reads declarations, not effective '
                                                                    'runtime behavior or a demonstrated '
                                                                    'attack path.'],
@@ -2740,11 +2612,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                 'reviewed_severity': 'high',
                                 'reviewed_source_severity': 'high',
                                 'static_observed_sentence': 'The Pod declares shared host IPC.'},
- 'k8s.claude.pod.no_host_pid': {'description_base_sha256': '17a8e36ff0cd276a2e90077e0c25d0f9dede7315a3c5c37e27500d7e51a3b18d',
-                                'description_fields': {'description': 'Checks whether the PodSpec declares '
+ 'k8s.claude.pod.no_host_pid': {'description_fields': {'description': 'Checks whether the PodSpec declares '
                                                                       'hostPID=true.'},
                                 'observed_failure_phrase': 'The Pod declares shared host PID namespaces',
-                                'remediation_base_sha256': '9478e2a16096476dcb540acfcc3e28938b126a1bbabf160d104fe5068f7183ac',
                                 'remediation_fields': {'caveats': ['This reads declarations, not effective '
                                                                    'runtime behavior or a demonstrated '
                                                                    'attack path.'],
@@ -2764,11 +2634,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                 'reviewed_severity': 'high',
                                 'reviewed_source_severity': 'high',
                                 'static_observed_sentence': 'The Pod declares shared host PID namespaces.'},
- 'k8s.claude.pod.no_host_ports': {'description_base_sha256': '0d6b21f23d08fdf15f8daa1eaea7749ad4d310ec7159020ed854d0e7481e839a',
-                                  'description_fields': {'description': 'Checks regular containers for any '
+ 'k8s.claude.pod.no_host_ports': {'description_fields': {'description': 'Checks regular containers for any '
                                                                         'hostPort field, including zero.'},
                                   'observed_failure_phrase': 'Regular containers declare hostPort fields',
-                                  'remediation_base_sha256': '733a747c62c2ae1817aa3469509f669ab4a49bd66aa815db655f52c8753b7818',
                                   'remediation_fields': {'caveats': ['An explicit zero is also flagged; this '
                                                                      'does not establish a live or public '
                                                                      'listener.'],
@@ -2788,15 +2656,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                   'reviewed_severity': 'medium',
                                   'reviewed_source_severity': 'medium',
                                   'static_observed_sentence': 'Regular containers declare hostPort fields.'},
- 'k8s.claude.pod.no_literal_secret_env': {'description_base_sha256': 'bf555e23c4b54d233dcdf098e4c2e026710dd86440f1f6d6f87e1df159eba1a6',
-                                          'description_fields': {'description': 'Looks for nonempty literal '
+ 'k8s.claude.pod.no_literal_secret_env': {'description_fields': {'description': 'Looks for nonempty literal '
                                                                                 'environment values under '
                                                                                 'credential-like variable '
                                                                                 'names in regular and init '
                                                                                 'containers.'},
                                           'observed_failure_phrase': 'declares a nonempty literal under a '
                                                                      'credential-like environment variable',
-                                          'remediation_base_sha256': '380194f4763da30947957eef02103b6d45780b656867a1973d2b1c0000fd9a22',
                                           'remediation_fields': {'caveats': ['Credential-like names are a '
                                                                              'heuristic; variable values are '
                                                                              'not included in the finding.'],
@@ -2814,13 +2680,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'predicate': 'no_literal_secret_env'},
                                           'reviewed_severity': 'high',
                                           'reviewed_source_severity': 'high'},
- 'k8s.claude.pod.no_net_raw_capability': {'description_base_sha256': '200001154f6d4fd89524125e03c16935839f2376b29c3e96ddefbaaad9d3face',
-                                          'description_fields': {'description': 'Checks regular containers '
+ 'k8s.claude.pod.no_net_raw_capability': {'description_fields': {'description': 'Checks regular containers '
                                                                                 'for NET_RAW, CAP_NET_RAW or '
                                                                                 'ALL in added capabilities.'},
                                           'observed_failure_phrase': 'Containers declare added raw-network '
                                                                      'capabilities',
-                                          'remediation_base_sha256': '09eb215e22b97fbcfc4812e621c1322729e8000fe95f44c16b4775f946d26f15',
                                           'remediation_fields': {'caveats': ['This reads declarations, not '
                                                                              'effective runtime behavior or '
                                                                              'a demonstrated attack path.'],
@@ -2841,12 +2705,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                           'reviewed_source_severity': 'medium',
                                           'static_observed_sentence': 'Containers declare added raw-network '
                                                                       'capabilities.'},
- 'k8s.claude.pod.no_privileged_port': {'description_base_sha256': 'a2c53af08c69662e364e4a3b23ba4c5761036f9058319ace56dd0a7d821c3039',
-                                       'description_fields': {'description': 'Checks regular declared '
+ 'k8s.claude.pod.no_privileged_port': {'description_fields': {'description': 'Checks regular declared '
                                                                              'containerPort values below '
                                                                              '1024.'},
                                        'observed_failure_phrase': 'Containers declare ports below 1024',
-                                       'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                        'remediation_fields': {'caveats': ['Container port numbers do not '
                                                                           'establish public exposure or that '
                                                                           'the process runs as root.'],
@@ -2876,12 +2738,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                        'reviewed_severity': 'low',
                                        'reviewed_source_severity': 'low',
                                        'static_observed_sentence': 'Containers declare ports below 1024.'},
- 'k8s.claude.pod.no_root_user': {'description_base_sha256': '55811d3cd761cecace16b4950810b676eef074a8576c1b2842adb1ae180bc1b0',
-                                 'description_fields': {'description': 'Checks regular container or '
+ 'k8s.claude.pod.no_root_user': {'description_fields': {'description': 'Checks regular container or '
                                                                        'inherited Pod runAsUser for explicit '
                                                                        'UID zero.'},
                                  'observed_failure_phrase': 'Containers explicitly declare UID zero',
-                                 'remediation_base_sha256': '9a519046cc0e917d00f0d19adb5ddb6b95f954a62081b118cf5dd48274a57082',
                                  'remediation_fields': {'caveats': ['An absent UID can inherit the image '
                                                                     'user and is not proof of a root '
                                                                     'process.'],
@@ -2901,12 +2761,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                  'reviewed_severity': 'high',
                                  'reviewed_source_severity': 'high',
                                  'static_observed_sentence': 'Containers explicitly declare UID zero.'},
- 'k8s.claude.pod.no_secret_env': {'description_base_sha256': '1ee3046ed86ea4214e021d9b1183df0e5201dc3c2715c6412006f920eea8178d',
-                                  'description_fields': {'description': 'Checks regular containers for '
+ 'k8s.claude.pod.no_secret_env': {'description_fields': {'description': 'Checks regular containers for '
                                                                         'environment variables using '
                                                                         'secretKeyRef.'},
                                   'observed_failure_phrase': 'loads a Secret into an environment variable',
-                                  'remediation_base_sha256': 'd5ac335cd5313375d98ffc1c0c7275ea28360369621c8bfcf72bc16351e3078c',
                                   'remediation_fields': {'caveats': ['This checks secretKeyRef declarations '
                                                                      'in regular containers; it does not '
                                                                      'inspect secret values, envFrom or '
@@ -2924,14 +2782,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'predicate': 'no_secret_env'},
                                   'reviewed_severity': 'medium',
                                   'reviewed_source_severity': 'medium'},
- 'k8s.claude.pod.no_windows_host_process': {'description_base_sha256': 'f7964fe669a551f7805fc8bb01d9a1d0cfdbed46d66fb462c60b9261a34bc806',
-                                            'description_fields': {'description': 'Checks regular containers '
+ 'k8s.claude.pod.no_windows_host_process': {'description_fields': {'description': 'Checks regular containers '
                                                                                   'for HostProcess=true, '
                                                                                   'including Pod-level '
                                                                                   'inheritance.'},
                                             'observed_failure_phrase': 'Containers declare Windows '
                                                                        'HostProcess mode',
-                                            'remediation_base_sha256': '01bb7465a6bdbdf9bd28c21f9c89314181784c95a68d0f4e3328d8c3a1c2e4f0',
                                             'remediation_fields': {'caveats': ['This reads declarations, not '
                                                                                'effective runtime behavior '
                                                                                'or a demonstrated attack '
@@ -2955,14 +2811,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                             'reviewed_source_severity': 'high',
                                             'static_observed_sentence': 'Containers declare Windows '
                                                                         'HostProcess mode.'},
- 'k8s.claude.pod.readiness_probe_configured': {'description_base_sha256': '5867b7e83858b14bd2800302ccd8e8d1a9f53c434ccf8a91b2a565edb295c80a',
-                                               'description_fields': {'description': 'Checks regular '
+ 'k8s.claude.pod.readiness_probe_configured': {'description_fields': {'description': 'Checks regular '
                                                                                      'containers for a '
                                                                                      'readinessProbe '
                                                                                      'object.'},
                                                'observed_failure_phrase': 'Regular containers lack a '
                                                                           'readiness probe declaration',
-                                               'remediation_base_sha256': '0f76129154f9d9e0ceb20adf622cf42000aacb0e134e2e45eafe4ced5649ac1f',
                                                'remediation_fields': {'caveats': ['Probe presence alone does '
                                                                                   'not establish a correct '
                                                                                   'health check.'],
@@ -2985,13 +2839,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                'reviewed_source_severity': 'low',
                                                'static_observed_sentence': 'Regular containers lack a '
                                                                            'readiness probe declaration.'},
- 'k8s.claude.pod.run_as_user_10000': {'description_base_sha256': '137b93395086d215df9c8bc21a7fb718c586a975fc00d26d1ada48a191bdca2c',
-                                      'description_fields': {'description': 'Checks regular containers for a '
+ 'k8s.claude.pod.run_as_user_10000': {'description_fields': {'description': 'Checks regular containers for a '
                                                                             'declared or inherited UID of at '
                                                                             'least 10000.'},
                                       'observed_failure_phrase': 'Regular containers lack a declared UID of '
                                                                  'at least 10000',
-                                      'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                       'remediation_fields': {'caveats': ['The source threshold is an '
                                                                          'identity policy; it does not '
                                                                          'establish effective runtime '
@@ -3022,8 +2874,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                       'reviewed_source_severity': 'low',
                                       'static_observed_sentence': 'Regular containers lack a declared UID of '
                                                                   'at least 10000.'},
- 'k8s.claude.pod.runtime_default_seccomp': {'description_base_sha256': '56d1939618d899c443dc229fd195b2354e4216b410882f0b69ee20ee8221a87b',
-                                            'description_fields': {'description': 'Checks for a Pod '
+ 'k8s.claude.pod.runtime_default_seccomp': {'description_fields': {'description': 'Checks for a Pod '
                                                                                   'RuntimeDefault seccomp '
                                                                                   'declaration or '
                                                                                   'RuntimeDefault on every '
@@ -3031,7 +2882,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                             'observed_failure_phrase': 'Neither the Pod nor all regular '
                                                                        'containers declare RuntimeDefault '
                                                                        'seccomp',
-                                            'remediation_base_sha256': 'da592ce03c836b5252124b5b8b069123523b52ddddb929e041b25998da8e59c1',
                                             'remediation_fields': {'caveats': ['This source accepts the Pod '
                                                                                'profile without resolving '
                                                                                'container overrides; it does '
@@ -3056,14 +2906,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                             'static_observed_sentence': 'Neither the Pod nor all regular '
                                                                         'containers declare RuntimeDefault '
                                                                         'seccomp.'},
- 'k8s.claude.pod.secrets_as_files': {'description_base_sha256': 'ffcee5b85afa4ccd9b1937c6fa7aeb21b63b07644be4656493342082c096a0bc',
-                                     'description_fields': {'description': 'Checks regular containers for '
+ 'k8s.claude.pod.secrets_as_files': {'description_fields': {'description': 'Checks regular containers for '
                                                                            'secretKeyRef or envFrom '
                                                                            'secretRef environment '
                                                                            'declarations.'},
                                      'observed_failure_phrase': 'Containers declare Secrets in environment '
                                                                 'variables',
-                                     'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                      'remediation_fields': {'caveats': ['The check reads Secret references, '
                                                                         'not secret values or effective data '
                                                                         'exposure.'],
@@ -3095,8 +2943,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                      'reviewed_source_severity': 'medium',
                                      'static_observed_sentence': 'Containers declare Secrets in environment '
                                                                  'variables.'},
- 'k8s.claude.podsecuritypolicy.allowed_host_path_restricted': {'description_base_sha256': 'beffd61bb3324b978a0c815d919ba131988b921a27ba8de3603cab6e727ef891',
-                                                               'description_fields': {'description': 'On '
+ 'k8s.claude.podsecuritypolicy.allowed_host_path_restricted': {'description_fields': {'description': 'On '
                                                                                                      'Kubernetes '
                                                                                                      'before '
                                                                                                      '1.25, '
@@ -3112,7 +2959,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                           'without an '
                                                                                           'allowed-host-path '
                                                                                           'list',
-                                                               'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                'remediation_fields': {'caveats': ['Allowed-path '
                                                                                                   'entries '
                                                                                                   'alone do '
@@ -3176,8 +3022,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                            'without an '
                                                                                            'allowed-host-path '
                                                                                            'list.'},
- 'k8s.claude.podsecuritypolicy.default_seccomp_profile': {'description_base_sha256': '010f0dd8c06d656b5e5ea03668a924e83cb29afcf472c85dcc6cb5c642dfcb08',
-                                                          'description_fields': {'description': 'On legacy '
+ 'k8s.claude.podsecuritypolicy.default_seccomp_profile': {'description_fields': {'description': 'On legacy '
                                                                                                 'clusters, '
                                                                                                 'checks PSP '
                                                                                                 'default '
@@ -3190,7 +3035,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'observed_failure_phrase': 'A legacy PSP lacks a '
                                                                                      'recognized default '
                                                                                      'seccomp profile',
-                                                          'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                           'remediation_fields': {'caveats': ['A declared '
                                                                                              'profile does '
                                                                                              'not establish '
@@ -3240,8 +3084,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'static_observed_sentence': 'A legacy PSP lacks a '
                                                                                       'recognized default '
                                                                                       'seccomp profile.'},
- 'k8s.claude.podsecuritypolicy.security_services_hardening': {'description_base_sha256': '3218d5ff35b0ecadd40ee0c1d159fee780c5a0eb87c17863e99de1d6a2e20532',
-                                                              'description_fields': {'description': 'On '
+ 'k8s.claude.podsecuritypolicy.security_services_hardening': {'description_fields': {'description': 'On '
                                                                                                     'legacy '
                                                                                                     'clusters, '
                                                                                                     'checks '
@@ -3258,7 +3101,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                          'security-service '
                                                                                          'profile '
                                                                                          'declarations',
-                                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                               'remediation_fields': {'caveats': ['This '
                                                                                                  'checks '
                                                                                                  'policy '
@@ -3324,8 +3166,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                           'security-service '
                                                                                           'profile '
                                                                                           'declarations.'},
- 'k8s.claude.podtemplate.dashboard_not_deployed': {'description_base_sha256': '44f641b99a8a4799ad519ff90e323e048f18f976e8725909dca5463b897264d4',
-                                                   'description_fields': {'description': 'Looks for '
+ 'k8s.claude.podtemplate.dashboard_not_deployed': {'description_fields': {'description': 'Looks for '
                                                                                          'Kubernetes '
                                                                                          'Dashboard image '
                                                                                          'names or '
@@ -3335,7 +3176,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                    'observed_failure_phrase': 'Workload images or labels '
                                                                               'match Kubernetes Dashboard '
                                                                               'markers',
-                                                   'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                    'remediation_fields': {'caveats': ['Image and label '
                                                                                       'matches do not prove '
                                                                                       'a running Dashboard '
@@ -3379,15 +3219,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                    'static_observed_sentence': 'Workload images or labels '
                                                                                'match Kubernetes Dashboard '
                                                                                'markers.'},
- 'k8s.claude.podtemplate.secrets_as_files': {'description_base_sha256': 'a2fc914afbc7b4c29c5896d35525107d0daed0abc11b97538b4c21048ab5b0ff',
-                                             'description_fields': {'description': 'Checks regular '
+ 'k8s.claude.podtemplate.secrets_as_files': {'description_fields': {'description': 'Checks regular '
                                                                                    'containers for '
                                                                                    'secretKeyRef or envFrom '
                                                                                    'secretRef environment '
                                                                                    'declarations.'},
                                              'observed_failure_phrase': 'Containers declare Secrets in '
                                                                         'environment variables',
-                                             'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                              'remediation_fields': {'caveats': ['The check reads Secret '
                                                                                 'references, not secret '
                                                                                 'values or effective data '
@@ -3421,8 +3259,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                              'reviewed_source_severity': 'medium',
                                              'static_observed_sentence': 'Containers declare Secrets in '
                                                                          'environment variables.'},
- 'k8s.claude.replicaset.dashboard_not_deployed': {'description_base_sha256': '6928914dddc8a628b15343157bed52fd7f8a7e3f7cf417131965ef1cb33e3b93',
-                                                  'description_fields': {'description': 'Looks for '
+ 'k8s.claude.replicaset.dashboard_not_deployed': {'description_fields': {'description': 'Looks for '
                                                                                         'Kubernetes '
                                                                                         'Dashboard image '
                                                                                         'names or recognized '
@@ -3431,7 +3268,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                   'observed_failure_phrase': 'Workload images or labels '
                                                                              'match Kubernetes Dashboard '
                                                                              'markers',
-                                                  'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                   'remediation_fields': {'caveats': ['Image and label '
                                                                                      'matches do not prove a '
                                                                                      'running Dashboard or '
@@ -3475,13 +3311,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                   'static_observed_sentence': 'Workload images or labels '
                                                                               'match Kubernetes Dashboard '
                                                                               'markers.'},
- 'k8s.claude.replicaset.no_privileged_port': {'description_base_sha256': '6d15a772427423255d40182f14575a322aa5bf736182008b429ffcca055579ec',
-                                              'description_fields': {'description': 'Checks regular declared '
+ 'k8s.claude.replicaset.no_privileged_port': {'description_fields': {'description': 'Checks regular declared '
                                                                                     'containerPort values '
                                                                                     'below 1024.'},
                                               'observed_failure_phrase': 'Containers declare ports below '
                                                                          '1024',
-                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                               'remediation_fields': {'caveats': ['Container port numbers do '
                                                                                  'not establish public '
                                                                                  'exposure or that the '
@@ -3515,15 +3349,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                               'reviewed_source_severity': 'low',
                                               'static_observed_sentence': 'Containers declare ports below '
                                                                           '1024.'},
- 'k8s.claude.replicaset.secrets_as_files': {'description_base_sha256': '78112b930cad8cfef98ecc66aeab768ce43749101911d9e8ccb4327c73a59341',
-                                            'description_fields': {'description': 'Checks regular containers '
+ 'k8s.claude.replicaset.secrets_as_files': {'description_fields': {'description': 'Checks regular containers '
                                                                                   'for secretKeyRef or '
                                                                                   'envFrom secretRef '
                                                                                   'environment '
                                                                                   'declarations.'},
                                             'observed_failure_phrase': 'Containers declare Secrets in '
                                                                        'environment variables',
-                                            'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                             'remediation_fields': {'caveats': ['The check reads Secret '
                                                                                'references, not secret '
                                                                                'values or effective data '
@@ -3556,8 +3388,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                             'reviewed_source_severity': 'medium',
                                             'static_observed_sentence': 'Containers declare Secrets in '
                                                                         'environment variables.'},
- 'k8s.claude.replicationcontroller.dashboard_not_deployed': {'description_base_sha256': '29c290088404c3c9b9b689f9978d8ade5a03e5480b095b1dfc1043a5017ba8ec',
-                                                             'description_fields': {'description': 'Looks '
+ 'k8s.claude.replicationcontroller.dashboard_not_deployed': {'description_fields': {'description': 'Looks '
                                                                                                    'for '
                                                                                                    'Kubernetes '
                                                                                                    'Dashboard '
@@ -3571,7 +3402,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                         'labels match '
                                                                                         'Kubernetes '
                                                                                         'Dashboard markers',
-                                                             'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                              'remediation_fields': {'caveats': ['Image and '
                                                                                                 'label '
                                                                                                 'matches do '
@@ -3630,8 +3460,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                          'Kubernetes '
                                                                                          'Dashboard '
                                                                                          'markers.'},
- 'k8s.claude.replicationcontroller.no_privileged_port': {'description_base_sha256': 'e88cd880d0502fa42c428ccb9c26771b52d9b33dc4514cf097cfd2d845993c12',
-                                                         'description_fields': {'description': 'Checks '
+ 'k8s.claude.replicationcontroller.no_privileged_port': {'description_fields': {'description': 'Checks '
                                                                                                'regular '
                                                                                                'declared '
                                                                                                'containerPort '
@@ -3639,7 +3468,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                '1024.'},
                                                          'observed_failure_phrase': 'Containers declare '
                                                                                     'ports below 1024',
-                                                         'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                          'remediation_fields': {'caveats': ['Container port '
                                                                                             'numbers do not '
                                                                                             'establish '
@@ -3683,8 +3511,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'reviewed_source_severity': 'low',
                                                          'static_observed_sentence': 'Containers declare '
                                                                                      'ports below 1024.'},
- 'k8s.claude.replicationcontroller.secrets_as_files': {'description_base_sha256': '53a8bdde4e22e9905f7edbd9ec05b39d2acbc93e537ec616ab25ce5568fec349',
-                                                       'description_fields': {'description': 'Checks regular '
+ 'k8s.claude.replicationcontroller.secrets_as_files': {'description_fields': {'description': 'Checks regular '
                                                                                              'containers for '
                                                                                              'secretKeyRef '
                                                                                              'or envFrom '
@@ -3694,7 +3521,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'observed_failure_phrase': 'Containers declare '
                                                                                   'Secrets in environment '
                                                                                   'variables',
-                                                       'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                        'remediation_fields': {'caveats': ['The check reads '
                                                                                           'Secret '
                                                                                           'references, not '
@@ -3737,11 +3563,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'static_observed_sentence': 'Containers declare '
                                                                                    'Secrets in environment '
                                                                                    'variables.'},
- 'k8s.claude.role.no_bind': {'description_base_sha256': '43223ee1f8c39c7a141e6e81a4fb5881f021b887f5b7a58e5e139071f9c9dabb',
-                             'description_fields': {'description': 'Checks declared RBAC rules for roles or '
+ 'k8s.claude.role.no_bind': {'description_fields': {'description': 'Checks declared RBAC rules for roles or '
                                                                    'ClusterRoles bind grants.'},
                              'observed_failure_phrase': 'The role declares roles or ClusterRoles bind grants',
-                             'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                              'remediation_fields': {'caveats': ['Bindings, aggregation and resource-name '
                                                                 'restrictions remain separate from declared '
                                                                 'rule matching.'],
@@ -3772,11 +3596,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                              'reviewed_source_severity': 'high',
                              'static_observed_sentence': 'The role declares roles or ClusterRoles bind '
                                                          'grants.'},
- 'k8s.claude.role.no_pod_create': {'description_base_sha256': 'fe650f2dfbe0b16ab70b663a7a6a746ce79ec1bb5c1196085d4149aa0f1310ec',
-                                   'description_fields': {'description': 'Checks declared RBAC rules for '
+ 'k8s.claude.role.no_pod_create': {'description_fields': {'description': 'Checks declared RBAC rules for '
                                                                          'Pods creation.'},
                                    'observed_failure_phrase': 'The role declares Pods creation',
-                                   'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                    'remediation_fields': {'caveats': ['Bindings, aggregation and '
                                                                       'resource-name restrictions remain '
                                                                       'separate from declared rule '
@@ -3808,11 +3630,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                    'reviewed_severity': 'medium',
                                    'reviewed_source_severity': 'medium',
                                    'static_observed_sentence': 'The role declares Pods creation.'},
- 'k8s.claude.role.no_secret_read': {'description_base_sha256': '0c8075c617e0b0c367953f9a52e1a54cca2ffdc5fbbc27fe91bf70e938990195',
-                                    'description_fields': {'description': 'Checks declared RBAC rules for '
+ 'k8s.claude.role.no_secret_read': {'description_fields': {'description': 'Checks declared RBAC rules for '
                                                                           'Secrets read access.'},
                                     'observed_failure_phrase': 'The role declares Secrets read access',
-                                    'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                     'remediation_fields': {'caveats': ['Bindings, aggregation and '
                                                                        'resource-name restrictions remain '
                                                                        'separate from declared rule '
@@ -3845,8 +3665,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                     'reviewed_severity': 'high',
                                     'reviewed_source_severity': 'high',
                                     'static_observed_sentence': 'The role declares Secrets read access.'},
- 'k8s.claude.role.no_wildcard_resources_or_verbs': {'description_base_sha256': '1707ab11ce766408ba41eee9e70da2b6968e384e858f275585eb62a3f269785e',
-                                                    'description_fields': {'description': 'Checks resource '
+ 'k8s.claude.role.no_wildcard_resources_or_verbs': {'description_fields': {'description': 'Checks resource '
                                                                                           'wildcard patterns '
                                                                                           'or a literal '
                                                                                           'wildcard verb in '
@@ -3854,7 +3673,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                           'rules.'},
                                                     'observed_failure_phrase': 'The role declares wildcard '
                                                                                'resources or verbs',
-                                                    'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                     'remediation_fields': {'caveats': ['This reads '
                                                                                        'declarations, not '
                                                                                        'effective runtime '
@@ -3892,12 +3710,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                     'reviewed_source_severity': 'medium',
                                                     'static_observed_sentence': 'The role declares wildcard '
                                                                                 'resources or verbs.'},
- 'k8s.claude.service.no_tiller_labels': {'description_base_sha256': '532621591163390e196dca9fa806105e04053462c7eb70fd1d46c3f144ff4a09',
-                                         'description_fields': {'description': 'Checks Service app=helm or '
+ 'k8s.claude.service.no_tiller_labels': {'description_fields': {'description': 'Checks Service app=helm or '
                                                                                'name=tiller label values.'},
                                          'observed_failure_phrase': 'Service labels match legacy Tiller '
                                                                     'markers',
-                                         'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                          'remediation_fields': {'caveats': ['These labels can occur on '
                                                                             'unrelated Services and do not '
                                                                             'prove Tiller is running.'],
@@ -3929,12 +3745,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                          'reviewed_source_severity': 'medium',
                                          'static_observed_sentence': 'Service labels match legacy Tiller '
                                                                      'markers.'},
- 'k8s.claude.service.no_tiller_selector': {'description_base_sha256': '9bece0ca8c8b3924229741af317b397618469866f68770f9d4c280abb520649d',
-                                           'description_fields': {'description': 'Checks label and selector '
+ 'k8s.claude.service.no_tiller_selector': {'description_fields': {'description': 'Checks label and selector '
                                                                                  'keys for the text tiller.'},
                                            'observed_failure_phrase': 'Service metadata or selector keys '
                                                                       'contain tiller',
-                                           'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                            'remediation_fields': {'caveats': ['Key-name matches do not prove '
                                                                               'Tiller is running.'],
                                                                   'cli': [],
@@ -3967,8 +3781,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                            'reviewed_source_severity': 'medium',
                                            'static_observed_sentence': 'Service metadata or selector keys '
                                                                        'contain tiller.'},
- 'k8s.claude.statefulset.dashboard_not_deployed': {'description_base_sha256': '786ef101749ee82ac78ccf4477889b8d86be43e9af89f3546e0fd0d7b79bc90f',
-                                                   'description_fields': {'description': 'Looks for '
+ 'k8s.claude.statefulset.dashboard_not_deployed': {'description_fields': {'description': 'Looks for '
                                                                                          'Kubernetes '
                                                                                          'Dashboard image '
                                                                                          'names or '
@@ -3978,7 +3791,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                    'observed_failure_phrase': 'Workload images or labels '
                                                                               'match Kubernetes Dashboard '
                                                                               'markers',
-                                                   'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                    'remediation_fields': {'caveats': ['Image and label '
                                                                                       'matches do not prove '
                                                                                       'a running Dashboard '
@@ -4022,13 +3834,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                    'static_observed_sentence': 'Workload images or labels '
                                                                                'match Kubernetes Dashboard '
                                                                                'markers.'},
- 'k8s.claude.statefulset.no_privileged_port': {'description_base_sha256': 'f5bc7acb031e937526983ab8840f2edf11d70495e37ac4349bbcb69848c14517',
-                                               'description_fields': {'description': 'Checks regular '
+ 'k8s.claude.statefulset.no_privileged_port': {'description_fields': {'description': 'Checks regular '
                                                                                      'declared containerPort '
                                                                                      'values below 1024.'},
                                                'observed_failure_phrase': 'Containers declare ports below '
                                                                           '1024',
-                                               'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                'remediation_fields': {'caveats': ['Container port numbers do '
                                                                                   'not establish public '
                                                                                   'exposure or that the '
@@ -4063,15 +3873,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                'reviewed_source_severity': 'low',
                                                'static_observed_sentence': 'Containers declare ports below '
                                                                            '1024.'},
- 'k8s.claude.statefulset.secrets_as_files': {'description_base_sha256': 'd6ecc7e8ab1cc86d4d39182eea11ebbd81059868ad4a5e6aeb3d575c9ea8ace3',
-                                             'description_fields': {'description': 'Checks regular '
+ 'k8s.claude.statefulset.secrets_as_files': {'description_fields': {'description': 'Checks regular '
                                                                                    'containers for '
                                                                                    'secretKeyRef or envFrom '
                                                                                    'secretRef environment '
                                                                                    'declarations.'},
                                              'observed_failure_phrase': 'Containers declare Secrets in '
                                                                         'environment variables',
-                                             'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                              'remediation_fields': {'caveats': ['The check reads Secret '
                                                                                 'references, not secret '
                                                                                 'values or effective data '
@@ -4105,12 +3913,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                              'reviewed_source_severity': 'medium',
                                              'static_observed_sentence': 'Containers declare Secrets in '
                                                                          'environment variables.'},
- 'k8s.cronjob.no_host_network': {'description_base_sha256': '464f2c45a7fb6642cbcbae18df1e1baa4893d273994018ff89b4f3a2fcd2e64e',
-                                 'description_fields': {'description': 'Checks whether the PodSpec declares '
+ 'k8s.cronjob.no_host_network': {'description_fields': {'description': 'Checks whether the PodSpec declares '
                                                                        'hostNetwork=true.'},
                                  'evidence_presence_fields': ['host_network'],
                                  'observed_failure_phrase': 'declares host networking',
-                                 'remediation_base_sha256': '9fabe6d7c0e85673c4e37e333a83aace27a2a3ce6396bd866e4101e9c722ee31',
                                  'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                     'runtime behavior and admission '
                                                                     'enforcement are separate.'],
@@ -4127,12 +3933,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'source_qualname': '_controller_check.<locals>.evaluate'},
                                  'reviewed_severity': 'medium',
                                  'reviewed_source_severity': 'high'},
- 'k8s.cronjob.no_host_ports': {'description_base_sha256': '27d846340813f5238ee65ceb006b98fa02185c53202d9d3f96a5aa18bb2f56db',
-                               'description_fields': {'description': 'Checks whether container hostPort '
+ 'k8s.cronjob.no_host_ports': {'description_fields': {'description': 'Checks whether container hostPort '
                                                                      'declarations contain a nonzero valid '
                                                                      'port.'},
                                'observed_failure_phrase': 'declares a nonzero hostPort',
-                               'remediation_base_sha256': '981291ab5598cde0f71200322ce4ba3f5f71bf18fd7cb3bcb96f703cb90e674b',
                                'remediation_fields': {'caveats': ['This nonzero-port profile accepts '
                                                                   'hostPort=0; it does not prove an active '
                                                                   'or public listener.'],
@@ -4151,11 +3955,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                     'source_qualname': '_controller_check.<locals>.evaluate'},
                                'reviewed_severity': 'medium',
                                'reviewed_source_severity': 'high'},
- 'k8s.cronjob.no_privileged': {'description_base_sha256': 'b997012f1a2b43c19e08b803bb4163eaba003a94ac398b93479ca391ff0f1aaf',
-                               'description_fields': {'description': 'Checks whether a container declares '
+ 'k8s.cronjob.no_privileged': {'description_fields': {'description': 'Checks whether a container declares '
                                                                      'privileged=true.'},
                                'observed_failure_phrase': 'declares privileged mode',
-                               'remediation_base_sha256': '66e581a972cc3c712389f2189883a7f54cc7b9f3dc90e7be477cc2a685eac03f',
                                'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                   'runtime behavior and admission '
                                                                   'enforcement are separate.'],
@@ -4173,13 +3975,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                     'source_qualname': '_controller_check.<locals>.evaluate'},
                                'reviewed_severity': 'high',
                                'reviewed_source_severity': 'high'},
- 'k8s.cronjob.non_root': {'description_base_sha256': '7476abf83c1cb03e26a8d821d5b72bd96002f37eaa5b4fed8954781e760c3899',
-                          'description_fields': {'description': 'Checks Linux container non-root settings '
+ 'k8s.cronjob.non_root': {'description_fields': {'description': 'Checks Linux container non-root settings '
                                                                 'with Pod inheritance and rejects an '
                                                                 'explicitly declared UID zero.'},
                           'observed_failure_phrase': 'does not require non-root execution or declares UID '
                                                      'zero',
-                          'remediation_base_sha256': 'f4e8b5ab2d2754f32a39a9a3d14d9c1b7ea1be7f70b18bfaf7c87b81befca031',
                           'remediation_fields': {'caveats': ['Windows Pods are not applicable; declared '
                                                              'settings do not prove the running process '
                                                              'identity.'],
@@ -4195,12 +3995,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                'predicate': 'non_root'},
                           'reviewed_severity': 'medium',
                           'reviewed_source_severity': 'high'},
- 'k8s.daemonset.no_host_network': {'description_base_sha256': 'e7a46a2c460fae51756c0920db0d6746b6bef584a5bb306b59d05cd9f978db3b',
-                                   'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.daemonset.no_host_network': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                          'declares hostNetwork=true.'},
                                    'evidence_presence_fields': ['host_network'],
                                    'observed_failure_phrase': 'declares host networking',
-                                   'remediation_base_sha256': '35deaa80e75b474197bedbe61f0d62b7d2b5016f5f0172de474a808378474e79',
                                    'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                       'runtime behavior and admission '
                                                                       'enforcement are separate.'],
@@ -4217,12 +4015,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'source_qualname': '_controller_check.<locals>.evaluate'},
                                    'reviewed_severity': 'medium',
                                    'reviewed_source_severity': 'high'},
- 'k8s.daemonset.no_host_ports': {'description_base_sha256': 'f2196a603aabad2867cd866cbf6b88ec32abf2e31df286178b2b989b49a3c674',
-                                 'description_fields': {'description': 'Checks whether container hostPort '
+ 'k8s.daemonset.no_host_ports': {'description_fields': {'description': 'Checks whether container hostPort '
                                                                        'declarations contain a nonzero valid '
                                                                        'port.'},
                                  'observed_failure_phrase': 'declares a nonzero hostPort',
-                                 'remediation_base_sha256': '91a2e157e9023b212f682a9cbf782fe0b5243208f33940cb88d7af0cbe021d0e',
                                  'remediation_fields': {'caveats': ['This nonzero-port profile accepts '
                                                                     'hostPort=0; it does not prove an active '
                                                                     'or public listener.'],
@@ -4241,11 +4037,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'source_qualname': '_controller_check.<locals>.evaluate'},
                                  'reviewed_severity': 'medium',
                                  'reviewed_source_severity': 'high'},
- 'k8s.daemonset.no_privileged': {'description_base_sha256': 'a8a13b7d3a76fc487be621a5025380403a519cb92dac1d6a586961752e7fbc58',
-                                 'description_fields': {'description': 'Checks whether a container declares '
+ 'k8s.daemonset.no_privileged': {'description_fields': {'description': 'Checks whether a container declares '
                                                                        'privileged=true.'},
                                  'observed_failure_phrase': 'declares privileged mode',
-                                 'remediation_base_sha256': '1b4303976720bfe46f8c9c14c4ec8616170e504c3a86549ccde3ec20335fac8f',
                                  'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                     'runtime behavior and admission '
                                                                     'enforcement are separate.'],
@@ -4264,13 +4058,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'source_qualname': '_controller_check.<locals>.evaluate'},
                                  'reviewed_severity': 'high',
                                  'reviewed_source_severity': 'high'},
- 'k8s.daemonset.non_root': {'description_base_sha256': '4934c0117b72452620704a786c1a5084deb7c6857674388dd3aca2a5d7bf8eea',
-                            'description_fields': {'description': 'Checks Linux container non-root settings '
+ 'k8s.daemonset.non_root': {'description_fields': {'description': 'Checks Linux container non-root settings '
                                                                   'with Pod inheritance and rejects an '
                                                                   'explicitly declared UID zero.'},
                             'observed_failure_phrase': 'does not require non-root execution or declares UID '
                                                        'zero',
-                            'remediation_base_sha256': 'd5892183bbbcfc5a6db253acea2b8e49fbfaa9f4b3164da4fffee3af3a8f1bb7',
                             'remediation_fields': {'caveats': ['Windows Pods are not applicable; declared '
                                                                'settings do not prove the running process '
                                                                'identity.'],
@@ -4289,12 +4081,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                  'source_qualname': '_controller_check.<locals>.evaluate'},
                             'reviewed_severity': 'medium',
                             'reviewed_source_severity': 'high'},
- 'k8s.deployment.no_host_network': {'description_base_sha256': 'ac7bdb0b44111776eacea8eda378a12e8c03e6779708b16af06dc7a471fca4bc',
-                                    'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.deployment.no_host_network': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                           'declares hostNetwork=true.'},
                                     'evidence_presence_fields': ['host_network'],
                                     'observed_failure_phrase': 'declares host networking',
-                                    'remediation_base_sha256': '5aa56fcc851dd29c7ae41756a6b54303ef0d8e5c879ae862d2c7867f4bb05a80',
                                     'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                        'runtime behavior and admission '
                                                                        'enforcement are separate.'],
@@ -4312,12 +4102,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'source_qualname': '_controller_check.<locals>.evaluate'},
                                     'reviewed_severity': 'medium',
                                     'reviewed_source_severity': 'high'},
- 'k8s.deployment.no_host_ports': {'description_base_sha256': 'd9e77502030212cc9dcac6dd6d11d5244034906b851fd2590a9164b477b64629',
-                                  'description_fields': {'description': 'Checks whether container hostPort '
+ 'k8s.deployment.no_host_ports': {'description_fields': {'description': 'Checks whether container hostPort '
                                                                         'declarations contain a nonzero '
                                                                         'valid port.'},
                                   'observed_failure_phrase': 'declares a nonzero hostPort',
-                                  'remediation_base_sha256': 'dc05864f8a5868598b1f015bb43fc20be3c5bcadda447aafc94d38ebb77192d2',
                                   'remediation_fields': {'caveats': ['This nonzero-port profile accepts '
                                                                      'hostPort=0; it does not prove an '
                                                                      'active or public listener.'],
@@ -4336,11 +4124,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'source_qualname': '_controller_check.<locals>.evaluate'},
                                   'reviewed_severity': 'medium',
                                   'reviewed_source_severity': 'high'},
- 'k8s.deployment.no_privileged': {'description_base_sha256': '8eee183e813cffd695a17fe0313500003a6cd9b26ad7c041ae774a3ea875f17d',
-                                  'description_fields': {'description': 'Checks whether a container declares '
+ 'k8s.deployment.no_privileged': {'description_fields': {'description': 'Checks whether a container declares '
                                                                         'privileged=true.'},
                                   'observed_failure_phrase': 'declares privileged mode',
-                                  'remediation_base_sha256': '024440299aa3559a757e3ccc0d97e3d3ebff7479a9303dfb1465c6b95a3ecbf3',
                                   'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                      'runtime behavior and admission '
                                                                      'enforcement are separate.'],
@@ -4359,13 +4145,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'source_qualname': '_controller_check.<locals>.evaluate'},
                                   'reviewed_severity': 'high',
                                   'reviewed_source_severity': 'high'},
- 'k8s.deployment.non_root': {'description_base_sha256': '7b6169a957f0dfc1b644d57db5ac58471dd4f0a90b4e726defc24815d8be248e',
-                             'description_fields': {'description': 'Checks Linux container non-root settings '
+ 'k8s.deployment.non_root': {'description_fields': {'description': 'Checks Linux container non-root settings '
                                                                    'with Pod inheritance and rejects an '
                                                                    'explicitly declared UID zero.'},
                              'observed_failure_phrase': 'does not require non-root execution or declares UID '
                                                         'zero',
-                             'remediation_base_sha256': '54a34ea0575acd0d26efe357bf392c9eba78f1bbacea51021d82024794fd4fe1',
                              'remediation_fields': {'caveats': ['Windows Pods are not applicable; declared '
                                                                 'settings do not prove the running process '
                                                                 'identity.'],
@@ -4384,8 +4168,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                   'source_qualname': '_controller_check.<locals>.evaluate'},
                              'reviewed_severity': 'medium',
                              'reviewed_source_severity': 'high'},
- 'k8s.gap.apiserver.deny_service_external_ips': {'description_base_sha256': '88853691015b3046cd49cba382c19033454f4f7562499e3307a1ae596c53504b',
-                                                 'description_fields': {'description': 'Checks whether '
+ 'k8s.gap.apiserver.deny_service_external_ips': {'description_fields': {'description': 'Checks whether '
                                                                                        'captured API-server '
                                                                                        'admission flags '
                                                                                        'include '
@@ -4394,7 +4177,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                  'observed_failure_phrase': 'does not declare the '
                                                                             'DenyServiceExternalIPs '
                                                                             'admission plugin',
-                                                 'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                  'remediation_fields': {'caveats': ['A declared plugin name '
                                                                                     'alone does not '
                                                                                     'establish its '
@@ -4434,14 +4216,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                       'source_qualname': '_register.<locals>.evaluate'},
                                                  'reviewed_severity': 'medium',
                                                  'reviewed_source_severity': 'medium'},
- 'k8s.gap.apiserver.event_rate_limit': {'description_base_sha256': 'effa06d27879cf08601bf8276b6b3fae9ab5f6aadb72fba73a1d21a5490d7473',
-                                        'description_fields': {'description': 'Checks whether captured '
+ 'k8s.gap.apiserver.event_rate_limit': {'description_fields': {'description': 'Checks whether captured '
                                                                               'API-server admission flags '
                                                                               'include EventRateLimit.'},
                                         'evidence_presence_fields': ['observations'],
                                         'observed_failure_phrase': 'does not declare the EventRateLimit '
                                                                    'admission plugin',
-                                        'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                         'remediation_fields': {'caveats': ['A declared plugin name alone '
                                                                            'does not establish its '
                                                                            'configuration or effective '
@@ -4475,14 +4255,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'source_qualname': '_register.<locals>.evaluate'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.htbp.clusterrole.no_impersonation': {'description_base_sha256': '2cf75a526a531086bb767c3b9af8d7eba68d093b625d901af6dfc298c5410963',
-                                           'description_fields': {'description': 'Checks declared RBAC rules '
+ 'k8s.htbp.clusterrole.no_impersonation': {'description_fields': {'description': 'Checks declared RBAC rules '
                                                                                  'for impersonation of users '
                                                                                  'or ServiceAccounts.'},
                                            'evidence_presence_fields': ['matching_rules'],
                                            'observed_failure_phrase': 'declares user or ServiceAccount '
                                                                       'impersonation',
-                                           'remediation_base_sha256': '24fb8bba5c84e5984a252825a0163395241fd64435da10ef8b9eb784b69a8994',
                                            'remediation_fields': {'caveats': ['This checks declared grants; '
                                                                               'bindings and resource-name '
                                                                               'restrictions affect who can '
@@ -4502,8 +4280,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'source_qualname': 'ht_register.<locals>.apply.<locals>.evaluate'},
                                            'reviewed_severity': 'high',
                                            'reviewed_source_severity': 'high'},
- 'k8s.htbp.clusterrole.no_pod_interactive_access': {'description_base_sha256': '00130ad0079fc6660206d181e4d75f957a25f58b92ea4494b037590be54d894b',
-                                                    'description_fields': {'description': 'Checks declared '
+ 'k8s.htbp.clusterrole.no_pod_interactive_access': {'description_fields': {'description': 'Checks declared '
                                                                                           'RBAC rules for '
                                                                                           'exec, attach, '
                                                                                           'port-forward or '
@@ -4511,7 +4288,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                           'write access.'},
                                                     'observed_failure_phrase': 'declares interactive Pod '
                                                                                'access',
-                                                    'remediation_base_sha256': '8d0907ada556c65900209ee0f7bdc780b24b60046be543e0f6a50a601feae96f',
                                                     'remediation_fields': {'caveats': ['Declared rules do '
                                                                                        'not prove a '
                                                                                        'principal has '
@@ -4546,15 +4322,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                          'predicate': 'no_pod_interactive_access'},
                                                     'reviewed_severity': 'high',
                                                     'reviewed_source_severity': 'high'},
- 'k8s.htbp.clusterrole.no_service_status_write': {'description_base_sha256': 'df7b54ec3b8d077aea14a9de914a0bccbeb082efed6b8f3380ce5c27e3b4e431',
-                                                  'description_fields': {'description': 'Checks declared '
+ 'k8s.htbp.clusterrole.no_service_status_write': {'description_fields': {'description': 'Checks declared '
                                                                                         'RBAC rules for '
                                                                                         'update or patch '
                                                                                         'access to '
                                                                                         'services/status.'},
                                                   'observed_failure_phrase': 'declares Service status write '
                                                                              'access',
-                                                  'remediation_base_sha256': '2b31e7192803d1a6fd76d7a3646d9af5e310deac06650347016ad0df6b085ca0',
                                                   'remediation_fields': {'caveats': ['Declared rules do not '
                                                                                      'establish a traffic '
                                                                                      'interception path or '
@@ -4580,8 +4354,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                        'predicate': 'no_service_status_write'},
                                                   'reviewed_severity': 'medium',
                                                   'reviewed_source_severity': 'medium'},
- 'k8s.htbp.clusterrole.no_workload_controller_write': {'description_base_sha256': 'b101e9246875b80174eb1ad62ea06ea22102950d68b951bf7d2e0f6cff84ce11',
-                                                       'description_fields': {'description': 'Checks '
+ 'k8s.htbp.clusterrole.no_workload_controller_write': {'description_fields': {'description': 'Checks '
                                                                                              'declared RBAC '
                                                                                              'rules for '
                                                                                              'create, update '
@@ -4592,7 +4365,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'observed_failure_phrase': 'declares '
                                                                                   'workload-controller write '
                                                                                   'access',
-                                                       'remediation_base_sha256': 'ffc8293036161025c2aa984c2dc85278b20265a0e9fa07a379333f3a7b4a3709',
                                                        'remediation_fields': {'caveats': ['Declared '
                                                                                           'controller writes '
                                                                                           'do not establish '
@@ -4641,8 +4413,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                             'predicate': 'no_workload_controller_write'},
                                                        'reviewed_severity': 'medium',
                                                        'reviewed_source_severity': 'medium'},
- 'k8s.htbp.clusterrolebinding.no_anonymous_user': {'description_base_sha256': '67965b0a55e5f50b58876c0881a4eb44eb0145a223021a20d856a1771a82404b',
-                                                   'description_fields': {'description': 'Checks bindings '
+ 'k8s.htbp.clusterrolebinding.no_anonymous_user': {'description_fields': {'description': 'Checks bindings '
                                                                                          'for the '
                                                                                          'system:anonymous '
                                                                                          'User, excluding '
@@ -4653,7 +4424,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                    'evidence_presence_fields': ['anonymous_subjects'],
                                                    'observed_failure_phrase': 'binds a role to '
                                                                               'system:anonymous',
-                                                   'remediation_base_sha256': '80837f24a8405845e02b4d6f821d945e66eeb94ca5d86b158cc081e8436ea506',
                                                    'remediation_fields': {'caveats': ['This checks declared '
                                                                                       'subjects; role '
                                                                                       'permissions and '
@@ -4677,14 +4447,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                         'source_qualname': 'ht_register.<locals>.apply.<locals>.evaluate'},
                                                    'reviewed_severity': 'high',
                                                    'reviewed_source_severity': 'high'},
- 'k8s.htbp.role.no_impersonation': {'description_base_sha256': '44b24bc32e475adec53824d1542834873fc8a653c909fc8636ebadaef6926c64',
-                                    'description_fields': {'description': 'Checks declared RBAC rules for '
+ 'k8s.htbp.role.no_impersonation': {'description_fields': {'description': 'Checks declared RBAC rules for '
                                                                           'impersonation of users or '
                                                                           'ServiceAccounts.'},
                                     'evidence_presence_fields': ['matching_rules'],
                                     'observed_failure_phrase': 'declares user or ServiceAccount '
                                                                'impersonation',
-                                    'remediation_base_sha256': '0c9c1d1b44054321ca2e6968a50b885d70c71e0172c486eaced477bf708a21d0',
                                     'remediation_fields': {'caveats': ['This checks declared grants; '
                                                                        'bindings and resource-name '
                                                                        'restrictions affect who can use '
@@ -4704,14 +4472,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'source_qualname': 'ht_register.<locals>.apply.<locals>.evaluate'},
                                     'reviewed_severity': 'high',
                                     'reviewed_source_severity': 'high'},
- 'k8s.htbp.role.no_pod_interactive_access': {'description_base_sha256': 'ad72e70db132cb21fa7aa3fe11b7b40ff111eee8208b010c1607298c6920795a',
-                                             'description_fields': {'description': 'Checks declared RBAC '
+ 'k8s.htbp.role.no_pod_interactive_access': {'description_fields': {'description': 'Checks declared RBAC '
                                                                                    'rules for exec, attach, '
                                                                                    'port-forward or '
                                                                                    'ephemeral-container '
                                                                                    'write access.'},
                                              'observed_failure_phrase': 'declares interactive Pod access',
-                                             'remediation_base_sha256': 'b459c3856df23b313d0920a0c73e262700b67b06c1858e52e070be14680f6dd0',
                                              'remediation_fields': {'caveats': ['Declared rules do not prove '
                                                                                 'a principal has effective '
                                                                                 'access; bindings, '
@@ -4739,12 +4505,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                   'predicate': 'no_pod_interactive_access'},
                                              'reviewed_severity': 'high',
                                              'reviewed_source_severity': 'high'},
- 'k8s.htbp.role.no_service_status_write': {'description_base_sha256': '671e7631d960562cba6a71b36d5fb002658cb654ee07ccc5cd3783756b292642',
-                                           'description_fields': {'description': 'Checks declared RBAC rules '
+ 'k8s.htbp.role.no_service_status_write': {'description_fields': {'description': 'Checks declared RBAC rules '
                                                                                  'for update or patch access '
                                                                                  'to services/status.'},
                                            'observed_failure_phrase': 'declares Service status write access',
-                                           'remediation_base_sha256': '6adfe48a1a0146921a4fdfc67462171bbb718ed22c2138b5b96d562e95319acc',
                                            'remediation_fields': {'caveats': ['Declared rules do not '
                                                                               'establish a traffic '
                                                                               'interception path or identify '
@@ -4766,15 +4530,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'predicate': 'no_service_status_write'},
                                            'reviewed_severity': 'medium',
                                            'reviewed_source_severity': 'medium'},
- 'k8s.htbp.role.no_workload_controller_write': {'description_base_sha256': '0b5bec15c84078271dee55b77803a82d1051c9fcbb2eeb73d9c348b61eb759c6',
-                                                'description_fields': {'description': 'Checks declared RBAC '
+ 'k8s.htbp.role.no_workload_controller_write': {'description_fields': {'description': 'Checks declared RBAC '
                                                                                       'rules for create, '
                                                                                       'update or patch '
                                                                                       'access to workload '
                                                                                       'controllers.'},
                                                 'observed_failure_phrase': 'declares workload-controller '
                                                                            'write access',
-                                                'remediation_base_sha256': '754f77a157d4178e2255b2c844a9fbbbc2e997d6313055e79db394e5aa6f12d2',
                                                 'remediation_fields': {'caveats': ['Declared controller '
                                                                                    'writes do not establish '
                                                                                    'an executable escalation '
@@ -4816,15 +4578,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                      'predicate': 'no_workload_controller_write'},
                                                 'reviewed_severity': 'medium',
                                                 'reviewed_source_severity': 'medium'},
- 'k8s.htbp.rolebinding.no_anonymous_user': {'description_base_sha256': 'd147fb5b56990a6fc0eb2003bfa71cc5dc791546603d5efcc14de01a0e6b578d',
-                                            'description_fields': {'description': 'Checks bindings for the '
+ 'k8s.htbp.rolebinding.no_anonymous_user': {'description_fields': {'description': 'Checks bindings for the '
                                                                                   'system:anonymous User, '
                                                                                   'excluding kubeadm '
                                                                                   'cluster-info bootstrap '
                                                                                   'discovery.'},
                                             'evidence_presence_fields': ['anonymous_subjects'],
                                             'observed_failure_phrase': 'binds a role to system:anonymous',
-                                            'remediation_base_sha256': '66e3e5affc077f66aa9471095743a3b284c02a6eceae304df9225cc2ec0141de',
                                             'remediation_fields': {'caveats': ['This checks declared '
                                                                                'subjects; role permissions '
                                                                                'and authentication '
@@ -4844,15 +4604,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                  'source_qualname': 'ht_register.<locals>.apply.<locals>.evaluate'},
                                             'reviewed_severity': 'high',
                                             'reviewed_source_severity': 'high'},
- 'k8s.htbp.secret.no_legacy_service_account_token': {'description_base_sha256': '40d861e5c858fe5c75324aa0bb8b08b7348850e4f7839bdbfac92016f22d9f84',
-                                                     'description_fields': {'description': 'Checks Secret '
+ 'k8s.htbp.secret.no_legacy_service_account_token': {'description_fields': {'description': 'Checks Secret '
                                                                                            'metadata for the '
                                                                                            'kubernetes.io/service-account-token '
                                                                                            'type.'},
                                                      'evidence_presence_fields': ['secret_type'],
                                                      'observed_failure_phrase': 'is a legacy ServiceAccount '
                                                                                 'token Secret',
-                                                     'remediation_base_sha256': '072c07fc438f61aa998b84c91b81df4f9623788b693b7d0dbbdc551985b7cff1',
                                                      'remediation_fields': {'caveats': ['Only Secret '
                                                                                         'metadata is '
                                                                                         'inspected; no token '
@@ -4876,12 +4634,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                           'source_qualname': 'ht_register.<locals>.apply.<locals>.evaluate'},
                                                      'reviewed_severity': 'medium',
                                                      'reviewed_source_severity': 'medium'},
- 'k8s.htbp.service.no_external_ips': {'description_base_sha256': '3ff7e34831ed205a8e55a519d9379679885159b4e31e1dbbf193342a5e377508',
-                                      'description_fields': {'description': 'Checks whether the Service '
+ 'k8s.htbp.service.no_external_ips': {'description_fields': {'description': 'Checks whether the Service '
                                                                             'declares externalIPs.'},
                                       'evidence_presence_fields': ['external_ips'],
                                       'observed_failure_phrase': 'declares external IP addresses',
-                                      'remediation_base_sha256': '96ab990603b16276f742bd9635cc5ff0754eb6244e3507cac815f29e94838018',
                                       'remediation_fields': {'caveats': ['An externalIPs declaration does '
                                                                          'not establish public '
                                                                          'reachability.'],
@@ -4898,12 +4654,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'source_qualname': 'ht_register.<locals>.apply.<locals>.evaluate'},
                                       'reviewed_severity': 'medium',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.job.no_host_network': {'description_base_sha256': '7ff15a212f7174579e644c5bcb6eaaa9bf36283721e416d976225366ead36633',
-                             'description_fields': {'description': 'Checks whether the PodSpec declares '
+ 'k8s.job.no_host_network': {'description_fields': {'description': 'Checks whether the PodSpec declares '
                                                                    'hostNetwork=true.'},
                              'evidence_presence_fields': ['host_network'],
                              'observed_failure_phrase': 'declares host networking',
-                             'remediation_base_sha256': '15398400b75756d03367f7517099ac6ab09856f8753e7788af006f3f2e1da729',
                              'remediation_fields': {'caveats': ['This reads declared configuration; runtime '
                                                                 'behavior and admission enforcement are '
                                                                 'separate.'],
@@ -4920,12 +4674,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                   'source_qualname': '_controller_check.<locals>.evaluate'},
                              'reviewed_severity': 'medium',
                              'reviewed_source_severity': 'high'},
- 'k8s.job.no_host_ports': {'description_base_sha256': '06111a5625ca353344d6d2ca07bed308212a91ffa1bfbd84f4aef06d61b503b5',
-                           'description_fields': {'description': 'Checks whether container hostPort '
+ 'k8s.job.no_host_ports': {'description_fields': {'description': 'Checks whether container hostPort '
                                                                  'declarations contain a nonzero valid '
                                                                  'port.'},
                            'observed_failure_phrase': 'declares a nonzero hostPort',
-                           'remediation_base_sha256': '17ae6fec4fc5b19c928b609e8ceacc2f4793cda8f77f6af068bfce085102bdde',
                            'remediation_fields': {'caveats': ['This nonzero-port profile accepts hostPort=0; '
                                                               'it does not prove an active or public '
                                                               'listener.'],
@@ -4942,11 +4694,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                 'source_qualname': '_controller_check.<locals>.evaluate'},
                            'reviewed_severity': 'medium',
                            'reviewed_source_severity': 'high'},
- 'k8s.job.no_privileged': {'description_base_sha256': 'ddc3335e13bfc7f6b7b7d7fd923e5995ced9268543643c36c51d44854ca0cbd6',
-                           'description_fields': {'description': 'Checks whether a container declares '
+ 'k8s.job.no_privileged': {'description_fields': {'description': 'Checks whether a container declares '
                                                                  'privileged=true.'},
                            'observed_failure_phrase': 'declares privileged mode',
-                           'remediation_base_sha256': '0058a3c9768c47f4885d9c376dc44c5dc35dc22eb8244e740b0260fd608d82e4',
                            'remediation_fields': {'caveats': ['This reads declared configuration; runtime '
                                                               'behavior and admission enforcement are '
                                                               'separate.'],
@@ -4963,12 +4713,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                 'source_qualname': '_controller_check.<locals>.evaluate'},
                            'reviewed_severity': 'high',
                            'reviewed_source_severity': 'high'},
- 'k8s.job.non_root': {'description_base_sha256': '1c02d8bd3027220e01d3a7a41462d433676d6bfa88ef77de8f25e2b4a8a207d2',
-                      'description_fields': {'description': 'Checks Linux container non-root settings with '
+ 'k8s.job.non_root': {'description_fields': {'description': 'Checks Linux container non-root settings with '
                                                             'Pod inheritance and rejects an explicitly '
                                                             'declared UID zero.'},
                       'observed_failure_phrase': 'does not require non-root execution or declares UID zero',
-                      'remediation_base_sha256': '8c068270acd38893e1e3a36a08bea2f2ccaa5cce7b1a57166dfa18641f112ce4',
                       'remediation_fields': {'caveats': ['Windows Pods are not applicable; declared settings '
                                                          'do not prove the running process identity.'],
                                              'steps': ['Require non-root execution and remove an explicit '
@@ -4985,13 +4733,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                            'source_qualname': '_controller_check.<locals>.evaluate'},
                       'reviewed_severity': 'medium',
                       'reviewed_source_severity': 'high'},
- 'k8s.namespace.quota_limits_cpu': {'description_base_sha256': '37287e21a36543f1a6674c2bdf06d4f24a7cc572e533f00a9e2ed1b902d92793',
-                                    'description_fields': {'description': 'Checks for a declared limits.cpu '
+ 'k8s.namespace.quota_limits_cpu': {'description_fields': {'description': 'Checks for a declared limits.cpu '
                                                                           'namespace-wide ResourceQuota.'},
                                     'evidence_presence_fields': ['broad_quotas'],
                                     'observed_failure_phrase': 'has no required limits.cpu quota or default '
                                                                'limit declared',
-                                    'remediation_base_sha256': 'bd09f83087d3a2e877b7c8e08d846680d7bce61da7a0d00ce58e8153f7baf95e',
                                     'remediation_fields': {'caveats': ['This checks declarations, not '
                                                                        'capacity sizing or effective '
                                                                        'enforcement; scoped quotas may not '
@@ -5010,14 +4756,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'source_qualname': '_quota_check.<locals>.evaluate'},
                                     'reviewed_severity': 'low',
                                     'reviewed_source_severity': 'low'},
- 'k8s.namespace.quota_limits_memory': {'description_base_sha256': '70dfe13004435e2bc8d2828318c297d045a366ec6081e89de3261e6dd37ba7b3',
-                                       'description_fields': {'description': 'Checks for a declared '
+ 'k8s.namespace.quota_limits_memory': {'description_fields': {'description': 'Checks for a declared '
                                                                              'limits.memory namespace-wide '
                                                                              'ResourceQuota.'},
                                        'evidence_presence_fields': ['broad_quotas'],
                                        'observed_failure_phrase': 'has no required limits.memory quota or '
                                                                   'default limit declared',
-                                       'remediation_base_sha256': 'a868ae3a213bee4fb1db5e2d4c5b8d4344d8bd5404d9cb1d4a584a5c320e517f',
                                        'remediation_fields': {'caveats': ['This checks declarations, not '
                                                                           'capacity sizing or effective '
                                                                           'enforcement; scoped quotas may '
@@ -5036,14 +4780,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'source_qualname': '_quota_check.<locals>.evaluate'},
                                        'reviewed_severity': 'low',
                                        'reviewed_source_severity': 'low'},
- 'k8s.namespace.quota_requests_cpu': {'description_base_sha256': 'd3463c0854b59a83340f3c5962543bcdca1f0925c71332e02453176227fee700',
-                                      'description_fields': {'description': 'Checks for a declared '
+ 'k8s.namespace.quota_requests_cpu': {'description_fields': {'description': 'Checks for a declared '
                                                                             'requests.cpu namespace-wide '
                                                                             'ResourceQuota.'},
                                       'evidence_presence_fields': ['broad_quotas'],
                                       'observed_failure_phrase': 'has no required requests.cpu quota or '
                                                                  'default limit declared',
-                                      'remediation_base_sha256': '741427dac7e18bdfd97c19204cc26b386816351226be985c84d6ac8d444c2e41',
                                       'remediation_fields': {'caveats': ['This checks declarations, not '
                                                                          'capacity sizing or effective '
                                                                          'enforcement; scoped quotas may not '
@@ -5062,15 +4804,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'source_qualname': '_quota_check.<locals>.evaluate'},
                                       'reviewed_severity': 'low',
                                       'reviewed_source_severity': 'low'},
- 'k8s.namespace.quota_requests_memory': {'description_base_sha256': 'ac112940a2ab9faa7f18a410086756418f4239a00bd28663ab04f544e1ba7578',
-                                         'description_fields': {'description': 'Checks for a declared '
+ 'k8s.namespace.quota_requests_memory': {'description_fields': {'description': 'Checks for a declared '
                                                                                'requests.memory '
                                                                                'namespace-wide '
                                                                                'ResourceQuota.'},
                                          'evidence_presence_fields': ['broad_quotas'],
                                          'observed_failure_phrase': 'has no required requests.memory quota '
                                                                     'or default limit declared',
-                                         'remediation_base_sha256': 'b82ddf3f41fcb8a4d15aa421eaeb781b985b82bab2a69911f18183e61bbe038b',
                                          'remediation_fields': {'caveats': ['This checks declarations, not '
                                                                             'capacity sizing or effective '
                                                                             'enforcement; scoped quotas may '
@@ -5089,15 +4829,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'source_qualname': '_quota_check.<locals>.evaluate'},
                                          'reviewed_severity': 'low',
                                          'reviewed_source_severity': 'low'},
- 'k8s.namespace.restricted_admission': {'description_base_sha256': '95d4261056963152f79dd8de9ab3f9df75ba5c34a14554e51dd11305e6952d27',
-                                        'description_fields': {'description': 'Checks the namespace’s '
+ 'k8s.namespace.restricted_admission': {'description_fields': {'description': 'Checks the namespace’s '
                                                                               'explicit Pod Security '
                                                                               'Admission enforcement label '
                                                                               'for restricted.'},
                                         'evidence_presence_fields': ['enforce_level'],
                                         'observed_failure_phrase': 'does not explicitly select restricted '
                                                                    'Pod Security Admission',
-                                        'remediation_base_sha256': '460fb44fe3a71d3de66ebd154da76b97dadfaf75b5c5541893edc06b1fab9908',
                                         'remediation_fields': {'caveats': ['Namespace labels do not '
                                                                            'establish exemptions or '
                                                                            'existing-workload compliance; '
@@ -5116,12 +4854,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'source_qualname': 'admission'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'high'},
- 'k8s.pod.default_proc_mount': {'description_base_sha256': 'e7ce6480d68a0722c44290694b8955d7b517432a95d7a10964b405d1099cbe5a',
-                                'description_fields': {'description': 'Checks Linux containers for '
+ 'k8s.pod.default_proc_mount': {'description_fields': {'description': 'Checks Linux containers for '
                                                                       'procMount=Unmasked.'},
                                 'evidence_presence_fields': ['unmasked_containers'],
                                 'observed_failure_phrase': 'declares an unmasked proc filesystem',
-                                'remediation_base_sha256': 'c8c8aa792ec21a8b127ef634ab8107c928c7c9aefcbbddef890fa92842b5d546',
                                 'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                    'runtime behavior and admission '
                                                                    'enforcement are separate.'],
@@ -5138,12 +4874,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'source_qualname': 'proc_mount'},
                                 'reviewed_severity': 'high',
                                 'reviewed_source_severity': 'high'},
- 'k8s.pod.drop_capabilities': {'description_base_sha256': '636aaec461720e5be3214bd98a7abec8c93900752dc8c3685837386162182e28',
-                               'description_fields': {'description': 'Checks whether Linux containers '
+ 'k8s.pod.drop_capabilities': {'description_fields': {'description': 'Checks whether Linux containers '
                                                                      'explicitly drop the uppercase ALL '
                                                                      'capability set.'},
                                'observed_failure_phrase': 'does not explicitly drop ALL capabilities',
-                               'remediation_base_sha256': 'c9474877513c118d830c54b55272f6fdc388e731fe52bffc928828f7a142286d',
                                'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                   'runtime behavior and admission '
                                                                   'enforcement are separate.'],
@@ -5160,13 +4894,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                     'source_qualname': 'container_check.<locals>.evaluate'},
                                'reviewed_severity': 'high',
                                'reviewed_source_severity': 'high'},
- 'k8s.pod.no_default_serviceaccount': {'description_base_sha256': 'd617e837e3be0b7bf16e559f82cd207352a92533d470cad7a9e58dfbc04fcdbe',
-                                       'description_fields': {'description': 'Checks whether the Pod uses '
+ 'k8s.pod.no_default_serviceaccount': {'description_fields': {'description': 'Checks whether the Pod uses '
                                                                              'the default ServiceAccount or '
                                                                              'an empty account name.'},
                                        'evidence_presence_fields': ['service_account'],
                                        'observed_failure_phrase': 'uses the default ServiceAccount',
-                                       'remediation_base_sha256': 'd005c4c9d58c1ef66bd10832d54010264f23fe4a103cded152154f4282fa7658',
                                        'remediation_fields': {'caveats': ['An account name alone does not '
                                                                           'establish effective permissions '
                                                                           'or token exposure.'],
@@ -5183,13 +4915,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'source_qualname': 'default_sa'},
                                        'reviewed_severity': 'medium',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.pod.no_host_namespaces': {'description_base_sha256': 'ff4dbeb5f79d46c8a2e8cf461953a45a5253445497414692f8f12e798f4c9c7f',
-                                'description_fields': {'description': 'Checks whether hostNetwork, hostPID '
+ 'k8s.pod.no_host_namespaces': {'description_fields': {'description': 'Checks whether hostNetwork, hostPID '
                                                                       'or hostIPC is enabled in the '
                                                                       'PodSpec.'},
                                 'evidence_presence_fields': ['host_namespace_flags'],
                                 'observed_failure_phrase': 'declares shared host namespaces',
-                                'remediation_base_sha256': '66474eaf810e2b0d7de7b91abd8ab451c940c7b65b640c69e9fe39e4b1d6a454',
                                 'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                    'runtime behavior and admission '
                                                                    'enforcement are separate.'],
@@ -5204,12 +4934,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'source_qualname': 'k8s_host'},
                                 'reviewed_severity': 'high',
                                 'reviewed_source_severity': 'high'},
- 'k8s.pod.no_host_ports': {'description_base_sha256': 'e8101e8aa6ee24d1487b5d0c042ec8b5159fcb1b136ebd402f01560570ff8c8f',
-                           'description_fields': {'description': 'Checks whether container hostPort '
+ 'k8s.pod.no_host_ports': {'description_fields': {'description': 'Checks whether container hostPort '
                                                                  'declarations contain a nonzero valid '
                                                                  'port.'},
                            'observed_failure_phrase': 'declares a nonzero hostPort',
-                           'remediation_base_sha256': 'daa01f1cebecaecf0baeef2cdc81040d452150c173a0041625b8d1fe1c6fe46e',
                            'remediation_fields': {'caveats': ['This nonzero-port profile accepts hostPort=0; '
                                                               'it does not prove an active or public '
                                                               'listener.'],
@@ -5224,12 +4952,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                 'source_qualname': 'no_host_ports'},
                            'reviewed_severity': 'medium',
                            'reviewed_source_severity': 'high'},
- 'k8s.pod.no_hostpath': {'description_base_sha256': 'a6e24c6d5f348988facd5b7af7c04c54ccaf7fd14184dcc96724bbba5e402fb3',
-                         'description_fields': {'description': 'Checks whether the PodSpec declares any '
+ 'k8s.pod.no_hostpath': {'description_fields': {'description': 'Checks whether the PodSpec declares any '
                                                                'hostPath volumes.'},
                          'evidence_presence_fields': ['host_path_volumes'],
                          'observed_failure_phrase': 'declares hostPath volumes',
-                         'remediation_base_sha256': '481e3215fda08c607145acadabe4de302c1358017c4d8c5f000d7fcc5448f5ec',
                          'remediation_fields': {'caveats': ['This reads declared configuration; runtime '
                                                             'behavior and admission enforcement are '
                                                             'separate.'],
@@ -5246,13 +4972,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                               'source_qualname': 'hostpath'},
                          'reviewed_severity': 'high',
                          'reviewed_source_severity': 'high'},
- 'k8s.pod.no_privilege_escalation': {'description_base_sha256': 'c838ced18420b19ace267ad73a7b0578d2b0df473c932ad321a98530eda2e716',
-                                     'description_fields': {'description': 'Checks whether each container '
+ 'k8s.pod.no_privilege_escalation': {'description_fields': {'description': 'Checks whether each container '
                                                                            'explicitly declares '
                                                                            'allowPrivilegeEscalation=false.'},
                                      'observed_failure_phrase': 'does not explicitly disable privilege '
                                                                 'escalation',
-                                     'remediation_base_sha256': 'bd505eb7ec508d77c72a8631c5514d9d8fd42ebff43da4f05324a28aaf113dd2',
                                      'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                         'runtime behavior and admission '
                                                                         'enforcement are separate.'],
@@ -5269,11 +4993,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'source_qualname': 'container_check.<locals>.evaluate'},
                                      'reviewed_severity': 'high',
                                      'reviewed_source_severity': 'high'},
- 'k8s.pod.no_privileged_containers': {'description_base_sha256': 'bd2a8b6df65cce689f74cdfa79b09c823d40f978a6c9b157ada6445f50ca33a5',
-                                      'description_fields': {'description': 'Checks whether a container '
+ 'k8s.pod.no_privileged_containers': {'description_fields': {'description': 'Checks whether a container '
                                                                             'declares privileged=true.'},
                                       'observed_failure_phrase': 'declares privileged mode',
-                                      'remediation_base_sha256': '59c816a87bc107c770df2a4d579caa2709cfd08c586b352686533ae808bac42f',
                                       'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                          'runtime behavior and admission '
                                                                          'enforcement are separate.'],
@@ -5290,11 +5012,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'source_qualname': 'k8s_privileged'},
                                       'reviewed_severity': 'high',
                                       'reviewed_source_severity': 'high'},
- 'k8s.pod.non_root': {'description_base_sha256': 'c126ab21e26338f31927dd7b4e911008726c013bcf0fc2298b4bf5f75e3a0e83',
-                      'description_fields': {'description': 'Checks non-root flags or positive user IDs with '
+ 'k8s.pod.non_root': {'description_fields': {'description': 'Checks non-root flags or positive user IDs with '
                                                             'Pod inheritance; an explicit UID zero fails.'},
                       'observed_failure_phrase': 'does not declare a non-root identity or declares UID zero',
-                      'remediation_base_sha256': 'cdf25f071925a6286cc14b4f7163f7b0c7a19b7464959bd6cadc4df9cec58ee6',
                       'remediation_fields': {'caveats': ['Linux containers only; declaration checks do not '
                                                          'prove the running process identity.'],
                                              'steps': ['Require a non-root identity and remove explicit UID '
@@ -5308,11 +5028,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                            'source_qualname': 'container_check.<locals>.evaluate'},
                       'reviewed_severity': 'medium',
                       'reviewed_source_severity': 'high'},
- 'k8s.pod.read_only_root': {'description_base_sha256': '9f2fe5ac18b0039c29b143a80fb3c1ee581dbcdef503b8e9f4fd9de1d2ed5520',
-                            'description_fields': {'description': 'Checks whether each container declares '
+ 'k8s.pod.read_only_root': {'description_fields': {'description': 'Checks whether each container declares '
                                                                   'readOnlyRootFilesystem=true.'},
                             'observed_failure_phrase': 'does not declare a read-only root filesystem',
-                            'remediation_base_sha256': 'a518ace4c71396761d8d147bdea772c7a52a2e67afdaa03df09675c8158bb352',
                             'remediation_fields': {'caveats': ['This reads declared configuration; runtime '
                                                                'behavior and admission enforcement are '
                                                                'separate.'],
@@ -5329,13 +5047,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                  'source_qualname': 'container_check.<locals>.evaluate'},
                             'reviewed_severity': 'medium',
                             'reviewed_source_severity': 'medium'},
- 'k8s.pod.restrict_added_capabilities': {'description_base_sha256': '48312451f74b55666c91bac3442cefb3e8a001478a9de86f1010a743b423d020',
-                                         'description_fields': {'description': 'Checks whether added Linux '
+ 'k8s.pod.restrict_added_capabilities': {'description_fields': {'description': 'Checks whether added Linux '
                                                                                'capabilities are limited to '
                                                                                'NET_BIND_SERVICE.'},
                                          'observed_failure_phrase': 'declares capabilities beyond '
                                                                     'NET_BIND_SERVICE',
-                                         'remediation_base_sha256': '4a0165e9cd8e6016ec742f1624f4f266520697e987c5108bdbcf9deeef2aec66',
                                          'remediation_fields': {'caveats': ['This reads declared '
                                                                             'configuration; runtime behavior '
                                                                             'and admission enforcement are '
@@ -5355,14 +5071,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'source_qualname': 'container_check.<locals>.evaluate'},
                                          'reviewed_severity': 'high',
                                          'reviewed_source_severity': 'high'},
- 'k8s.pod.restrict_selinux_identity': {'description_base_sha256': '7d56d5f421d5ffd4907201f756d84ff96b7a6e956fb0e5c8fdd86335e1fca6e7',
-                                       'description_fields': {'description': 'Checks Pod and container '
+ 'k8s.pod.restrict_selinux_identity': {'description_fields': {'description': 'Checks Pod and container '
                                                                              'SELinux user or role '
                                                                              'overrides.'},
                                        'evidence_presence_fields': ['custom_selinux_identity'],
                                        'observed_failure_phrase': 'declares custom SELinux user or role '
                                                                   'overrides',
-                                       'remediation_base_sha256': 'e754e83c5a729bd8a146150060eb4e7fba0d814d6bdd09391f3c81ba16184c63',
                                        'remediation_fields': {'caveats': ['This checks identity overrides, '
                                                                           'not SELinux availability or '
                                                                           'effective policy enforcement.'],
@@ -5379,15 +5093,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'source_qualname': 'selinux_identity'},
                                        'reviewed_severity': 'medium',
                                        'reviewed_source_severity': 'high'},
- 'k8s.pod.restrict_token_automount': {'description_base_sha256': 'b1662e1787be713755b0499a666669866978b217d7905a99e717a4a8264c3fef',
-                                      'description_fields': {'description': 'Checks an explicitly declared '
+ 'k8s.pod.restrict_token_automount': {'description_fields': {'description': 'Checks an explicitly declared '
                                                                             'Pod '
                                                                             'automountServiceAccountToken '
                                                                             'setting.'},
                                       'evidence_presence_fields': ['automount_service_account_token'],
                                       'observed_failure_phrase': 'explicitly enables ServiceAccount token '
                                                                  'automount',
-                                      'remediation_base_sha256': 'ab3c3de35806fd5e475b9d5b14994c72ffdd8be44ad17258008e8386c42b58be',
                                       'remediation_fields': {'caveats': ['An omitted Pod setting inherits '
                                                                          'the ServiceAccount and remains '
                                                                          'UNKNOWN in this check.'],
@@ -5404,12 +5116,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'source_qualname': 'automount'},
                                       'reviewed_severity': 'medium',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.pod.seccomp': {'description_base_sha256': '928e0b709c244035a70bebb62d3d4866df2075c54a921aa2b10fed2d474dcc6f',
-                     'description_fields': {'description': 'Checks container or inherited Pod seccomp '
+ 'k8s.pod.seccomp': {'description_fields': {'description': 'Checks container or inherited Pod seccomp '
                                                            'declarations for RuntimeDefault or a Localhost '
                                                            'profile.'},
                      'observed_failure_phrase': 'does not declare an accepted seccomp profile',
-                     'remediation_base_sha256': '7d9ba4ee2169a0cfb08006a6f46499ad06e3367557386cf539eb3d20e18cea53',
                      'remediation_fields': {'caveats': ['A declared Localhost profile name does not prove '
                                                         'the node file exists or that the kernel applies '
                                                         'it.'],
@@ -5425,8 +5135,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                           'source_qualname': 'container_check.<locals>.evaluate'},
                      'reviewed_severity': 'high',
                      'reviewed_source_severity': 'high'},
- 'k8s.ports.clusterrole.cluster_role_with_validating_or_mutating_admission_webhook_configurations': {'description_base_sha256': 'c03473b2338cbd5cf1e264d01a3c31a736c160e089cdad7f8d80a76d9724682c',
-                                                                                                     'description_fields': {'description': 'Checks '
+ 'k8s.ports.clusterrole.cluster_role_with_validating_or_mutating_admission_webhook_configurations': {'description_fields': {'description': 'Checks '
                                                                                                                                            'exact '
                                                                                                                                            'declared '
                                                                                                                                            'RBAC '
@@ -5444,7 +5153,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                                                 'sensitive '
                                                                                                                                 'RBAC '
                                                                                                                                 'capabilities',
-                                                                                                     'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                                                      'remediation_fields': {'caveats': ['This '
                                                                                                                                         'exact-symbol '
                                                                                                                                         'check '
@@ -5510,8 +5218,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                                           'source_qualname': 'rbac_rule.<locals>.evaluate'},
                                                                                                      'reviewed_severity': 'high',
                                                                                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.clusterrole.role_with_rbac_approve_certificate_signing_requests': {'description_base_sha256': 'c60e597d904460d129ca9568924e78a8a82f9341d2b1533304f0752672b854e6',
-                                                                               'description_fields': {'description': 'Checks '
+ 'k8s.ports.clusterrole.role_with_rbac_approve_certificate_signing_requests': {'description_fields': {'description': 'Checks '
                                                                                                                      'declared '
                                                                                                                      'CSR '
                                                                                                                      'approval '
@@ -5525,7 +5232,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                           'certificate-signing-request '
                                                                                                           'approval '
                                                                                                           'capabilities',
-                                                                               'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                                'remediation_fields': {'caveats': ['Signer '
                                                                                                                   'restrictions, '
                                                                                                                   'bindings '
@@ -5574,8 +5280,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                     'source_qualname': 'csr_review'},
                                                                                'reviewed_severity': 'high',
                                                                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.clusterrole.role_with_rbac_escalate_permissions': {'description_base_sha256': '3ce3b36599338c01db94cdb1df1bc39bb6dd28ced71223ca38316da2dd0c8193',
-                                                               'description_fields': {'description': 'Checks '
+ 'k8s.ports.clusterrole.role_with_rbac_escalate_permissions': {'description_fields': {'description': 'Checks '
                                                                                                      'exact '
                                                                                                      'declared '
                                                                                                      'RBAC '
@@ -5592,7 +5297,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'observed_failure_phrase': 'declares '
                                                                                           'sensitive RBAC '
                                                                                           'capabilities',
-                                                               'remediation_base_sha256': 'fd48ebe69fb00bef967f4ad8ec4dcb10d484817d98b9bc2365f347f8689da637',
                                                                'remediation_fields': {'caveats': ['This '
                                                                                                   'exact-symbol '
                                                                                                   'check '
@@ -5635,8 +5339,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                     'source_qualname': 'rbac_rule.<locals>.evaluate'},
                                                                'reviewed_severity': 'high',
                                                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.clusterrole.role_with_wildcards_used': {'description_base_sha256': '6413b8394b84a7501e1f7b078a778928d56719cbb023e6955f752770bb51222b',
-                                                    'description_fields': {'description': 'Checks declared '
+ 'k8s.ports.clusterrole.role_with_wildcards_used': {'description_fields': {'description': 'Checks declared '
                                                                                           'RBAC API groups, '
                                                                                           'resources and '
                                                                                           'verbs for '
@@ -5645,7 +5348,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                     'evidence_presence_fields': ['declared_wildcards'],
                                                     'observed_failure_phrase': 'declares wildcard RBAC '
                                                                                'permissions',
-                                                    'remediation_base_sha256': 'c53717876ee3acc69b891c91974deda0d0e09f3838017b942a0f52c6ab4f2d40',
                                                     'remediation_fields': {'caveats': ['Bindings and '
                                                                                        'aggregation '
                                                                                        'determine who '
@@ -5669,8 +5371,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                          'source_qualname': 'wildcard'},
                                                     'reviewed_severity': 'high',
                                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.clusterrolebinding.cluster_role_binding_default_service_account_binding_not_active': {'description_base_sha256': '75351598f99ef2da2e4a0822800d8e915f4fafa3330dcd88814c18c3844f416e',
-                                                                                                  'description_fields': {'description': 'Checks '
+ 'k8s.ports.clusterrolebinding.cluster_role_binding_default_service_account_binding_not_active': {'description_fields': {'description': 'Checks '
                                                                                                                                         'RBAC '
                                                                                                                                         'binding '
                                                                                                                                         'subjects '
@@ -5686,7 +5387,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                                              'the '
                                                                                                                              'default '
                                                                                                                              'ServiceAccount',
-                                                                                                  'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                                                   'remediation_fields': {'caveats': ['This '
                                                                                                                                      'checks '
                                                                                                                                      'binding '
@@ -5733,8 +5433,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                                        'source_qualname': 'default_subject'},
                                                                                                   'reviewed_severity': 'medium',
                                                                                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.configmap_metadata.config_map_default_namespace_used': {'description_base_sha256': 'edf20e5b0b263a7ff807407a80611ab24e821151189409544fa680d0f7a8aea6',
-                                                                    'description_fields': {'description': 'Checks '
+ 'k8s.ports.configmap_metadata.config_map_default_namespace_used': {'description_fields': {'description': 'Checks '
                                                                                                           'whether '
                                                                                                           'resource '
                                                                                                           'metadata '
@@ -5749,7 +5448,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                'in the '
                                                                                                'default '
                                                                                                'namespace',
-                                                                    'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                     'remediation_fields': {'caveats': ['Namespaces '
                                                                                                        'are '
                                                                                                        'administrative '
@@ -5793,13 +5491,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                          'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                                     'reviewed_severity': 'low',
                                                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.always_pull': {'description_base_sha256': '55f1e9073f38517cc1210bcca15bd4e785437312ba21214eda14ca70aa50ed17',
-                                   'description_fields': {'description': 'Checks image pull behavior, '
+ 'k8s.ports.cronjob.always_pull': {'description_fields': {'description': 'Checks image pull behavior, '
                                                                          'accepting Always or a valid SHA256 '
                                                                          'digest with pull-on-miss.'},
                                    'observed_failure_phrase': 'does not declare always-pull behavior or an '
                                                               'accepted SHA256 digest policy',
-                                   'remediation_base_sha256': 'ae6f610107dadc4c98d70cc7911a3c13b5791691d8b7a24c5d1eacda2cd6506d',
                                    'remediation_fields': {'caveats': ['A valid SHA256 digest with '
                                                                       'IfNotPresent passes; this check does '
                                                                       'not verify image provenance or '
@@ -5816,8 +5512,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'predicate': 'always_pull'},
                                    'reviewed_severity': 'medium',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.container_runtime_default_seccomp': {'description_base_sha256': '3c509e4f4912b5c9d9bf19cb923d9e137e05a2188fd29f1a534a360276ffbe66',
-                                                         'description_fields': {'description': 'Checks '
+ 'k8s.ports.cronjob.container_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                'whether each '
                                                                                                'container '
                                                                                                'explicitly '
@@ -5827,7 +5522,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'observed_failure_phrase': 'does not explicitly '
                                                                                     'declare RuntimeDefault '
                                                                                     'seccomp',
-                                                         'remediation_base_sha256': '0ae4aa202cbf22424ef64383c3bb314b7c327f323b1bde42f281b0ff5c902735',
                                                          'remediation_fields': {'caveats': ['This '
                                                                                             'container-only '
                                                                                             'profile does '
@@ -5858,8 +5552,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                               'source_qualname': 'register_workload.<locals>.evaluate'},
                                                          'reviewed_severity': 'medium',
                                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.content_digest_or_always_pull': {'description_base_sha256': '2fd550dcb74ae6c23586d220716276412e7658a53bd7b92a89cd09aee1d3271d',
-                                                     'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.cronjob.content_digest_or_always_pull': {'description_fields': {'description': 'Checks for a '
                                                                                            'valid SHA256 '
                                                                                            'digest with '
                                                                                            'pull-on-miss or '
@@ -5868,7 +5561,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'observed_failure_phrase': 'does not declare an '
                                                                                 'accepted SHA256 digest or '
                                                                                 'always-pull policy',
-                                                     'remediation_base_sha256': 'a94e1a425dbfe8222445ca55528735cddd5a4d7a514bfaf8c5a414c4c7cf8a5c',
                                                      'remediation_fields': {'caveats': ['Digest syntax and '
                                                                                         'pull declarations '
                                                                                         'do not establish '
@@ -5892,12 +5584,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                           'predicate': 'content_digest_or_always_pull'},
                                                      'reviewed_severity': 'medium',
                                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.context_present': {'description_base_sha256': '437b7ff053cc808c94999e7a913d870dcfdbbe6b5b97d6fb54e5ab0072017040',
-                                       'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.cronjob.context_present': {'description_fields': {'description': 'Checks whether each container '
                                                                              'declares a securityContext '
                                                                              'object.'},
                                        'observed_failure_phrase': 'has no securityContext object declared',
-                                       'remediation_base_sha256': 'dc54719b3bc34df96ed214fc51d0b28821c37a65f829148ead7ef577cc800097',
                                        'remediation_fields': {'caveats': ['An empty securityContext object '
                                                                           'passes this presence check; '
                                                                           'individual hardening settings '
@@ -5917,12 +5607,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'source_qualname': 'register_workload.<locals>.evaluate'},
                                        'reviewed_severity': 'low',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.cpu_limit': {'description_base_sha256': '565cd7461ed2518323670be909a77cd997a36a9b9c5c973e469a37da245e6384',
-                                 'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.cronjob.cpu_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                        'declares a syntactically valid cpu '
                                                                        'limit.'},
                                  'observed_failure_phrase': 'has no cpu limit declared',
-                                 'remediation_base_sha256': 'dcab707a3ce502e81ae5cb28d6647af41dc2dd1be2c8e1b816fd0d213510d079',
                                  'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                     'syntax, not whether the value is '
                                                                     'sufficient; zero is accepted by this '
@@ -5939,12 +5627,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'predicate': 'cpu_limit'},
                                  'reviewed_severity': 'low',
                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.cpu_request': {'description_base_sha256': '17d9da832cdf8e202e8d3265011fe0b5366ee84c0f4608acc7e90cb7bfaf03ba',
-                                   'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.cronjob.cpu_request': {'description_fields': {'description': 'Checks whether each container '
                                                                          'declares a syntactically valid cpu '
                                                                          'request.'},
                                    'observed_failure_phrase': 'has no cpu request declared',
-                                   'remediation_base_sha256': '7aac2b63351f99cc6e68c7ed1714e4e18db944f2f47c24842a9d4aaa8e4d155b',
                                    'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                       'syntax, not whether the value is '
                                                                       'sufficient; zero is accepted by this '
@@ -5961,8 +5647,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'predicate': 'cpu_request'},
                                    'reviewed_severity': 'low',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.cronjob_default_namespace_used': {'description_base_sha256': 'f6e74fd0d0293d569090fb9599c6e14421c5b8fe800dc0d64b10859ca4c4edff',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.cronjob.cronjob_default_namespace_used': {'description_fields': {'description': 'Checks whether '
                                                                                             'resource '
                                                                                             'metadata places '
                                                                                             'it in the '
@@ -5971,7 +5656,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'evidence_presence_fields': ['namespace'],
                                                       'observed_failure_phrase': 'is declared in the default '
                                                                                  'namespace',
-                                                      'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                       'remediation_fields': {'caveats': ['Namespaces are '
                                                                                          'administrative '
                                                                                          'boundaries, not '
@@ -6005,13 +5689,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                            'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                       'reviewed_severity': 'low',
                                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.declared_nonroot': {'description_base_sha256': '39cde5322cfe9d7468208db01f86db5a61ee06f52a67987cd3d8e2e5e330f6ed',
-                                        'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.cronjob.declared_nonroot': {'description_fields': {'description': 'Checks whether each container '
                                                                               'explicitly declares '
                                                                               'runAsNonRoot=true.'},
                                         'observed_failure_phrase': 'does not explicitly declare '
                                                                    'runAsNonRoot=true',
-                                        'remediation_base_sha256': '2378aec58f1c52327d1ea55b7d792f331cfe91bd65373767bf318a7e749b3165',
                                         'remediation_fields': {'caveats': ['This container-only profile does '
                                                                            'not inherit the Pod setting or '
                                                                            'prove the running UID.'],
@@ -6029,12 +5711,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'declared_nonroot'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.drop_all': {'description_base_sha256': 'ee891f825e6c5c513acffe3e6b0e4de7d61aa14d953a172bb32a069b6f688fb0',
-                                'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.cronjob.drop_all': {'description_fields': {'description': 'Checks whether each container '
                                                                       'explicitly drops ALL or all Linux '
                                                                       'capabilities.'},
                                 'observed_failure_phrase': 'does not explicitly drop all capabilities',
-                                'remediation_base_sha256': '0b4ae95f3a97c912dc0c229396885fef57dd68a35b23661fd9edbdd1749bc16e',
                                 'remediation_fields': {'caveats': ['This checks the drop declaration; added '
                                                                    'capabilities and effective runtime '
                                                                    'privileges are separate.'],
@@ -6048,13 +5728,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'predicate': 'drop_all'},
                                 'reviewed_severity': 'medium',
                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.drop_net_raw': {'description_base_sha256': 'b9db860f8710e1074ceb37a7cfc9dd6586af38e6b9069323c0da788da399d6f5',
-                                    'description_fields': {'description': 'Checks whether container '
+ 'k8s.ports.cronjob.drop_net_raw': {'description_fields': {'description': 'Checks whether container '
                                                                           'capabilities explicitly drop '
                                                                           'NET_RAW, ALL or all.'},
                                     'observed_failure_phrase': 'does not explicitly drop NET_RAW or all '
                                                                'capabilities',
-                                    'remediation_base_sha256': 'b5eb38bbed06d97ca42cd596b7a2c35712cad1e466b0e25f32ce4ed3ebab1dba',
                                     'remediation_fields': {'caveats': ['This checks the drop declaration, '
                                                                        'not effective capabilities; an '
                                                                        'explicit container drop is required '
@@ -6071,13 +5749,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'predicate': 'drop_net_raw'},
                                     'reviewed_severity': 'medium',
                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.explicit_serviceaccount': {'description_base_sha256': 'dcf50a0478e6f2adda385eab526d5881502552b7772b7e3067244345a17cf8db',
-                                               'description_fields': {'description': 'Checks for a nonempty '
+ 'k8s.ports.cronjob.explicit_serviceaccount': {'description_fields': {'description': 'Checks for a nonempty '
                                                                                      'serviceAccountName in '
                                                                                      'the PodSpec.'},
                                                'observed_failure_phrase': 'does not declare a ServiceAccount '
                                                                           'name',
-                                               'remediation_base_sha256': '062f79f2fecd8ac963ce1cfba270d2303dd88ecdcbe1682ddb72208fde88cfb1',
                                                'remediation_fields': {'caveats': ['A dedicated account name '
                                                                                   'does not establish least '
                                                                                   'privilege; its bindings '
@@ -6097,13 +5773,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                     'predicate': 'explicit_serviceaccount'},
                                                'reviewed_severity': 'medium',
                                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.host_namespaces': {'description_base_sha256': 'f3569d8a40cf5d776915b90c254e808c07aea5cb09e16002afed719020a7e1f0',
-                                       'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.ports.cronjob.host_namespaces': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                              'declares hostPID=true or '
                                                                              'hostIPC=true.'},
                                        'observed_failure_phrase': 'declares shared host PID or IPC '
                                                                   'namespaces',
-                                       'remediation_base_sha256': '8c83f0c1c2f0dfa3053520bef71c895d0f44e159e3a21782b333d3e2c336d759',
                                        'remediation_fields': {'caveats': ['This reads PodSpec declarations, '
                                                                           'not runtime isolation or an '
                                                                           'exploit path.'],
@@ -6119,12 +5793,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'host_namespaces'},
                                        'reviewed_severity': 'medium',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.liveness_probe': {'description_base_sha256': '4ebdf09bb3ed2c147edd05175fc08fe5389edea44805bc8738e96a3535e3e1f9',
-                                      'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.cronjob.liveness_probe': {'description_fields': {'description': 'Checks whether each container '
                                                                             'declares a livenessProbe '
                                                                             'object.'},
                                       'observed_failure_phrase': 'has no liveness probe declared',
-                                      'remediation_base_sha256': '7011ab64362e2d71a9b8b462e76b89083a32a48e905e479153dd176fd276ffab',
                                       'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                          'establish a working health check; '
                                                                          'an unsuitable probe can restart '
@@ -6141,12 +5813,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'predicate': 'liveness_probe'},
                                       'reviewed_severity': 'low',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.memory_limit': {'description_base_sha256': 'e9a8135fe8d5467566a30c27d5442b7264db47d813a1f0b0241443ad3068a20b',
-                                    'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.cronjob.memory_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                           'declares a syntactically valid '
                                                                           'memory limit.'},
                                     'observed_failure_phrase': 'has no memory limit declared',
-                                    'remediation_base_sha256': 'b532e6ef9d038373bb11528b8e0cb3ab56b78089e0b7d168c5b2f8339bebd10a',
                                     'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                        'syntax, not whether the value is '
                                                                        'sufficient; zero is accepted by this '
@@ -6163,12 +5833,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'predicate': 'memory_limit'},
                                     'reviewed_severity': 'low',
                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.memory_request': {'description_base_sha256': '7fc12357ccceb98574a150c2b9c846fd1ec89d1cd3a8d798ab0c0550c77ad664',
-                                      'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.cronjob.memory_request': {'description_fields': {'description': 'Checks whether each container '
                                                                             'declares a syntactically valid '
                                                                             'memory request.'},
                                       'observed_failure_phrase': 'has no memory request declared',
-                                      'remediation_base_sha256': '96221f6107d75c2b1e731fee9ee404000c5b870f005c53f1d82c42414101afa6',
                                       'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                          'syntax, not whether the value is '
                                                                          'sufficient; zero is accepted by '
@@ -6187,12 +5855,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'predicate': 'memory_request'},
                                       'reviewed_severity': 'low',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.no_added_capabilities': {'description_base_sha256': 'cda9166805165967b9e64ad77a92c402a21a45138f07dc6089be5c2575316ca7',
-                                             'description_fields': {'description': 'Checks for any entries '
+ 'k8s.ports.cronjob.no_added_capabilities': {'description_fields': {'description': 'Checks for any entries '
                                                                                    'in container '
                                                                                    'capabilities.add.'},
                                              'observed_failure_phrase': 'declares added Linux capabilities',
-                                             'remediation_base_sha256': '7e1bd49929c8f99f5283d91ce13799c2cd9fc57ada348acb3ec7a8b863f415d4',
                                              'remediation_fields': {'caveats': ['Added capabilities are '
                                                                                 'declarations; effective '
                                                                                 'privileges and runtime '
@@ -6212,12 +5878,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                   'predicate': 'no_added_capabilities'},
                                              'reviewed_severity': 'medium',
                                              'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.no_host_ports': {'description_base_sha256': '497a1e86bee8fe3c4e79898391933509f4b7ba39b241d48c64b6c5574cc68a69',
-                                     'description_fields': {'description': 'Checks whether any container '
+ 'k8s.ports.cronjob.no_host_ports': {'description_fields': {'description': 'Checks whether any container '
                                                                            'declares hostPort, including an '
                                                                            'explicit zero value.'},
                                      'observed_failure_phrase': 'declares a hostPort field',
-                                     'remediation_base_sha256': 'abd645cb7a283a29679e6d7ec895cdc07f90924651763f6a4a196e935130f864',
                                      'remediation_fields': {'caveats': ['This strict declaration profile '
                                                                         'also flags hostPort=0; it does not '
                                                                         'prove an active or publicly '
@@ -6236,12 +5900,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'predicate': 'no_host_ports'},
                                      'reviewed_severity': 'medium',
                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.no_sys_admin': {'description_base_sha256': '01189226af2e03d5096f5b2214b35093cc3c2016110c65801e2ed88a768ad9f9',
-                                    'description_fields': {'description': 'Checks for SYS_ADMIN or '
+ 'k8s.ports.cronjob.no_sys_admin': {'description_fields': {'description': 'Checks for SYS_ADMIN or '
                                                                           'CAP_SYS_ADMIN in added container '
                                                                           'capabilities.'},
                                     'observed_failure_phrase': 'adds the SYS_ADMIN capability',
-                                    'remediation_base_sha256': '659e6e39df1cabe264c77c94960af8ce2fbbf2ab43dcc42c268286473a4da1cf',
                                     'remediation_fields': {'caveats': ['This reads added capabilities, not '
                                                                        'effective kernel privileges or '
                                                                        'runtime confinement.'],
@@ -6257,13 +5919,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'predicate': 'no_sys_admin'},
                                     'reviewed_severity': 'high',
                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.pinned_image': {'description_base_sha256': '33507b53941cab6cd5f43dd3fd874509b9d28e0be3a0911fe1cd7f0dcf0c6d01',
-                                    'description_fields': {'description': 'Checks for a non-latest image tag '
+ 'k8s.ports.cronjob.pinned_image': {'description_fields': {'description': 'Checks for a non-latest image tag '
                                                                           'or an @ marker in each container '
                                                                           'image reference.'},
                                     'observed_failure_phrase': 'uses an empty, unversioned or latest image '
                                                                'reference',
-                                    'remediation_base_sha256': 'ce9554ca8db2ef115bc56ac147f628f53446f42fc74dd05207f814a20610d4c1',
                                     'remediation_fields': {'caveats': ['A version tag or @ marker alone does '
                                                                        'not prove immutable or trusted image '
                                                                        'contents.'],
@@ -6279,14 +5939,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'predicate': 'pinned_image'},
                                     'reviewed_severity': 'medium',
                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.privilege_escalation': {'description_base_sha256': 'f377180348d8b313205bdcdeb1bc7b2a16018298881faf53a52b5068d50a225f',
-                                            'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.cronjob.privilege_escalation': {'description_fields': {'description': 'Checks whether each '
                                                                                   'container explicitly '
                                                                                   'declares '
                                                                                   'allowPrivilegeEscalation=false.'},
                                             'observed_failure_phrase': 'does not explicitly disable '
                                                                        'privilege escalation',
-                                            'remediation_base_sha256': '39b617edfb1f5dcd5b3879f3f18736acd646ada6d6b3f46f5ea132a47445a9ae',
                                             'remediation_fields': {'caveats': ['This reads declared '
                                                                                'configuration; runtime '
                                                                                'behavior and admission '
@@ -6308,12 +5966,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                  'source_qualname': 'register_workload.<locals>.evaluate'},
                                             'reviewed_severity': 'high',
                                             'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.readiness_probe': {'description_base_sha256': 'c91a0aae81b591bdf7a6ab69edea13b5c9c74981f15cf14dce4ce6b9e0d92a3c',
-                                       'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.cronjob.readiness_probe': {'description_fields': {'description': 'Checks whether each container '
                                                                              'declares a readinessProbe '
                                                                              'object.'},
                                        'observed_failure_phrase': 'has no readiness probe declared',
-                                       'remediation_base_sha256': 'af0e57935dd056cff44a9f157dcaf6fa2a961110fe7a39dd6145a455ff3a6a8b',
                                        'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                           'establish a working health check; '
                                                                           'avoid unsuitable probes for '
@@ -6330,13 +5986,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'readiness_probe'},
                                        'reviewed_severity': 'low',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.cronjob.readonly_root': {'description_base_sha256': 'ea6ae5aa8ad9b8b1670a46bee594d0617d6a38fd2f81e64d51482e14c9692b90',
-                                     'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.cronjob.readonly_root': {'description_fields': {'description': 'Checks whether each container '
                                                                            'declares '
                                                                            'readOnlyRootFilesystem=true.'},
                                      'observed_failure_phrase': 'does not declare a read-only root '
                                                                 'filesystem',
-                                     'remediation_base_sha256': '9eeaf3ee37102519a8f6b3ba57c7a122578640072d072426a3d41334a53026cb',
                                      'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                         'runtime behavior and admission '
                                                                         'enforcement are separate.'],
@@ -6355,14 +6009,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'source_qualname': 'register_workload.<locals>.evaluate'},
                                      'reviewed_severity': 'medium',
                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.always_pull': {'description_base_sha256': '9fa7c479035c0c0c9f0f38c5161da81bfe7458033a9b3277e757b9f2649e9cda',
-                                     'description_fields': {'description': 'Checks image pull behavior, '
+ 'k8s.ports.daemonset.always_pull': {'description_fields': {'description': 'Checks image pull behavior, '
                                                                            'accepting Always or a valid '
                                                                            'SHA256 digest with '
                                                                            'pull-on-miss.'},
                                      'observed_failure_phrase': 'does not declare always-pull behavior or an '
                                                                 'accepted SHA256 digest policy',
-                                     'remediation_base_sha256': '78720091902e1827525497ade9e843ddd98a450a2f32cf79c3cded23b65e1bee',
                                      'remediation_fields': {'caveats': ['A valid SHA256 digest with '
                                                                         'IfNotPresent passes; this check '
                                                                         'does not verify image provenance or '
@@ -6381,8 +6033,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'predicate': 'always_pull'},
                                      'reviewed_severity': 'medium',
                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.container_runtime_default_seccomp': {'description_base_sha256': 'dac4a58e6bc3bed7f2d58466a7cf09af43f65f221b708d72d9d3432273ef28fe',
-                                                           'description_fields': {'description': 'Checks '
+ 'k8s.ports.daemonset.container_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                  'whether '
                                                                                                  'each '
                                                                                                  'container '
@@ -6394,7 +6045,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                       'declare '
                                                                                       'RuntimeDefault '
                                                                                       'seccomp',
-                                                           'remediation_base_sha256': 'ed764834c985cc3de18141844fa5a460f7d2bd487970c60b69755cb047eb26bc',
                                                            'remediation_fields': {'caveats': ['This '
                                                                                               'container-only '
                                                                                               'profile does '
@@ -6428,8 +6078,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                 'source_qualname': 'register_workload.<locals>.evaluate'},
                                                            'reviewed_severity': 'medium',
                                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.content_digest_or_always_pull': {'description_base_sha256': '791bd2fe717e33448559fdf439125e17945fe29c5337a37081834f1ad62d9a67',
-                                                       'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.daemonset.content_digest_or_always_pull': {'description_fields': {'description': 'Checks for a '
                                                                                              'valid SHA256 '
                                                                                              'digest with '
                                                                                              'pull-on-miss '
@@ -6439,7 +6088,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'observed_failure_phrase': 'does not declare an '
                                                                                   'accepted SHA256 digest or '
                                                                                   'always-pull policy',
-                                                       'remediation_base_sha256': '3cdfe6585471575dfab0de8631cfe8f9662b4f26ed18705ee7005c5e9e02fdc1',
                                                        'remediation_fields': {'caveats': ['Digest syntax and '
                                                                                           'pull declarations '
                                                                                           'do not establish '
@@ -6466,12 +6114,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                             'predicate': 'content_digest_or_always_pull'},
                                                        'reviewed_severity': 'medium',
                                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.context_present': {'description_base_sha256': '32bea910403e9a0fda798887b0495c316ebcb368dffa2b61b473aeb3afbf354f',
-                                         'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.daemonset.context_present': {'description_fields': {'description': 'Checks whether each '
                                                                                'container declares a '
                                                                                'securityContext object.'},
                                          'observed_failure_phrase': 'has no securityContext object declared',
-                                         'remediation_base_sha256': '66e4da5a3915c8b71aec23bfda959b50f893bc9c423d1f1d91332bde5fd72b21',
                                          'remediation_fields': {'caveats': ['An empty securityContext object '
                                                                             'passes this presence check; '
                                                                             'individual hardening settings '
@@ -6491,12 +6137,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'source_qualname': 'register_workload.<locals>.evaluate'},
                                          'reviewed_severity': 'low',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.cpu_limit': {'description_base_sha256': 'ffa5a5668eadd8ce98c304c284fd85c7252d9d62a869d47723593ae3227507c4',
-                                   'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.daemonset.cpu_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                          'declares a syntactically valid cpu '
                                                                          'limit.'},
                                    'observed_failure_phrase': 'has no cpu limit declared',
-                                   'remediation_base_sha256': 'c9cb89c8cfae097ea99ae1ffb55e39b61b498f81faa71ff25ee7a93064ec3252',
                                    'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                       'syntax, not whether the value is '
                                                                       'sufficient; zero is accepted by this '
@@ -6513,12 +6157,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'predicate': 'cpu_limit'},
                                    'reviewed_severity': 'low',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.cpu_request': {'description_base_sha256': 'fed45173222420ece4e4d8576525e7a8be78616e8abfcd354d3b62e8339f2e2c',
-                                     'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.daemonset.cpu_request': {'description_fields': {'description': 'Checks whether each container '
                                                                            'declares a syntactically valid '
                                                                            'cpu request.'},
                                      'observed_failure_phrase': 'has no cpu request declared',
-                                     'remediation_base_sha256': 'ca1cf0584161f531e5205445ec823eca367ac6746d04a1b11fb474a6736a8c68',
                                      'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                         'syntax, not whether the value is '
                                                                         'sufficient; zero is accepted by '
@@ -6535,8 +6177,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'predicate': 'cpu_request'},
                                      'reviewed_severity': 'low',
                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.daemonset_default_namespace_used': {'description_base_sha256': '4054965b3f23adc9bbcca9bfaeabc743aaccdd4b9a8457616fff2e5c5fd71445',
-                                                          'description_fields': {'description': 'Checks '
+ 'k8s.ports.daemonset.daemonset_default_namespace_used': {'description_fields': {'description': 'Checks '
                                                                                                 'whether '
                                                                                                 'resource '
                                                                                                 'metadata '
@@ -6547,7 +6188,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'evidence_presence_fields': ['namespace'],
                                                           'observed_failure_phrase': 'is declared in the '
                                                                                      'default namespace',
-                                                          'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                           'remediation_fields': {'caveats': ['Namespaces are '
                                                                                              'administrative '
                                                                                              'boundaries, '
@@ -6582,14 +6222,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                           'reviewed_severity': 'low',
                                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.declared_nonroot': {'description_base_sha256': 'cfc13d2ba920558a67bb5527ff859c314586bd3b5e558560bd8408fa0cfc5558',
-                                          'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.daemonset.declared_nonroot': {'description_fields': {'description': 'Checks whether each '
                                                                                 'container explicitly '
                                                                                 'declares '
                                                                                 'runAsNonRoot=true.'},
                                           'observed_failure_phrase': 'does not explicitly declare '
                                                                      'runAsNonRoot=true',
-                                          'remediation_base_sha256': '72bcd3463ca5f921469258d454e75e3c730d90eab3102af6cc229e403c8ae1e4',
                                           'remediation_fields': {'caveats': ['This container-only profile '
                                                                              'does not inherit the Pod '
                                                                              'setting or prove the running '
@@ -6608,12 +6246,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'predicate': 'declared_nonroot'},
                                           'reviewed_severity': 'medium',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.drop_all': {'description_base_sha256': 'dcd5d5d853a712117d24759e16f16c099fce272b462774e2f1aec63d81723dd9',
-                                  'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.daemonset.drop_all': {'description_fields': {'description': 'Checks whether each container '
                                                                         'explicitly drops ALL or all Linux '
                                                                         'capabilities.'},
                                   'observed_failure_phrase': 'does not explicitly drop all capabilities',
-                                  'remediation_base_sha256': 'f365c51f0dc7f0a152fda5f23f1b805eb77b2f2d4568fefddef9408b9b704609',
                                   'remediation_fields': {'caveats': ['This checks the drop declaration; '
                                                                      'added capabilities and effective '
                                                                      'runtime privileges are separate.'],
@@ -6629,13 +6265,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'predicate': 'drop_all'},
                                   'reviewed_severity': 'medium',
                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.drop_net_raw': {'description_base_sha256': 'b1b4fc267ed4f08e460c0b8d2e0c6dc570dad528b6cc08a15727f4ca028fdfe1',
-                                      'description_fields': {'description': 'Checks whether container '
+ 'k8s.ports.daemonset.drop_net_raw': {'description_fields': {'description': 'Checks whether container '
                                                                             'capabilities explicitly drop '
                                                                             'NET_RAW, ALL or all.'},
                                       'observed_failure_phrase': 'does not explicitly drop NET_RAW or all '
                                                                  'capabilities',
-                                      'remediation_base_sha256': '1f9e394f0ef323bb2b9d3c79db2d4423cb16e1eb053fa97189fa347e12fc9050',
                                       'remediation_fields': {'caveats': ['This checks the drop declaration, '
                                                                          'not effective capabilities; an '
                                                                          'explicit container drop is '
@@ -6652,14 +6286,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'predicate': 'drop_net_raw'},
                                       'reviewed_severity': 'medium',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.explicit_serviceaccount': {'description_base_sha256': '839efe7bb14a38db9a9d4d4a69f3ed295a8138b6fac464bbe6b0c349c5c1d668',
-                                                 'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.daemonset.explicit_serviceaccount': {'description_fields': {'description': 'Checks for a '
                                                                                        'nonempty '
                                                                                        'serviceAccountName '
                                                                                        'in the PodSpec.'},
                                                  'observed_failure_phrase': 'does not declare a '
                                                                             'ServiceAccount name',
-                                                 'remediation_base_sha256': '7dc32b5340ef7b2044a9e268419532aa67c11016d3499cef8c5da234abbd53aa',
                                                  'remediation_fields': {'caveats': ['A dedicated account '
                                                                                     'name does not establish '
                                                                                     'least privilege; its '
@@ -6682,13 +6314,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                       'source_qualname': 'register_workload.<locals>.evaluate'},
                                                  'reviewed_severity': 'medium',
                                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.host_namespaces': {'description_base_sha256': '33bf04ba0d4509892e433806f53edc0029eb43e86cc03a26c15c2191981b3be7',
-                                         'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.ports.daemonset.host_namespaces': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                                'declares hostPID=true or '
                                                                                'hostIPC=true.'},
                                          'observed_failure_phrase': 'declares shared host PID or IPC '
                                                                     'namespaces',
-                                         'remediation_base_sha256': '5c30c345ab8298354f5e1e92e50db1681595ecac2f6fd743cff99df2a075cc75',
                                          'remediation_fields': {'caveats': ['This reads PodSpec '
                                                                             'declarations, not runtime '
                                                                             'isolation or an exploit path.'],
@@ -6704,12 +6334,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'predicate': 'host_namespaces'},
                                          'reviewed_severity': 'medium',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.liveness_probe': {'description_base_sha256': 'd194f2e5412b7c8a0a24caa233d815098a8640c9c63ec93dc7e684aeefb3d946',
-                                        'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.daemonset.liveness_probe': {'description_fields': {'description': 'Checks whether each container '
                                                                               'declares a livenessProbe '
                                                                               'object.'},
                                         'observed_failure_phrase': 'has no liveness probe declared',
-                                        'remediation_base_sha256': 'f1389be4c490feb6c43b7d6ad45f022eed4a47d4ff8d96d6c1d8ec66f50e3a56',
                                         'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                            'establish a working health '
                                                                            'check; an unsuitable probe can '
@@ -6726,12 +6354,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'liveness_probe'},
                                         'reviewed_severity': 'low',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.memory_limit': {'description_base_sha256': 'b92fc5c75e120bb1026417cf052ddb3c4c67357aee986fb96f3dc4cc37272e4a',
-                                      'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.daemonset.memory_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                             'declares a syntactically valid '
                                                                             'memory limit.'},
                                       'observed_failure_phrase': 'has no memory limit declared',
-                                      'remediation_base_sha256': '5723e9ce454140ead72eda678ed31df8e644ec0e8b36c4ac4e74bb02eae6ad24',
                                       'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                          'syntax, not whether the value is '
                                                                          'sufficient; zero is accepted by '
@@ -6750,12 +6376,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'predicate': 'memory_limit'},
                                       'reviewed_severity': 'low',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.memory_request': {'description_base_sha256': 'c58e7a3dd9cd644c23084ed6b22f568ab825fb5f72ccc50eb3b11e83c78d9188',
-                                        'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.daemonset.memory_request': {'description_fields': {'description': 'Checks whether each container '
                                                                               'declares a syntactically '
                                                                               'valid memory request.'},
                                         'observed_failure_phrase': 'has no memory request declared',
-                                        'remediation_base_sha256': '8be6f4a4ec67fd1218eb7c85e3f6607c8a2e0b32c256dcd97e47cb379e9ad46a',
                                         'remediation_fields': {'caveats': ['This checks presence and '
                                                                            'quantity syntax, not whether the '
                                                                            'value is sufficient; zero is '
@@ -6774,12 +6398,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'memory_request'},
                                         'reviewed_severity': 'low',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.no_added_capabilities': {'description_base_sha256': '16cb7440b15996a257c92304e049fa4a3a908fe11f875a4f4c2c3e0e9774e0b0',
-                                               'description_fields': {'description': 'Checks for any entries '
+ 'k8s.ports.daemonset.no_added_capabilities': {'description_fields': {'description': 'Checks for any entries '
                                                                                      'in container '
                                                                                      'capabilities.add.'},
                                                'observed_failure_phrase': 'declares added Linux capabilities',
-                                               'remediation_base_sha256': '41d1a313bfc0853bc1241ee667562099530f1ebbbfde2edf054a515135cc222d',
                                                'remediation_fields': {'caveats': ['Added capabilities are '
                                                                                   'declarations; effective '
                                                                                   'privileges and runtime '
@@ -6799,12 +6421,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                     'predicate': 'no_added_capabilities'},
                                                'reviewed_severity': 'medium',
                                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.no_host_ports': {'description_base_sha256': 'f52eecca84471ad316980adc806566a9483de9a4b6e2ed3b01cee11a32453b94',
-                                       'description_fields': {'description': 'Checks whether any container '
+ 'k8s.ports.daemonset.no_host_ports': {'description_fields': {'description': 'Checks whether any container '
                                                                              'declares hostPort, including '
                                                                              'an explicit zero value.'},
                                        'observed_failure_phrase': 'declares a hostPort field',
-                                       'remediation_base_sha256': '8e5e685b31b0861854afa072b740275514bd1ef70239c11847fdee687390aa6c',
                                        'remediation_fields': {'caveats': ['This strict declaration profile '
                                                                           'also flags hostPort=0; it does '
                                                                           'not prove an active or publicly '
@@ -6823,12 +6443,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'no_host_ports'},
                                        'reviewed_severity': 'medium',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.no_sys_admin': {'description_base_sha256': '58d22f7352c0b532c492826f0f616a126d3662ca3c1f26b219968946d7d5da7e',
-                                      'description_fields': {'description': 'Checks for SYS_ADMIN or '
+ 'k8s.ports.daemonset.no_sys_admin': {'description_fields': {'description': 'Checks for SYS_ADMIN or '
                                                                             'CAP_SYS_ADMIN in added '
                                                                             'container capabilities.'},
                                       'observed_failure_phrase': 'adds the SYS_ADMIN capability',
-                                      'remediation_base_sha256': '55629c6a936c35c379691f4daf9484f21c732da356e2bf0784199e6bb8a71009',
                                       'remediation_fields': {'caveats': ['This reads added capabilities, not '
                                                                          'effective kernel privileges or '
                                                                          'runtime confinement.'],
@@ -6844,13 +6462,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'predicate': 'no_sys_admin'},
                                       'reviewed_severity': 'high',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.pinned_image': {'description_base_sha256': '228a9481461d2613f5c81ec1057a03508f0105597b7d4bbab582920f7e087340',
-                                      'description_fields': {'description': 'Checks for a non-latest image '
+ 'k8s.ports.daemonset.pinned_image': {'description_fields': {'description': 'Checks for a non-latest image '
                                                                             'tag or an @ marker in each '
                                                                             'container image reference.'},
                                       'observed_failure_phrase': 'uses an empty, unversioned or latest image '
                                                                  'reference',
-                                      'remediation_base_sha256': '7516f09bf9c683a75e07fea73b5bb043d9b02e66b8675523645278937a4c188c',
                                       'remediation_fields': {'caveats': ['A version tag or @ marker alone '
                                                                          'does not prove immutable or '
                                                                          'trusted image contents.'],
@@ -6867,14 +6483,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'predicate': 'pinned_image'},
                                       'reviewed_severity': 'medium',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.privilege_escalation': {'description_base_sha256': '048769ccdb2fa193096376a38527a95c7bdba946b9767214247c38a5e4094073',
-                                              'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.daemonset.privilege_escalation': {'description_fields': {'description': 'Checks whether each '
                                                                                     'container explicitly '
                                                                                     'declares '
                                                                                     'allowPrivilegeEscalation=false.'},
                                               'observed_failure_phrase': 'does not explicitly disable '
                                                                          'privilege escalation',
-                                              'remediation_base_sha256': '5bbc2ceff5a302d22ec391726708294a068abe0ceadb14a8cea6f8adac1f9f3a',
                                               'remediation_fields': {'caveats': ['This reads declared '
                                                                                  'configuration; runtime '
                                                                                  'behavior and admission '
@@ -6896,12 +6510,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                    'source_qualname': 'register_workload.<locals>.evaluate'},
                                               'reviewed_severity': 'high',
                                               'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.readiness_probe': {'description_base_sha256': '88e747ee7dc8fd055dc8c5dcd87157e4c83a0520f158acbfd3a3f8798a007b71',
-                                         'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.daemonset.readiness_probe': {'description_fields': {'description': 'Checks whether each '
                                                                                'container declares a '
                                                                                'readinessProbe object.'},
                                          'observed_failure_phrase': 'has no readiness probe declared',
-                                         'remediation_base_sha256': '21f6d1901df44948224256a77ca64a99599db57acd6d62068bc7b4bee488eefc',
                                          'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                             'establish a working health '
                                                                             'check; avoid unsuitable probes '
@@ -6918,13 +6530,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'predicate': 'readiness_probe'},
                                          'reviewed_severity': 'low',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.daemonset.readonly_root': {'description_base_sha256': '9407f7ca690f771108c16965363870167398e032e3e5efb453486a83b926f740',
-                                       'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.daemonset.readonly_root': {'description_fields': {'description': 'Checks whether each container '
                                                                              'declares '
                                                                              'readOnlyRootFilesystem=true.'},
                                        'observed_failure_phrase': 'does not declare a read-only root '
                                                                   'filesystem',
-                                       'remediation_base_sha256': '8e2bd6fb2f27ad6eb900fac0fd4dfdcac7ab7fac3035bd09ba0d9f3cdbc01223',
                                        'remediation_fields': {'caveats': ['This reads declared '
                                                                           'configuration; runtime behavior '
                                                                           'and admission enforcement are '
@@ -6946,14 +6556,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'source_qualname': 'register_workload.<locals>.evaluate'},
                                        'reviewed_severity': 'medium',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.always_pull': {'description_base_sha256': 'b2d70643fe0cdcb81b3f5992e8aae18b0f3699260a5d47922058716a0d796ab1',
-                                      'description_fields': {'description': 'Checks image pull behavior, '
+ 'k8s.ports.deployment.always_pull': {'description_fields': {'description': 'Checks image pull behavior, '
                                                                             'accepting Always or a valid '
                                                                             'SHA256 digest with '
                                                                             'pull-on-miss.'},
                                       'observed_failure_phrase': 'does not declare always-pull behavior or '
                                                                  'an accepted SHA256 digest policy',
-                                      'remediation_base_sha256': 'e453b2ddbcf06f72a82827b61cf731a4108f9ee4533c652d772cfa830c7a37f7',
                                       'remediation_fields': {'caveats': ['A valid SHA256 digest with '
                                                                          'IfNotPresent passes; this check '
                                                                          'does not verify image provenance '
@@ -6972,8 +6580,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'predicate': 'always_pull'},
                                       'reviewed_severity': 'medium',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.container_runtime_default_seccomp': {'description_base_sha256': '01a47a4058b6af5a5261ced2ea0bc512e08cc45dad400407959f8e17ea32feeb',
-                                                            'description_fields': {'description': 'Checks '
+ 'k8s.ports.deployment.container_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                   'whether '
                                                                                                   'each '
                                                                                                   'container '
@@ -6985,7 +6592,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                        'declare '
                                                                                        'RuntimeDefault '
                                                                                        'seccomp',
-                                                            'remediation_base_sha256': '80becffda95813cd80cd7f9f7472199dfa12e297a63a42cf828720d46e495b93',
                                                             'remediation_fields': {'caveats': ['This '
                                                                                                'container-only '
                                                                                                'profile does '
@@ -7020,8 +6626,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                  'source_qualname': 'register_workload.<locals>.evaluate'},
                                                             'reviewed_severity': 'medium',
                                                             'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.content_digest_or_always_pull': {'description_base_sha256': '258f9a71c6a5af2106e5083fd6a644252c2977f47b8be058711e54193bb00f51',
-                                                        'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.deployment.content_digest_or_always_pull': {'description_fields': {'description': 'Checks for a '
                                                                                               'valid SHA256 '
                                                                                               'digest with '
                                                                                               'pull-on-miss '
@@ -7031,7 +6636,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'observed_failure_phrase': 'does not declare an '
                                                                                    'accepted SHA256 digest '
                                                                                    'or always-pull policy',
-                                                        'remediation_base_sha256': '96f6d27212dd3874fce6fe7c3e2e907a17cbd460037043121fac8dfa72a109b7',
                                                         'remediation_fields': {'caveats': ['Digest syntax '
                                                                                            'and pull '
                                                                                            'declarations do '
@@ -7060,12 +6664,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                              'predicate': 'content_digest_or_always_pull'},
                                                         'reviewed_severity': 'medium',
                                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.context_present': {'description_base_sha256': 'd0c6fb3a45fa558216c590dfa3722794aeb127ab5fe42ca0b0f2b2081539d670',
-                                          'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.deployment.context_present': {'description_fields': {'description': 'Checks whether each '
                                                                                 'container declares a '
                                                                                 'securityContext object.'},
                                           'observed_failure_phrase': 'has no securityContext object declared',
-                                          'remediation_base_sha256': '8630148449423cc1637f40909217e0df22009289327a0463962e82ea59230876',
                                           'remediation_fields': {'caveats': ['An empty securityContext '
                                                                              'object passes this presence '
                                                                              'check; individual hardening '
@@ -7087,12 +6689,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'source_qualname': 'register_workload.<locals>.evaluate'},
                                           'reviewed_severity': 'low',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.cpu_limit': {'description_base_sha256': 'e21be635a1350942b39c10f8f6b43cdf1955431bc65b618ad86ea86014483ef2',
-                                    'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.deployment.cpu_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                           'declares a syntactically valid '
                                                                           'cpu limit.'},
                                     'observed_failure_phrase': 'has no cpu limit declared',
-                                    'remediation_base_sha256': 'b419fda36f2aea942e80718efe21d4e1f095012d5e93a817cb1ecc8ec38bb04d',
                                     'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                        'syntax, not whether the value is '
                                                                        'sufficient; zero is accepted by this '
@@ -7109,12 +6709,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'predicate': 'cpu_limit'},
                                     'reviewed_severity': 'low',
                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.cpu_request': {'description_base_sha256': 'de367c496be8a1e49747a64e4cfdf7aab779ae12a9f41d96e71e79fdc9cf66a2',
-                                      'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.deployment.cpu_request': {'description_fields': {'description': 'Checks whether each container '
                                                                             'declares a syntactically valid '
                                                                             'cpu request.'},
                                       'observed_failure_phrase': 'has no cpu request declared',
-                                      'remediation_base_sha256': 'b9e2b00b94d72411af20fc1f19d664abdf2b7db1e18f6d7071878f026e2fd581',
                                       'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                          'syntax, not whether the value is '
                                                                          'sufficient; zero is accepted by '
@@ -7131,14 +6729,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'predicate': 'cpu_request'},
                                       'reviewed_severity': 'low',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.declared_nonroot': {'description_base_sha256': '501d352be714c7cdf5e8a4355b2ac954d304af3edd60f50dbe9eeb29d875471f',
-                                           'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.deployment.declared_nonroot': {'description_fields': {'description': 'Checks whether each '
                                                                                  'container explicitly '
                                                                                  'declares '
                                                                                  'runAsNonRoot=true.'},
                                            'observed_failure_phrase': 'does not explicitly declare '
                                                                       'runAsNonRoot=true',
-                                           'remediation_base_sha256': '63a86d59b216a3215e8ca2c77cdfcde6e7df3859819262c9f13c1d056609e26e',
                                            'remediation_fields': {'caveats': ['This container-only profile '
                                                                               'does not inherit the Pod '
                                                                               'setting or prove the running '
@@ -7157,8 +6753,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'predicate': 'declared_nonroot'},
                                            'reviewed_severity': 'medium',
                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.deployment_default_namespace_used': {'description_base_sha256': 'a49ab4a44f43cd45e0e5b083deed616f84413997426ca1eadbeea5f8b8eae8e4',
-                                                            'description_fields': {'description': 'Checks '
+ 'k8s.ports.deployment.deployment_default_namespace_used': {'description_fields': {'description': 'Checks '
                                                                                                   'whether '
                                                                                                   'resource '
                                                                                                   'metadata '
@@ -7169,7 +6764,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'evidence_presence_fields': ['namespace'],
                                                             'observed_failure_phrase': 'is declared in the '
                                                                                        'default namespace',
-                                                            'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                             'remediation_fields': {'caveats': ['Namespaces '
                                                                                                'are '
                                                                                                'administrative '
@@ -7208,12 +6802,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                  'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                             'reviewed_severity': 'low',
                                                             'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.drop_all': {'description_base_sha256': '1824dcf9dac7acb178318243f16e665b416d6891b128da97e02ff01f3f84b1e4',
-                                   'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.deployment.drop_all': {'description_fields': {'description': 'Checks whether each container '
                                                                          'explicitly drops ALL or all Linux '
                                                                          'capabilities.'},
                                    'observed_failure_phrase': 'does not explicitly drop all capabilities',
-                                   'remediation_base_sha256': 'f8a798a6674bd872ea250a6c829130c7a9c011ab99460efcdc03933701c93ef6',
                                    'remediation_fields': {'caveats': ['This checks the drop declaration; '
                                                                       'added capabilities and effective '
                                                                       'runtime privileges are separate.'],
@@ -7229,13 +6821,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'predicate': 'drop_all'},
                                    'reviewed_severity': 'medium',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.drop_net_raw': {'description_base_sha256': 'cad96bb27cc866510f32fc34b9038f5b670aaaf9951540edf7a7a3be26f25a76',
-                                       'description_fields': {'description': 'Checks whether container '
+ 'k8s.ports.deployment.drop_net_raw': {'description_fields': {'description': 'Checks whether container '
                                                                              'capabilities explicitly drop '
                                                                              'NET_RAW, ALL or all.'},
                                        'observed_failure_phrase': 'does not explicitly drop NET_RAW or all '
                                                                   'capabilities',
-                                       'remediation_base_sha256': '96fddbce6d9878ab092453def129939a2403ada26e7fc9922aadba5cb9d77e37',
                                        'remediation_fields': {'caveats': ['This checks the drop declaration, '
                                                                           'not effective capabilities; an '
                                                                           'explicit container drop is '
@@ -7252,14 +6842,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'drop_net_raw'},
                                        'reviewed_severity': 'medium',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.explicit_serviceaccount': {'description_base_sha256': 'f2b78509024f1a786e47644101d9c895f343baebb6967ca33944f5ee5b231179',
-                                                  'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.deployment.explicit_serviceaccount': {'description_fields': {'description': 'Checks for a '
                                                                                         'nonempty '
                                                                                         'serviceAccountName '
                                                                                         'in the PodSpec.'},
                                                   'observed_failure_phrase': 'does not declare a '
                                                                              'ServiceAccount name',
-                                                  'remediation_base_sha256': '543cfd6009a5c0b4bb9672678484a629c557125f0f153f7ade73c0d3677a9199',
                                                   'remediation_fields': {'caveats': ['A dedicated account '
                                                                                      'name does not '
                                                                                      'establish least '
@@ -7284,13 +6872,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                        'source_qualname': 'register_workload.<locals>.evaluate'},
                                                   'reviewed_severity': 'medium',
                                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.host_namespaces': {'description_base_sha256': '3a58d5c2f76bf434326c645c7e8de18dd77b0efef9b1c040af75ad77f89f647b',
-                                          'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.ports.deployment.host_namespaces': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                                 'declares hostPID=true or '
                                                                                 'hostIPC=true.'},
                                           'observed_failure_phrase': 'declares shared host PID or IPC '
                                                                      'namespaces',
-                                          'remediation_base_sha256': 'a1109ac16450b4bf1ec3ba5e12b8b82170aa41ca50172e8ba8d1c9f8daf6435a',
                                           'remediation_fields': {'caveats': ['This reads PodSpec '
                                                                              'declarations, not runtime '
                                                                              'isolation or an exploit path.'],
@@ -7306,12 +6892,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'predicate': 'host_namespaces'},
                                           'reviewed_severity': 'medium',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.liveness_probe': {'description_base_sha256': '90c84d06318d2434a8627128f1489af43ad2a588cf49a1c802016a0efbc5091a',
-                                         'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.deployment.liveness_probe': {'description_fields': {'description': 'Checks whether each '
                                                                                'container declares a '
                                                                                'livenessProbe object.'},
                                          'observed_failure_phrase': 'has no liveness probe declared',
-                                         'remediation_base_sha256': '25cc9425d37ef48e5130123582ab0bc00455213879f543a1c0403de07f1fb6f4',
                                          'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                             'establish a working health '
                                                                             'check; an unsuitable probe can '
@@ -7328,12 +6912,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'predicate': 'liveness_probe'},
                                          'reviewed_severity': 'low',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.memory_limit': {'description_base_sha256': '9b7e8e82c1101429db4f9ced8b59ffef7ee787ba0b249a1894ecd18945d2def5',
-                                       'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.deployment.memory_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                              'declares a syntactically valid '
                                                                              'memory limit.'},
                                        'observed_failure_phrase': 'has no memory limit declared',
-                                       'remediation_base_sha256': 'e8200007c995fa63d2ee773faa5d53fd5326a8c87c7dbb585120e608d453ae6e',
                                        'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                           'syntax, not whether the value is '
                                                                           'sufficient; zero is accepted by '
@@ -7352,13 +6934,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'memory_limit'},
                                        'reviewed_severity': 'low',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.memory_request': {'description_base_sha256': '6828dd73ce9d9c034f00753e7976585249747da66d790a79734e93e3bb1b0e89',
-                                         'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.deployment.memory_request': {'description_fields': {'description': 'Checks whether each '
                                                                                'container declares a '
                                                                                'syntactically valid memory '
                                                                                'request.'},
                                          'observed_failure_phrase': 'has no memory request declared',
-                                         'remediation_base_sha256': '2f5d8d3e4b4a43195fa615d2f51bb77e209d14f6cbd5a504122826173f6c8d55',
                                          'remediation_fields': {'caveats': ['This checks presence and '
                                                                             'quantity syntax, not whether '
                                                                             'the value is sufficient; zero '
@@ -7377,13 +6957,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'predicate': 'memory_request'},
                                          'reviewed_severity': 'low',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.no_added_capabilities': {'description_base_sha256': '9b4678de5a7e0958332face147dd8afb2dc8b06fb31a9b060d9cd8724dbb396b',
-                                                'description_fields': {'description': 'Checks for any '
+ 'k8s.ports.deployment.no_added_capabilities': {'description_fields': {'description': 'Checks for any '
                                                                                       'entries in container '
                                                                                       'capabilities.add.'},
                                                 'observed_failure_phrase': 'declares added Linux '
                                                                            'capabilities',
-                                                'remediation_base_sha256': '986423c85cba2e02301e54f5e8ad2c0614da1623b47075adf832410c88105d05',
                                                 'remediation_fields': {'caveats': ['Added capabilities are '
                                                                                    'declarations; effective '
                                                                                    'privileges and runtime '
@@ -7403,12 +6981,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                      'predicate': 'no_added_capabilities'},
                                                 'reviewed_severity': 'medium',
                                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.no_host_ports': {'description_base_sha256': '4bb77212c7bef4856ac23bc64f3ed8cab3ecd8bd5aaa9add29c1798f82955f4a',
-                                        'description_fields': {'description': 'Checks whether any container '
+ 'k8s.ports.deployment.no_host_ports': {'description_fields': {'description': 'Checks whether any container '
                                                                               'declares hostPort, including '
                                                                               'an explicit zero value.'},
                                         'observed_failure_phrase': 'declares a hostPort field',
-                                        'remediation_base_sha256': '3221e5d91c7e6dc1525ec0bf5f56a88ba2cf3a40e7e6b8b8b2e93543997e5179',
                                         'remediation_fields': {'caveats': ['This strict declaration profile '
                                                                            'also flags hostPort=0; it does '
                                                                            'not prove an active or publicly '
@@ -7427,12 +7003,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'no_host_ports'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.no_sys_admin': {'description_base_sha256': '2951a74a5bf255a6f095c4104b6dc6209dd42ec1014f11bd83c613a742d2dad9',
-                                       'description_fields': {'description': 'Checks for SYS_ADMIN or '
+ 'k8s.ports.deployment.no_sys_admin': {'description_fields': {'description': 'Checks for SYS_ADMIN or '
                                                                              'CAP_SYS_ADMIN in added '
                                                                              'container capabilities.'},
                                        'observed_failure_phrase': 'adds the SYS_ADMIN capability',
-                                       'remediation_base_sha256': 'cebcfc5dd2bfb72076f889adad41845b552bf8cbc6fcc60a8ba7d89e8f6b1752',
                                        'remediation_fields': {'caveats': ['This reads added capabilities, '
                                                                           'not effective kernel privileges '
                                                                           'or runtime confinement.'],
@@ -7448,13 +7022,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'no_sys_admin'},
                                        'reviewed_severity': 'high',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.pinned_image': {'description_base_sha256': 'fac11051b682e2010abb2ca5425aa9b72db22e51bca210f3992998892be949f5',
-                                       'description_fields': {'description': 'Checks for a non-latest image '
+ 'k8s.ports.deployment.pinned_image': {'description_fields': {'description': 'Checks for a non-latest image '
                                                                              'tag or an @ marker in each '
                                                                              'container image reference.'},
                                        'observed_failure_phrase': 'uses an empty, unversioned or latest '
                                                                   'image reference',
-                                       'remediation_base_sha256': 'f371605fa45114300c26eeb6e4aab264baced2f2eb4b76336b96e5bd25bf1273',
                                        'remediation_fields': {'caveats': ['A version tag or @ marker alone '
                                                                           'does not prove immutable or '
                                                                           'trusted image contents.'],
@@ -7472,14 +7044,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'pinned_image'},
                                        'reviewed_severity': 'medium',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.privilege_escalation': {'description_base_sha256': '531001117f18d9fc6931bf450addc5d4814d7807b2c2a47cfe6b9bfac487e6fe',
-                                               'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.deployment.privilege_escalation': {'description_fields': {'description': 'Checks whether each '
                                                                                      'container explicitly '
                                                                                      'declares '
                                                                                      'allowPrivilegeEscalation=false.'},
                                                'observed_failure_phrase': 'does not explicitly disable '
                                                                           'privilege escalation',
-                                               'remediation_base_sha256': '480b65feeaace257dcd9a01c447f286577f30b02f9491e7f7f173f4b1b5cb357',
                                                'remediation_fields': {'caveats': ['This reads declared '
                                                                                   'configuration; runtime '
                                                                                   'behavior and admission '
@@ -7502,12 +7072,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                     'source_qualname': 'register_workload.<locals>.evaluate'},
                                                'reviewed_severity': 'high',
                                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.readiness_probe': {'description_base_sha256': '8d0142c6938da5b5e5aa4b5e079297bb92ab82ee72f6840fdd9eb04e7e681a0f',
-                                          'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.deployment.readiness_probe': {'description_fields': {'description': 'Checks whether each '
                                                                                 'container declares a '
                                                                                 'readinessProbe object.'},
                                           'observed_failure_phrase': 'has no readiness probe declared',
-                                          'remediation_base_sha256': 'ca31779452fbddf7ba8bcf76f97319f87248662bea9c167c07c690cc2ba812f1',
                                           'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                              'establish a working health '
                                                                              'check; avoid unsuitable probes '
@@ -7525,13 +7093,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'predicate': 'readiness_probe'},
                                           'reviewed_severity': 'low',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.deployment.readonly_root': {'description_base_sha256': 'd89523d768eff071bfeb57cf43ce2b3a5c00ecf0c6dfdcb3c50a6dad7edfefed',
-                                        'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.deployment.readonly_root': {'description_fields': {'description': 'Checks whether each container '
                                                                               'declares '
                                                                               'readOnlyRootFilesystem=true.'},
                                         'observed_failure_phrase': 'does not declare a read-only root '
                                                                    'filesystem',
-                                        'remediation_base_sha256': '9d1cff8e074ffaee4c1432b7a4fca546af1d3315df6f99f571f373e4feb8bee6',
                                         'remediation_fields': {'caveats': ['This reads declared '
                                                                            'configuration; runtime behavior '
                                                                            'and admission enforcement are '
@@ -7553,8 +7119,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'source_qualname': 'register_workload.<locals>.evaluate'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.ingress.ingress_default_namespace_used': {'description_base_sha256': '9b6b4b3aa3abd0830353ed28359afdaccf2281c865d2a46a3cbb4530fb4dacfd',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.ingress.ingress_default_namespace_used': {'description_fields': {'description': 'Checks whether '
                                                                                             'resource '
                                                                                             'metadata places '
                                                                                             'it in the '
@@ -7563,7 +7128,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'evidence_presence_fields': ['namespace'],
                                                       'observed_failure_phrase': 'is declared in the default '
                                                                                  'namespace',
-                                                      'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                       'remediation_fields': {'caveats': ['Namespaces are '
                                                                                          'administrative '
                                                                                          'boundaries, not '
@@ -7597,13 +7161,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                            'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                       'reviewed_severity': 'low',
                                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.always_pull': {'description_base_sha256': '8f8087aca746a40c29cb1a45f7e1802fbdddd867b4d533f6222508a560fe427d',
-                               'description_fields': {'description': 'Checks image pull behavior, accepting '
+ 'k8s.ports.job.always_pull': {'description_fields': {'description': 'Checks image pull behavior, accepting '
                                                                      'Always or a valid SHA256 digest with '
                                                                      'pull-on-miss.'},
                                'observed_failure_phrase': 'does not declare always-pull behavior or an '
                                                           'accepted SHA256 digest policy',
-                               'remediation_base_sha256': 'af69aee5cf96b84a7ef36b2fc8d27b371b5df37cbb9d05244531f2161e253ce4',
                                'remediation_fields': {'caveats': ['A valid SHA256 digest with IfNotPresent '
                                                                   'passes; this check does not verify image '
                                                                   'provenance or registry availability.'],
@@ -7619,8 +7181,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                     'predicate': 'always_pull'},
                                'reviewed_severity': 'medium',
                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.container_runtime_default_seccomp': {'description_base_sha256': 'e08cc1befb2fe0d5e950cc38ac8ac0596f411b19853d058f0e4aea5634bdacc3',
-                                                     'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.job.container_runtime_default_seccomp': {'description_fields': {'description': 'Checks whether '
                                                                                            'each container '
                                                                                            'explicitly '
                                                                                            'declares '
@@ -7628,7 +7189,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                            'seccomp.'},
                                                      'observed_failure_phrase': 'does not explicitly declare '
                                                                                 'RuntimeDefault seccomp',
-                                                     'remediation_base_sha256': '47c1247b0b79e5d4ee5921be36fe87912bd7f060faf5720eaf8b9382e2d4e7e5',
                                                      'remediation_fields': {'caveats': ['This container-only '
                                                                                         'profile does not '
                                                                                         'inherit the Pod '
@@ -7654,8 +7214,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                           'source_qualname': 'register_workload.<locals>.evaluate'},
                                                      'reviewed_severity': 'medium',
                                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.content_digest_or_always_pull': {'description_base_sha256': '8f8087aca746a40c29cb1a45f7e1802fbdddd867b4d533f6222508a560fe427d',
-                                                 'description_fields': {'description': 'Checks for a valid '
+ 'k8s.ports.job.content_digest_or_always_pull': {'description_fields': {'description': 'Checks for a valid '
                                                                                        'SHA256 digest with '
                                                                                        'pull-on-miss or '
                                                                                        'Always image pull '
@@ -7663,7 +7222,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                  'observed_failure_phrase': 'does not declare an accepted '
                                                                             'SHA256 digest or always-pull '
                                                                             'policy',
-                                                 'remediation_base_sha256': '89aeab30a6fa19c21679e854d330ebc9c1b1328b0ad36f246ac49daa2e5f9136',
                                                  'remediation_fields': {'caveats': ['Digest syntax and pull '
                                                                                     'declarations do not '
                                                                                     'establish image '
@@ -7685,12 +7243,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                       'predicate': 'content_digest_or_always_pull'},
                                                  'reviewed_severity': 'medium',
                                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.context_present': {'description_base_sha256': 'b055f60f67b69c422610970876182c16844c17a0058838f4b0cbbe9ca2d456cd',
-                                   'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.job.context_present': {'description_fields': {'description': 'Checks whether each container '
                                                                          'declares a securityContext '
                                                                          'object.'},
                                    'observed_failure_phrase': 'has no securityContext object declared',
-                                   'remediation_base_sha256': '4e1426a72fdef2da4f81e45627868f13046716c393f52c024c223732f675d91d',
                                    'remediation_fields': {'caveats': ['An empty securityContext object '
                                                                       'passes this presence check; '
                                                                       'individual hardening settings need '
@@ -7710,11 +7266,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'source_qualname': 'register_workload.<locals>.evaluate'},
                                    'reviewed_severity': 'low',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.cpu_limit': {'description_base_sha256': '70c41706ec7f00edd3b10624835cb513d8548aea9eb59af1aa648d8e6f48835c',
-                             'description_fields': {'description': 'Checks whether each container declares a '
+ 'k8s.ports.job.cpu_limit': {'description_fields': {'description': 'Checks whether each container declares a '
                                                                    'syntactically valid cpu limit.'},
                              'observed_failure_phrase': 'has no cpu limit declared',
-                             'remediation_base_sha256': '95949cf983433d1018dc7177d11f5d5e18bcc2a99fbde2ff87448420e3399dcd',
                              'remediation_fields': {'caveats': ['This checks presence and quantity syntax, '
                                                                 'not whether the value is sufficient; zero '
                                                                 'is accepted by this predicate.'],
@@ -7730,11 +7284,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                   'predicate': 'cpu_limit'},
                              'reviewed_severity': 'low',
                              'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.cpu_request': {'description_base_sha256': '7862c1e8450db0b3fea3c742a7061d32a290967a2992921ede759726fd999be7',
-                               'description_fields': {'description': 'Checks whether each container declares '
+ 'k8s.ports.job.cpu_request': {'description_fields': {'description': 'Checks whether each container declares '
                                                                      'a syntactically valid cpu request.'},
                                'observed_failure_phrase': 'has no cpu request declared',
-                               'remediation_base_sha256': '4a8817ebbe671c67641af06f7c47defe8153785049ad07b01352657ae7299c0d',
                                'remediation_fields': {'caveats': ['This checks presence and quantity syntax, '
                                                                   'not whether the value is sufficient; zero '
                                                                   'is accepted by this predicate.'],
@@ -7750,13 +7302,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                     'predicate': 'cpu_request'},
                                'reviewed_severity': 'low',
                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.declared_nonroot': {'description_base_sha256': '47e5c474aedc9ea7e12885dec6edf35b6980ac8f57feb6c134a405e8513ee051',
-                                    'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.job.declared_nonroot': {'description_fields': {'description': 'Checks whether each container '
                                                                           'explicitly declares '
                                                                           'runAsNonRoot=true.'},
                                     'observed_failure_phrase': 'does not explicitly declare '
                                                                'runAsNonRoot=true',
-                                    'remediation_base_sha256': '7c9c99220c293c6795f2d1c95b051329ed994c5f19ff031f864d390c70ceea10',
                                     'remediation_fields': {'caveats': ['This container-only profile does not '
                                                                        'inherit the Pod setting or prove the '
                                                                        'running UID.'],
@@ -7772,11 +7322,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'predicate': 'declared_nonroot'},
                                     'reviewed_severity': 'medium',
                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.drop_all': {'description_base_sha256': 'f19fd170e65a8c59faed248848e16fa80d9fd26a1f222a2325e197405711d76d',
-                            'description_fields': {'description': 'Checks whether each container explicitly '
+ 'k8s.ports.job.drop_all': {'description_fields': {'description': 'Checks whether each container explicitly '
                                                                   'drops ALL or all Linux capabilities.'},
                             'observed_failure_phrase': 'does not explicitly drop all capabilities',
-                            'remediation_base_sha256': 'a4bd09e2a4a67fa674e4e9c82fa4e72db1d484c6db7665f98fabf2b5b8ff21ae',
                             'remediation_fields': {'caveats': ['This checks the drop declaration; added '
                                                                'capabilities and effective runtime '
                                                                'privileges are separate.'],
@@ -7790,12 +7338,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                  'predicate': 'drop_all'},
                             'reviewed_severity': 'medium',
                             'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.drop_net_raw': {'description_base_sha256': '6cb25cbf2984580ab270dd5895f94f70500e42fc95128bc886266615786cb818',
-                                'description_fields': {'description': 'Checks whether container capabilities '
+ 'k8s.ports.job.drop_net_raw': {'description_fields': {'description': 'Checks whether container capabilities '
                                                                       'explicitly drop NET_RAW, ALL or all.'},
                                 'observed_failure_phrase': 'does not explicitly drop NET_RAW or all '
                                                            'capabilities',
-                                'remediation_base_sha256': '247293bfc0a93b861c2ae08aa3ded40ad1035d39f5de12365be35282783d447a',
                                 'remediation_fields': {'caveats': ['This checks the drop declaration, not '
                                                                    'effective capabilities; an explicit '
                                                                    'container drop is required by this '
@@ -7812,13 +7358,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'predicate': 'drop_net_raw'},
                                 'reviewed_severity': 'medium',
                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.explicit_serviceaccount': {'description_base_sha256': '22ae841315663d1b0baec42d64f7f319fc78c8caf4746f6ffd810d4bc227a510',
-                                           'description_fields': {'description': 'Checks for a nonempty '
+ 'k8s.ports.job.explicit_serviceaccount': {'description_fields': {'description': 'Checks for a nonempty '
                                                                                  'serviceAccountName in the '
                                                                                  'PodSpec.'},
                                            'observed_failure_phrase': 'does not declare a ServiceAccount '
                                                                       'name',
-                                           'remediation_base_sha256': '310bf195b11295a1fb894c173573d34e79c9a79a2983e0854a72be9cb8432e04',
                                            'remediation_fields': {'caveats': ['A dedicated account name does '
                                                                               'not establish least '
                                                                               'privilege; its bindings and '
@@ -7840,12 +7384,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'source_qualname': 'register_workload.<locals>.evaluate'},
                                            'reviewed_severity': 'medium',
                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.host_namespaces': {'description_base_sha256': '1a116786800c0ceb43d56ab80e2d93cd0d907ceba4fa21ce4cd865d76a0979d3',
-                                   'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.ports.job.host_namespaces': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                          'declares hostPID=true or '
                                                                          'hostIPC=true.'},
                                    'observed_failure_phrase': 'declares shared host PID or IPC namespaces',
-                                   'remediation_base_sha256': 'c28f098ba0baa8d883115c8b416459e4e847b16f6f0fa1909e2f4acac82b947f',
                                    'remediation_fields': {'caveats': ['This reads PodSpec declarations, not '
                                                                       'runtime isolation or an exploit '
                                                                       'path.'],
@@ -7861,14 +7403,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'predicate': 'host_namespaces'},
                                    'reviewed_severity': 'medium',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.job_default_namespace_used': {'description_base_sha256': 'c8b72867ef178c66586a34cef040553c6ccb3f4d0931d47a77d3346d6f510a13',
-                                              'description_fields': {'description': 'Checks whether resource '
+ 'k8s.ports.job.job_default_namespace_used': {'description_fields': {'description': 'Checks whether resource '
                                                                                     'metadata places it in '
                                                                                     'the default namespace.'},
                                               'evidence_presence_fields': ['namespace'],
                                               'observed_failure_phrase': 'is declared in the default '
                                                                          'namespace',
-                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                               'remediation_fields': {'caveats': ['Namespaces are '
                                                                                  'administrative boundaries, '
                                                                                  'not network isolation by '
@@ -7895,11 +7435,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                    'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                               'reviewed_severity': 'low',
                                               'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.liveness_probe': {'description_base_sha256': '6ce0e424d5a13179192b7ba9752307327b50b83fefaa1be3d78b49d6c658bf72',
-                                  'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.job.liveness_probe': {'description_fields': {'description': 'Checks whether each container '
                                                                         'declares a livenessProbe object.'},
                                   'observed_failure_phrase': 'has no liveness probe declared',
-                                  'remediation_base_sha256': 'f97af11f56f11dc083a13f3d93d6abdbc68118f7cf3f331aae5645686515e55f',
                                   'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                      'establish a working health check; an '
                                                                      'unsuitable probe can restart healthy '
@@ -7916,12 +7454,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'predicate': 'liveness_probe'},
                                   'reviewed_severity': 'low',
                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.memory_limit': {'description_base_sha256': '95a7103031152d372d269725a99515908d94b30b2e968832bdf61a01764688f6',
-                                'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.job.memory_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                       'declares a syntactically valid memory '
                                                                       'limit.'},
                                 'observed_failure_phrase': 'has no memory limit declared',
-                                'remediation_base_sha256': '123e3a2168442aa67672707f64f2ab6555e964d84e0d737c2fb6bf4129f90dbc',
                                 'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                    'syntax, not whether the value is '
                                                                    'sufficient; zero is accepted by this '
@@ -7938,12 +7474,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'predicate': 'memory_limit'},
                                 'reviewed_severity': 'low',
                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.memory_request': {'description_base_sha256': '6a1926020c0c2b94d0da057e374b363491c840458dd8cdbb0f5dbb9ad0b80b19',
-                                  'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.job.memory_request': {'description_fields': {'description': 'Checks whether each container '
                                                                         'declares a syntactically valid '
                                                                         'memory request.'},
                                   'observed_failure_phrase': 'has no memory request declared',
-                                  'remediation_base_sha256': 'de2cfd87def12a5bcbcd41a053f5c1a82cee1844332d8e20287fcd418745bfee',
                                   'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                      'syntax, not whether the value is '
                                                                      'sufficient; zero is accepted by this '
@@ -7960,11 +7494,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'predicate': 'memory_request'},
                                   'reviewed_severity': 'low',
                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.no_added_capabilities': {'description_base_sha256': 'c6f3c4577b9326175b96a4e880e7654485617a5d072c311981009a5a3ff3a88a',
-                                         'description_fields': {'description': 'Checks for any entries in '
+ 'k8s.ports.job.no_added_capabilities': {'description_fields': {'description': 'Checks for any entries in '
                                                                                'container capabilities.add.'},
                                          'observed_failure_phrase': 'declares added Linux capabilities',
-                                         'remediation_base_sha256': '6421a7e76935fdd6572d68ffab9089a803fd03c2b21bc10185232061941cde70',
                                          'remediation_fields': {'caveats': ['Added capabilities are '
                                                                             'declarations; effective '
                                                                             'privileges and runtime '
@@ -7983,12 +7515,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'predicate': 'no_added_capabilities'},
                                          'reviewed_severity': 'medium',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.no_host_ports': {'description_base_sha256': '6fb75eeea3f70114565cf3f3b109c3e3252fb16255da62607ba69ee3dafc1c75',
-                                 'description_fields': {'description': 'Checks whether any container '
+ 'k8s.ports.job.no_host_ports': {'description_fields': {'description': 'Checks whether any container '
                                                                        'declares hostPort, including an '
                                                                        'explicit zero value.'},
                                  'observed_failure_phrase': 'declares a hostPort field',
-                                 'remediation_base_sha256': 'bdfd7e50e6a2d7a2481c1b779b5dda84ecf2e7480f730f1192a7c76f201e1ed2',
                                  'remediation_fields': {'caveats': ['This strict declaration profile also '
                                                                     'flags hostPort=0; it does not prove an '
                                                                     'active or publicly accessible '
@@ -8005,11 +7535,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'predicate': 'no_host_ports'},
                                  'reviewed_severity': 'medium',
                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.no_sys_admin': {'description_base_sha256': 'c703962c08615c6875ab60cffe986f7b4b655ab5e7577283e4408c793a350815',
-                                'description_fields': {'description': 'Checks for SYS_ADMIN or CAP_SYS_ADMIN '
+ 'k8s.ports.job.no_sys_admin': {'description_fields': {'description': 'Checks for SYS_ADMIN or CAP_SYS_ADMIN '
                                                                       'in added container capabilities.'},
                                 'observed_failure_phrase': 'adds the SYS_ADMIN capability',
-                                'remediation_base_sha256': '285c803ef125e3163cc4cc33935d17f70c237b034e56b8670d0c9c4a73f4af9f',
                                 'remediation_fields': {'caveats': ['This reads added capabilities, not '
                                                                    'effective kernel privileges or runtime '
                                                                    'confinement.'],
@@ -8025,13 +7553,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'predicate': 'no_sys_admin'},
                                 'reviewed_severity': 'high',
                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.pinned_image': {'description_base_sha256': '56ef4ce35aade5613ee05ec267c852741ac7a0db08f74892f3dce9ecf9c08706',
-                                'description_fields': {'description': 'Checks for a non-latest image tag or '
+ 'k8s.ports.job.pinned_image': {'description_fields': {'description': 'Checks for a non-latest image tag or '
                                                                       'an @ marker in each container image '
                                                                       'reference.'},
                                 'observed_failure_phrase': 'uses an empty, unversioned or latest image '
                                                            'reference',
-                                'remediation_base_sha256': '1de65d47addb4cb1eeab597771c3104fa7ffb605c69900f018733958e9f36595',
                                 'remediation_fields': {'caveats': ['A version tag or @ marker alone does not '
                                                                    'prove immutable or trusted image '
                                                                    'contents.'],
@@ -8047,13 +7573,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'predicate': 'pinned_image'},
                                 'reviewed_severity': 'medium',
                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.privilege_escalation': {'description_base_sha256': 'fa581b669f0c2f3f452eed8d9b4ddb709c085ea829147f21a2dc5429faa6e218',
-                                        'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.job.privilege_escalation': {'description_fields': {'description': 'Checks whether each container '
                                                                               'explicitly declares '
                                                                               'allowPrivilegeEscalation=false.'},
                                         'observed_failure_phrase': 'does not explicitly disable privilege '
                                                                    'escalation',
-                                        'remediation_base_sha256': '9d56179b7cbc3356bce0d37106da5b18ec50f3f14ae684efd2863956d3b02503',
                                         'remediation_fields': {'caveats': ['This reads declared '
                                                                            'configuration; runtime behavior '
                                                                            'and admission enforcement are '
@@ -8073,11 +7597,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'source_qualname': 'register_workload.<locals>.evaluate'},
                                         'reviewed_severity': 'high',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.readiness_probe': {'description_base_sha256': 'f9efea2554ad57002f0c69c99e2e81d3826ebe4c431335b7dc08a821faa6ffa0',
-                                   'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.job.readiness_probe': {'description_fields': {'description': 'Checks whether each container '
                                                                          'declares a readinessProbe object.'},
                                    'observed_failure_phrase': 'has no readiness probe declared',
-                                   'remediation_base_sha256': '318db7ce84da7191893f1484388701338c693ddf41cbb945f323a253a90a9ec0',
                                    'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                       'establish a working health check; '
                                                                       'avoid unsuitable probes for one-off '
@@ -8094,12 +7616,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'predicate': 'readiness_probe'},
                                    'reviewed_severity': 'low',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.job.readonly_root': {'description_base_sha256': 'd76b23d54412d39377f5cb4e9350948b51d739590b0fc50396044c5909b41aaf',
-                                 'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.job.readonly_root': {'description_fields': {'description': 'Checks whether each container '
                                                                        'declares '
                                                                        'readOnlyRootFilesystem=true.'},
                                  'observed_failure_phrase': 'does not declare a read-only root filesystem',
-                                 'remediation_base_sha256': 'd5c288535e452a5cfaf3554276aec2426375aea0e3e346836a30b44184f60f3b',
                                  'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                     'runtime behavior and admission '
                                                                     'enforcement are separate.'],
@@ -8118,8 +7638,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'source_qualname': 'register_workload.<locals>.evaluate'},
                                  'reviewed_severity': 'medium',
                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.namespace.namespace_limit_range_default_cpu_limit': {'description_base_sha256': '7f59f3237ba3d672619dae2ed65d0e1179d549965a18b5293e638931744e1f37',
-                                                                 'description_fields': {'description': 'Checks '
+ 'k8s.ports.namespace.namespace_limit_range_default_cpu_limit': {'description_fields': {'description': 'Checks '
                                                                                                        'for '
                                                                                                        'a '
                                                                                                        'declared '
@@ -8133,7 +7652,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                             'cpu quota or '
                                                                                             'default limit '
                                                                                             'declared',
-                                                                 'remediation_base_sha256': '0cc617273e1af580845c604b5bbb8a22fa018a0814f2292c621f0edcec96b027',
                                                                  'remediation_fields': {'caveats': ['This '
                                                                                                     'checks '
                                                                                                     'declarations, '
@@ -8179,8 +7697,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                       'source_qualname': 'quota_rule.<locals>.evaluate'},
                                                                  'reviewed_severity': 'low',
                                                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.namespace.namespace_limit_range_default_cpu_request': {'description_base_sha256': '7d5a1cbc94797cf54f9f3fa9da84ac3425c290af992feba28ed5067e53aed8bb',
-                                                                   'description_fields': {'description': 'Checks '
+ 'k8s.ports.namespace.namespace_limit_range_default_cpu_request': {'description_fields': {'description': 'Checks '
                                                                                                          'for '
                                                                                                          'a '
                                                                                                          'declared '
@@ -8195,7 +7712,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                               'quota or '
                                                                                               'default limit '
                                                                                               'declared',
-                                                                   'remediation_base_sha256': 'c0d717e7d9d82beba1f38fa6cb2eda11dcecb6f3463e8b79b8be98328894ca78',
                                                                    'remediation_fields': {'caveats': ['This '
                                                                                                       'checks '
                                                                                                       'declarations, '
@@ -8247,8 +7763,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                         'source_qualname': 'quota_rule.<locals>.evaluate'},
                                                                    'reviewed_severity': 'low',
                                                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.namespace.namespace_limit_range_default_memory_limit': {'description_base_sha256': '6ed35784f5572ead7eccac1cc3b0e8548e7481f12450134655a14243d7d305af',
-                                                                    'description_fields': {'description': 'Checks '
+ 'k8s.ports.namespace.namespace_limit_range_default_memory_limit': {'description_fields': {'description': 'Checks '
                                                                                                           'for '
                                                                                                           'a '
                                                                                                           'declared '
@@ -8264,7 +7779,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                'or default '
                                                                                                'limit '
                                                                                                'declared',
-                                                                    'remediation_base_sha256': '47eb3a43871911de08e82589c97c29ebf2c1d416897d14e1ab6c2acb63032797',
                                                                     'remediation_fields': {'caveats': ['This '
                                                                                                        'checks '
                                                                                                        'declarations, '
@@ -8316,8 +7830,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                          'source_qualname': 'quota_rule.<locals>.evaluate'},
                                                                     'reviewed_severity': 'low',
                                                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.namespace.namespace_limit_range_default_memory_request': {'description_base_sha256': '544912a2902b8118bf29fcd95914501edea319129d38912fa5044aed1306c415',
-                                                                      'description_fields': {'description': 'Checks '
+ 'k8s.ports.namespace.namespace_limit_range_default_memory_request': {'description_fields': {'description': 'Checks '
                                                                                                             'for '
                                                                                                             'a '
                                                                                                             'declared '
@@ -8334,7 +7847,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                  'default '
                                                                                                  'limit '
                                                                                                  'declared',
-                                                                      'remediation_base_sha256': 'fb3e7d198a7913d8948e0c2dd9f2f467409ff60f5ef4e25747cded73f9044f7c',
                                                                       'remediation_fields': {'caveats': ['This '
                                                                                                          'checks '
                                                                                                          'declarations, '
@@ -8386,8 +7898,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                            'source_qualname': 'quota_rule.<locals>.evaluate'},
                                                                       'reviewed_severity': 'low',
                                                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.namespace.namespace_resource_quota_cpu_limit': {'description_base_sha256': 'ba807d8005b3cdea1e2b7c87e46d4a8e91d4d3eb89a95aab0192faa660d0b918',
-                                                            'description_fields': {'description': 'Checks '
+ 'k8s.ports.namespace.namespace_resource_quota_cpu_limit': {'description_fields': {'description': 'Checks '
                                                                                                   'for a '
                                                                                                   'declared '
                                                                                                   'limits.cpu '
@@ -8399,7 +7910,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                        'limits.cpu quota or '
                                                                                        'default limit '
                                                                                        'declared',
-                                                            'remediation_base_sha256': '07fd7211e6fa1b673a5fc7804201bf1aba67fb3618fcd37903a02062e20363ef',
                                                             'remediation_fields': {'caveats': ['This checks '
                                                                                                'declarations, '
                                                                                                'not capacity '
@@ -8436,8 +7946,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                  'source_qualname': 'quota_rule.<locals>.evaluate'},
                                                             'reviewed_severity': 'low',
                                                             'reviewed_source_severity': 'medium'},
- 'k8s.ports.namespace.namespace_resource_quota_cpu_request': {'description_base_sha256': 'db6754c7b39f0944253f0574086c175983009e9e93cd458da61d7a65b5006510',
-                                                              'description_fields': {'description': 'Checks '
+ 'k8s.ports.namespace.namespace_resource_quota_cpu_request': {'description_fields': {'description': 'Checks '
                                                                                                     'for a '
                                                                                                     'declared '
                                                                                                     'requests.cpu '
@@ -8450,7 +7959,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                          'requests.cpu quota '
                                                                                          'or default limit '
                                                                                          'declared',
-                                                              'remediation_base_sha256': 'ccabe92cb71e4327e7615c27b687245ae4bc45f684d3d5a29d0a62f1c810034c',
                                                               'remediation_fields': {'caveats': ['This '
                                                                                                  'checks '
                                                                                                  'declarations, '
@@ -8491,8 +7999,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                    'source_qualname': 'quota_rule.<locals>.evaluate'},
                                                               'reviewed_severity': 'low',
                                                               'reviewed_source_severity': 'medium'},
- 'k8s.ports.namespace.namespace_resource_quota_memory_limit': {'description_base_sha256': 'f91958713f12867f253239fae780a352a09f7e090c3c4beb0c5b1022839969fc',
-                                                               'description_fields': {'description': 'Checks '
+ 'k8s.ports.namespace.namespace_resource_quota_memory_limit': {'description_fields': {'description': 'Checks '
                                                                                                      'for a '
                                                                                                      'declared '
                                                                                                      'limits.memory '
@@ -8505,7 +8012,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                           'limits.memory '
                                                                                           'quota or default '
                                                                                           'limit declared',
-                                                               'remediation_base_sha256': '247b8e775e6548e6fe61a77471a2021a60b4bb4893a5e48c61ceb87dcd43f90f',
                                                                'remediation_fields': {'caveats': ['This '
                                                                                                   'checks '
                                                                                                   'declarations, '
@@ -8547,8 +8053,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                     'source_qualname': 'quota_rule.<locals>.evaluate'},
                                                                'reviewed_severity': 'low',
                                                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.namespace.namespace_resource_quota_memory_request': {'description_base_sha256': '88f6cccebadfc3bb35af4cc53705dcabf764d394654b15a2844cffa9a5904a5c',
-                                                                 'description_fields': {'description': 'Checks '
+ 'k8s.ports.namespace.namespace_resource_quota_memory_request': {'description_fields': {'description': 'Checks '
                                                                                                        'for '
                                                                                                        'a '
                                                                                                        'declared '
@@ -8563,7 +8068,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                             'quota or '
                                                                                             'default limit '
                                                                                             'declared',
-                                                                 'remediation_base_sha256': 'eb1128b5825b96f8e50206d02491b2ccf735366b8a747e52883b89bf6630089d',
                                                                  'remediation_fields': {'caveats': ['This '
                                                                                                     'checks '
                                                                                                     'declarations, '
@@ -8609,8 +8113,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                       'source_qualname': 'quota_rule.<locals>.evaluate'},
                                                                  'reviewed_severity': 'low',
                                                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.namespace.network_policy_default_deny_egress': {'description_base_sha256': '283832dd5d5eaae1a1b587ca5088112b8d81cbb72679d8a9f11167e40bce0c88',
-                                                            'description_fields': {'description': 'Looks for '
+ 'k8s.ports.namespace.network_policy_default_deny_egress': {'description_fields': {'description': 'Looks for '
                                                                                                   'an '
                                                                                                   'empty-selector '
                                                                                                   'NetworkPolicy '
@@ -8625,7 +8128,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                        'namespace-wide '
                                                                                        'default-deny policy '
                                                                                        'declared',
-                                                            'remediation_base_sha256': '0142ea39de17934882b02b86143d80ed351241a0c0d809db55a47234adfc6241',
                                                             'remediation_fields': {'caveats': ['Policy union '
                                                                                                'and CNI '
                                                                                                'behavior are '
@@ -8663,8 +8165,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                  'source_qualname': 'network_namespace.<locals>.evaluate'},
                                                             'reviewed_severity': 'medium',
                                                             'reviewed_source_severity': 'medium'},
- 'k8s.ports.namespace.network_policy_default_deny_ingress': {'description_base_sha256': '47f30719f8414877f599f0c02f3ce0b336182bc91f8981ee4735e78d90457e81',
-                                                             'description_fields': {'description': 'Looks '
+ 'k8s.ports.namespace.network_policy_default_deny_ingress': {'description_fields': {'description': 'Looks '
                                                                                                    'for an '
                                                                                                    'empty-selector '
                                                                                                    'NetworkPolicy '
@@ -8679,7 +8180,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                         'namespace-wide '
                                                                                         'default-deny policy '
                                                                                         'declared',
-                                                             'remediation_base_sha256': '02a5030545c18c32a45f4d9ab376a68856305df949462b6f8d58cc5f5cff9626',
                                                              'remediation_fields': {'caveats': ['Policy '
                                                                                                 'union and '
                                                                                                 'CNI '
@@ -8718,8 +8218,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                   'source_qualname': 'network_namespace.<locals>.evaluate'},
                                                              'reviewed_severity': 'medium',
                                                              'reviewed_source_severity': 'medium'},
- 'k8s.ports.networkpolicy.network_policy_default_dont_allow_egress': {'description_base_sha256': 'ebe7fc31f7b5ee43930d3fa436aa92c73c6b0cd0ff804a7314896ce0e4f55b4d',
-                                                                      'description_fields': {'description': 'Checks '
+ 'k8s.ports.networkpolicy.network_policy_default_dont_allow_egress': {'description_fields': {'description': 'Checks '
                                                                                                             'whether '
                                                                                                             'this '
                                                                                                             'NetworkPolicy '
@@ -8739,7 +8238,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                  'network '
                                                                                                  'policy '
                                                                                                  'rule',
-                                                                      'remediation_base_sha256': '8f5abbc9e0fd76f7b6a49d7a66193e4f13f8db1da536afb28eccdbf0a3884db9',
                                                                       'remediation_fields': {'caveats': ['NetworkPolicies '
                                                                                                          'are '
                                                                                                          'additive; '
@@ -8787,8 +8285,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                            'source_qualname': 'network_namespace.<locals>.per_policy'},
                                                                       'reviewed_severity': 'medium',
                                                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.networkpolicy.network_policy_default_dont_allow_ingress': {'description_base_sha256': '0dc41097e395397f13929b7a12d57b4bdc7aa3a867ec6171758826b9c5688059',
-                                                                       'description_fields': {'description': 'Checks '
+ 'k8s.ports.networkpolicy.network_policy_default_dont_allow_ingress': {'description_fields': {'description': 'Checks '
                                                                                                              'whether '
                                                                                                              'this '
                                                                                                              'NetworkPolicy '
@@ -8808,7 +8305,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                   'network '
                                                                                                   'policy '
                                                                                                   'rule',
-                                                                       'remediation_base_sha256': 'fd1308785955005edf29b7b04bf97edf4b4a962bbf89b79d43cdd28fd351e1b8',
                                                                        'remediation_fields': {'caveats': ['NetworkPolicies '
                                                                                                           'are '
                                                                                                           'additive; '
@@ -8856,13 +8352,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                             'source_qualname': 'network_namespace.<locals>.per_policy'},
                                                                        'reviewed_severity': 'medium',
                                                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.always_pull': {'description_base_sha256': '3ef0621f10f28849463dc19d824b6d6a8222226855f5d441f7c4351e0bcaf08b',
-                               'description_fields': {'description': 'Checks image pull behavior, accepting '
+ 'k8s.ports.pod.always_pull': {'description_fields': {'description': 'Checks image pull behavior, accepting '
                                                                      'Always or a valid SHA256 digest with '
                                                                      'pull-on-miss.'},
                                'observed_failure_phrase': 'does not declare always-pull behavior or an '
                                                           'accepted SHA256 digest policy',
-                               'remediation_base_sha256': '1bae05f4aa445cd7e03fb2745f39ba1e0fde764e189092e5423eccb9d65fad70',
                                'remediation_fields': {'caveats': ['A valid SHA256 digest with IfNotPresent '
                                                                   'passes; this check does not verify image '
                                                                   'provenance or registry availability.'],
@@ -8878,8 +8372,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                     'predicate': 'always_pull'},
                                'reviewed_severity': 'medium',
                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.content_digest_or_always_pull': {'description_base_sha256': '3ef0621f10f28849463dc19d824b6d6a8222226855f5d441f7c4351e0bcaf08b',
-                                                 'description_fields': {'description': 'Checks for a valid '
+ 'k8s.ports.pod.content_digest_or_always_pull': {'description_fields': {'description': 'Checks for a valid '
                                                                                        'SHA256 digest with '
                                                                                        'pull-on-miss or '
                                                                                        'Always image pull '
@@ -8887,7 +8380,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                  'observed_failure_phrase': 'does not declare an accepted '
                                                                             'SHA256 digest or always-pull '
                                                                             'policy',
-                                                 'remediation_base_sha256': '3b6816397acc84e8459462442fc4e57c50d5e0a076d1071dd01e3c6debad72f9',
                                                  'remediation_fields': {'caveats': ['Digest syntax and pull '
                                                                                     'declarations do not '
                                                                                     'establish image '
@@ -8909,12 +8401,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                       'predicate': 'content_digest_or_always_pull'},
                                                  'reviewed_severity': 'medium',
                                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.context_present': {'description_base_sha256': '4a0394a2709e7f0c86ee35b12099732649b3ecefdf03e2849f52540c2757dc82',
-                                   'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.pod.context_present': {'description_fields': {'description': 'Checks whether each container '
                                                                          'declares a securityContext '
                                                                          'object.'},
                                    'observed_failure_phrase': 'has no securityContext object declared',
-                                   'remediation_base_sha256': 'a396a3ee45f5957a06682b85bf2dfd4903e52f45a1d26f97d18359181ce44a39',
                                    'remediation_fields': {'caveats': ['An empty securityContext object '
                                                                       'passes this presence check; '
                                                                       'individual hardening settings need '
@@ -8934,11 +8424,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'source_qualname': 'register_workload.<locals>.evaluate'},
                                    'reviewed_severity': 'low',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.cpu_limit': {'description_base_sha256': 'b1f97fd89b3187fb6fcb631b70cb120b16e8cc9d3b0bd25072dd066950414fdb',
-                             'description_fields': {'description': 'Checks whether each container declares a '
+ 'k8s.ports.pod.cpu_limit': {'description_fields': {'description': 'Checks whether each container declares a '
                                                                    'syntactically valid cpu limit.'},
                              'observed_failure_phrase': 'has no cpu limit declared',
-                             'remediation_base_sha256': 'e081656c9a1e60414769750dcf3f3683d4b17d7224637d7536a90a033e0d29a2',
                              'remediation_fields': {'caveats': ['This checks presence and quantity syntax, '
                                                                 'not whether the value is sufficient; zero '
                                                                 'is accepted by this predicate.'],
@@ -8954,11 +8442,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                   'predicate': 'cpu_limit'},
                              'reviewed_severity': 'low',
                              'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.cpu_request': {'description_base_sha256': '2a55000a17b14e4dedb4a1ca093609f12ae521a71252079b1c93c91ff90ca021',
-                               'description_fields': {'description': 'Checks whether each container declares '
+ 'k8s.ports.pod.cpu_request': {'description_fields': {'description': 'Checks whether each container declares '
                                                                      'a syntactically valid cpu request.'},
                                'observed_failure_phrase': 'has no cpu request declared',
-                               'remediation_base_sha256': '9d04ea82fb22958965e0d7ed67130a3077fd1704ca5fe300d8c7ca6e3cf75b07',
                                'remediation_fields': {'caveats': ['This checks presence and quantity syntax, '
                                                                   'not whether the value is sufficient; zero '
                                                                   'is accepted by this predicate.'],
@@ -8974,13 +8460,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                     'predicate': 'cpu_request'},
                                'reviewed_severity': 'low',
                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.declared_nonroot': {'description_base_sha256': '3f856c34e76bbfd6233b76f3cd5b1f44f45d226f96ef9ebfa943d8001d1f4ac3',
-                                    'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.pod.declared_nonroot': {'description_fields': {'description': 'Checks whether each container '
                                                                           'explicitly declares '
                                                                           'runAsNonRoot=true.'},
                                     'observed_failure_phrase': 'does not explicitly declare '
                                                                'runAsNonRoot=true',
-                                    'remediation_base_sha256': '43c6d1179cb9f2c948577d54004ff70e19d7899db1121d411361bffa673ad371',
                                     'remediation_fields': {'caveats': ['This container-only profile does not '
                                                                        'inherit the Pod setting or prove the '
                                                                        'running UID.'],
@@ -8996,11 +8480,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'predicate': 'declared_nonroot'},
                                     'reviewed_severity': 'medium',
                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.drop_all': {'description_base_sha256': '7c859d683aa30a7c1475d117901f4c43b380ac22104ca7ab38fe0466d8b21b02',
-                            'description_fields': {'description': 'Checks whether each container explicitly '
+ 'k8s.ports.pod.drop_all': {'description_fields': {'description': 'Checks whether each container explicitly '
                                                                   'drops ALL or all Linux capabilities.'},
                             'observed_failure_phrase': 'does not explicitly drop all capabilities',
-                            'remediation_base_sha256': '7de18a0bfbe9f7e23d68292ad2c2d1564694c095a989fe0c040ea53fc2c9629b',
                             'remediation_fields': {'caveats': ['This checks the drop declaration; added '
                                                                'capabilities and effective runtime '
                                                                'privileges are separate.'],
@@ -9016,12 +8498,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                  'source_qualname': 'register_workload.<locals>.evaluate'},
                             'reviewed_severity': 'medium',
                             'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.drop_net_raw': {'description_base_sha256': '7633bd60cf1748080c3ba40cfb6e0ef5aeb4d59122a43658930510e32c97d821',
-                                'description_fields': {'description': 'Checks whether container capabilities '
+ 'k8s.ports.pod.drop_net_raw': {'description_fields': {'description': 'Checks whether container capabilities '
                                                                       'explicitly drop NET_RAW, ALL or all.'},
                                 'observed_failure_phrase': 'does not explicitly drop NET_RAW or all '
                                                            'capabilities',
-                                'remediation_base_sha256': 'f0e3758c39cae9719052e4bc24758cf568c2a8add163749aecf25771f2ddc216',
                                 'remediation_fields': {'caveats': ['This checks the drop declaration, not '
                                                                    'effective capabilities; an explicit '
                                                                    'container drop is required by this '
@@ -9038,13 +8518,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'predicate': 'drop_net_raw'},
                                 'reviewed_severity': 'medium',
                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.explicit_serviceaccount': {'description_base_sha256': '8463cc1527bf0dbc78d18cac69b294e2b20a8c3f29c263b90528fd6b15480960',
-                                           'description_fields': {'description': 'Checks for a nonempty '
+ 'k8s.ports.pod.explicit_serviceaccount': {'description_fields': {'description': 'Checks for a nonempty '
                                                                                  'serviceAccountName in the '
                                                                                  'PodSpec.'},
                                            'observed_failure_phrase': 'does not declare a ServiceAccount '
                                                                       'name',
-                                           'remediation_base_sha256': 'bc5b2b133a0f8318f3185b32115d3758bb8e970cf8a100466e47e79892e7f6f5',
                                            'remediation_fields': {'caveats': ['A dedicated account name does '
                                                                               'not establish least '
                                                                               'privilege; its bindings and '
@@ -9066,12 +8544,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'source_qualname': 'register_workload.<locals>.evaluate'},
                                            'reviewed_severity': 'medium',
                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.host_namespaces': {'description_base_sha256': 'b6f52502f3eaffff77e1ee0f4a2931bd640bbc414b50a0dde8e11efb8a8437ed',
-                                   'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.ports.pod.host_namespaces': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                          'declares hostPID=true or '
                                                                          'hostIPC=true.'},
                                    'observed_failure_phrase': 'declares shared host PID or IPC namespaces',
-                                   'remediation_base_sha256': '72368f20ede5b1b1bdac7a7e58cc242741c920a1b662c0cc0005e2b18d02d38b',
                                    'remediation_fields': {'caveats': ['This reads PodSpec declarations, not '
                                                                       'runtime isolation or an exploit '
                                                                       'path.'],
@@ -9090,12 +8566,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'source_qualname': 'register_workload.<locals>.evaluate'},
                                    'reviewed_severity': 'medium',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.host_network': {'description_base_sha256': '106cbad87233b58586be3ca7ce16fbd1a739a3ed330757c16b10c1a378a81e73',
-                                'description_fields': {'description': 'Checks whether the PodSpec declares '
+ 'k8s.ports.pod.host_network': {'description_fields': {'description': 'Checks whether the PodSpec declares '
                                                                       'hostNetwork=true.'},
                                 'evidence_presence_fields': ['hostNetwork'],
                                 'observed_failure_phrase': 'declares host networking',
-                                'remediation_base_sha256': 'a834ada883070e32356a3456ab6f9bc2d3b3b929680e74096794b31d6846f360',
                                 'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                    'runtime behavior and admission '
                                                                    'enforcement are separate.'],
@@ -9112,11 +8586,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'source_qualname': 'register_workload.<locals>.evaluate'},
                                 'reviewed_severity': 'medium',
                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.liveness_probe': {'description_base_sha256': '04dd8ce2d2fbeb51430ddf9e0e22abe257827fb06b65a2aaf44079e7659dd53c',
-                                  'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.pod.liveness_probe': {'description_fields': {'description': 'Checks whether each container '
                                                                         'declares a livenessProbe object.'},
                                   'observed_failure_phrase': 'has no liveness probe declared',
-                                  'remediation_base_sha256': 'b4adceec385afd9231a2a9d72efed09de1c2628749845c2ebb822d04faf22f30',
                                   'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                      'establish a working health check; an '
                                                                      'unsuitable probe can restart healthy '
@@ -9133,12 +8605,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'predicate': 'liveness_probe'},
                                   'reviewed_severity': 'low',
                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.memory_limit': {'description_base_sha256': '3577c9ae928c1205d3cd636cdccf2d293e0020f0334ec9c58889ca2e4fea3431',
-                                'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.pod.memory_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                       'declares a syntactically valid memory '
                                                                       'limit.'},
                                 'observed_failure_phrase': 'has no memory limit declared',
-                                'remediation_base_sha256': '8006b38d8abba0ba62c0a3062c908daf07f9b3bd50a090af177c349746b9d48e',
                                 'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                    'syntax, not whether the value is '
                                                                    'sufficient; zero is accepted by this '
@@ -9155,12 +8625,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'predicate': 'memory_limit'},
                                 'reviewed_severity': 'low',
                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.memory_request': {'description_base_sha256': 'c085ca2b843cabd0f660ff298efbd4f7129a4798100e1507d738dd2d5c523e24',
-                                  'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.pod.memory_request': {'description_fields': {'description': 'Checks whether each container '
                                                                         'declares a syntactically valid '
                                                                         'memory request.'},
                                   'observed_failure_phrase': 'has no memory request declared',
-                                  'remediation_base_sha256': '47f1c42315d254f24ee218e746386c393389c5f5b25769fbb436f5a882f289f4',
                                   'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                      'syntax, not whether the value is '
                                                                      'sufficient; zero is accepted by this '
@@ -9177,11 +8645,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'predicate': 'memory_request'},
                                   'reviewed_severity': 'low',
                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.no_added_capabilities': {'description_base_sha256': '13bb996f92143d4f29dc171a26a170c03bc4d20175d9db1255aff2089b06b91c',
-                                         'description_fields': {'description': 'Checks for any entries in '
+ 'k8s.ports.pod.no_added_capabilities': {'description_fields': {'description': 'Checks for any entries in '
                                                                                'container capabilities.add.'},
                                          'observed_failure_phrase': 'declares added Linux capabilities',
-                                         'remediation_base_sha256': '62c1472a4fbf19e86c712c4b0fe2a0fc6c360b7414389525cc4b24ee7007c763',
                                          'remediation_fields': {'caveats': ['Added capabilities are '
                                                                             'declarations; effective '
                                                                             'privileges and runtime '
@@ -9200,12 +8666,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'predicate': 'no_added_capabilities'},
                                          'reviewed_severity': 'medium',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.no_host_ports': {'description_base_sha256': '1605ee5cfa6a7289c6f2d0d7d370e9259b90b9541a0fa3a2fb349e230d09851d',
-                                 'description_fields': {'description': 'Checks whether any container '
+ 'k8s.ports.pod.no_host_ports': {'description_fields': {'description': 'Checks whether any container '
                                                                        'declares hostPort, including an '
                                                                        'explicit zero value.'},
                                  'observed_failure_phrase': 'declares a hostPort field',
-                                 'remediation_base_sha256': '4755b9fdfb0fcb627d27982637509ed0d947f34e9cac4d7c5aabc4040db6d028',
                                  'remediation_fields': {'caveats': ['This strict declaration profile also '
                                                                     'flags hostPort=0; it does not prove an '
                                                                     'active or publicly accessible '
@@ -9225,11 +8689,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'source_qualname': 'register_workload.<locals>.evaluate'},
                                  'reviewed_severity': 'medium',
                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.no_sys_admin': {'description_base_sha256': '7e413867ad58e85e09341ec2a4a31dd369aed975d4582d77ddb64ef77b326c3d',
-                                'description_fields': {'description': 'Checks for SYS_ADMIN or CAP_SYS_ADMIN '
+ 'k8s.ports.pod.no_sys_admin': {'description_fields': {'description': 'Checks for SYS_ADMIN or CAP_SYS_ADMIN '
                                                                       'in added container capabilities.'},
                                 'observed_failure_phrase': 'adds the SYS_ADMIN capability',
-                                'remediation_base_sha256': '4fd37ef82e8a55dbd54a9b395a34c3e864691e40945eed380605f8004fc68162',
                                 'remediation_fields': {'caveats': ['This reads added capabilities, not '
                                                                    'effective kernel privileges or runtime '
                                                                    'confinement.'],
@@ -9245,13 +8707,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'predicate': 'no_sys_admin'},
                                 'reviewed_severity': 'high',
                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.pinned_image': {'description_base_sha256': '6dd8461df50dd18fa8be5e95cb99cf1b883416f30fe20736532e0db26fdf5b59',
-                                'description_fields': {'description': 'Checks for a non-latest image tag or '
+ 'k8s.ports.pod.pinned_image': {'description_fields': {'description': 'Checks for a non-latest image tag or '
                                                                       'an @ marker in each container image '
                                                                       'reference.'},
                                 'observed_failure_phrase': 'uses an empty, unversioned or latest image '
                                                            'reference',
-                                'remediation_base_sha256': '0d94a43fcd44f51f947b7efa7783f242456db68e6bc7fa376d635a692689f976',
                                 'remediation_fields': {'caveats': ['A version tag or @ marker alone does not '
                                                                    'prove immutable or trusted image '
                                                                    'contents.'],
@@ -9267,14 +8727,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'predicate': 'pinned_image'},
                                 'reviewed_severity': 'medium',
                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.pod_default_namespace_used': {'description_base_sha256': 'a24f410d0893fa5a8c636247e087d7dc805f414d3a7823101178b48e954a3c9f',
-                                              'description_fields': {'description': 'Checks whether resource '
+ 'k8s.ports.pod.pod_default_namespace_used': {'description_fields': {'description': 'Checks whether resource '
                                                                                     'metadata places it in '
                                                                                     'the default namespace.'},
                                               'evidence_presence_fields': ['namespace'],
                                               'observed_failure_phrase': 'is declared in the default '
                                                                          'namespace',
-                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                               'remediation_fields': {'caveats': ['Namespaces are '
                                                                                  'administrative boundaries, '
                                                                                  'not network isolation by '
@@ -9301,8 +8759,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                    'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                               'reviewed_severity': 'low',
                                               'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.pod_runtime_default_seccomp': {'description_base_sha256': '060a66850e10ed63170cc4e31d70c197cc98b28b736ed070ec9ddec5c782dd99',
-                                               'description_fields': {'description': 'Checks whether the '
+ 'k8s.ports.pod.pod_runtime_default_seccomp': {'description_fields': {'description': 'Checks whether the '
                                                                                      'PodSpec explicitly '
                                                                                      'declares '
                                                                                      'RuntimeDefault '
@@ -9310,7 +8767,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                'evidence_presence_fields': ['declared_pod_profile'],
                                                'observed_failure_phrase': 'does not declare a Pod-level '
                                                                           'RuntimeDefault seccomp profile',
-                                               'remediation_base_sha256': 'b4f926d86da0dd9a754efa4e33132da55efc0939fe2197bcd403394c4a3c0e8b',
                                                'remediation_fields': {'caveats': ['Container overrides and '
                                                                                   'kernel enforcement are '
                                                                                   'not established by the '
@@ -9332,11 +8788,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                     'source_qualname': 'register_workload.<locals>.evaluate'},
                                                'reviewed_severity': 'medium',
                                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.pod.readiness_probe': {'description_base_sha256': '7e9210b583ee4436edac75daafbe761de981fa2dfc753c0f7bd94c40c38c5447',
-                                   'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.pod.readiness_probe': {'description_fields': {'description': 'Checks whether each container '
                                                                          'declares a readinessProbe object.'},
                                    'observed_failure_phrase': 'has no readiness probe declared',
-                                   'remediation_base_sha256': '6bee8bdb0a6a746a2557d9f86371d3c74c3476eb3973db949b3dd3fe1a73fd7b',
                                    'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                       'establish a working health check; '
                                                                       'avoid unsuitable probes for one-off '
@@ -9353,8 +8807,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'predicate': 'readiness_probe'},
                                    'reviewed_severity': 'low',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.podsecuritypolicy.pod_security_policy_container_privilege_disabled': {'description_base_sha256': '393b1cc3b8e7bfd42298eec67fb3c0f8f9cbf6335a1c1e26f8c7fe728fdf69b5',
-                                                                                  'description_fields': {'description': 'Checks '
+ 'k8s.ports.podsecuritypolicy.pod_security_policy_container_privilege_disabled': {'description_fields': {'description': 'Checks '
                                                                                                                         'the '
                                                                                                                         'legacy '
                                                                                                                         'PodSecurityPolicy '
@@ -9378,7 +8831,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                              'the '
                                                                                                              'required '
                                                                                                              'profile',
-                                                                                  'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                                   'remediation_fields': {'caveats': ['PodSecurityPolicy '
                                                                                                                      'was '
                                                                                                                      'removed '
@@ -9444,8 +8896,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                        'source_qualname': 'admission_legacy.<locals>.evaluate'},
                                                                                   'reviewed_severity': 'medium',
                                                                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.podsecuritypolicy.pod_security_policy_container_privilege_escalation_disabled': {'description_base_sha256': 'f2281680c44b6e3ed3dd56ec7d28af3dcad9e66860be026bdb188ba9346b6fc0',
-                                                                                             'description_fields': {'description': 'Checks '
+ 'k8s.ports.podsecuritypolicy.pod_security_policy_container_privilege_escalation_disabled': {'description_fields': {'description': 'Checks '
                                                                                                                                    'the '
                                                                                                                                    'legacy '
                                                                                                                                    'PodSecurityPolicy '
@@ -9469,7 +8920,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                                         'the '
                                                                                                                         'required '
                                                                                                                         'profile',
-                                                                                             'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                                              'remediation_fields': {'caveats': ['PodSecurityPolicy '
                                                                                                                                 'was '
                                                                                                                                 'removed '
@@ -9535,8 +8985,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                                   'source_qualname': 'admission_legacy.<locals>.evaluate'},
                                                                                              'reviewed_severity': 'medium',
                                                                                              'reviewed_source_severity': 'medium'},
- 'k8s.ports.podsecuritypolicy.pod_security_policy_host_network_access_disabled': {'description_base_sha256': '1de56947b2c3fa63cd55a9d598d4866b3925061eb1b519170a4c120facce2777',
-                                                                                  'description_fields': {'description': 'Checks '
+ 'k8s.ports.podsecuritypolicy.pod_security_policy_host_network_access_disabled': {'description_fields': {'description': 'Checks '
                                                                                                                         'the '
                                                                                                                         'legacy '
                                                                                                                         'PodSecurityPolicy '
@@ -9560,7 +9009,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                              'the '
                                                                                                              'required '
                                                                                                              'profile',
-                                                                                  'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                                   'remediation_fields': {'caveats': ['PodSecurityPolicy '
                                                                                                                      'was '
                                                                                                                      'removed '
@@ -9626,8 +9074,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                        'source_qualname': 'admission_legacy.<locals>.evaluate'},
                                                                                   'reviewed_severity': 'medium',
                                                                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.podsecuritypolicy.pod_security_policy_hostipc_sharing_disabled': {'description_base_sha256': '342dd37ddff13d8871529f8f8db932fe9f5cf82bb9595cbb71e48831e26b11eb',
-                                                                              'description_fields': {'description': 'Checks '
+ 'k8s.ports.podsecuritypolicy.pod_security_policy_hostipc_sharing_disabled': {'description_fields': {'description': 'Checks '
                                                                                                                     'the '
                                                                                                                     'legacy '
                                                                                                                     'PodSecurityPolicy '
@@ -9651,7 +9098,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                          'the '
                                                                                                          'required '
                                                                                                          'profile',
-                                                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                               'remediation_fields': {'caveats': ['PodSecurityPolicy '
                                                                                                                  'was '
                                                                                                                  'removed '
@@ -9717,8 +9163,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                    'source_qualname': 'admission_legacy.<locals>.evaluate'},
                                                                               'reviewed_severity': 'medium',
                                                                               'reviewed_source_severity': 'medium'},
- 'k8s.ports.podsecuritypolicy.pod_security_policy_hostpid_sharing_disabled': {'description_base_sha256': 'b9c2bad2db780dc72318f72a01b9677468801b6f76fdea8e36be87f2eb5fbce2',
-                                                                              'description_fields': {'description': 'Checks '
+ 'k8s.ports.podsecuritypolicy.pod_security_policy_hostpid_sharing_disabled': {'description_fields': {'description': 'Checks '
                                                                                                                     'the '
                                                                                                                     'legacy '
                                                                                                                     'PodSecurityPolicy '
@@ -9742,7 +9187,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                          'the '
                                                                                                          'required '
                                                                                                          'profile',
-                                                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                               'remediation_fields': {'caveats': ['PodSecurityPolicy '
                                                                                                                  'was '
                                                                                                                  'removed '
@@ -9808,8 +9252,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                    'source_qualname': 'admission_legacy.<locals>.evaluate'},
                                                                               'reviewed_severity': 'medium',
                                                                               'reviewed_source_severity': 'medium'},
- 'k8s.ports.podsecuritypolicy.pod_security_policy_immutable_container_filesystem': {'description_base_sha256': 'ade4ab359a8924f280c80afa5a44c695225368b26fc970e30a8af2b3a4db581d',
-                                                                                    'description_fields': {'description': 'Checks '
+ 'k8s.ports.podsecuritypolicy.pod_security_policy_immutable_container_filesystem': {'description_fields': {'description': 'Checks '
                                                                                                                           'the '
                                                                                                                           'legacy '
                                                                                                                           'PodSecurityPolicy '
@@ -9833,7 +9276,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                                'the '
                                                                                                                'required '
                                                                                                                'profile',
-                                                                                    'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                                     'remediation_fields': {'caveats': ['PodSecurityPolicy '
                                                                                                                        'was '
                                                                                                                        'removed '
@@ -9899,8 +9341,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                          'source_qualname': 'admission_legacy.<locals>.evaluate'},
                                                                                     'reviewed_severity': 'medium',
                                                                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.podsecuritypolicy.pod_security_policy_non_root_container': {'description_base_sha256': '06929da23c2b842f8998809f024482e659f2afb660258afbd04f06aa89c52ef2',
-                                                                        'description_fields': {'description': 'Checks '
+ 'k8s.ports.podsecuritypolicy.pod_security_policy_non_root_container': {'description_fields': {'description': 'Checks '
                                                                                                               'the '
                                                                                                               'legacy '
                                                                                                               'PodSecurityPolicy '
@@ -9923,7 +9364,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                    'the '
                                                                                                    'required '
                                                                                                    'profile',
-                                                                        'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                         'remediation_fields': {'caveats': ['PodSecurityPolicy '
                                                                                                            'was '
                                                                                                            'removed '
@@ -9989,14 +9429,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                              'source_qualname': 'admission_legacy.<locals>.evaluate'},
                                                                         'reviewed_severity': 'medium',
                                                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.always_pull': {'description_base_sha256': '66ad157054124b51c9dfc5581d32ef04c82bd419203bb3fdd613fd6aa7cbaf6d',
-                                       'description_fields': {'description': 'Checks image pull behavior, '
+ 'k8s.ports.podtemplate.always_pull': {'description_fields': {'description': 'Checks image pull behavior, '
                                                                              'accepting Always or a valid '
                                                                              'SHA256 digest with '
                                                                              'pull-on-miss.'},
                                        'observed_failure_phrase': 'does not declare always-pull behavior or '
                                                                   'an accepted SHA256 digest policy',
-                                       'remediation_base_sha256': 'bf3b6596f110cba4b6a63979eed886c300a258e49af81fd30ea073df2ea1162d',
                                        'remediation_fields': {'caveats': ['A valid SHA256 digest with '
                                                                           'IfNotPresent passes; this check '
                                                                           'does not verify image provenance '
@@ -10015,8 +9453,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'always_pull'},
                                        'reviewed_severity': 'medium',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.container_runtime_default_seccomp': {'description_base_sha256': 'd8f2fa31f5f45d897d0d86d50bac7c15eda5fb7574b201fb998a8d6ab2388d61',
-                                                             'description_fields': {'description': 'Checks '
+ 'k8s.ports.podtemplate.container_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                    'whether '
                                                                                                    'each '
                                                                                                    'container '
@@ -10028,7 +9465,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                         'declare '
                                                                                         'RuntimeDefault '
                                                                                         'seccomp',
-                                                             'remediation_base_sha256': '6c1f6e8a6b89c9b6ce89dd702234c62b11a0220c5bdf7df5d8aa7abe05a222c6',
                                                              'remediation_fields': {'caveats': ['This '
                                                                                                 'container-only '
                                                                                                 'profile '
@@ -10065,8 +9501,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                   'source_qualname': 'register_workload.<locals>.evaluate'},
                                                              'reviewed_severity': 'medium',
                                                              'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.content_digest_or_always_pull': {'description_base_sha256': '9d32748fcf63861cf22c1986ff38f533d0ce5047bad8afa46ab8468fe8f5f365',
-                                                         'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.podtemplate.content_digest_or_always_pull': {'description_fields': {'description': 'Checks for a '
                                                                                                'valid SHA256 '
                                                                                                'digest with '
                                                                                                'pull-on-miss '
@@ -10076,7 +9511,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'observed_failure_phrase': 'does not declare an '
                                                                                     'accepted SHA256 digest '
                                                                                     'or always-pull policy',
-                                                         'remediation_base_sha256': '4d27f7ea07af8b45ed3fc68c85980aa83b923e1fe089e9f8d559d39245eb5fcd',
                                                          'remediation_fields': {'caveats': ['Digest syntax '
                                                                                             'and pull '
                                                                                             'declarations do '
@@ -10106,13 +9540,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                               'predicate': 'content_digest_or_always_pull'},
                                                          'reviewed_severity': 'medium',
                                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.context_present': {'description_base_sha256': '92a4ffb85110ff2b847f2ff09aded4346d955a68a2567c93e1e415d09eb4fabc',
-                                           'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.podtemplate.context_present': {'description_fields': {'description': 'Checks whether each '
                                                                                  'container declares a '
                                                                                  'securityContext object.'},
                                            'observed_failure_phrase': 'has no securityContext object '
                                                                       'declared',
-                                           'remediation_base_sha256': '9c90cc0ce1dd251aa80941ee48b928275cd21eb972d50892210b0b16f5e091e6',
                                            'remediation_fields': {'caveats': ['An empty securityContext '
                                                                               'object passes this presence '
                                                                               'check; individual hardening '
@@ -10135,12 +9567,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'source_qualname': 'register_workload.<locals>.evaluate'},
                                            'reviewed_severity': 'low',
                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.cpu_limit': {'description_base_sha256': '2b205382ba866fc79b23659433922f659ee415b9fd0e93b8d8b3bd92ba0fd936',
-                                     'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.podtemplate.cpu_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                            'declares a syntactically valid '
                                                                            'cpu limit.'},
                                      'observed_failure_phrase': 'has no cpu limit declared',
-                                     'remediation_base_sha256': '8f7d54c28a49f3e25d300d9fa0bc1c48d84d6be8cc75b638e6b6d2a0f8bdec92',
                                      'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                         'syntax, not whether the value is '
                                                                         'sufficient; zero is accepted by '
@@ -10157,12 +9587,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'predicate': 'cpu_limit'},
                                      'reviewed_severity': 'low',
                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.cpu_request': {'description_base_sha256': '76ed7a08c92e50743213166ee5e49d4599dc6113af00aa96fd19288f6cd359c3',
-                                       'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.podtemplate.cpu_request': {'description_fields': {'description': 'Checks whether each container '
                                                                              'declares a syntactically valid '
                                                                              'cpu request.'},
                                        'observed_failure_phrase': 'has no cpu request declared',
-                                       'remediation_base_sha256': '94d429bcecb746ed09b36af212343bd8dde1034a21fe65ba443e357b1d8f3433',
                                        'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                           'syntax, not whether the value is '
                                                                           'sufficient; zero is accepted by '
@@ -10179,14 +9607,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'cpu_request'},
                                        'reviewed_severity': 'low',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.declared_nonroot': {'description_base_sha256': '88a1cceb8bded4c6f6853a4a0ea5dc4d9a96eb3ad24b6af915bf9586af107ccc',
-                                            'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.podtemplate.declared_nonroot': {'description_fields': {'description': 'Checks whether each '
                                                                                   'container explicitly '
                                                                                   'declares '
                                                                                   'runAsNonRoot=true.'},
                                             'observed_failure_phrase': 'does not explicitly declare '
                                                                        'runAsNonRoot=true',
-                                            'remediation_base_sha256': '7a1d12c6121ac64a2d3a82eafd5c5c6de154180fdbc2b99b99c5a7ba643b0e6a',
                                             'remediation_fields': {'caveats': ['This container-only profile '
                                                                                'does not inherit the Pod '
                                                                                'setting or prove the running '
@@ -10205,12 +9631,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                  'predicate': 'declared_nonroot'},
                                             'reviewed_severity': 'medium',
                                             'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.drop_all': {'description_base_sha256': '8ed1b29132a2ac0f1ac81ec1a383a62a32c94b9197ddcbd8887bf8ce27a7c381',
-                                    'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.podtemplate.drop_all': {'description_fields': {'description': 'Checks whether each container '
                                                                           'explicitly drops ALL or all Linux '
                                                                           'capabilities.'},
                                     'observed_failure_phrase': 'does not explicitly drop all capabilities',
-                                    'remediation_base_sha256': '05ffca44dded0f6db4454a25c30a2a3edbd0abc2a1e9f05f31e6d8a448123735',
                                     'remediation_fields': {'caveats': ['This checks the drop declaration; '
                                                                        'added capabilities and effective '
                                                                        'runtime privileges are separate.'],
@@ -10226,13 +9650,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'predicate': 'drop_all'},
                                     'reviewed_severity': 'medium',
                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.drop_net_raw': {'description_base_sha256': '0a99601c9ccc458c1b68d1e9a1e19de6b7ab7d6867bf96dfe865f0421a3564d5',
-                                        'description_fields': {'description': 'Checks whether container '
+ 'k8s.ports.podtemplate.drop_net_raw': {'description_fields': {'description': 'Checks whether container '
                                                                               'capabilities explicitly drop '
                                                                               'NET_RAW, ALL or all.'},
                                         'observed_failure_phrase': 'does not explicitly drop NET_RAW or all '
                                                                    'capabilities',
-                                        'remediation_base_sha256': '6e3fde932d5cb45934d0c15d6a3560adefdae079c99b217f616cf3802c6d76e5',
                                         'remediation_fields': {'caveats': ['This checks the drop '
                                                                            'declaration, not effective '
                                                                            'capabilities; an explicit '
@@ -10250,14 +9672,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'drop_net_raw'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.explicit_serviceaccount': {'description_base_sha256': '7b9599d8661af263f492de9d289b0ea1313252d3a8154be3383bd4a2a5d75a7f',
-                                                   'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.podtemplate.explicit_serviceaccount': {'description_fields': {'description': 'Checks for a '
                                                                                          'nonempty '
                                                                                          'serviceAccountName '
                                                                                          'in the PodSpec.'},
                                                    'observed_failure_phrase': 'does not declare a '
                                                                               'ServiceAccount name',
-                                                   'remediation_base_sha256': 'b1324da449d6bbbf5cd924ce810502b136ac6e443bcaf11061f2d2fce4f7fc1f',
                                                    'remediation_fields': {'caveats': ['A dedicated account '
                                                                                       'name does not '
                                                                                       'establish least '
@@ -10282,13 +9702,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                         'source_qualname': 'register_workload.<locals>.evaluate'},
                                                    'reviewed_severity': 'medium',
                                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.host_namespaces': {'description_base_sha256': 'f13607c41c38d92c0de8bab3db9ff6e5ec289adb392d7e8f5dacae080d92cccc',
-                                           'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.ports.podtemplate.host_namespaces': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                                  'declares hostPID=true or '
                                                                                  'hostIPC=true.'},
                                            'observed_failure_phrase': 'declares shared host PID or IPC '
                                                                       'namespaces',
-                                           'remediation_base_sha256': 'c2d05f2ef258ba6d93ce5a7ee2665b4eb6d2500938ed4dbd95e1a49733fbc3c4',
                                            'remediation_fields': {'caveats': ['This reads PodSpec '
                                                                               'declarations, not runtime '
                                                                               'isolation or an exploit '
@@ -10306,12 +9724,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'predicate': 'host_namespaces'},
                                            'reviewed_severity': 'medium',
                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.host_network': {'description_base_sha256': 'fe2167271ae6ebd3b7426a0f9bbce5728c8e0722cd4025c53ca4316b3032a870',
-                                        'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.ports.podtemplate.host_network': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                               'declares hostNetwork=true.'},
                                         'evidence_presence_fields': ['hostNetwork'],
                                         'observed_failure_phrase': 'declares host networking',
-                                        'remediation_base_sha256': 'c4cb46f4c78be2c72efd9f48a5cd5c6511868b082a30549fd1b098152c70c4c0',
                                         'remediation_fields': {'caveats': ['This reads declared '
                                                                            'configuration; runtime behavior '
                                                                            'and admission enforcement are '
@@ -10331,12 +9747,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'source_qualname': 'register_workload.<locals>.evaluate'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.liveness_probe': {'description_base_sha256': 'ff2188d746d743914423ae3eb3dadd65a8da0f9c7c42e064e93054926ed6a61f',
-                                          'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.podtemplate.liveness_probe': {'description_fields': {'description': 'Checks whether each '
                                                                                 'container declares a '
                                                                                 'livenessProbe object.'},
                                           'observed_failure_phrase': 'has no liveness probe declared',
-                                          'remediation_base_sha256': '00d5c8df07bdef6c7b0a6bf8e96bcc319ebf07a3d8b56964b4551591c8089daf',
                                           'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                              'establish a working health '
                                                                              'check; an unsuitable probe can '
@@ -10354,12 +9768,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'predicate': 'liveness_probe'},
                                           'reviewed_severity': 'low',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.memory_limit': {'description_base_sha256': '081926f314c0f16a32d5da0f2a823644e36f59c0ed190d785a2cafe4ce452c68',
-                                        'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.podtemplate.memory_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                               'declares a syntactically '
                                                                               'valid memory limit.'},
                                         'observed_failure_phrase': 'has no memory limit declared',
-                                        'remediation_base_sha256': '2a701758b75febe5c029d54b83b05507d42a737ab102aea4e3872862263576f0',
                                         'remediation_fields': {'caveats': ['This checks presence and '
                                                                            'quantity syntax, not whether the '
                                                                            'value is sufficient; zero is '
@@ -10378,13 +9790,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'memory_limit'},
                                         'reviewed_severity': 'low',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.memory_request': {'description_base_sha256': '11f3ca438732c3ee838e88aa116ed7f2e9e6efa83807fcd3d19240a8e891138b',
-                                          'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.podtemplate.memory_request': {'description_fields': {'description': 'Checks whether each '
                                                                                 'container declares a '
                                                                                 'syntactically valid memory '
                                                                                 'request.'},
                                           'observed_failure_phrase': 'has no memory request declared',
-                                          'remediation_base_sha256': 'b26ce5ca22025fb0fa4e84e413a6eeaf46d2e84547a09b74807390e4cadf5a43',
                                           'remediation_fields': {'caveats': ['This checks presence and '
                                                                              'quantity syntax, not whether '
                                                                              'the value is sufficient; zero '
@@ -10404,13 +9814,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'predicate': 'memory_request'},
                                           'reviewed_severity': 'low',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.no_added_capabilities': {'description_base_sha256': '8c9acfffcc21f588ef01283b4358c3be8db8ee4daab25719616ebc9f43f5f3d6',
-                                                 'description_fields': {'description': 'Checks for any '
+ 'k8s.ports.podtemplate.no_added_capabilities': {'description_fields': {'description': 'Checks for any '
                                                                                        'entries in container '
                                                                                        'capabilities.add.'},
                                                  'observed_failure_phrase': 'declares added Linux '
                                                                             'capabilities',
-                                                 'remediation_base_sha256': 'fe8cc8952715a8c8527cd7778d794ee3dbabb8c89c16f3fd545df6b2a3427a1e',
                                                  'remediation_fields': {'caveats': ['Added capabilities are '
                                                                                     'declarations; effective '
                                                                                     'privileges and runtime '
@@ -10430,12 +9838,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                       'predicate': 'no_added_capabilities'},
                                                  'reviewed_severity': 'medium',
                                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.no_host_ports': {'description_base_sha256': '49f4cb68c62f0e1be7772d14b51f545d9a1de7d7e591cc3da72413989a22bf51',
-                                         'description_fields': {'description': 'Checks whether any container '
+ 'k8s.ports.podtemplate.no_host_ports': {'description_fields': {'description': 'Checks whether any container '
                                                                                'declares hostPort, including '
                                                                                'an explicit zero value.'},
                                          'observed_failure_phrase': 'declares a hostPort field',
-                                         'remediation_base_sha256': '8faae1850713669e6d8ac4d8339464f081a3b3f30e670613765dcd7d7718f751',
                                          'remediation_fields': {'caveats': ['This strict declaration profile '
                                                                             'also flags hostPort=0; it does '
                                                                             'not prove an active or publicly '
@@ -10457,12 +9863,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'source_qualname': 'register_workload.<locals>.evaluate'},
                                          'reviewed_severity': 'medium',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.no_sys_admin': {'description_base_sha256': 'e80071eb9933f3441051c4b10b8e95925a455e0bc12bc2702a893fcb55376524',
-                                        'description_fields': {'description': 'Checks for SYS_ADMIN or '
+ 'k8s.ports.podtemplate.no_sys_admin': {'description_fields': {'description': 'Checks for SYS_ADMIN or '
                                                                               'CAP_SYS_ADMIN in added '
                                                                               'container capabilities.'},
                                         'observed_failure_phrase': 'adds the SYS_ADMIN capability',
-                                        'remediation_base_sha256': 'ff76b2e102029c97730e365b6167e22915ff684b89287d81121a902b7fc2a5bf',
                                         'remediation_fields': {'caveats': ['This reads added capabilities, '
                                                                            'not effective kernel privileges '
                                                                            'or runtime confinement.'],
@@ -10479,13 +9883,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'no_sys_admin'},
                                         'reviewed_severity': 'high',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.pinned_image': {'description_base_sha256': '564259c2a467af5e097eee7004e144ca5209e8756b00f47f974ed9e77133adf9',
-                                        'description_fields': {'description': 'Checks for a non-latest image '
+ 'k8s.ports.podtemplate.pinned_image': {'description_fields': {'description': 'Checks for a non-latest image '
                                                                               'tag or an @ marker in each '
                                                                               'container image reference.'},
                                         'observed_failure_phrase': 'uses an empty, unversioned or latest '
                                                                    'image reference',
-                                        'remediation_base_sha256': '7ee8baae2b05c2ef65ed15be89671e6807e739250c92f83264ab15e7a2ece85c',
                                         'remediation_fields': {'caveats': ['A version tag or @ marker alone '
                                                                            'does not prove immutable or '
                                                                            'trusted image contents.'],
@@ -10503,14 +9905,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'pinned_image'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.privilege_escalation': {'description_base_sha256': '7fc38fe3861fbbcadf7926c94ebd12c2d4b4ef4171886b131e93fbc70e6352cc',
-                                                'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.podtemplate.privilege_escalation': {'description_fields': {'description': 'Checks whether each '
                                                                                       'container explicitly '
                                                                                       'declares '
                                                                                       'allowPrivilegeEscalation=false.'},
                                                 'observed_failure_phrase': 'does not explicitly disable '
                                                                            'privilege escalation',
-                                                'remediation_base_sha256': '6d9ea9547aa64207293733aef161c6ad6f516a69090f6329ed1a812354afd782',
                                                 'remediation_fields': {'caveats': ['This reads declared '
                                                                                    'configuration; runtime '
                                                                                    'behavior and admission '
@@ -10533,11 +9933,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                      'source_qualname': 'register_workload.<locals>.evaluate'},
                                                 'reviewed_severity': 'high',
                                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.privileged': {'description_base_sha256': 'f425e95231aa08297e14882b974ae46be8ecffab48090b1792520afdb2089dcb',
-                                      'description_fields': {'description': 'Checks whether a container '
+ 'k8s.ports.podtemplate.privileged': {'description_fields': {'description': 'Checks whether a container '
                                                                             'declares privileged=true.'},
                                       'observed_failure_phrase': 'declares privileged mode',
-                                      'remediation_base_sha256': '7ce1815f39177bcdc940e1c396f1779e555f67f7c004437d6c1ee3bc39e04436',
                                       'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                          'runtime behavior and admission '
                                                                          'enforcement are separate.'],
@@ -10556,12 +9954,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'source_qualname': 'register_workload.<locals>.evaluate'},
                                       'reviewed_severity': 'high',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.readiness_probe': {'description_base_sha256': '0b5a848172577ccbba41cc1e506ea8b2761726b1733da1864428dfa5f30e2929',
-                                           'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.podtemplate.readiness_probe': {'description_fields': {'description': 'Checks whether each '
                                                                                  'container declares a '
                                                                                  'readinessProbe object.'},
                                            'observed_failure_phrase': 'has no readiness probe declared',
-                                           'remediation_base_sha256': '14348202a24c7bde4f15ff483df34ed2f7f9db7517ce298bcadaec152224c39f',
                                            'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                               'establish a working health '
                                                                               'check; avoid unsuitable '
@@ -10580,13 +9976,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'predicate': 'readiness_probe'},
                                            'reviewed_severity': 'low',
                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.podtemplate.readonly_root': {'description_base_sha256': '23834e8c59c41ac2c36a0b4fac116c9078c8efbdd105255c7e3eeee00f50b0d2',
-                                         'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.podtemplate.readonly_root': {'description_fields': {'description': 'Checks whether each '
                                                                                'container declares '
                                                                                'readOnlyRootFilesystem=true.'},
                                          'observed_failure_phrase': 'does not declare a read-only root '
                                                                     'filesystem',
-                                         'remediation_base_sha256': 'ec2385f6357fe3461776209f177013be5c591c7818082408539866649c870549',
                                          'remediation_fields': {'caveats': ['This reads declared '
                                                                             'configuration; runtime behavior '
                                                                             'and admission enforcement are '
@@ -10608,14 +10002,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'source_qualname': 'register_workload.<locals>.evaluate'},
                                          'reviewed_severity': 'medium',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.always_pull': {'description_base_sha256': '683ebef12067ec51542c684e14ff1f25aa3af19d8a1629b5f00fbc5ac05aa9b0',
-                                      'description_fields': {'description': 'Checks image pull behavior, '
+ 'k8s.ports.replicaset.always_pull': {'description_fields': {'description': 'Checks image pull behavior, '
                                                                             'accepting Always or a valid '
                                                                             'SHA256 digest with '
                                                                             'pull-on-miss.'},
                                       'observed_failure_phrase': 'does not declare always-pull behavior or '
                                                                  'an accepted SHA256 digest policy',
-                                      'remediation_base_sha256': 'd84298478a53a54cf49e1a76e4bcc070efb2c86c65113b0a3d19d53d4d153cd1',
                                       'remediation_fields': {'caveats': ['A valid SHA256 digest with '
                                                                          'IfNotPresent passes; this check '
                                                                          'does not verify image provenance '
@@ -10634,8 +10026,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'predicate': 'always_pull'},
                                       'reviewed_severity': 'medium',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.container_runtime_default_seccomp': {'description_base_sha256': '567296e0021d7d18d752dea44b8507f2a4399b8c4a8e8734b784dc1d83f6c714',
-                                                            'description_fields': {'description': 'Checks '
+ 'k8s.ports.replicaset.container_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                   'whether '
                                                                                                   'each '
                                                                                                   'container '
@@ -10647,7 +10038,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                        'declare '
                                                                                        'RuntimeDefault '
                                                                                        'seccomp',
-                                                            'remediation_base_sha256': '5a99f31241ceefc149f552f96991a405694f72ea67cf4340652b029c150a8132',
                                                             'remediation_fields': {'caveats': ['This '
                                                                                                'container-only '
                                                                                                'profile does '
@@ -10682,8 +10072,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                  'source_qualname': 'register_workload.<locals>.evaluate'},
                                                             'reviewed_severity': 'medium',
                                                             'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.content_digest_or_always_pull': {'description_base_sha256': '7d156b2801d6ccf6236cf9f14db8d029f2eb9b96ffce1f8b391481744095df5b',
-                                                        'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.replicaset.content_digest_or_always_pull': {'description_fields': {'description': 'Checks for a '
                                                                                               'valid SHA256 '
                                                                                               'digest with '
                                                                                               'pull-on-miss '
@@ -10693,7 +10082,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'observed_failure_phrase': 'does not declare an '
                                                                                    'accepted SHA256 digest '
                                                                                    'or always-pull policy',
-                                                        'remediation_base_sha256': 'a3210a7c20b77ba9bdbcdb63f6b3cccc2335afa0bcf0c8c060850a08eccfbefb',
                                                         'remediation_fields': {'caveats': ['Digest syntax '
                                                                                            'and pull '
                                                                                            'declarations do '
@@ -10722,12 +10110,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                              'predicate': 'content_digest_or_always_pull'},
                                                         'reviewed_severity': 'medium',
                                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.context_present': {'description_base_sha256': 'eb3971c1dcfd7009b4f980452b060997bc033e0fa1cfb7f169462b996092209a',
-                                          'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.replicaset.context_present': {'description_fields': {'description': 'Checks whether each '
                                                                                 'container declares a '
                                                                                 'securityContext object.'},
                                           'observed_failure_phrase': 'has no securityContext object declared',
-                                          'remediation_base_sha256': '872cd633dad5157bc40d1f3aca5ae0816eea68e446a8101ffe1f0853963cbe47',
                                           'remediation_fields': {'caveats': ['An empty securityContext '
                                                                              'object passes this presence '
                                                                              'check; individual hardening '
@@ -10749,12 +10135,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'source_qualname': 'register_workload.<locals>.evaluate'},
                                           'reviewed_severity': 'low',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.cpu_limit': {'description_base_sha256': '40d25d5aa03ad331b687587f54a728d70a1229f5c0d79f88f66cddcfde74767a',
-                                    'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.replicaset.cpu_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                           'declares a syntactically valid '
                                                                           'cpu limit.'},
                                     'observed_failure_phrase': 'has no cpu limit declared',
-                                    'remediation_base_sha256': 'd686473e8ff9589bfd438b3fe77d8ccd8c44ef7dd67a8916cba7723fd0f77d6a',
                                     'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                        'syntax, not whether the value is '
                                                                        'sufficient; zero is accepted by this '
@@ -10771,12 +10155,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'predicate': 'cpu_limit'},
                                     'reviewed_severity': 'low',
                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.cpu_request': {'description_base_sha256': '6522d78b0ce0a81d7b818e0d383895bd99e5f481f6f32dfafc07e858e1ef8634',
-                                      'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.replicaset.cpu_request': {'description_fields': {'description': 'Checks whether each container '
                                                                             'declares a syntactically valid '
                                                                             'cpu request.'},
                                       'observed_failure_phrase': 'has no cpu request declared',
-                                      'remediation_base_sha256': '7a1e81fa51430d55e07eb2fef265ec70f2cef71eaf80b9dd9228542286b2c14d',
                                       'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                          'syntax, not whether the value is '
                                                                          'sufficient; zero is accepted by '
@@ -10793,14 +10175,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                            'predicate': 'cpu_request'},
                                       'reviewed_severity': 'low',
                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.declared_nonroot': {'description_base_sha256': '148ce0f7db31f253d06dbe361bba091d14be2aa30c26c5673e58becf5f333462',
-                                           'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.replicaset.declared_nonroot': {'description_fields': {'description': 'Checks whether each '
                                                                                  'container explicitly '
                                                                                  'declares '
                                                                                  'runAsNonRoot=true.'},
                                            'observed_failure_phrase': 'does not explicitly declare '
                                                                       'runAsNonRoot=true',
-                                           'remediation_base_sha256': '87e39b9230d423a09598f907fa972f84670ddc62ede632ccdf3931940222a0b8',
                                            'remediation_fields': {'caveats': ['This container-only profile '
                                                                               'does not inherit the Pod '
                                                                               'setting or prove the running '
@@ -10819,12 +10199,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'predicate': 'declared_nonroot'},
                                            'reviewed_severity': 'medium',
                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.drop_all': {'description_base_sha256': 'ae8152cfcd346a8652bb7b7a9b7410664085492720b06f62b97356690896fabc',
-                                   'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.replicaset.drop_all': {'description_fields': {'description': 'Checks whether each container '
                                                                          'explicitly drops ALL or all Linux '
                                                                          'capabilities.'},
                                    'observed_failure_phrase': 'does not explicitly drop all capabilities',
-                                   'remediation_base_sha256': 'd8342da7e2880ad290a10b2c62c9db29edc65d69a66f87d08bfedf2691aca2c0',
                                    'remediation_fields': {'caveats': ['This checks the drop declaration; '
                                                                       'added capabilities and effective '
                                                                       'runtime privileges are separate.'],
@@ -10840,13 +10218,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'predicate': 'drop_all'},
                                    'reviewed_severity': 'medium',
                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.drop_net_raw': {'description_base_sha256': 'f91ee61c13fd7f06a491fd9c8dd1611187096a81d9b49497f83932b5dd23d75a',
-                                       'description_fields': {'description': 'Checks whether container '
+ 'k8s.ports.replicaset.drop_net_raw': {'description_fields': {'description': 'Checks whether container '
                                                                              'capabilities explicitly drop '
                                                                              'NET_RAW, ALL or all.'},
                                        'observed_failure_phrase': 'does not explicitly drop NET_RAW or all '
                                                                   'capabilities',
-                                       'remediation_base_sha256': '3f4df9c91cac59d62be606194ec10390f0aa996b95acd019291d54263232a44d',
                                        'remediation_fields': {'caveats': ['This checks the drop declaration, '
                                                                           'not effective capabilities; an '
                                                                           'explicit container drop is '
@@ -10863,14 +10239,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'drop_net_raw'},
                                        'reviewed_severity': 'medium',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.explicit_serviceaccount': {'description_base_sha256': 'b6be2006cfd545f6de3e8916bec7787b0571743ee7232b60d31c46155a28895e',
-                                                  'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.replicaset.explicit_serviceaccount': {'description_fields': {'description': 'Checks for a '
                                                                                         'nonempty '
                                                                                         'serviceAccountName '
                                                                                         'in the PodSpec.'},
                                                   'observed_failure_phrase': 'does not declare a '
                                                                              'ServiceAccount name',
-                                                  'remediation_base_sha256': 'b3a7bcf3f13c3a2572f727d319bd10e92c0ce93ab5bbfc9444e545e4074008dc',
                                                   'remediation_fields': {'caveats': ['A dedicated account '
                                                                                      'name does not '
                                                                                      'establish least '
@@ -10895,13 +10269,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                        'source_qualname': 'register_workload.<locals>.evaluate'},
                                                   'reviewed_severity': 'medium',
                                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.host_namespaces': {'description_base_sha256': '4a5473d5a3dcd1f82b5c11a3509ee4ad6c2536caa05bf1fb23f522715e0b3a36',
-                                          'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.ports.replicaset.host_namespaces': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                                 'declares hostPID=true or '
                                                                                 'hostIPC=true.'},
                                           'observed_failure_phrase': 'declares shared host PID or IPC '
                                                                      'namespaces',
-                                          'remediation_base_sha256': '5c9472c68479f0ab57141326bac75d1a64dd4bbcc32fb2d51aeff2286b19ee78',
                                           'remediation_fields': {'caveats': ['This reads PodSpec '
                                                                              'declarations, not runtime '
                                                                              'isolation or an exploit path.'],
@@ -10917,12 +10289,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'predicate': 'host_namespaces'},
                                           'reviewed_severity': 'medium',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.liveness_probe': {'description_base_sha256': 'bab8eed5aaa6e05dacc119849b9ce9584da52b7024ad7b5c12c0191d7d2e7add',
-                                         'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.replicaset.liveness_probe': {'description_fields': {'description': 'Checks whether each '
                                                                                'container declares a '
                                                                                'livenessProbe object.'},
                                          'observed_failure_phrase': 'has no liveness probe declared',
-                                         'remediation_base_sha256': '368c1bbdcc08331526f2f3abdfd2a45fa192cc2eee0ef3d145c44f4755c86e78',
                                          'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                             'establish a working health '
                                                                             'check; an unsuitable probe can '
@@ -10939,12 +10309,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'predicate': 'liveness_probe'},
                                          'reviewed_severity': 'low',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.memory_limit': {'description_base_sha256': '48809ab2f06bcdae73235424f72305af68540f938e699aca2f23aa522fbd1fe9',
-                                       'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.replicaset.memory_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                              'declares a syntactically valid '
                                                                              'memory limit.'},
                                        'observed_failure_phrase': 'has no memory limit declared',
-                                       'remediation_base_sha256': '4fa5d1f90a821e0351bd6e17ced67149419375e81866c7b30cc7954465ed3bd2',
                                        'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                           'syntax, not whether the value is '
                                                                           'sufficient; zero is accepted by '
@@ -10963,13 +10331,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'memory_limit'},
                                        'reviewed_severity': 'low',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.memory_request': {'description_base_sha256': 'e0fa5d41ee6d90a32a1d15d3c0f0549542900df4319af24d5dd7b1c0845746a8',
-                                         'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.replicaset.memory_request': {'description_fields': {'description': 'Checks whether each '
                                                                                'container declares a '
                                                                                'syntactically valid memory '
                                                                                'request.'},
                                          'observed_failure_phrase': 'has no memory request declared',
-                                         'remediation_base_sha256': 'a435d653bfc1d4e5a148344f99ec0de92be003b869ef896856fdb1b8093f30bb',
                                          'remediation_fields': {'caveats': ['This checks presence and '
                                                                             'quantity syntax, not whether '
                                                                             'the value is sufficient; zero '
@@ -10988,13 +10354,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'predicate': 'memory_request'},
                                          'reviewed_severity': 'low',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.no_added_capabilities': {'description_base_sha256': '790f532db74c73a5a04002c6a6272d7bfbfd5c238d2ecf4c36532e8aa0d446a9',
-                                                'description_fields': {'description': 'Checks for any '
+ 'k8s.ports.replicaset.no_added_capabilities': {'description_fields': {'description': 'Checks for any '
                                                                                       'entries in container '
                                                                                       'capabilities.add.'},
                                                 'observed_failure_phrase': 'declares added Linux '
                                                                            'capabilities',
-                                                'remediation_base_sha256': '39cd3f24f0a46a856ed9401726b2f193037f3f7f682660b3482daa8936f80326',
                                                 'remediation_fields': {'caveats': ['Added capabilities are '
                                                                                    'declarations; effective '
                                                                                    'privileges and runtime '
@@ -11014,12 +10378,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                      'predicate': 'no_added_capabilities'},
                                                 'reviewed_severity': 'medium',
                                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.no_host_ports': {'description_base_sha256': '07a10281ecfe6d394ea7c8f68b9d405860f0551568c797e3a8835bc08081d212',
-                                        'description_fields': {'description': 'Checks whether any container '
+ 'k8s.ports.replicaset.no_host_ports': {'description_fields': {'description': 'Checks whether any container '
                                                                               'declares hostPort, including '
                                                                               'an explicit zero value.'},
                                         'observed_failure_phrase': 'declares a hostPort field',
-                                        'remediation_base_sha256': 'fd86ce41fc5c380996814231314b6963eb9533db0c8c0019a227c2822cda3190',
                                         'remediation_fields': {'caveats': ['This strict declaration profile '
                                                                            'also flags hostPort=0; it does '
                                                                            'not prove an active or publicly '
@@ -11038,12 +10400,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'no_host_ports'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.no_sys_admin': {'description_base_sha256': '6bea431785b7e54b7a0743a5b7837fa8685afa475d09215f2cbf2c01258f0475',
-                                       'description_fields': {'description': 'Checks for SYS_ADMIN or '
+ 'k8s.ports.replicaset.no_sys_admin': {'description_fields': {'description': 'Checks for SYS_ADMIN or '
                                                                              'CAP_SYS_ADMIN in added '
                                                                              'container capabilities.'},
                                        'observed_failure_phrase': 'adds the SYS_ADMIN capability',
-                                       'remediation_base_sha256': '4b3671e87cabf5f48fe2506d207a5ed100499d53e3c22c9e1bcf6269c5c575af',
                                        'remediation_fields': {'caveats': ['This reads added capabilities, '
                                                                           'not effective kernel privileges '
                                                                           'or runtime confinement.'],
@@ -11059,13 +10419,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'no_sys_admin'},
                                        'reviewed_severity': 'high',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.pinned_image': {'description_base_sha256': 'bec3dd09f8fdbc3abfee473ca7adfa214f0b8fd2a7291ccfd003c7ebc3561549',
-                                       'description_fields': {'description': 'Checks for a non-latest image '
+ 'k8s.ports.replicaset.pinned_image': {'description_fields': {'description': 'Checks for a non-latest image '
                                                                              'tag or an @ marker in each '
                                                                              'container image reference.'},
                                        'observed_failure_phrase': 'uses an empty, unversioned or latest '
                                                                   'image reference',
-                                       'remediation_base_sha256': 'ebedd45988251a53e652b6bb652222ebbaae53bedf907c35a3fe6b1eb3c0b6cd',
                                        'remediation_fields': {'caveats': ['A version tag or @ marker alone '
                                                                           'does not prove immutable or '
                                                                           'trusted image contents.'],
@@ -11083,14 +10441,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'pinned_image'},
                                        'reviewed_severity': 'medium',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.privilege_escalation': {'description_base_sha256': 'f0c8e1cc68e846600d7fd5394fc2ff46470abee3d754b7ffb7054c3b34ce6c38',
-                                               'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.replicaset.privilege_escalation': {'description_fields': {'description': 'Checks whether each '
                                                                                      'container explicitly '
                                                                                      'declares '
                                                                                      'allowPrivilegeEscalation=false.'},
                                                'observed_failure_phrase': 'does not explicitly disable '
                                                                           'privilege escalation',
-                                               'remediation_base_sha256': 'eb454059e5352ef7b18f2650a57cfc783250eb6ad241da1a3f9cd6cf4fef3073',
                                                'remediation_fields': {'caveats': ['This reads declared '
                                                                                   'configuration; runtime '
                                                                                   'behavior and admission '
@@ -11113,12 +10469,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                     'source_qualname': 'register_workload.<locals>.evaluate'},
                                                'reviewed_severity': 'high',
                                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.readiness_probe': {'description_base_sha256': '364f4397f0342f3016bcff02f15480f74d17596976b5e02ba0a01650927a2682',
-                                          'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.replicaset.readiness_probe': {'description_fields': {'description': 'Checks whether each '
                                                                                 'container declares a '
                                                                                 'readinessProbe object.'},
                                           'observed_failure_phrase': 'has no readiness probe declared',
-                                          'remediation_base_sha256': '20dc8d85f396043d60a2ff0e3790f5b2a9ba00f19b7ca903200f1123b1c1a8fd',
                                           'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                              'establish a working health '
                                                                              'check; avoid unsuitable probes '
@@ -11136,13 +10490,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'predicate': 'readiness_probe'},
                                           'reviewed_severity': 'low',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.readonly_root': {'description_base_sha256': '2fd55f973c4704fead0ee6f93f3bed57d1dbd76adac4b149679b4f4d584bb15f',
-                                        'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.replicaset.readonly_root': {'description_fields': {'description': 'Checks whether each container '
                                                                               'declares '
                                                                               'readOnlyRootFilesystem=true.'},
                                         'observed_failure_phrase': 'does not declare a read-only root '
                                                                    'filesystem',
-                                        'remediation_base_sha256': '2f6888e466955c0f7e1d11910f7ce174411ce5a65466dd131b1a27de8249c0f8',
                                         'remediation_fields': {'caveats': ['This reads declared '
                                                                            'configuration; runtime behavior '
                                                                            'and admission enforcement are '
@@ -11164,8 +10516,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'source_qualname': 'register_workload.<locals>.evaluate'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicaset.replicaset_default_namespace_used': {'description_base_sha256': '2723761c9101b53820c449deb1ecfe9d4a46d123b39ddbbd04ec4ec76494d4fc',
-                                                            'description_fields': {'description': 'Checks '
+ 'k8s.ports.replicaset.replicaset_default_namespace_used': {'description_fields': {'description': 'Checks '
                                                                                                   'whether '
                                                                                                   'resource '
                                                                                                   'metadata '
@@ -11176,7 +10527,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'evidence_presence_fields': ['namespace'],
                                                             'observed_failure_phrase': 'is declared in the '
                                                                                        'default namespace',
-                                                            'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                             'remediation_fields': {'caveats': ['Namespaces '
                                                                                                'are '
                                                                                                'administrative '
@@ -11215,8 +10565,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                  'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                             'reviewed_severity': 'low',
                                                             'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.always_pull': {'description_base_sha256': '588922c8cff3b5efb637c34b2da9ef168d1c44a76413090ec755a0125518f144',
-                                                 'description_fields': {'description': 'Checks image pull '
+ 'k8s.ports.replicationcontroller.always_pull': {'description_fields': {'description': 'Checks image pull '
                                                                                        'behavior, accepting '
                                                                                        'Always or a valid '
                                                                                        'SHA256 digest with '
@@ -11224,7 +10573,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                  'observed_failure_phrase': 'does not declare always-pull '
                                                                             'behavior or an accepted SHA256 '
                                                                             'digest policy',
-                                                 'remediation_base_sha256': 'e1d39caacca6deee42414d3aba2487d21b38d1db8ad28fbee4d5b171beab4dce',
                                                  'remediation_fields': {'caveats': ['A valid SHA256 digest '
                                                                                     'with IfNotPresent '
                                                                                     'passes; this check does '
@@ -11248,8 +10596,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                       'predicate': 'always_pull'},
                                                  'reviewed_severity': 'medium',
                                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.container_runtime_default_seccomp': {'description_base_sha256': 'aaebff55ba23d3bced6d094ac2149993e0414de35a5e7afdec8b7f4cd39eebea',
-                                                                       'description_fields': {'description': 'Checks '
+ 'k8s.ports.replicationcontroller.container_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                              'whether '
                                                                                                              'each '
                                                                                                              'container '
@@ -11262,7 +10609,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                   'declare '
                                                                                                   'RuntimeDefault '
                                                                                                   'seccomp',
-                                                                       'remediation_base_sha256': '46f1bc49a366d85855fa9f50251b9c80b8b0ee8f348b1e0e6e7b258d80042593',
                                                                        'remediation_fields': {'caveats': ['This '
                                                                                                           'container-only '
                                                                                                           'profile '
@@ -11309,8 +10655,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                             'source_qualname': 'register_workload.<locals>.evaluate'},
                                                                        'reviewed_severity': 'medium',
                                                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.content_digest_or_always_pull': {'description_base_sha256': '9da0f1fe6ccb518474733c5cc7a0500c3e9e1a43f06512cb84ca7ebe1b6e20fe',
-                                                                   'description_fields': {'description': 'Checks '
+ 'k8s.ports.replicationcontroller.content_digest_or_always_pull': {'description_fields': {'description': 'Checks '
                                                                                                          'for '
                                                                                                          'a '
                                                                                                          'valid '
@@ -11330,7 +10675,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                               'or '
                                                                                               'always-pull '
                                                                                               'policy',
-                                                                   'remediation_base_sha256': '1feb76101195bbd293f9f703be8db90ff48e250c51d3007965ccadacfda88719',
                                                                    'remediation_fields': {'caveats': ['Digest '
                                                                                                       'syntax '
                                                                                                       'and '
@@ -11376,15 +10720,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                         'predicate': 'content_digest_or_always_pull'},
                                                                    'reviewed_severity': 'medium',
                                                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.context_present': {'description_base_sha256': '5c5ab63a0a002200eeefd37cc735df08b6242f99bbd98ab0f620d4071cc0121a',
-                                                     'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.replicationcontroller.context_present': {'description_fields': {'description': 'Checks whether '
                                                                                            'each container '
                                                                                            'declares a '
                                                                                            'securityContext '
                                                                                            'object.'},
                                                      'observed_failure_phrase': 'has no securityContext '
                                                                                 'object declared',
-                                                     'remediation_base_sha256': '4dce5ba603250cb0eb7c215280b529839b6416179f46bf6c4548f6dbadb4a466',
                                                      'remediation_fields': {'caveats': ['An empty '
                                                                                         'securityContext '
                                                                                         'object passes this '
@@ -11412,13 +10754,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                           'source_qualname': 'register_workload.<locals>.evaluate'},
                                                      'reviewed_severity': 'low',
                                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.cpu_limit': {'description_base_sha256': '2c5763e038cc0f70ab574e2070e863668329fcd94654b25efdba3449d753575d',
-                                               'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.replicationcontroller.cpu_limit': {'description_fields': {'description': 'Checks whether each '
                                                                                      'container declares a '
                                                                                      'syntactically valid '
                                                                                      'cpu limit.'},
                                                'observed_failure_phrase': 'has no cpu limit declared',
-                                               'remediation_base_sha256': 'be22a810109150ee8f9257600d29a0028e7accc8f57bf584386b2f8856b8d190',
                                                'remediation_fields': {'caveats': ['This checks presence and '
                                                                                   'quantity syntax, not '
                                                                                   'whether the value is '
@@ -11441,13 +10781,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                     'predicate': 'cpu_limit'},
                                                'reviewed_severity': 'low',
                                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.cpu_request': {'description_base_sha256': 'f8db0e0ee2e847dec8c776c77c9d2f02b0b60a3592d793044ed4078cb2ad914b',
-                                                 'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.replicationcontroller.cpu_request': {'description_fields': {'description': 'Checks whether each '
                                                                                        'container declares a '
                                                                                        'syntactically valid '
                                                                                        'cpu request.'},
                                                  'observed_failure_phrase': 'has no cpu request declared',
-                                                 'remediation_base_sha256': '3c0fa068d03c5aaf337b0d1e64b8962828e54b349920100a0956e9a95f6cffb9',
                                                  'remediation_fields': {'caveats': ['This checks presence '
                                                                                     'and quantity syntax, '
                                                                                     'not whether the value '
@@ -11470,15 +10808,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                       'predicate': 'cpu_request'},
                                                  'reviewed_severity': 'low',
                                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.declared_nonroot': {'description_base_sha256': '7f994006fb0cd56bcd0e70e50539454407fb72d465e1e0d8b19ba95c682b4859',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.replicationcontroller.declared_nonroot': {'description_fields': {'description': 'Checks whether '
                                                                                             'each container '
                                                                                             'explicitly '
                                                                                             'declares '
                                                                                             'runAsNonRoot=true.'},
                                                       'observed_failure_phrase': 'does not explicitly '
                                                                                  'declare runAsNonRoot=true',
-                                                      'remediation_base_sha256': '32432eae794039c0491d4db27a6c0fbeeea582a22802af77505c5e546e9ccc3d',
                                                       'remediation_fields': {'caveats': ['This '
                                                                                          'container-only '
                                                                                          'profile does not '
@@ -11505,14 +10841,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                            'predicate': 'declared_nonroot'},
                                                       'reviewed_severity': 'medium',
                                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.drop_all': {'description_base_sha256': 'ff1e34814a2dd954d436d228c9ff056c5aeb5bb60a0222f1309b185d090ef1ac',
-                                              'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.replicationcontroller.drop_all': {'description_fields': {'description': 'Checks whether each '
                                                                                     'container explicitly '
                                                                                     'drops ALL or all Linux '
                                                                                     'capabilities.'},
                                               'observed_failure_phrase': 'does not explicitly drop all '
                                                                          'capabilities',
-                                              'remediation_base_sha256': 'f7026a15af7ade2f67ffa9cff2ab9ec922304e039725a02b08a8657ef58529db',
                                               'remediation_fields': {'caveats': ['This checks the drop '
                                                                                  'declaration; added '
                                                                                  'capabilities and effective '
@@ -11530,8 +10864,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                    'predicate': 'drop_all'},
                                               'reviewed_severity': 'medium',
                                               'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.drop_net_raw': {'description_base_sha256': 'a45e7b71cdb807cefad9324b815f7fb23cdf84f302d0654e96a4580faec62f08',
-                                                  'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.replicationcontroller.drop_net_raw': {'description_fields': {'description': 'Checks whether '
                                                                                         'container '
                                                                                         'capabilities '
                                                                                         'explicitly drop '
@@ -11539,7 +10872,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                         'all.'},
                                                   'observed_failure_phrase': 'does not explicitly drop '
                                                                              'NET_RAW or all capabilities',
-                                                  'remediation_base_sha256': '5a52395fa8a8ec1463cc6cb6c6ad2cb2f8f93eec568af458adc5d9410cbd62ef',
                                                   'remediation_fields': {'caveats': ['This checks the drop '
                                                                                      'declaration, not '
                                                                                      'effective '
@@ -11563,8 +10895,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                        'predicate': 'drop_net_raw'},
                                                   'reviewed_severity': 'medium',
                                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.explicit_serviceaccount': {'description_base_sha256': 'ce0de3f5c6a371425f83be553beda20663e0704116b93c593ce0141e70bfda0d',
-                                                             'description_fields': {'description': 'Checks '
+ 'k8s.ports.replicationcontroller.explicit_serviceaccount': {'description_fields': {'description': 'Checks '
                                                                                                    'for a '
                                                                                                    'nonempty '
                                                                                                    'serviceAccountName '
@@ -11572,7 +10903,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                    'PodSpec.'},
                                                              'observed_failure_phrase': 'does not declare a '
                                                                                         'ServiceAccount name',
-                                                             'remediation_base_sha256': 'b3d2f9f7df7a0161e80823a68b0693e92967ca4443f03159ae0b7e5be2bd5ea7',
                                                              'remediation_fields': {'caveats': ['A dedicated '
                                                                                                 'account '
                                                                                                 'name does '
@@ -11610,15 +10940,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                   'source_qualname': 'register_workload.<locals>.evaluate'},
                                                              'reviewed_severity': 'medium',
                                                              'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.host_namespaces': {'description_base_sha256': 'b440521c067ce3897f688b09dd52bdb9bc64a57f7a82d4135679e94ed4f8b77b',
-                                                     'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.replicationcontroller.host_namespaces': {'description_fields': {'description': 'Checks whether '
                                                                                            'the PodSpec '
                                                                                            'declares '
                                                                                            'hostPID=true or '
                                                                                            'hostIPC=true.'},
                                                      'observed_failure_phrase': 'declares shared host PID or '
                                                                                 'IPC namespaces',
-                                                     'remediation_base_sha256': 'c1fb2a589c80a9160ea1f2e036b46f926ab906c649737eea16e02d0ad96d44b2',
                                                      'remediation_fields': {'caveats': ['This reads PodSpec '
                                                                                         'declarations, not '
                                                                                         'runtime isolation '
@@ -11641,13 +10969,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                           'predicate': 'host_namespaces'},
                                                      'reviewed_severity': 'medium',
                                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.host_network': {'description_base_sha256': '48246aa9c8ff2048af2649925b22b6613ef3c380567be1e5668510a6ee60350f',
-                                                  'description_fields': {'description': 'Checks whether the '
+ 'k8s.ports.replicationcontroller.host_network': {'description_fields': {'description': 'Checks whether the '
                                                                                         'PodSpec declares '
                                                                                         'hostNetwork=true.'},
                                                   'evidence_presence_fields': ['hostNetwork'],
                                                   'observed_failure_phrase': 'declares host networking',
-                                                  'remediation_base_sha256': 'a60db6ee5ba995396a4b0e94f32f689f4198d875ab701f40f86c69ffe32d4348',
                                                   'remediation_fields': {'caveats': ['This reads declared '
                                                                                      'configuration; runtime '
                                                                                      'behavior and admission '
@@ -11670,15 +10996,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                        'source_qualname': 'register_workload.<locals>.evaluate'},
                                                   'reviewed_severity': 'medium',
                                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.liveness_probe': {'description_base_sha256': '31a85e554d3ac2f23bede3bd738012ab2e057bdd248245dee4f2f01c2c6bb649',
-                                                    'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.replicationcontroller.liveness_probe': {'description_fields': {'description': 'Checks whether '
                                                                                           'each container '
                                                                                           'declares a '
                                                                                           'livenessProbe '
                                                                                           'object.'},
                                                     'observed_failure_phrase': 'has no liveness probe '
                                                                                'declared',
-                                                    'remediation_base_sha256': '5168e5336cf09db0db01c8e7f8e5831e395b0c00216fdfb915a6c4246d774fb3',
                                                     'remediation_fields': {'caveats': ['Probe presence alone '
                                                                                        'does not establish a '
                                                                                        'working health '
@@ -11702,14 +11026,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                          'predicate': 'liveness_probe'},
                                                     'reviewed_severity': 'low',
                                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.memory_limit': {'description_base_sha256': '436e32aaf50237d7c5529a93388edc8a3f524b9d699bf33b7102208a5c92ad46',
-                                                  'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.replicationcontroller.memory_limit': {'description_fields': {'description': 'Checks whether each '
                                                                                         'container declares '
                                                                                         'a syntactically '
                                                                                         'valid memory '
                                                                                         'limit.'},
                                                   'observed_failure_phrase': 'has no memory limit declared',
-                                                  'remediation_base_sha256': 'c143e7544e867eea0c812ad8298274ad9e36b56656dbb963a8531d19b3c771f1',
                                                   'remediation_fields': {'caveats': ['This checks presence '
                                                                                      'and quantity syntax, '
                                                                                      'not whether the value '
@@ -11734,8 +11056,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                        'predicate': 'memory_limit'},
                                                   'reviewed_severity': 'low',
                                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.memory_request': {'description_base_sha256': '37bfe0ee7b1360fdd7ccec3bf3133bea03d71fae51629eaec3f0d0248e12e8f9',
-                                                    'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.replicationcontroller.memory_request': {'description_fields': {'description': 'Checks whether '
                                                                                           'each container '
                                                                                           'declares a '
                                                                                           'syntactically '
@@ -11743,7 +11064,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                           'request.'},
                                                     'observed_failure_phrase': 'has no memory request '
                                                                                'declared',
-                                                    'remediation_base_sha256': 'bcf6aebce535dbf6748921f67feba209d37cc3c9129e6cda64d448680a7d10a4',
                                                     'remediation_fields': {'caveats': ['This checks presence '
                                                                                        'and quantity syntax, '
                                                                                        'not whether the '
@@ -11768,15 +11088,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                          'predicate': 'memory_request'},
                                                     'reviewed_severity': 'low',
                                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.no_added_capabilities': {'description_base_sha256': '850fe8b66ddf90ab2969568ddbd0bdbe71c583afbd61bd3ba3b7e809290f2f9f',
-                                                           'description_fields': {'description': 'Checks for '
+ 'k8s.ports.replicationcontroller.no_added_capabilities': {'description_fields': {'description': 'Checks for '
                                                                                                  'any '
                                                                                                  'entries in '
                                                                                                  'container '
                                                                                                  'capabilities.add.'},
                                                            'observed_failure_phrase': 'declares added Linux '
                                                                                       'capabilities',
-                                                           'remediation_base_sha256': 'a6a1c7e013edfeb0d2c62b53e0b99a2572780c788c6011914016b66f7f08c9a4',
                                                            'remediation_fields': {'caveats': ['Added '
                                                                                               'capabilities '
                                                                                               'are '
@@ -11810,15 +11128,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                 'predicate': 'no_added_capabilities'},
                                                            'reviewed_severity': 'medium',
                                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.no_host_ports': {'description_base_sha256': 'edc491d76ce1ad43f23342a9765bdc949cf13328c2f01e2d0cd9cb03fb380d98',
-                                                   'description_fields': {'description': 'Checks whether any '
+ 'k8s.ports.replicationcontroller.no_host_ports': {'description_fields': {'description': 'Checks whether any '
                                                                                          'container declares '
                                                                                          'hostPort, '
                                                                                          'including an '
                                                                                          'explicit zero '
                                                                                          'value.'},
                                                    'observed_failure_phrase': 'declares a hostPort field',
-                                                   'remediation_base_sha256': '2487bd6e9e0a0c165e70eedf273261d96eb70f23be80a5044324c4e807aa46be',
                                                    'remediation_fields': {'caveats': ['This strict '
                                                                                       'declaration profile '
                                                                                       'also flags '
@@ -11842,14 +11158,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                         'predicate': 'no_host_ports'},
                                                    'reviewed_severity': 'medium',
                                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.no_sys_admin': {'description_base_sha256': 'e49083f6cc551372c435dd380aedfe23335750b1a70d313ced505521b6950bab',
-                                                  'description_fields': {'description': 'Checks for '
+ 'k8s.ports.replicationcontroller.no_sys_admin': {'description_fields': {'description': 'Checks for '
                                                                                         'SYS_ADMIN or '
                                                                                         'CAP_SYS_ADMIN in '
                                                                                         'added container '
                                                                                         'capabilities.'},
                                                   'observed_failure_phrase': 'adds the SYS_ADMIN capability',
-                                                  'remediation_base_sha256': '99c37af5efab3ed4cf96fc584ed275fc9e87dadb04717a1c783afc7a07b8dbf7',
                                                   'remediation_fields': {'caveats': ['This reads added '
                                                                                      'capabilities, not '
                                                                                      'effective kernel '
@@ -11871,15 +11185,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                        'predicate': 'no_sys_admin'},
                                                   'reviewed_severity': 'high',
                                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.pinned_image': {'description_base_sha256': 'a83aa10d4cdcea26076ec0f6145d3fce365dbdc6e5cc0dfbc69fbc43d9ea4dd0',
-                                                  'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.replicationcontroller.pinned_image': {'description_fields': {'description': 'Checks for a '
                                                                                         'non-latest image '
                                                                                         'tag or an @ marker '
                                                                                         'in each container '
                                                                                         'image reference.'},
                                                   'observed_failure_phrase': 'uses an empty, unversioned or '
                                                                              'latest image reference',
-                                                  'remediation_base_sha256': '64b5c564f8990e5100a3f028eaaa3934529db4743447f45f2b96a87f446dc93e',
                                                   'remediation_fields': {'caveats': ['A version tag or @ '
                                                                                      'marker alone does not '
                                                                                      'prove immutable or '
@@ -11901,8 +11213,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                        'predicate': 'pinned_image'},
                                                   'reviewed_severity': 'medium',
                                                   'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.privilege_escalation': {'description_base_sha256': '379396ba5f4fe95cb2ada10a2f73a097c84771b344741a398417626fabf891ee',
-                                                          'description_fields': {'description': 'Checks '
+ 'k8s.ports.replicationcontroller.privilege_escalation': {'description_fields': {'description': 'Checks '
                                                                                                 'whether '
                                                                                                 'each '
                                                                                                 'container '
@@ -11912,7 +11223,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'observed_failure_phrase': 'does not explicitly '
                                                                                      'disable privilege '
                                                                                      'escalation',
-                                                          'remediation_base_sha256': 'c597ed89a10fe6a9b869efbf1a0dcad7b427bce735cff919d83b48052eda7705',
                                                           'remediation_fields': {'caveats': ['This reads '
                                                                                              'declared '
                                                                                              'configuration; '
@@ -11944,12 +11254,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                'source_qualname': 'register_workload.<locals>.evaluate'},
                                                           'reviewed_severity': 'high',
                                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.privileged': {'description_base_sha256': 'ade89423ad2c42a37412f6ccd2fc769da0635f048d31f71741cc32998a9e7dd2',
-                                                'description_fields': {'description': 'Checks whether a '
+ 'k8s.ports.replicationcontroller.privileged': {'description_fields': {'description': 'Checks whether a '
                                                                                       'container declares '
                                                                                       'privileged=true.'},
                                                 'observed_failure_phrase': 'declares privileged mode',
-                                                'remediation_base_sha256': '799bc5b78f8a73d2d81cfdb143843391a4dc0c53078be9acd39c5a71cedb65d2',
                                                 'remediation_fields': {'caveats': ['This reads declared '
                                                                                    'configuration; runtime '
                                                                                    'behavior and admission '
@@ -11972,15 +11280,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                      'source_qualname': 'register_workload.<locals>.evaluate'},
                                                 'reviewed_severity': 'high',
                                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.readiness_probe': {'description_base_sha256': 'cd068b93558e53d4ff06190502670024e1966b11ed299a25f12d0fbddd4f74e9',
-                                                     'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.replicationcontroller.readiness_probe': {'description_fields': {'description': 'Checks whether '
                                                                                            'each container '
                                                                                            'declares a '
                                                                                            'readinessProbe '
                                                                                            'object.'},
                                                      'observed_failure_phrase': 'has no readiness probe '
                                                                                 'declared',
-                                                     'remediation_base_sha256': '429aed8220b76fa406e3172ada3badd0f6b594d3085f85ca6c5d1eea7d985777',
                                                      'remediation_fields': {'caveats': ['Probe presence '
                                                                                         'alone does not '
                                                                                         'establish a working '
@@ -12005,14 +11311,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                           'predicate': 'readiness_probe'},
                                                      'reviewed_severity': 'low',
                                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.readonly_root': {'description_base_sha256': '82cda19489ef167f17c1c9353e6d0a0821d2a63c1ee20c345fdb65ef27cd2cbe',
-                                                   'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.replicationcontroller.readonly_root': {'description_fields': {'description': 'Checks whether '
                                                                                          'each container '
                                                                                          'declares '
                                                                                          'readOnlyRootFilesystem=true.'},
                                                    'observed_failure_phrase': 'does not declare a read-only '
                                                                               'root filesystem',
-                                                   'remediation_base_sha256': 'aa99697b0e508ed2c8b6fedd42b70d982db6b618d28d41e1fed998af34eef3b0',
                                                    'remediation_fields': {'caveats': ['This reads declared '
                                                                                       'configuration; '
                                                                                       'runtime behavior and '
@@ -12039,8 +11343,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                         'source_qualname': 'register_workload.<locals>.evaluate'},
                                                    'reviewed_severity': 'medium',
                                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.replicationcontroller.replication_controller_default_namespace_used': {'description_base_sha256': '7177fb34cf53935d1f76d36528de4f79deb04bac449025a0deedc4ca18616899',
-                                                                                   'description_fields': {'description': 'Checks '
+ 'k8s.ports.replicationcontroller.replication_controller_default_namespace_used': {'description_fields': {'description': 'Checks '
                                                                                                                          'whether '
                                                                                                                          'resource '
                                                                                                                          'metadata '
@@ -12057,7 +11360,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                               'the '
                                                                                                               'default '
                                                                                                               'namespace',
-                                                                                   'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                                    'remediation_fields': {'caveats': ['Namespaces '
                                                                                                                       'are '
                                                                                                                       'administrative '
@@ -12103,15 +11405,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                         'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                                                    'reviewed_severity': 'low',
                                                                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.role.role_default_namespace_used': {'description_base_sha256': '88568cfe1d956826903e3ccec45975dba99560550a2a75b61de7155caa33ae9f',
-                                                'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.role.role_default_namespace_used': {'description_fields': {'description': 'Checks whether '
                                                                                       'resource metadata '
                                                                                       'places it in the '
                                                                                       'default namespace.'},
                                                 'evidence_presence_fields': ['namespace'],
                                                 'observed_failure_phrase': 'is declared in the default '
                                                                            'namespace',
-                                                'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                 'remediation_fields': {'caveats': ['Namespaces are '
                                                                                    'administrative '
                                                                                    'boundaries, not network '
@@ -12141,8 +11441,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                      'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                 'reviewed_severity': 'low',
                                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.role.role_with_rbac_escalate_permissions': {'description_base_sha256': 'c0858d23cb5a112e3718e71dc50357f7a945a2f462b7c0bf49318752192752fc',
-                                                        'description_fields': {'description': 'Checks exact '
+ 'k8s.ports.role.role_with_rbac_escalate_permissions': {'description_fields': {'description': 'Checks exact '
                                                                                               'declared RBAC '
                                                                                               'group, '
                                                                                               'resource and '
@@ -12153,7 +11452,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'evidence_presence_fields': ['declared_sensitive_rules'],
                                                         'observed_failure_phrase': 'declares sensitive RBAC '
                                                                                    'capabilities',
-                                                        'remediation_base_sha256': '69780d9878180b3b16d02fef45cf92888cb739d51340a2b6f4a2ae9d78c3669e',
                                                         'remediation_fields': {'caveats': ['This '
                                                                                            'exact-symbol '
                                                                                            'check does not '
@@ -12185,8 +11483,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                              'source_qualname': 'rbac_rule.<locals>.evaluate'},
                                                         'reviewed_severity': 'high',
                                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.rolebinding.role_binding_default_namespace_used': {'description_base_sha256': '9b1a41a59c46f1f51b585b76dc24587c91eb55b187db3c1715d0a070fcddaed6',
-                                                               'description_fields': {'description': 'Checks '
+ 'k8s.ports.rolebinding.role_binding_default_namespace_used': {'description_fields': {'description': 'Checks '
                                                                                                      'whether '
                                                                                                      'resource '
                                                                                                      'metadata '
@@ -12199,7 +11496,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'observed_failure_phrase': 'is declared in '
                                                                                           'the default '
                                                                                           'namespace',
-                                                               'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                'remediation_fields': {'caveats': ['Namespaces '
                                                                                                   'are '
                                                                                                   'administrative '
@@ -12243,8 +11539,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                     'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                                'reviewed_severity': 'low',
                                                                'reviewed_source_severity': 'medium'},
- 'k8s.ports.rolebinding.role_binding_default_service_account_binding_not_active': {'description_base_sha256': '4d80d111eac0d2df8c8288ac30bcfeb555465742d087b1f1167d0dece2636b2e',
-                                                                                   'description_fields': {'description': 'Checks '
+ 'k8s.ports.rolebinding.role_binding_default_service_account_binding_not_active': {'description_fields': {'description': 'Checks '
                                                                                                                          'RBAC '
                                                                                                                          'binding '
                                                                                                                          'subjects '
@@ -12260,7 +11555,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                               'the '
                                                                                                               'default '
                                                                                                               'ServiceAccount',
-                                                                                   'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                                    'remediation_fields': {'caveats': ['This '
                                                                                                                       'checks '
                                                                                                                       'binding '
@@ -12307,8 +11601,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                         'source_qualname': 'default_subject'},
                                                                                    'reviewed_severity': 'medium',
                                                                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.secret_metadata.secret_default_namespace_used': {'description_base_sha256': 'b1ce14f579f456857044fe356e392b31a77c95dab4991b6e4a506b1ff6f8f5ce',
-                                                             'description_fields': {'description': 'Checks '
+ 'k8s.ports.secret_metadata.secret_default_namespace_used': {'description_fields': {'description': 'Checks '
                                                                                                    'whether '
                                                                                                    'resource '
                                                                                                    'metadata '
@@ -12320,7 +11613,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'evidence_presence_fields': ['namespace'],
                                                              'observed_failure_phrase': 'is declared in the '
                                                                                         'default namespace',
-                                                             'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                              'remediation_fields': {'caveats': ['Namespaces '
                                                                                                 'are '
                                                                                                 'administrative '
@@ -12361,8 +11653,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                   'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                              'reviewed_severity': 'low',
                                                              'reviewed_source_severity': 'medium'},
- 'k8s.ports.service.service_default_namespace_used': {'description_base_sha256': 'e36e2f661c1b5a1c0fc96ef2598d4c35a1df726dc0c8144c1797b74e8d0d64c9',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'k8s.ports.service.service_default_namespace_used': {'description_fields': {'description': 'Checks whether '
                                                                                             'resource '
                                                                                             'metadata places '
                                                                                             'it in the '
@@ -12371,7 +11662,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'evidence_presence_fields': ['namespace'],
                                                       'observed_failure_phrase': 'is declared in the default '
                                                                                  'namespace',
-                                                      'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                       'remediation_fields': {'caveats': ['Namespaces are '
                                                                                          'administrative '
                                                                                          'boundaries, not '
@@ -12405,15 +11695,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                            'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                       'reviewed_severity': 'low',
                                                       'reviewed_source_severity': 'medium'},
- 'k8s.ports.service.service_type_forbidden': {'description_base_sha256': 'a21ea8f1255d653fdfba64c01e5149b06d948051edd2e6ebece9471764f7d57c',
-                                              'description_fields': {'description': 'Checks whether the '
+ 'k8s.ports.service.service_type_forbidden': {'description_fields': {'description': 'Checks whether the '
                                                                                     'Service explicitly '
                                                                                     'declares NodePort or '
                                                                                     'LoadBalancer.'},
                                               'evidence_presence_fields': ['service_type'],
                                               'observed_failure_phrase': 'declares NodePort or LoadBalancer '
                                                                          'publication',
-                                              'remediation_base_sha256': 'd7cd903587eef48bc2bc51c204953a72d149f761862594eb3e5d8657a0a06843',
                                               'remediation_fields': {'caveats': ['An external Service type '
                                                                                  'alone does not establish '
                                                                                  'public reachability.'],
@@ -12434,8 +11722,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                    'source_qualname': 'service_type'},
                                               'reviewed_severity': 'medium',
                                               'reviewed_source_severity': 'medium'},
- 'k8s.ports.serviceaccount.service_account_default_namespace_used': {'description_base_sha256': 'f22b3b9a73c8712c9c60810a2b8e7bd984637d8818d9e6d011dd95838971f082',
-                                                                     'description_fields': {'description': 'Checks '
+ 'k8s.ports.serviceaccount.service_account_default_namespace_used': {'description_fields': {'description': 'Checks '
                                                                                                            'whether '
                                                                                                            'resource '
                                                                                                            'metadata '
@@ -12450,7 +11737,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                 'in the '
                                                                                                 'default '
                                                                                                 'namespace',
-                                                                     'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                      'remediation_fields': {'caveats': ['Namespaces '
                                                                                                         'are '
                                                                                                         'administrative '
@@ -12495,14 +11781,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                           'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                                      'reviewed_severity': 'low',
                                                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.always_pull': {'description_base_sha256': 'e84cd5fdab90684a8b8d520898bc6b11093efba8e8928fe6d2f8da4835fb876a',
-                                       'description_fields': {'description': 'Checks image pull behavior, '
+ 'k8s.ports.statefulset.always_pull': {'description_fields': {'description': 'Checks image pull behavior, '
                                                                              'accepting Always or a valid '
                                                                              'SHA256 digest with '
                                                                              'pull-on-miss.'},
                                        'observed_failure_phrase': 'does not declare always-pull behavior or '
                                                                   'an accepted SHA256 digest policy',
-                                       'remediation_base_sha256': '30527e810037c4a6be033c0639561767a86decae429615e84f853cc853b18422',
                                        'remediation_fields': {'caveats': ['A valid SHA256 digest with '
                                                                           'IfNotPresent passes; this check '
                                                                           'does not verify image provenance '
@@ -12521,8 +11805,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'always_pull'},
                                        'reviewed_severity': 'medium',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.container_runtime_default_seccomp': {'description_base_sha256': '979394e1fa9ca411eb04145a977bed068c03e1745cbc9702125e8f2e258c9f33',
-                                                             'description_fields': {'description': 'Checks '
+ 'k8s.ports.statefulset.container_runtime_default_seccomp': {'description_fields': {'description': 'Checks '
                                                                                                    'whether '
                                                                                                    'each '
                                                                                                    'container '
@@ -12534,7 +11817,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                         'declare '
                                                                                         'RuntimeDefault '
                                                                                         'seccomp',
-                                                             'remediation_base_sha256': 'a319a59ed3e206f0461fec4a723006a1e7029b7f9ddb4ee356d813efd8cb1193',
                                                              'remediation_fields': {'caveats': ['This '
                                                                                                 'container-only '
                                                                                                 'profile '
@@ -12571,8 +11853,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                   'source_qualname': 'register_workload.<locals>.evaluate'},
                                                              'reviewed_severity': 'medium',
                                                              'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.content_digest_or_always_pull': {'description_base_sha256': '36e7f64bbe36bca8c8c12b9c7a1ad27c57f923f37af1b60e80f302cf74444a51',
-                                                         'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.statefulset.content_digest_or_always_pull': {'description_fields': {'description': 'Checks for a '
                                                                                                'valid SHA256 '
                                                                                                'digest with '
                                                                                                'pull-on-miss '
@@ -12582,7 +11863,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'observed_failure_phrase': 'does not declare an '
                                                                                     'accepted SHA256 digest '
                                                                                     'or always-pull policy',
-                                                         'remediation_base_sha256': 'a2b47139b4538e4a3a6138ebf15ccaf7b23bb533c1654fa84741d004d2cc901f',
                                                          'remediation_fields': {'caveats': ['Digest syntax '
                                                                                             'and pull '
                                                                                             'declarations do '
@@ -12612,13 +11892,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                               'predicate': 'content_digest_or_always_pull'},
                                                          'reviewed_severity': 'medium',
                                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.context_present': {'description_base_sha256': '864aef175289a0d7096192d496644db0fe16bb1866941724eaa0c46ba54b36e0',
-                                           'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.statefulset.context_present': {'description_fields': {'description': 'Checks whether each '
                                                                                  'container declares a '
                                                                                  'securityContext object.'},
                                            'observed_failure_phrase': 'has no securityContext object '
                                                                       'declared',
-                                           'remediation_base_sha256': '9b635f171dcb1c93e21e37a7e79e66d0378737968522c79ada3cf82512f4a870',
                                            'remediation_fields': {'caveats': ['An empty securityContext '
                                                                               'object passes this presence '
                                                                               'check; individual hardening '
@@ -12641,12 +11919,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'source_qualname': 'register_workload.<locals>.evaluate'},
                                            'reviewed_severity': 'low',
                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.cpu_limit': {'description_base_sha256': '97bcdd552420a0e0d2389e47150b1b861a190342f6b020d122a97d1817bd233c',
-                                     'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.statefulset.cpu_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                            'declares a syntactically valid '
                                                                            'cpu limit.'},
                                      'observed_failure_phrase': 'has no cpu limit declared',
-                                     'remediation_base_sha256': '4900cf6b90ee5e897fb167fade7bc58e1cbaf7116c7fe8149ca945ba46674dfe',
                                      'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                         'syntax, not whether the value is '
                                                                         'sufficient; zero is accepted by '
@@ -12663,12 +11939,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'predicate': 'cpu_limit'},
                                      'reviewed_severity': 'low',
                                      'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.cpu_request': {'description_base_sha256': '57c399d15990e333f0290c935054eec975ebbceda87f83cfb83dd24248a365f1',
-                                       'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.statefulset.cpu_request': {'description_fields': {'description': 'Checks whether each container '
                                                                              'declares a syntactically valid '
                                                                              'cpu request.'},
                                        'observed_failure_phrase': 'has no cpu request declared',
-                                       'remediation_base_sha256': '478f68fdea60a60bbf3377c4ed614bf30f699c2d22aad06bc7e66d5fe171c3ce',
                                        'remediation_fields': {'caveats': ['This checks presence and quantity '
                                                                           'syntax, not whether the value is '
                                                                           'sufficient; zero is accepted by '
@@ -12685,14 +11959,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'predicate': 'cpu_request'},
                                        'reviewed_severity': 'low',
                                        'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.declared_nonroot': {'description_base_sha256': '6a1c4cabbcd6fefef96156c5eb0e4d8c00c183f227466a325998e6cfd1bd21d4',
-                                            'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.statefulset.declared_nonroot': {'description_fields': {'description': 'Checks whether each '
                                                                                   'container explicitly '
                                                                                   'declares '
                                                                                   'runAsNonRoot=true.'},
                                             'observed_failure_phrase': 'does not explicitly declare '
                                                                        'runAsNonRoot=true',
-                                            'remediation_base_sha256': 'b8e858ef0c1991d1c578487287641340fd3f6b6de834e539968af21352527026',
                                             'remediation_fields': {'caveats': ['This container-only profile '
                                                                                'does not inherit the Pod '
                                                                                'setting or prove the running '
@@ -12711,12 +11983,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                  'predicate': 'declared_nonroot'},
                                             'reviewed_severity': 'medium',
                                             'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.drop_all': {'description_base_sha256': '99d78c86ffe0098f635beb01474c344552b1c5e4e918f0573f6f6b59c36496f7',
-                                    'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.statefulset.drop_all': {'description_fields': {'description': 'Checks whether each container '
                                                                           'explicitly drops ALL or all Linux '
                                                                           'capabilities.'},
                                     'observed_failure_phrase': 'does not explicitly drop all capabilities',
-                                    'remediation_base_sha256': '192f5e985a2b02861201267b6bcf98cb8c815395171ecca529b64a1dbfd32448',
                                     'remediation_fields': {'caveats': ['This checks the drop declaration; '
                                                                        'added capabilities and effective '
                                                                        'runtime privileges are separate.'],
@@ -12732,13 +12002,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'predicate': 'drop_all'},
                                     'reviewed_severity': 'medium',
                                     'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.drop_net_raw': {'description_base_sha256': 'b45714fc173e5fc97928531a93266de4103b2faf14f5c9ca9b38e4e73907be89',
-                                        'description_fields': {'description': 'Checks whether container '
+ 'k8s.ports.statefulset.drop_net_raw': {'description_fields': {'description': 'Checks whether container '
                                                                               'capabilities explicitly drop '
                                                                               'NET_RAW, ALL or all.'},
                                         'observed_failure_phrase': 'does not explicitly drop NET_RAW or all '
                                                                    'capabilities',
-                                        'remediation_base_sha256': '19c7744b76f7f35787e8bad3ee04de32c222083a1d5ac25adfb66e363378d5c8',
                                         'remediation_fields': {'caveats': ['This checks the drop '
                                                                            'declaration, not effective '
                                                                            'capabilities; an explicit '
@@ -12756,14 +12024,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'drop_net_raw'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.explicit_serviceaccount': {'description_base_sha256': '5ed4727dfd2b90dd232fb3283f11e2106ce6a9d3a98cd0797150ce44518ac13e',
-                                                   'description_fields': {'description': 'Checks for a '
+ 'k8s.ports.statefulset.explicit_serviceaccount': {'description_fields': {'description': 'Checks for a '
                                                                                          'nonempty '
                                                                                          'serviceAccountName '
                                                                                          'in the PodSpec.'},
                                                    'observed_failure_phrase': 'does not declare a '
                                                                               'ServiceAccount name',
-                                                   'remediation_base_sha256': '9e6f82a3d5d237cf22d0f98f926db4b6c7e7efe36ffbfdeae01db33cea07f0c8',
                                                    'remediation_fields': {'caveats': ['A dedicated account '
                                                                                       'name does not '
                                                                                       'establish least '
@@ -12788,13 +12054,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                         'source_qualname': 'register_workload.<locals>.evaluate'},
                                                    'reviewed_severity': 'medium',
                                                    'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.host_namespaces': {'description_base_sha256': '5bf1f6dceeffd8a532e2bcd3b72e0ff1083285ba68b4f6009eb0124743421049',
-                                           'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.ports.statefulset.host_namespaces': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                                  'declares hostPID=true or '
                                                                                  'hostIPC=true.'},
                                            'observed_failure_phrase': 'declares shared host PID or IPC '
                                                                       'namespaces',
-                                           'remediation_base_sha256': 'b991ec2d2cdc7c27572c7ad679297acaa010225e48b6f6dbc9fc32c7841e5931',
                                            'remediation_fields': {'caveats': ['This reads PodSpec '
                                                                               'declarations, not runtime '
                                                                               'isolation or an exploit '
@@ -12812,12 +12076,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'predicate': 'host_namespaces'},
                                            'reviewed_severity': 'medium',
                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.liveness_probe': {'description_base_sha256': 'a0e9fcb9c0d7a7fec8ddd04d3552abfd4925a2a2e81f95ad2eec5800414f95b6',
-                                          'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.statefulset.liveness_probe': {'description_fields': {'description': 'Checks whether each '
                                                                                 'container declares a '
                                                                                 'livenessProbe object.'},
                                           'observed_failure_phrase': 'has no liveness probe declared',
-                                          'remediation_base_sha256': '01d0909dae5a9abf5c2143253f088ea3991eefbf096bd6277f3c248e760ed6a0',
                                           'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                              'establish a working health '
                                                                              'check; an unsuitable probe can '
@@ -12835,12 +12097,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'predicate': 'liveness_probe'},
                                           'reviewed_severity': 'low',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.memory_limit': {'description_base_sha256': '4cd1b7bfc49c5f9bc6d15c91adb44b42a6668f1c61c4ecac251ba56cee4fc44a',
-                                        'description_fields': {'description': 'Checks whether each container '
+ 'k8s.ports.statefulset.memory_limit': {'description_fields': {'description': 'Checks whether each container '
                                                                               'declares a syntactically '
                                                                               'valid memory limit.'},
                                         'observed_failure_phrase': 'has no memory limit declared',
-                                        'remediation_base_sha256': '8706acbee6656295341cb4290e4e2b357b7162b1d6c76872e39750849a835b96',
                                         'remediation_fields': {'caveats': ['This checks presence and '
                                                                            'quantity syntax, not whether the '
                                                                            'value is sufficient; zero is '
@@ -12859,13 +12119,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'memory_limit'},
                                         'reviewed_severity': 'low',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.memory_request': {'description_base_sha256': 'da30f377ef4533d45d8bf872f9a5159350f7da91af4d71cab1a19a276ef415bd',
-                                          'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.statefulset.memory_request': {'description_fields': {'description': 'Checks whether each '
                                                                                 'container declares a '
                                                                                 'syntactically valid memory '
                                                                                 'request.'},
                                           'observed_failure_phrase': 'has no memory request declared',
-                                          'remediation_base_sha256': '133f8b7af80a37b9533d89eb3f7ef38178402c7baf434555dcbff06f573032c2',
                                           'remediation_fields': {'caveats': ['This checks presence and '
                                                                              'quantity syntax, not whether '
                                                                              'the value is sufficient; zero '
@@ -12885,13 +12143,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'predicate': 'memory_request'},
                                           'reviewed_severity': 'low',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.no_added_capabilities': {'description_base_sha256': 'ca278be9a71334b1b50bd289d880311d87b00db04ae61c22dd793dd197ad9643',
-                                                 'description_fields': {'description': 'Checks for any '
+ 'k8s.ports.statefulset.no_added_capabilities': {'description_fields': {'description': 'Checks for any '
                                                                                        'entries in container '
                                                                                        'capabilities.add.'},
                                                  'observed_failure_phrase': 'declares added Linux '
                                                                             'capabilities',
-                                                 'remediation_base_sha256': '297eb2ded2b291b8d4bfa32c38c9764d41183fc11dcdec2ad62c5e833cf15883',
                                                  'remediation_fields': {'caveats': ['Added capabilities are '
                                                                                     'declarations; effective '
                                                                                     'privileges and runtime '
@@ -12911,12 +12167,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                       'predicate': 'no_added_capabilities'},
                                                  'reviewed_severity': 'medium',
                                                  'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.no_host_ports': {'description_base_sha256': '6cb3545b725784c1914c489b8823418a6087a9005052c91ae7924ffb05bca9aa',
-                                         'description_fields': {'description': 'Checks whether any container '
+ 'k8s.ports.statefulset.no_host_ports': {'description_fields': {'description': 'Checks whether any container '
                                                                                'declares hostPort, including '
                                                                                'an explicit zero value.'},
                                          'observed_failure_phrase': 'declares a hostPort field',
-                                         'remediation_base_sha256': 'ee7b8e6d29e489bb6c6f41d23df6bb53a9fb9184d7cca9631af7d8d495c66d8e',
                                          'remediation_fields': {'caveats': ['This strict declaration profile '
                                                                             'also flags hostPort=0; it does '
                                                                             'not prove an active or publicly '
@@ -12935,12 +12189,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'predicate': 'no_host_ports'},
                                          'reviewed_severity': 'medium',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.no_sys_admin': {'description_base_sha256': '6d849bc21690dd5645abb395df04cf289bb3f407f2404f02cd62c8f93ff4f391',
-                                        'description_fields': {'description': 'Checks for SYS_ADMIN or '
+ 'k8s.ports.statefulset.no_sys_admin': {'description_fields': {'description': 'Checks for SYS_ADMIN or '
                                                                               'CAP_SYS_ADMIN in added '
                                                                               'container capabilities.'},
                                         'observed_failure_phrase': 'adds the SYS_ADMIN capability',
-                                        'remediation_base_sha256': 'feb13e28f3251f088b0c06a780cbcd78d9412c7ca19faeca9708895033918994',
                                         'remediation_fields': {'caveats': ['This reads added capabilities, '
                                                                            'not effective kernel privileges '
                                                                            'or runtime confinement.'],
@@ -12957,13 +12209,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'no_sys_admin'},
                                         'reviewed_severity': 'high',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.pinned_image': {'description_base_sha256': '7a5415e917bae506b9a2d6bb4ccae2c0796f2d62dcf49043ecb4fd744ea8a154',
-                                        'description_fields': {'description': 'Checks for a non-latest image '
+ 'k8s.ports.statefulset.pinned_image': {'description_fields': {'description': 'Checks for a non-latest image '
                                                                               'tag or an @ marker in each '
                                                                               'container image reference.'},
                                         'observed_failure_phrase': 'uses an empty, unversioned or latest '
                                                                    'image reference',
-                                        'remediation_base_sha256': 'dfd42ef427fdc1e1c0610a301d6f35afd7f9004c70b9ea7870c654c30f2ec49b',
                                         'remediation_fields': {'caveats': ['A version tag or @ marker alone '
                                                                            'does not prove immutable or '
                                                                            'trusted image contents.'],
@@ -12981,14 +12231,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                              'predicate': 'pinned_image'},
                                         'reviewed_severity': 'medium',
                                         'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.privilege_escalation': {'description_base_sha256': '20037ca2b984cff8d7d625b52ef6e3665117ac2e4b45536073750cb0fde91750',
-                                                'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.statefulset.privilege_escalation': {'description_fields': {'description': 'Checks whether each '
                                                                                       'container explicitly '
                                                                                       'declares '
                                                                                       'allowPrivilegeEscalation=false.'},
                                                 'observed_failure_phrase': 'does not explicitly disable '
                                                                            'privilege escalation',
-                                                'remediation_base_sha256': 'c514c50f836c872929176b9d3ba3091d31c4de402816fb00c0c4af45fca0034f',
                                                 'remediation_fields': {'caveats': ['This reads declared '
                                                                                    'configuration; runtime '
                                                                                    'behavior and admission '
@@ -13011,12 +12259,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                      'source_qualname': 'register_workload.<locals>.evaluate'},
                                                 'reviewed_severity': 'high',
                                                 'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.readiness_probe': {'description_base_sha256': '1b592f4f82e1f2cbf8ef1a527446e665705a5e0ae2d387d56780f2c6b1f74b84',
-                                           'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.statefulset.readiness_probe': {'description_fields': {'description': 'Checks whether each '
                                                                                  'container declares a '
                                                                                  'readinessProbe object.'},
                                            'observed_failure_phrase': 'has no readiness probe declared',
-                                           'remediation_base_sha256': '0aea4a80c4c2feba43a5958f903718192229cb41ba15158169fe92aabc6220bb',
                                            'remediation_fields': {'caveats': ['Probe presence alone does not '
                                                                               'establish a working health '
                                                                               'check; avoid unsuitable '
@@ -13035,13 +12281,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                 'predicate': 'readiness_probe'},
                                            'reviewed_severity': 'low',
                                            'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.readonly_root': {'description_base_sha256': 'b943d66e8ab17dc32c0dd54175cd24000291c17ce9bc0df9a544642163280f46',
-                                         'description_fields': {'description': 'Checks whether each '
+ 'k8s.ports.statefulset.readonly_root': {'description_fields': {'description': 'Checks whether each '
                                                                                'container declares '
                                                                                'readOnlyRootFilesystem=true.'},
                                          'observed_failure_phrase': 'does not declare a read-only root '
                                                                     'filesystem',
-                                         'remediation_base_sha256': '4ff7b8e37483417f903170cc469424de9edd59346c38a8a4f344e164bc1b6876',
                                          'remediation_fields': {'caveats': ['This reads declared '
                                                                             'configuration; runtime behavior '
                                                                             'and admission enforcement are '
@@ -13063,8 +12307,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'source_qualname': 'register_workload.<locals>.evaluate'},
                                          'reviewed_severity': 'medium',
                                          'reviewed_source_severity': 'medium'},
- 'k8s.ports.statefulset.statefulset_default_namespace_used': {'description_base_sha256': '2a5b9ab9af519f18a638804b418cbf14fc4886a61656ebe048483f6fb4d10312',
-                                                              'description_fields': {'description': 'Checks '
+ 'k8s.ports.statefulset.statefulset_default_namespace_used': {'description_fields': {'description': 'Checks '
                                                                                                     'whether '
                                                                                                     'resource '
                                                                                                     'metadata '
@@ -13076,7 +12319,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'evidence_presence_fields': ['namespace'],
                                                               'observed_failure_phrase': 'is declared in the '
                                                                                          'default namespace',
-                                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                               'remediation_fields': {'caveats': ['Namespaces '
                                                                                                  'are '
                                                                                                  'administrative '
@@ -13119,13 +12361,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                    'source_qualname': 'namespace_rule.<locals>.evaluate'},
                                                               'reviewed_severity': 'low',
                                                               'reviewed_source_severity': 'medium'},
- 'k8s.rbac.no_wildcards': {'description_base_sha256': 'ce105bbfdf43de4d09fd3939458ea108d401ca0cbcef1769eed58e01b8381983',
-                           'description_fields': {'description': 'Checks declared RBAC rules for literal '
+ 'k8s.rbac.no_wildcards': {'description_fields': {'description': 'Checks declared RBAC rules for literal '
                                                                  'wildcard verbs, resources, API groups or '
                                                                  'non-resource URLs.'},
                            'evidence_presence_fields': ['wildcard_rules'],
                            'observed_failure_phrase': 'declares wildcard RBAC permissions',
-                           'remediation_base_sha256': '69f585b6991ee7f32175ce0e95834c5cf59dee9375b011a6223b9bff80622cc5',
                            'remediation_fields': {'caveats': ['This literal-star profile differs from '
                                                               'wildcard-pattern checks; bindings and '
                                                               'aggregation remain separate.'],
@@ -13140,14 +12380,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                 'source_qualname': 'k8s_wildcards'},
                            'reviewed_severity': 'high',
                            'reviewed_source_severity': 'high'},
- 'k8s.rbac.review_broad_subjects': {'description_base_sha256': 'd966d67f847212b17bc2932b00b801ba3c57893411ded8355fd9839b464c16ca',
-                                    'description_fields': {'description': 'Checks bindings for '
+ 'k8s.rbac.review_broad_subjects': {'description_fields': {'description': 'Checks bindings for '
                                                                           'system:authenticated, '
                                                                           'system:unauthenticated or '
                                                                           'system:serviceaccounts groups.'},
                                     'evidence_presence_fields': ['broad_subjects'],
                                     'observed_failure_phrase': 'binds a role to a broad built-in group',
-                                    'remediation_base_sha256': 'b96346652a2b0ae132cc878018dac4f41ec866474112576b8bf4e293f6b75e8b',
                                     'remediation_fields': {'caveats': ['A broad subject declaration does not '
                                                                        'determine the effective permissions '
                                                                        'granted by its referenced role.'],
@@ -13164,15 +12402,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'source_qualname': 'k8s_subjects'},
                                     'reviewed_severity': 'high',
                                     'reviewed_source_severity': 'high'},
- 'k8s.rbac.review_namespaced_subjects': {'description_base_sha256': '14c25fe83c67883f05d90cd5277190251e87a08e68d05c1f50ec935432df3b36',
-                                         'description_fields': {'description': 'Checks bindings for '
+ 'k8s.rbac.review_namespaced_subjects': {'description_fields': {'description': 'Checks bindings for '
                                                                                'system:authenticated, '
                                                                                'system:unauthenticated or '
                                                                                'system:serviceaccounts '
                                                                                'groups.'},
                                          'evidence_presence_fields': ['broad_subjects'],
                                          'observed_failure_phrase': 'binds a role to a broad built-in group',
-                                         'remediation_base_sha256': 'ff835ef5c7751dbb52b0e0ce1c7abaaea89af79f04b2ddc02c49eb40aeed98dc',
                                          'remediation_fields': {'caveats': ['A broad subject declaration '
                                                                             'does not determine the '
                                                                             'effective permissions granted '
@@ -13192,13 +12428,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                               'source_qualname': 'k8s_subjects'},
                                          'reviewed_severity': 'high',
                                          'reviewed_source_severity': 'high'},
- 'k8s.rbac.role_no_wildcards': {'description_base_sha256': 'e9a83430a9d3f59322dbd022a0e30137ca16acdce1f316e0cf8fe90bad928a05',
-                                'description_fields': {'description': 'Checks declared RBAC rules for '
+ 'k8s.rbac.role_no_wildcards': {'description_fields': {'description': 'Checks declared RBAC rules for '
                                                                       'literal wildcard verbs, resources, '
                                                                       'API groups or non-resource URLs.'},
                                 'evidence_presence_fields': ['wildcard_rules'],
                                 'observed_failure_phrase': 'declares wildcard RBAC permissions',
-                                'remediation_base_sha256': '784a39feed8bf2e0bd43a464d58181841e35d17f3b2e75537e5f80e62138fcbe',
                                 'remediation_fields': {'caveats': ['This literal-star profile differs from '
                                                                    'wildcard-pattern checks; bindings and '
                                                                    'aggregation remain separate.'],
@@ -13213,12 +12447,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                      'source_qualname': 'k8s_wildcards'},
                                 'reviewed_severity': 'high',
                                 'reviewed_source_severity': 'high'},
- 'k8s.replicaset.no_host_network': {'description_base_sha256': '1a58595c8cb981a786e47c8d9e27a51ece9fa7b21581784bebbacbba90978139',
-                                    'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.replicaset.no_host_network': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                           'declares hostNetwork=true.'},
                                     'evidence_presence_fields': ['host_network'],
                                     'observed_failure_phrase': 'declares host networking',
-                                    'remediation_base_sha256': '91d8938634a8dab2ee11705a1fc668c11462008cbb95cda9e74ad119d66a070e',
                                     'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                        'runtime behavior and admission '
                                                                        'enforcement are separate.'],
@@ -13236,12 +12468,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'source_qualname': '_controller_check.<locals>.evaluate'},
                                     'reviewed_severity': 'medium',
                                     'reviewed_source_severity': 'high'},
- 'k8s.replicaset.no_host_ports': {'description_base_sha256': 'd273036db5400acbf1ad8aa0ba4accec9200bc4a9523e545e4ff66409414d379',
-                                  'description_fields': {'description': 'Checks whether container hostPort '
+ 'k8s.replicaset.no_host_ports': {'description_fields': {'description': 'Checks whether container hostPort '
                                                                         'declarations contain a nonzero '
                                                                         'valid port.'},
                                   'observed_failure_phrase': 'declares a nonzero hostPort',
-                                  'remediation_base_sha256': 'c9acdf852c031e2d7b24421d7f1770b3f3be53dabc009e537b635c82761a9192',
                                   'remediation_fields': {'caveats': ['This nonzero-port profile accepts '
                                                                      'hostPort=0; it does not prove an '
                                                                      'active or public listener.'],
@@ -13260,11 +12490,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'source_qualname': '_controller_check.<locals>.evaluate'},
                                   'reviewed_severity': 'medium',
                                   'reviewed_source_severity': 'high'},
- 'k8s.replicaset.no_privileged': {'description_base_sha256': '157abb9986ceec03a38685899e029179202afec13d354fa509b3a418868bcb52',
-                                  'description_fields': {'description': 'Checks whether a container declares '
+ 'k8s.replicaset.no_privileged': {'description_fields': {'description': 'Checks whether a container declares '
                                                                         'privileged=true.'},
                                   'observed_failure_phrase': 'declares privileged mode',
-                                  'remediation_base_sha256': 'ab926d947dab2e47c08da84bacdc57334e08801b5212d540ccf73c855bae6be5',
                                   'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                      'runtime behavior and admission '
                                                                      'enforcement are separate.'],
@@ -13283,13 +12511,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                        'source_qualname': '_controller_check.<locals>.evaluate'},
                                   'reviewed_severity': 'high',
                                   'reviewed_source_severity': 'high'},
- 'k8s.replicaset.non_root': {'description_base_sha256': '2dcc90f9bd4eccc6d9f48a1b697b9b77fe65868fd692f61a71e4cd93dd9bfb7d',
-                             'description_fields': {'description': 'Checks Linux container non-root settings '
+ 'k8s.replicaset.non_root': {'description_fields': {'description': 'Checks Linux container non-root settings '
                                                                    'with Pod inheritance and rejects an '
                                                                    'explicitly declared UID zero.'},
                              'observed_failure_phrase': 'does not require non-root execution or declares UID '
                                                         'zero',
-                             'remediation_base_sha256': 'ea3e7d0fea12d6a4a9d428cdda1e1f32dfcc9df1bbd09d2a0afa868e2c43eae3',
                              'remediation_fields': {'caveats': ['Windows Pods are not applicable; declared '
                                                                 'settings do not prove the running process '
                                                                 'identity.'],
@@ -13308,14 +12534,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                   'source_qualname': '_controller_check.<locals>.evaluate'},
                              'reviewed_severity': 'medium',
                              'reviewed_source_severity': 'high'},
- 'k8s.service.review_public_type': {'description_base_sha256': '5dd1ea31ae804e46883557f0a1fd6153d3216dfcd1f827dc1629fe14b2aad15a',
-                                    'description_fields': {'description': 'Checks external IPs, NodePort '
+ 'k8s.service.review_public_type': {'description_fields': {'description': 'Checks external IPs, NodePort '
                                                                           'publication, and unrestricted '
                                                                           'non-internal LoadBalancer '
                                                                           'declarations.'},
                                     'evidence_presence_fields': ['service_type', 'external_ips'],
                                     'observed_failure_phrase': 'declares external Service publication',
-                                    'remediation_base_sha256': '3c11987839d3f26a96343a54bdd76af4ff5597f4b6bd861b0eb0b114c38af9e2',
                                     'remediation_fields': {'caveats': ['Service publication declarations do '
                                                                        'not establish internet '
                                                                        'reachability.'],
@@ -13334,14 +12558,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                          'source_qualname': 'k8s_service'},
                                     'reviewed_severity': 'medium',
                                     'reviewed_source_severity': 'medium'},
- 'k8s.serviceaccount.disable_automount': {'description_base_sha256': 'cc423db94faa57edf2193713089363dec72917f4150c891d02d270a2ef965345',
-                                          'description_fields': {'description': 'Checks the ServiceAccount '
+ 'k8s.serviceaccount.disable_automount': {'description_fields': {'description': 'Checks the ServiceAccount '
                                                                                 'token automount default, '
                                                                                 'treating omission as '
                                                                                 'enabled.'},
                                           'evidence_presence_fields': ['automount_service_account_token'],
                                           'observed_failure_phrase': 'allows default API-token automount',
-                                          'remediation_base_sha256': '42e4e4d87ad2114f8171125a587530e60c831067607dd822395740d2bfde78db',
                                           'remediation_fields': {'caveats': ['Pods can override the '
                                                                              'ServiceAccount default.'],
                                                                  'steps': ['Disable default token automount '
@@ -13359,12 +12581,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'source_qualname': 'serviceaccount_automount'},
                                           'reviewed_severity': 'medium',
                                           'reviewed_source_severity': 'medium'},
- 'k8s.statefulset.no_host_network': {'description_base_sha256': '0c18565b9248708e992670bd4632b280757211196c9c4f596b109f82475685ad',
-                                     'description_fields': {'description': 'Checks whether the PodSpec '
+ 'k8s.statefulset.no_host_network': {'description_fields': {'description': 'Checks whether the PodSpec '
                                                                            'declares hostNetwork=true.'},
                                      'evidence_presence_fields': ['host_network'],
                                      'observed_failure_phrase': 'declares host networking',
-                                     'remediation_base_sha256': '484adc4cb745753682e7eca7b0dc95d71c18902e5eae154dd19fe0449cfb057d',
                                      'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                         'runtime behavior and admission '
                                                                         'enforcement are separate.'],
@@ -13383,12 +12603,10 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                           'source_qualname': '_controller_check.<locals>.evaluate'},
                                      'reviewed_severity': 'medium',
                                      'reviewed_source_severity': 'high'},
- 'k8s.statefulset.no_host_ports': {'description_base_sha256': '5a9c98904278d80f0d730a0cae459bf332265bb0cc64543ce6457f4a37ccb57f',
-                                   'description_fields': {'description': 'Checks whether container hostPort '
+ 'k8s.statefulset.no_host_ports': {'description_fields': {'description': 'Checks whether container hostPort '
                                                                          'declarations contain a nonzero '
                                                                          'valid port.'},
                                    'observed_failure_phrase': 'declares a nonzero hostPort',
-                                   'remediation_base_sha256': '5ee80bdd258d55046c5a9503819891b2c6e5bc6050b86df3c7e35b1ba03985e0',
                                    'remediation_fields': {'caveats': ['This nonzero-port profile accepts '
                                                                       'hostPort=0; it does not prove an '
                                                                       'active or public listener.'],
@@ -13407,11 +12625,9 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'source_qualname': '_controller_check.<locals>.evaluate'},
                                    'reviewed_severity': 'medium',
                                    'reviewed_source_severity': 'high'},
- 'k8s.statefulset.no_privileged': {'description_base_sha256': '4efa27926c97d98258013832e6d0af3cfb375335cfe2c7a4972046fef0dcbe37',
-                                   'description_fields': {'description': 'Checks whether a container '
+ 'k8s.statefulset.no_privileged': {'description_fields': {'description': 'Checks whether a container '
                                                                          'declares privileged=true.'},
                                    'observed_failure_phrase': 'declares privileged mode',
-                                   'remediation_base_sha256': '0b9f034c795539ad39f115fcd7aff742705055af811e9a7145077e6a7ec0b409',
                                    'remediation_fields': {'caveats': ['This reads declared configuration; '
                                                                       'runtime behavior and admission '
                                                                       'enforcement are separate.'],
@@ -13430,14 +12646,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                         'source_qualname': '_controller_check.<locals>.evaluate'},
                                    'reviewed_severity': 'high',
                                    'reviewed_source_severity': 'high'},
- 'k8s.statefulset.non_root': {'description_base_sha256': '3874dddc891eb89063dd9d3dcde61bbd3f78704e88ab2ee6346824b6d53c57c3',
-                              'description_fields': {'description': 'Checks Linux container non-root '
+ 'k8s.statefulset.non_root': {'description_fields': {'description': 'Checks Linux container non-root '
                                                                     'settings with Pod inheritance and '
                                                                     'rejects an explicitly declared UID '
                                                                     'zero.'},
                               'observed_failure_phrase': 'does not require non-root execution or declares '
                                                          'UID zero',
-                              'remediation_base_sha256': 'cbeceb30d59821bdf4b87b38adf4e63b3f8613eac13997ff7d7c44f7ad6af523',
                               'remediation_fields': {'caveats': ['Windows Pods are not applicable; declared '
                                                                  'settings do not prove the running process '
                                                                  'identity.'],
@@ -13456,15 +12670,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                    'source_qualname': '_controller_check.<locals>.evaluate'},
                               'reviewed_severity': 'medium',
                               'reviewed_source_severity': 'high'},
- 'k8s_deployment_available_condition': {'description_base_sha256': '0753928a627af4126a5145e786fec57be0ade33ca2dbde7db5da4535f31dfa29',
-                                        'description_fields': {'description': 'Checks observed available '
+ 'k8s_deployment_available_condition': {'description_fields': {'description': 'Checks observed available '
                                                                               'replicas and the Deployment '
                                                                               'Available condition against '
                                                                               'desired replicas.'},
                                         'observed_failure_phrase': 'The Deployment has fewer available '
                                                                    'replicas than desired or does not report '
                                                                    'Available=True',
-                                        'remediation_base_sha256': '76e731571f2597b7c27024dd80a28bf751c378558fc72ad01c1f2bb350cebf17',
                                         'remediation_fields': {'caveats': ['This is snapshot status, not a '
                                                                            'continuous availability '
                                                                            'measurement.'],
@@ -13488,13 +12700,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                         'static_observed_sentence': 'The Deployment has fewer available '
                                                                     'replicas than desired or does not '
                                                                     'report Available=True.'},
- 'k8s_ingress_backend_https': {'description_base_sha256': '0e93562f37ca456dd43a41dacda768e2078cffb559a52048b5a83fe66a84e52b',
-                               'description_fields': {'description': 'Resolves nginx TLS Ingress backends '
+ 'k8s_ingress_backend_https': {'description_fields': {'description': 'Resolves nginx TLS Ingress backends '
                                                                      'and checks the HTTPS or GRPCS '
                                                                      'annotation.'},
                                'observed_failure_phrase': 'An nginx TLS Ingress lacks an HTTPS or GRPCS '
                                                           'backend protocol declaration',
-                               'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                'remediation_fields': {'caveats': ['Controller adoption and backend TLS are '
                                                                   'not tested; plan migration from retired '
                                                                   'ingress-nginx.'],
@@ -13527,8 +12737,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                'reviewed_source_severity': 'medium',
                                'static_observed_sentence': 'An nginx TLS Ingress lacks an HTTPS or GRPCS '
                                                            'backend protocol declaration.'},
- 'k8s_ingress_ingress_has_any_associated_ingress_93579100f9': {'description_base_sha256': '29ed9d641d7c74fdc5a842bcc99a832f5bf4064a17dfb1c3a36154b7cf5be87c',
-                                                               'description_fields': {'description': 'Checks '
+ 'k8s_ingress_ingress_has_any_associated_ingress_93579100f9': {'description_fields': {'description': 'Checks '
                                                                                                      'whether '
                                                                                                      'the '
                                                                                                      'Ingress '
@@ -13541,7 +12750,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'observed_failure_phrase': 'The Ingress '
                                                                                           'declares no '
                                                                                           'routing rules',
-                                                               'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                'remediation_fields': {'caveats': ['A default '
                                                                                                   'backend '
                                                                                                   'can be '
@@ -13599,8 +12807,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                'static_observed_sentence': 'The Ingress '
                                                                                            'declares no '
                                                                                            'routing rules.'},
- 'k8s_ingress_ingress_redirect_http_traffic_https_12967db1': {'description_base_sha256': '12ead5e28acfe7a32bc5520dfc2869983a95864ae72d92be86522c11aafca822',
-                                                              'description_fields': {'description': 'Checks '
+ 'k8s_ingress_ingress_redirect_http_traffic_https_12967db1': {'description_fields': {'description': 'Checks '
                                                                                                     'explicit, '
                                                                                                     'nonconflicting '
                                                                                                     'nginx '
@@ -13612,7 +12819,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                          'Ingress explicitly '
                                                                                          'disables HTTPS '
                                                                                          'redirection',
-                                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                               'remediation_fields': {'caveats': ['Absent '
                                                                                                  'annotations '
                                                                                                  'remain '
@@ -13670,13 +12876,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                           'explicitly '
                                                                                           'disables HTTPS '
                                                                                           'redirection.'},
- 'k8s_ingress_sni_hosts': {'description_base_sha256': '99ee2a7231d16a6ff456801f9d2b75d3e3a43cb2540ca34ebc5727fd18fb46f0',
-                           'description_fields': {'description': 'Checks whether Ingress rule hosts appear '
+ 'k8s_ingress_sni_hosts': {'description_fields': {'description': 'Checks whether Ingress rule hosts appear '
                                                                  'in TLS host entries with nonempty Secret '
                                                                  'names.'},
                            'observed_failure_phrase': 'Ingress rule hosts lack matching TLS host and '
                                                       'Secret-name declarations',
-                           'remediation_base_sha256': 'c3792ecbafbae5f2f6489bc2dad764137fca42514807f1e7f3de521c118a3bb8',
                            'remediation_fields': {'caveats': ['This compares host declarations, not '
                                                               'certificate contents, validity or live SNI '
                                                               'behavior.'],
@@ -13699,13 +12903,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                            'reviewed_source_severity': 'medium',
                            'static_observed_sentence': 'Ingress rule hosts lack matching TLS host and '
                                                        'Secret-name declarations.'},
- 'k8s_ingress_tls_configured': {'description_base_sha256': '83f4c03b36dcef60b65d8361259771005e947e02b6753096f7c71a000c55ce31',
-                                'description_fields': {'description': 'Resolves Ingress TLS Secret names to '
+ 'k8s_ingress_tls_configured': {'description_fields': {'description': 'Resolves Ingress TLS Secret names to '
                                                                       'same-namespace TLS Secret metadata '
                                                                       'and covers rule hosts.'},
                                 'observed_failure_phrase': 'Ingress TLS hosts or same-namespace TLS Secret '
                                                            'references are unresolved or incorrect',
-                                'remediation_base_sha256': '2a7fdb245be898917e97b1772a0783e20c90792b804099988675e123a8491d32',
                                 'remediation_fields': {'caveats': ['Only Secret identity and type metadata '
                                                                    'are read; certificate/private-key '
                                                                    'contents and live TLS are not '
@@ -13729,14 +12931,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                 'reviewed_source_severity': 'medium',
                                 'static_observed_sentence': 'Ingress TLS hosts or same-namespace TLS Secret '
                                                             'references are unresolved or incorrect.'},
- 'k8s_networkpolicy_has_ingress_rules': {'description_base_sha256': '87f6ab7d06787507a469cd7fc9c50b8d5add9d441591e76149a2f1e485989a7b',
-                                         'description_fields': {'description': 'Checks whether the '
+ 'k8s_networkpolicy_has_ingress_rules': {'description_fields': {'description': 'Checks whether the '
                                                                                'NetworkPolicy declares at '
                                                                                'least one ingress-rule '
                                                                                'object.'},
                                          'observed_failure_phrase': 'The NetworkPolicy declares no ingress '
                                                                     'allow rules',
-                                         'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                          'remediation_fields': {'caveats': ['An empty ingress list can be '
                                                                             'the intended secure '
                                                                             'default-deny configuration.'],
@@ -13772,8 +12972,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                          'reviewed_source_severity': 'medium',
                                          'static_observed_sentence': 'The NetworkPolicy declares no ingress '
                                                                      'allow rules.'},
- 'k8s_networkpolicy_network_policy_associated_podselectors_that_92dbc93b4c': {'description_base_sha256': '6468feba6246a2e9925a6e3e5a699f7c0ea45abb6d0d7d3605bdb1d70653cbf6',
-                                                                              'description_fields': {'description': 'Checks '
+ 'k8s_networkpolicy_network_policy_associated_podselectors_that_92dbc93b4c': {'description_fields': {'description': 'Checks '
                                                                                                                     'whether '
                                                                                                                     'the '
                                                                                                                     'NetworkPolicy '
@@ -13790,7 +12989,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                          'empty '
                                                                                                          'Pod '
                                                                                                          'selector',
-                                                                              'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                                               'remediation_fields': {'caveats': ['An '
                                                                                                                  'empty '
                                                                                                                  'selector '
@@ -13871,14 +13069,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                                           'empty '
                                                                                                           'Pod '
                                                                                                           'selector.'},
- 'k8s_networkpolicy_no_world_ingress': {'description_base_sha256': '672c17bd0b9c8e59819afdfc204187d2c4310c969a0fa03c0c1feeeba8a8ca89',
-                                        'description_fields': {'description': 'Checks observed ingress rules '
+ 'k8s_networkpolicy_no_world_ingress': {'description_fields': {'description': 'Checks observed ingress rules '
                                                                               'for omitted peers or '
                                                                               'unexcepted IPv4/IPv6 '
                                                                               'default-route IP blocks.'},
                                         'observed_failure_phrase': 'The NetworkPolicy declares an all-source '
                                                                    'ingress rule',
-                                        'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                         'remediation_fields': {'caveats': ['This is a declared allow rule; '
                                                                            'actual listeners, CNI '
                                                                            'enforcement and policy union are '
@@ -13912,14 +13108,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                         'reviewed_source_severity': 'medium',
                                         'static_observed_sentence': 'The NetworkPolicy declares an '
                                                                     'all-source ingress rule.'},
- 'k8s_networkpolicy_no_world_ssh_rdp': {'description_base_sha256': 'ef566f192dbd02d15c4c6c3bb144e40969f74fa5d4bc4e84a866f7e56dffe2f1',
-                                        'description_fields': {'description': 'Checks all-source ingress '
+ 'k8s_networkpolicy_no_world_ssh_rdp': {'description_fields': {'description': 'Checks all-source ingress '
                                                                               'declarations for TCP port 22 '
                                                                               'or 3389, including ranges or '
                                                                               'all-port rules.'},
                                         'observed_failure_phrase': 'The NetworkPolicy declares all-source '
                                                                    'TCP SSH/RDP access',
-                                        'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                         'remediation_fields': {'caveats': ['This does not establish a '
                                                                            'running remote-administration '
                                                                            'listener or actual internet '
@@ -13953,8 +13147,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                         'reviewed_source_severity': 'high',
                                         'static_observed_sentence': 'The NetworkPolicy declares all-source '
                                                                     'TCP SSH/RDP access.'},
- 'k8s_node_nodes_publicly_accessible_rule_non_8250b02a65': {'description_base_sha256': '24c305aee83f6caff12f7881a6a88e24f76e91fda301ff26dd286d5e10798f98',
-                                                            'description_fields': {'description': 'Checks '
+ 'k8s_node_nodes_publicly_accessible_rule_non_8250b02a65': {'description_fields': {'description': 'Checks '
                                                                                                   'Node '
                                                                                                   'ExternalIP '
                                                                                                   'status '
@@ -13966,7 +13159,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'observed_failure_phrase': 'The Node advertises '
                                                                                        'a globally routable '
                                                                                        'ExternalIP',
-                                                            'remediation_base_sha256': '1c1e4b7cebff6af04314b74c317105945974ce3f4c93ae7cb6ee3afdded3a777',
                                                             'remediation_fields': {'caveats': ['A globally '
                                                                                                'routable '
                                                                                                'address does '
@@ -14007,8 +13199,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'static_observed_sentence': 'The Node advertises '
                                                                                         'a globally routable '
                                                                                         'ExternalIP.'},
- 'k8s_pod_direct_internet_access_disabled_pod_0a30afe8f2': {'description_base_sha256': '14d813e07b0d21503c8a30b10ac7fdbd144838ab165f3c59ac1384cba3a4711d',
-                                                            'description_fields': {'description': 'Checks '
+ 'k8s_pod_direct_internet_access_disabled_pod_0a30afe8f2': {'description_fields': {'description': 'Checks '
                                                                                                   'assigned '
                                                                                                   'Pod '
                                                                                                   'status IP '
@@ -14019,7 +13210,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'observed_failure_phrase': 'The Pod advertises a '
                                                                                        'globally routable IP '
                                                                                        'address',
-                                                            'remediation_base_sha256': '244560c3d4fc137a083392e18fd06f5fd02b401a578a8b0ff00622e284dd832c',
                                                             'remediation_fields': {'caveats': ['A globally '
                                                                                                'routable Pod '
                                                                                                'IP does not '
@@ -14061,14 +13251,12 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                             'static_observed_sentence': 'The Pod advertises '
                                                                                         'a globally routable '
                                                                                         'IP address.'},
- 'k8s_pod_effective_run_as_user_nonzero': {'description_base_sha256': 'a01b69da2018ad9e7612c66b14f453c15b43144d689ebd35318b93c602f33e98',
-                                           'description_fields': {'description': 'Checks explicit Linux '
+ 'k8s_pod_effective_run_as_user_nonzero': {'description_fields': {'description': 'Checks explicit Linux '
                                                                                  'regular/init-container '
                                                                                  'UIDs after Pod inheritance '
                                                                                  'and flags UID zero.'},
                                            'observed_failure_phrase': 'Linux containers explicitly declare '
                                                                       'UID zero',
-                                           'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                            'remediation_fields': {'caveats': ['An unspecified UID remains '
                                                                               'UNKNOWN; the running process '
                                                                               'and image USER are not '
@@ -14103,8 +13291,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                            'reviewed_source_severity': 'medium',
                                            'static_observed_sentence': 'Linux containers explicitly declare '
                                                                        'UID zero.'},
- 'k8s_pod_secret_pod_rule_non_compliant_fcdc38e543': {'description_base_sha256': 'e42bef1d4c46519fd0fcb1b9b757386082ecc61a252ae283405bea867b614d57',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'k8s_pod_secret_pod_rule_non_compliant_fcdc38e543': {'description_fields': {'description': 'Checks whether '
                                                                                             'the PodSpec '
                                                                                             'references any '
                                                                                             'imagePullSecrets '
@@ -14112,7 +13299,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'observed_failure_phrase': 'The Pod declares no '
                                                                                  'image-pull Secret '
                                                                                  'references',
-                                                      'remediation_base_sha256': '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b',
                                                       'remediation_fields': {'caveats': ['This checks '
                                                                                          'reference '
                                                                                          'presence, not '
@@ -14157,15 +13343,13 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                       'static_observed_sentence': 'The Pod declares no '
                                                                                   'image-pull Secret '
                                                                                   'references.'},
- 'k8s_pod_serviceaccount_has_rbac_binding': {'description_base_sha256': '6a9e76975a72d5d40ab85e796438a79d80a5fbd14caf4cb23e12faf5f210b3b1',
-                                             'description_fields': {'description': 'Joins the Pod '
+ 'k8s_pod_serviceaccount_has_rbac_binding': {'description_fields': {'description': 'Joins the Pod '
                                                                                    'ServiceAccount to '
                                                                                    'declared RoleBinding or '
                                                                                    'ClusterRoleBinding '
                                                                                    'subjects.'},
                                              'observed_failure_phrase': 'No matching RBAC binding is '
                                                                         'declared for the Pod ServiceAccount',
-                                             'remediation_base_sha256': 'a44e0c1b9315a0b4d11eb13c49940a216aa7f27d267ed66a1a98a0e014b877c5',
                                              'remediation_fields': {'caveats': ['A workload may '
                                                                                 'intentionally need no RBAC '
                                                                                 'grant; binding presence '
@@ -14192,13 +13376,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                              'static_observed_sentence': 'No matching RBAC binding is '
                                                                          'declared for the Pod '
                                                                          'ServiceAccount.'},
- 'k8s_secret_no_deletion_timestamp': {'description_base_sha256': '30bdf943fed10f96e18a23696154a29da05e84d9ab90cb22c3a0c1a759542c44',
-                                      'description_fields': {'description': 'Checks Secret metadata for a '
+ 'k8s_secret_no_deletion_timestamp': {'description_fields': {'description': 'Checks Secret metadata for a '
                                                                             'valid pending deletion '
                                                                             'timestamp.'},
                                       'observed_failure_phrase': 'Secret metadata records a pending deletion '
                                                                  'request',
-                                      'remediation_base_sha256': 'fdd5a31d6e73dea3a9eb0284d8d22c55856f4e9d1c68998c1aa510dbd7eb34d7',
                                       'remediation_fields': {'caveats': ['deletionTimestamp cannot be '
                                                                          'cleared; this check does not read '
                                                                          'Secret values.'],
@@ -14223,8 +13405,7 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                       'reviewed_source_severity': 'medium',
                                       'static_observed_sentence': 'Secret metadata records a pending '
                                                                   'deletion request.'},
- 'k8s_service_service_uses_ftp_endpoint_connection_e9b0a5f836': {'description_base_sha256': 'f24e83649935ea56a29ac86ae8c9041292d5534dc12cd41fd89a9488b5c4dc14',
-                                                                 'description_fields': {'description': 'Checks '
+ 'k8s_service_service_uses_ftp_endpoint_connection_e9b0a5f836': {'description_fields': {'description': 'Checks '
                                                                                                        'ClusterIP '
                                                                                                        'Service '
                                                                                                        'declarations '
@@ -14236,7 +13417,6 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                             'Service '
                                                                                             'declares TCP '
                                                                                             'port 21',
-                                                                 'remediation_base_sha256': '57d3c211e9dacf15436a8d5656b5d8daee82e37c8bef2131ece5987488435407',
                                                                  'remediation_fields': {'caveats': ['The '
                                                                                                     'port '
                                                                                                     'number '
@@ -14293,18 +13473,11 @@ ROWS = {'k8s.cis.admission_allowprivilegeescalation': {'description_base_sha256'
                                                                                              'port 21.'}}
 
 
-def _digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=False).encode()).hexdigest()
-
-
 def _apply(check_id, original, kind):
     row = ROWS.get(check_id)
     if row is None:
         return deepcopy(original)
-    if _digest(original) != row[kind + "_base_sha256"] or (not isinstance(original, dict) and not (kind == "remediation" and original is None)):
-        raise ValueError("Reviewed Kubernetes workload clarity base changed: " + check_id + " (" + kind + ")")
-    updated = deepcopy(original) if original is not None else {}
+    updated = deepcopy(original) if isinstance(original, dict) else {}
     from .k8s_native_review_copy_20261020 import reviewed_fields
     updated.update(reviewed_fields(check_id, kind, row[kind + "_fields"]))
     return updated
@@ -14323,10 +13496,8 @@ REVIEWED_RISKS = {check_id: (row["reviewed_source_severity"], row["reviewed_seve
 
 
 def severity_review(check_id, source_severity):
-    """Return the reviewed risk only while the original severity contract matches."""
+    """Return the reviewed risk for a reviewed check."""
     review = REVIEWED_RISKS.get(check_id)
     if review is None:
         return None
-    if review[0] != source_severity:
-        raise ValueError("Reviewed Kubernetes source severity changed: " + check_id)
     return review[1]

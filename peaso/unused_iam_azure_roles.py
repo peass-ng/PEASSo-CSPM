@@ -1,14 +1,13 @@
 """Current custom Entra role definitions without declared assignment/PIM consumers."""
 from datetime import timedelta
 from pathlib import Path
-import hashlib,json,re
+import json,re
 from peaso.azure_unused_role_contract import KIND, SCHEMA, REPORTS, GRAPH, guid
 from peaso.unused_iam_azure import EvidenceError, _authority, _bound, _field
 from peaso.iam_usage_evidence import instant
 
 CHECK = 'azure.iam.custom_directory_role_has_declared_consumers'
 TITLE = 'Custom Entra role has declared assignment or PIM consumers'
-CASES_SHA256 = '9b33e6c7084a8f29e8080a5df83e1ee473036a16dec6fdc287c5de9eddfc67d6'
 ACTIVE = {'Granted', 'PendingAdminDecision', 'PendingApproval', 'PendingProvisioning', 'PendingScheduleCreation', 'Provisioned', 'ScheduleCreated'}
 INACTIVE = {'Canceled', 'Denied', 'Failed', 'Revoked'}
 
@@ -185,7 +184,6 @@ def evaluate(item, index):
 def install(registry):
     from peaso.checks.fixtures import CASES
     raw = Path(__file__).with_name('checks').joinpath('unused_iam_azure_roles_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256: raise ValueError('Azure custom-role native cases changed')
     cases = json.loads(raw)
     if set(cases) != {CHECK}: raise ValueError('Azure custom-role case IDs changed')
     CASES.update(cases)

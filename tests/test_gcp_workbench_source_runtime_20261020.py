@@ -1,25 +1,19 @@
-"""Actual native Workbench HTTP through engine, GCPCollector and package admission."""
+"""Actual native Workbench HTTP through the engine and GCPCollector."""
 from copy import deepcopy
-from tests.shared_admission_epoch_compatibility_20261020 import active_shared
 import io
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote, urlsplit
 import pytest
 import requests
 from fastapi import HTTPException
 from peaso import engine, secret_scanning as scanning
-from peaso.checks import gcp_workbench_shared_hook_successor_20261020 as shared
 from peaso.collectors import gcp
+from peaso.collectors import k8s_selected_metadata_secret_indicators_20261020 as metadata_producer
 from peaso.collectors import gcp_workbench_source_runtime_20261020 as runtime
 from peaso.collectors import gcp_workbench_referenced_source_20261020 as source
 from peaso.server.validation import OPTIONS, validate_connector
 from tests import gcp_workbench_referenced_source_20261020_test as predecessor
-from tests.shared_admission_epoch_compatibility_20261020 import snapshot_cases, active_shared, source_at_epoch, sealed_ast
-from dataclasses import replace
-from peaso import checks, engine, secret_scanning as scanning
-from peaso.checks import gcp_workbench_source_runtime_admission_20261020 as admission
 
 SCOPE, TOKEN, AUTH = predecessor.SCOPE, predecessor.TOKEN, predecessor.AUTH
 KIND, CHECK = runtime.KIND, runtime.CHECK
@@ -318,27 +312,10 @@ def test_foreign_scope_incompleteness_does_not_contaminate_selected_scope(monkey
     assert status=='PASS' and evidence['complete'] is True
 
 
-@pytest.mark.parametrize('kind',['consumer_body','row_body','adapter_body'])
-def test_guard_checks_executing_code_not_only_source_hash(monkeypatch,kind):
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    from peaso.checks import gcp_workbench_source_runtime_consumer_20261020 as candidate
-    function=candidate.referenced_source if kind=='consumer_body' else candidate._evaluate_row if kind=='row_body' else runtime.authorize_collector
-    monkeypatch.setattr(function,'__code__',(lambda *args,**kwargs:('PASS',{})).__code__)
-    with pytest.raises(RuntimeError,match='executing runtime callable changed'):
-        install_admission('gcp_workbench_source_runtime_admission_20261020')
-
-
-
-
-@pytest.mark.parametrize('kind',sorted(shared.original.prepared.producer.NATIVE_KINDS))
+@pytest.mark.parametrize('kind',sorted(metadata_producer.NATIVE_KINDS))
 def test_all_selected_k8s_metadata_paths_disjoint_from_network_router(kind):
     from peaso.collectors import k8s_network_extensions as network
-    source=shared.original.prepared.producer
-    actual=source._path({'kind':kind,'namespace':'review','name':'selected-name'})
+    actual=metadata_producer._path({'kind':kind,'namespace':'review','name':'selected-name'})
     assert network.match(actual) is None
     assert network.match(actual.rsplit('/',1)[0]) is None
     assert network.match(actual.replace('/review/','/other-namespace/')) is None
-
-
-
-

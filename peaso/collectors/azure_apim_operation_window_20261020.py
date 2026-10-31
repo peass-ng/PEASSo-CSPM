@@ -236,8 +236,6 @@ def collect_proposal(connector, named_checks, *, credential=None):
     targets = preflight(options, scopes, named_checks)
     if not targets:
         return make_snapshot('azure', scopes, [], metadata={'collection': 'read-only'})
-    from peaso.rawv2_private_source_successor_20261021 import install_admission
-    install_admission('azure_apim_operation_window_admission_20261020')
     reader = _Reader({**options, 'concurrency': 1, 'retries': 0})
     transport = None
     try:

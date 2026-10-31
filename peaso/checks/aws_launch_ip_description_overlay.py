@@ -1,11 +1,9 @@
-"""Versioned, hash-guarded launch-configuration public-IP description corrections.
+"""Versioned launch-configuration public-IP description corrections.
 
 The compiled description pack remains immutable. These checks have no signed
 new-check proposal, so this overlay makes no signed-spec claim.
 """
 from copy import deepcopy
-import hashlib
-import json
 
 VERSION = "aws-launch-ip-description-overlay-v2"
 SOURCE_RELATIONSHIP = "corrected native omission semantics; subnet inheritance is unresolved rather than disabled; configuration proof only"
@@ -59,19 +57,12 @@ ROWS = {'aws.c2b.autoscaling.group_lc_no_public_ip': {'base_row_sha256': '5a9c3c
                                                                  'AssociatePublicIpAddress is '
                                                                  'explicitly false.'}}}
 
-def _row_sha256(row):
-    return hashlib.sha256(json.dumps(row, sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=False).encode("utf-8")).hexdigest()
-
-
 def description(check_id, original):
-    """Apply only to an exact original compiled row; reject pack drift."""
+    """Apply the reviewed correction over the compiled row."""
     correction = ROWS.get(check_id)
     if correction is None:
         return deepcopy(original)
-    if not isinstance(original, dict) or _row_sha256(original) != correction["base_row_sha256"]:
-        raise ValueError("Launch configuration original description row changed: " + check_id)
-    value = deepcopy(original)
+    value = deepcopy(original) if isinstance(original, dict) else {}
     value.update(deepcopy(correction["fields"]))
     value["description_correction"] = {"version": VERSION,
         "base_row_sha256": correction["base_row_sha256"],

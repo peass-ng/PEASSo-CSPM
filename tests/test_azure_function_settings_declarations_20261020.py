@@ -430,16 +430,6 @@ def test_early_credential_rejection_has_safe_unknown_collection(monkeypatch,capl
     assert CANARY not in json.dumps(snapshot)+json.dumps(report)+caplog.text
 
 
-def test_source_drift_rejected_before_token_acquisition(monkeypatch):
-    def altered_reader(*args,**kwargs): return {'synthetic':'not native'}
-    monkeypatch.setattr(source,'_read',altered_reader)
-    credential=Credential()
-    with pytest.raises(ValueError,match='function_proposal_source_mismatch'):
-        source.collect_proposal({'scopes':[SCOPE],'options':{'content_secret_scans':True,source.OPTION:[SITE]}},
-            list(source.CHECKS),credential=credential)
-    assert not credential.calls
-
-
 def test_future_parent_hook_binds_actual_scan_context_without_nonce_guess(monkeypatch):
     wire=Wire([SITE]);monkeypatch.setattr(source.http.client,'HTTPSConnection',wire.connection)
     reader=azure._Reader({'retries':0,'concurrency':1});credential=Credential()

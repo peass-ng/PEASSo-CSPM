@@ -15,7 +15,7 @@ def _compile_into(tmp_path, seed):
     paths = {name: output / name for name in
              ("compliance_requirements.json", "compliance_lookup.json", "check_descriptions.json")}
     environment = os.environ.copy()
-    environment.update(PYTHONHASHSEED=str(seed), PYTHONDONTWRITEBYTECODE="1", PEASO_SOURCE_ATTESTATION="once")
+    environment.update(PYTHONHASHSEED=str(seed), PYTHONDONTWRITEBYTECODE="1")
     command = [sys.executable, "scripts/peaso_compliance_compile.py",
                "--ledger-root", "docs/compliance-ledgers",
                "--audit-matrix", "docs/compliance-ledgers/inputs/compliance-requirements-matrix.json.gz",

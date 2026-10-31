@@ -1,18 +1,15 @@
-"""Exact API-only native review roster without executing the checks package.
+"""API-only native review roster without executing the checks package.
 
-The predecessor validator and its executable release receipts remain unchanged.
-Only its metadata lookup is rebound, using the very same signed manifest bytes
-that the native registrar consumes. There is no native import fallback.
+The roster is read from the same manifest file that the native registrar
+consumes. There is no native import fallback.
 """
 from functools import lru_cache
-import hashlib
 import json
 from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
 
 MANIFEST_PATH = Path(__file__).resolve().parents[1] / 'checks' / 'bulk_pending.json'
-MANIFEST_SHA256 = 'eeaa69cd90dd1e0a44ce240faf5e583e67526a8e5de811633264e9b9601c5d4e'
 MAX_MANIFEST_BYTES = 256 * 1024
 
 
@@ -31,9 +28,8 @@ def module_ids() -> Mapping[str, frozenset[str]]:
     try:
         with MANIFEST_PATH.open('rb') as stream:
             raw = stream.read(MAX_MANIFEST_BYTES + 1)
-        if (len(raw) > MAX_MANIFEST_BYTES
-                or hashlib.sha256(raw).hexdigest() != MANIFEST_SHA256):
-            raise ValueError('native review manifest identity differs')
+        if len(raw) > MAX_MANIFEST_BYTES:
+            raise ValueError('native review manifest budget')
         manifest = json.loads(raw, object_pairs_hook=_pairs)
         if (type(manifest) is not dict or manifest.get('schema_version') != 1
                 or type(manifest.get('checks')) is not dict

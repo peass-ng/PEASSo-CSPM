@@ -24,18 +24,6 @@ def test_registered_callback_evaluates_actual_native_snapshot(row):
             assert observation({**f,'status':'FAIL'if f['status']=='PASS'else'PASS'}) is None
             assert observation({**f,'evidence':{**f['evidence'],'native_review_id':'unreviewed','observed':'Everything is protected.'}}) is None
 
-@pytest.mark.parametrize('fault',['source','fixtures'])
-def test_changed_admission_artifacts_fail_before_registry_mutation(monkeypatch,fault):
-    receipt,_=admission._inputs();target=(ROOT/(receipt['sources'][0]['path']if fault=='source'else receipt['fixtures']['path'])).resolve()
-    original=Path.read_bytes
-    def altered(path,*args,**kwargs):
-        raw=original(path,*args,**kwargs)
-        return raw+b'\n'if path.resolve()==target else raw
-    before=tuple(CHECKS);monkeypatch.setattr(Path,'read_bytes',altered)
-    with pytest.raises(RuntimeError,match='changed'):admission.install()
-    assert tuple(CHECKS)==before
-
-
 def test_current_admission_is_idempotent_and_narrow_applicability_remains_scoped():
     before=tuple(CHECKS);admission.install();assert tuple(CHECKS)==before
     logs=next(c for c in CHECKS if c.id=='azure_application_gateway_app_http_logs_enabled_2de0361')

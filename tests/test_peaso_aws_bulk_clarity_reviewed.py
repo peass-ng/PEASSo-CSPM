@@ -1,8 +1,7 @@
 from tests.observed_evidence_successors import assert_original_evidence_preserved
-"""Hash-bound guidance and independent native/signed-fixture callback replay."""
+"""Reviewed guidance and independent native/signed-fixture callback replay."""
 from copy import deepcopy
 import gzip
-import hashlib
 import inspect
 import json
 from pathlib import Path
@@ -10,7 +9,6 @@ import pytest
 from peaso.checks import CHECKS
 from peaso.checks.aws_bulk_clarity_reviewed import ROWS, description
 from peaso.checks.aws_bulk_finding_summary import evidence_summary
-from peaso.checks.aws_bulk_clarity_reviewed import ROWS,_digest,description,remediation,severity_review
 ROOT=Path(__file__).resolve().parents[1]
 CHECK_BY_ID={c.id:c for c in CHECKS}
 CASES=json.loads(gzip.decompress((ROOT/'tests/fixtures/aws_bulk_clarity_reviewed.json.gz').read_bytes()))
@@ -25,26 +23,6 @@ def _stable(v):
     if hasattr(v,'isoformat') and v.__class__.__module__=='datetime':return {'datetime':v.isoformat()}
     if hasattr(v,'pattern') and hasattr(v,'flags'):return {'regex':v.pattern,'flags':v.flags}
     return {'type':type(v).__name__}
-
-def _closure_digest(value):
-    return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
-
-# 334b8376 memoized the sw46 inventory joins (_items now delegates to
-# _validated_items, _resource reuses a per-index lookup) and shifted later
-# callback line numbers; every other callback body hash is unchanged.
-BINDING_SUCCESSORS={
-    'aws_nist_sns_topic_notification_delivery_status_enabled':{
-        'historical_predicate_sources':'e866c03c80996d786c81166599bd2a92379806454521350113cd082067d9e479',
-        'historical_constants':'3732e2e665c4ae7db552be8e89506c8cfe3878a198f9a98643c0d7e3a1c168ce',
-        'current_predicate_sources':'56409bd070a0947e61480248239601f858334c003959ebe62a86b4ae9ad08da2',
-        'current_constants':'48017d284b97d753604309aabbe565e5ed0b058a45262f9415787c5b827aa5d2'},
-    'aws_shield_ddos_detected_alarm':{
-        'historical_predicate_sources':'abf717caa44284910561687ec81385050cde56c09e37645f59bb7f24fce98f93',
-        'historical_constants':'bfa1d75e683bd2e2df425c4e661adea290a4385a0a8ec5c6d1c8a4f46f14a096',
-        'current_predicate_sources':'bdf9b152e76b59c2d91251f6e040342d506998691e58e82d7faf14788a9d683a',
-        'current_constants':'a4e12c6f9c4ba504acf5263344752abb3695f11e514e3d27f8248faec1a56b2c'},
-}
-
 
 @pytest.mark.parametrize('cid',sorted(ROWS))
 def test_independent_native_and_signed_wave_fixture_replay(cid):

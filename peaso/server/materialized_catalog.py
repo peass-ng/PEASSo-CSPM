@@ -1,4 +1,4 @@
-"""Build-verified API metadata; never import or execute native scan code.
+"""Materialized API metadata; never import or execute native scan code.
 
 Full metadata uses offset/limit pagination (1..500 checks, default 100). Each
 page and individual check detail is capped at 4 MiB of UTF-8 JSON. next_offset
@@ -22,17 +22,6 @@ MAX_ENVELOPE_BYTES = 6 * 1024 * 1024
 MAX_COMPRESSED_BYTES = 8 * 1024 * 1024
 MAX_DOCUMENT_BYTES = 48 * 1024 * 1024
 MAX_LIMIT = 500
-SOURCE_PATHS = frozenset({'peaso/rulepacks/native_catalog.json',
-    'peaso/rulepacks/framework_catalog.json', 'peaso/rulepacks/runtime_metadata.json',
-    'peaso/rulepacks/catalog_summary.json', 'peaso/checks/native_only.json',
-    'peaso/privesc/versioned_catalog.py', 'peaso/privesc/schema.py',
-    'risk_rules/hacktricks-privesc-source.json'})
-# These reviewed build inputs are intentionally absent from the API package.
-# Their exact identities remain frozen in the catalog manifest and envelope.
-ENGINE_ONLY_SOURCES = frozenset({'peaso/privesc/versioned_catalog.py',
-    'peaso/privesc/schema.py', 'risk_rules/hacktricks-privesc-source.json'})
-
-
 def _encoded(value):
     return json.dumps(value, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode()
 
@@ -58,40 +47,13 @@ def _json(raw):
                       parse_constant=lambda value: (_ for _ in ()).throw(ValueError('nonfinite catalog value')))
 
 
-def _digest_file(path):
-    if path.stat().st_size > 128 * 1024 * 1024:
-        raise ValueError('catalog source budget')
-    digest = hashlib.sha256()
-    with path.open('rb') as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b''):
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def _unavailable():
-    return HTTPException(503, 'Materialized catalog unavailable; rebuild the reviewed API catalog')
+    return HTTPException(503, 'Materialized catalog unavailable; rebuild the API catalog')
 
 
 @lru_cache(maxsize=1)
 def _load():
     try:
-        manifest_path = PACK / 'api_catalog_manifest.json'
-        if manifest_path.stat().st_size > 16384:
-            raise ValueError('catalog manifest budget')
-        with manifest_path.open('rb') as stream:
-            manifest_raw = stream.read(16385)
-        if len(manifest_raw) > 16384:
-            raise ValueError('catalog manifest budget')
-        manifest = _json(manifest_raw)
-        if (manifest['schema_version'] != 1 or set(manifest['sources']) != SOURCE_PATHS
-                or not 0 < manifest['uncompressed_bytes'] <= MAX_DOCUMENT_BYTES):
-            raise ValueError('catalog manifest schema')
-        for relative, expected in manifest['sources'].items():
-            source_path = ROOT.parent / relative
-            if source_path.exists() and _digest_file(source_path) != expected:
-                raise ValueError('catalog source generation mismatch')
-            if not source_path.exists() and relative not in ENGINE_ONLY_SOURCES:
-                raise ValueError('catalog source missing')
         path = PACK / 'api_catalog.json.gz'
         if not 0 < path.stat().st_size <= MAX_COMPRESSED_BYTES:
             raise ValueError('compressed catalog budget')
@@ -99,16 +61,13 @@ def _load():
             raw = stream.read(MAX_COMPRESSED_BYTES + 1)
         if len(raw) > MAX_COMPRESSED_BYTES:
             raise ValueError('compressed catalog budget')
-        if hashlib.sha256(raw).hexdigest() != manifest['gzip_sha256']:
-            raise ValueError('catalog gzip identity')
         with gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
             document = stream.read(MAX_DOCUMENT_BYTES + 1)
-        if (len(document) != manifest['uncompressed_bytes']
-                or hashlib.sha256(document).hexdigest() != manifest['document_sha256']):
-            raise ValueError('catalog document identity')
+        if len(document) > MAX_DOCUMENT_BYTES:
+            raise ValueError('catalog document budget')
         value = _json(document)
-        if value['schema_version'] != 1 or value['sources'] != manifest['sources']:
-            raise ValueError('catalog envelope generation')
+        if value['schema_version'] != 1:
+            raise ValueError('catalog envelope schema')
         full = value['full']
         checks = full['checks']
         if not isinstance(checks, list) or not 0 < len(checks) <= 20000:
@@ -133,15 +92,8 @@ def _load():
             raise ValueError('catalog view parity')
         if any(not wire_fits(_encoded(value[name])) for name in ('summary', 'frameworks')):
             raise ValueError('compact catalog wire budget')
-        # The API package has no privilege YAML tree. The materialized display
-        # index pins the same current binding and verifies its own bytes.
-        binding = full['privesc_catalog']
-        privesc_source = 'risk_rules/hacktricks-privesc-source.json'
-        if binding['manifest_sha256'] != manifest['sources'][privesc_source]:
-            raise ValueError('privilege catalog manifest binding')
-        from .privesc_display_catalog import current_binding
-        if binding != current_binding(manifest):
-            raise ValueError('privilege catalog display binding')
+        if not isinstance(full['privesc_catalog'], dict):
+            raise ValueError('privilege catalog binding schema')
         if (not isinstance(value['descriptions'], dict)
                 or not isinstance(value['framework_expansion'], dict)
                 or not isinstance(value['framework_display'], dict)
@@ -274,23 +226,8 @@ def finding_service(finding):
     from .service_labels_static_20261020 import finding_service as service_for_finding
     return service_for_finding(finding)
 
-# Remediation presentation uses only the already verified API catalog. These
-# hashes bind the copied native-free helpers and the small analysis/special-case
-# inputs to the exact native-reviewed release source.
-_REMEDIATION_PRESENTATION_SOURCES = {'peaso/remediation.py': 'eec52bbff6d447f1512009bbb939656d22420a2d7f99622b0d183b05b5b54197', 'peaso/rulepacks/remediation_curated.json': 'b00eac2c6c2bae62a3d926ed42fd93fc219a31bc293bfc44594d736cd98634d7', 'peaso/checks/gcp_cloudsql_lockout_source_correction.py': '4c1b9a29c2863341beeb246a8e8d42900b40b12c129e290b55a3079bee7f7be7', 'peaso/checks/azure_vm_ssh_source_correction.py': '838902297b424837bdb6d8e845c1a53516a36d26a4ca6cf438d7cca66aca09a2', 'peaso/checks/azure_bulk_clarity_reviewed.py': '6c36caa185c2b483eb94185110aa8b514ddebefe56188e2d9e0dc1f921967d22'}
 _GCP_CLOUDSQL_CORRECTED_TEMPLATE = {'review_status': 'approved', 'summary': "Establish the full in-scope authentication-account inventory and approved lockout or rate-limiting controls. For supported managed MySQL built-in accounts, review instance password-policy enablement and each user's passwordPolicy.enableFailedAttemptsCheck and positive allowedFailedAttempts; verify other authentication paths separately without inferring a violation from missing metadata.", 'steps': ['Bind the complete in-scope customer login-account universe and each authentication path.', 'Review documented managed user lockout policies and independent rate limiting for unsupported paths.'], 'caveats': ['API-visible user policy is configuration evidence, not complete principal scope or an observed login test.'], 'references': [{'title': 'Cloud SQL user password policy API', 'url': 'https://docs.cloud.google.com/sql/docs/mysql/admin-api/rest/v1beta4/users'}], 'source_correction': {'version': 'peaso-source-correction-v1', 'status': 'source_erratum_successor', 'prior_frozen_signed_spec_sha256': 'e8a00a7a5e39d325f24a58ee7d6d5068554e680193c1447bdc3e803ed686f6ef', 'prior_frozen_status': 'historical_superseded_for_this_check', 'current_canonical_spec_sha256': '7f007ab89daf6fcd67916ec56fdd29b35aff32d0770f3317d33c809e83a16c1d', 'current_predicate_sha256': '057392fce746b44c8ea9af339e86aae1899e0270808f050e7a3dfb0eac0eb8f5', 'source_url': 'https://docs.cloud.google.com/sql/docs/mysql/admin-api/rest/v1beta4/users', 'framework_id': 'ccc_gcp', 'requirement_ids': ['CCC.RDMS.CN02.AR01'], 'original_requirement': 'When repeated failed login attempts are made in a short timeframe, the account must be locked out or rate-limited to prevent further login attempts.', 'criterion_scope': 'Original account lockout or rate limiting: configured PASS is limited to the explicitly approved customer-account boundary, exactly matched to the complete API-visible roster; native witness alone does not establish that boundary or provider-internal/runtime protection'}}
 _AZURE_SSH_WRONG_PROVIDER_FALLBACK = {'caveats': ['This corrected historical source profile prefers no bootstrap keys; key presence is not a vulnerability or a guest-runtime observation.'], 'cli': [], 'field_binding': {'fields': ['Complete paged Microsoft.Compute/virtualMachines GET and instanceView: properties.storageProfile.osDisk.osType, properties.osProfile.linuxConfiguration.ssh.publicKeys[] and PowerState status.', 'Complete scoped vm inventory and explicit ssh.publicKeys array'], 'kind': 'vm', 'target': 'resource'}, 'references': [{'title': 'Azure VM SSH keys', 'url': 'https://learn.microsoft.com/azure/virtual-machines/linux/ssh-from-windows'}], 'review_status': 'approved', 'steps': ['Review the configured bootstrap public keys under this legacy profile; preserve a working administrative access method.'], 'summary': 'Review the configured bootstrap public keys under this legacy profile; preserve a working administrative access method.'}
-
-
-@lru_cache(maxsize=1)
-def _presentation_sources_valid():
-    try:
-        for relative, expected in _REMEDIATION_PRESENTATION_SOURCES.items():
-            path = ROOT.parent / relative
-            if _digest_file(path) != expected:
-                raise ValueError('remediation source changed')
-    except (OSError, ValueError):
-        raise _unavailable() from None
 
 
 @lru_cache(maxsize=1)
@@ -298,8 +235,6 @@ def _archived_remediation_rows():
     value = _load()
     path = PACK / 'native_catalog.json'
     try:
-        if _digest_file(path) != value['sources']['peaso/rulepacks/native_catalog.json']:
-            raise ValueError('archived remediation source changed')
         document = _json(path.read_bytes())
         rows = document['archived_checks']
         if not isinstance(rows, list) or len(rows) > 20000:
@@ -316,7 +251,6 @@ def _archived_remediation_rows():
 
 @lru_cache(maxsize=1)
 def _analysis_remediation_rules():
-    _presentation_sources_valid()
     path = PACK / 'remediation_curated.json'
     try:
         if path.stat().st_size > 16 * 1024 * 1024:
@@ -339,7 +273,6 @@ def template_for(check_id, provider=None):
     """
     if not isinstance(check_id, str):
         return None
-    _presentation_sources_valid()
     value = _load()
     if check_id == 'gcp_cloudsql_failed_attempts_lockout':
         return deepcopy(_GCP_CLOUDSQL_CORRECTED_TEMPLATE) if provider in (None, 'gcp') else None

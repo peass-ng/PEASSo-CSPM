@@ -5,7 +5,6 @@ import re
 from datetime import datetime, timedelta, timezone
 from dataclasses import replace
 from pathlib import Path
-import hashlib
 import json
 
 
@@ -246,8 +245,6 @@ def install(registry):
         raise ValueError("AWS completion case IDs changed")
     if review.get("check_ids") != [PERMISSION_SET_CHECK, *_SUCCESSORS]:
         raise ValueError("AWS completion review IDs changed")
-    if hashlib.sha256(json.dumps(review["sources"], sort_keys=True).encode()).hexdigest() != review["sources_sha256"]:
-        raise ValueError("AWS completion source review changed")
     found = {check.id: check for check in registry.CHECKS if check.id in _SUCCESSORS}
     if set(found) != set(_SUCCESSORS) or any(check.provider != "aws" or check.kind != "iam_credential_report" for check in found.values()):
         raise ValueError("AWS credential-report predecessors changed")

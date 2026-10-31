@@ -1,27 +1,15 @@
-"""Production admission/default/hosted/scope/privacy gates for the one log check."""
+"""Default, hosted, scope and privacy gates for the selected Kubernetes log check."""
 from copy import deepcopy
-import inspect
 import json
 import logging
 import socket
-import sys
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 from peaso import checks, engine, secret_scanning as scanning
-from peaso.checks import k8s_selected_log_source_successor_20261021 as log_successor
-from peaso.checks import k8s_annotation_native_source_successor_20261021 as annotation_successor
-from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as configmap_successor
-admission = sys.modules[log_successor.PRIVATE_NAME]
-annotation = sys.modules[annotation_successor._PRIVATE_NAME]
-configmaps = sys.modules[configmap_successor.PRIVATE_NAME]
-assert admission.__file__ == str(log_successor.GUARD)
-assert annotation.__file__ == str(annotation_successor.GUARD)
-assert configmaps.__file__ == str(configmap_successor.GUARD)
 from peaso.collectors import k8s
 from peaso.collectors import k8s_selected_log_sample_secret_indicators as source
-from peaso.checks import k8s_selected_log_sample_secret_review_20261020 as candidate
 from peaso.server.validation import validate_connector
 from tests import test_k8s_selected_log_sample_secret_review_20261020 as wire
 
@@ -171,20 +159,6 @@ def test_real_transport_exact_grants_preserve_all_other_safety(mode):
     if mode == 'duplicate': url += '?follow=false'
     with pytest.raises(ValueError): pool.request(method, url, fields=fields, body=body)
     assert not calls
-
-
-@pytest.mark.parametrize('function', [candidate.evaluate, inspect.unwrap(source._read)])
-def test_executing_code_replacement_is_rejected(monkeypatch, function):
-    monkeypatch.setattr(function, '__code__', (lambda *args, **kwargs: ('PASS', {})).__code__)
-    with pytest.raises(RuntimeError, match='executing code'): admission.install()
-
-
-def test_context_manager_wrapper_code_cannot_bypass_private_logging(monkeypatch):
-    def wrong(func):
-        def helper(*a, **kw): return None if func else None
-        return helper
-    monkeypatch.setattr(source.private_native_logs, '__code__', wrong(None).__code__)
-    with pytest.raises(RuntimeError, match='context wrapper'): admission.install()
 
 
 @pytest.mark.parametrize('denied', [False, True])

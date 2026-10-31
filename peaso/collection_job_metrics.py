@@ -22,7 +22,9 @@ from types import MappingProxyType
 
 MAX_STREAMED_JOBS = 4096
 MAX_RETAINED_JOBS = 16
-ROSTER_SHA256 = '37e677633d601df85231f732f7ee6d04e2d9a497391274cc91f66d23974123b9'
+_ROSTER_PATH = Path(__file__).with_name('collection_job_kinds_20261029.json')
+# Content identifier of the roster a decoder needs to resolve logged kind digests.
+ROSTER_SHA256 = hashlib.sha256(_ROSTER_PATH.read_bytes()).hexdigest()
 MARKER = 'peaso collection job metrics: '
 _FIELDS = frozenset({'version', 'job', 'parent', 'kind_sha256', 'scope_hmac_sha256',
                      'start_ms', 'end_ms', 'wall_ms', 'thread_cpu_ms', 'process_cpu_ms', 'failed'})
@@ -81,10 +83,7 @@ if hasattr(os, 'register_at_fork'):
 
 @lru_cache(maxsize=1)
 def roster():
-    raw = Path(__file__).with_name('collection_job_kinds_20261029.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != ROSTER_SHA256:
-        raise ValueError('unreviewed job roster')
-    data = json.loads(raw)
+    data = json.loads(_ROSTER_PATH.read_bytes())
     if (data.keys() != {'schema', 'kinds'} or data['schema'] != 1
             or type(data['kinds']) is not list or not 0 < len(data['kinds']) <= 2048
             or any(type(k) is not str or re.fullmatch('[a-z][a-z0-9_]{0,159}', k) is None

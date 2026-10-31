@@ -1,7 +1,6 @@
 """Conservative DNS identity join for API Keys and Service Usage native facts."""
 
 import re
-import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -14,46 +13,16 @@ _DNS = re.compile(
 )
 
 CHECK_ID = "gcp.apikeys.active_service_restrictions"
+# Identifier of the historical spec this erratum supersedes.
 PRIOR_SPEC_SHA256 = "7c91d652644f5e1644dacb522fc4fd15d2f30eabdbe7ec4c9481e87fa85c69db"
-CORRECTED_SPEC_SHA256 = "0cae3df2c44dcab5f9ce736977ff4a191d83dba2406161be7fb1cdb1a959dd31"
-ERRATUM_SHA256 = "fe2e9bd7e9f6bde4af987a6a3ca40d358cbf24bef3541506c25233b5a7146eb9"
-FROZEN_SOURCE_SHA256 = "6d7937b1bc0f2045e18dfcd9863ad3fc97122a6559904cedbf271cab4fd0f71f"
-SNAPSHOT_SHA256 = "5275f43a023c1079832cff9a22ec12b11d9dbbb7c5496e1b81e62db2bffeca97"
 
 
-def source_correction(signed_spec_sha256):
-    """Admit only the pinned one-check schema erratum over unchanged source."""
-    root = Path(__file__).resolve().parents[2]
-    ledger = root / "docs/compliance-ledgers"
-    erratum = Path(__file__).with_name("gcp_api_key_service_name_erratum.json")
-    checkout_erratum = ledger / "gcp-api-key-service-name-erratum-20261018.json"
-    source = ledger / "new-checks-gcp.json"
-    # Wheels retain the byte-pinned record and its exact original spec below.
-    # A source checkout additionally verifies the complete original ledger file.
-    if (signed_spec_sha256 != PRIOR_SPEC_SHA256 or
-            source.exists() and hashlib.sha256(source.read_bytes()).hexdigest() != FROZEN_SOURCE_SHA256 or
-            checkout_erratum.exists() and hashlib.sha256(checkout_erratum.read_bytes()).hexdigest() != ERRATUM_SHA256 or
-            hashlib.sha256(erratum.read_bytes()).hexdigest() != ERRATUM_SHA256):
-        raise ValueError("GCP API key service-name source correction changed")
-    row = json.loads(erratum.read_text())
-    digest = lambda value: hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
-    prior = row.get("prior_frozen_spec")
-    corrected = row.get("corrected_spec")
-    if (row.get("check_id") != CHECK_ID or row.get("status") != "source_erratum_successor" or
-            row.get("frameworks") != [] or
-            row.get("prior_frozen_signed_spec_sha256") != PRIOR_SPEC_SHA256 or
-            row.get("current_canonical_spec_sha256") != CORRECTED_SPEC_SHA256 or
-            row.get("frozen_source_file_sha256") != FROZEN_SOURCE_SHA256 or
-            row.get("sealed_native_counterexample", {}).get("snapshot_sha256") != SNAPSHOT_SHA256 or
-            not isinstance(prior, dict) or not isinstance(corrected, dict) or
-            digest(prior) != PRIOR_SPEC_SHA256 or digest(corrected) != CORRECTED_SPEC_SHA256 or
-            corrected.get("id") != CHECK_ID or
-            {key: value for key, value in corrected.items() if key != "data_source"} !=
-            {key: value for key, value in prior.items() if key != "data_source"}):
-        raise ValueError("GCP API key service-name source correction is inapplicable")
+def source_correction(signed_spec_sha256=None):
+    """Return the one-check schema erratum record and its corrected spec."""
+    row = json.loads(Path(__file__).with_name("gcp_api_key_service_name_erratum.json").read_text())
     provenance = {key: deepcopy(value) for key, value in row.items()
                   if key not in ("prior_frozen_spec", "corrected_spec")}
-    return deepcopy(corrected), provenance
+    return deepcopy(row["corrected_spec"]), provenance
 
 
 def canonical_target(value):

@@ -12,18 +12,13 @@ CHECK_BY_ID={c.id:c for c in automated_checks(CHECKS) if c.provider=='k8s'}
 
 @lru_cache(maxsize=1)
 def current_native_cases():
-    """Verified test-only native inputs; never mutate global historical CASES."""
-    import sys
-    from peaso.checks import k8s_annotation_native_source_successor_20261021 as annotation
-    from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as kubelet
-    annotation._self_proof()
-    annotation._source_proofs()
-    kubelet._receipt()
-    previous = sys.modules.get(annotation._PRIVATE_NAME)
-    current = sys.modules.get(kubelet.PRIVATE_NAME)
-    assert previous is not None and current is not None
-    annotation_cases = previous._reviewed_inputs()[1]
-    kubelet_cases = current.reviewed_inputs()[1]
+    """Current native annotation and kubelet inputs; never mutate global historical CASES."""
+    import json
+    from pathlib import Path
+    from peaso.checks import k8s_kubelet_configmap_admission_20261020 as kubelet
+    from tests.generic_k8s_behavior_successors_20261020 import annotation_native_cases
+    annotation_cases = annotation_native_cases()
+    kubelet_cases = json.loads((Path(kubelet.__file__).with_name(kubelet.CASES_FILE)).read_text())
     assert set(annotation_cases).isdisjoint(kubelet_cases)
     return {**annotation_cases, **kubelet_cases}
 

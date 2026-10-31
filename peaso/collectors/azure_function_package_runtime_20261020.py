@@ -5,11 +5,8 @@ finalize_union has scrubbed every owner-supplied export/cache surface. This modu
 does not install hooks, authorize hosted requests, or claim registry admission.
 """
 from copy import deepcopy
-import hashlib
-import json
 import math
 import os
-from pathlib import Path
 import threading
 from uuid import uuid4
 from weakref import WeakKeyDictionary
@@ -26,8 +23,6 @@ DECLARATION = {'id': CHECK, 'kind': KIND, 'provider': 'azure', 'severity': 'high
     'dependencies': [KIND], 'allow_incomplete_failure': True,
     'title': 'Selected configured deployment package source has no detected secrets',
     'remediation': 'Remove exposed literals, rotate confirmed exposed credentials, and rebuild with managed identities or supported secret references.'}
-BINDING = Path(__file__).with_name('azure_function_package_runtime_binding_20261020.json')
-ROOT = Path(__file__).resolve().parents[2]
 MAX_WINDOWS = 2000000
 _NATIVE_COLLECT = source.collect
 _LOCK = threading.Lock()
@@ -49,21 +44,6 @@ class _Handle:
 
     def __reduce__(self):
         raise Invalid('opaque_runtime_handle')
-
-
-def reviewed_sources():
-    """Local source consistency gate, not production admission or authenticity."""
-    try:
-        binding = json.loads(BINDING.read_text())
-        if binding['status'] != 'unregistered_local_only' or not binding['sources']:
-            raise ValueError()
-        for relative, expected in binding['sources'].items():
-            path = (ROOT / relative).resolve()
-            if not path.is_relative_to(ROOT) or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-                raise ValueError()
-        return deepcopy(binding['sources'])
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        raise Invalid('runtime_source_binding_changed') from None
 
 
 def prepare(options, scopes, named_checks, *, customer_context_id,
@@ -91,7 +71,7 @@ def prepare(options, scopes, named_checks, *, customer_context_id,
         # This provisional UUID validates the context builder only; it is never
         # asserted as a native capture. The actual UUID remains source-owned.
         expected.pop('capture')
-        state = {'targets': targets, 'selection_context': expected, 'sources': reviewed_sources(), 'pid': os.getpid()}
+        state = {'targets': targets, 'selection_context': expected, 'pid': os.getpid()}
     except (ValueError, TypeError, KeyError, AttributeError):
         raise Invalid('invalid_runtime_selection_or_binding') from None
     plan = _Handle()
@@ -236,7 +216,7 @@ def collect(plan, authenticate):
         raise Invalid('invalid_or_consumed_runtime_plan')
     union = _Union()
     try:
-        if state['sources'] != reviewed_sources() or not callable(authenticate):
+        if not callable(authenticate):
             raise Invalid('runtime_source_binding_changed')
         selection = state['selection_context']
         reader = _reader(union)

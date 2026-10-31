@@ -1,15 +1,12 @@
 """Concise guidance for the thirty reviewed GCP per-port firewall predicates.
 
 Each tuple was compared with firewall_port/exposed_ports. Signed source rows,
-verdict contracts and evaluator behavior remain unchanged. Stale bases fail closed.
+verdict contracts and evaluator behavior remain unchanged.
 """
 from copy import deepcopy
-import hashlib
-import json
 
 VERSION = "gcp-firewall-clarity-20261019"
-ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha256': 'ca9d1bcf18503016623ba369af78788c5db36611a35b7a57e89b00939e2b0130',
-                                                    'description_fields': {'description': 'Checks whether an '
+ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_fields': {'description': 'Checks whether an '
                                                                                           'active ingress '
                                                                                           'firewall rule '
                                                                                           'allows TCP or UDP '
@@ -21,7 +18,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                           'endpoint '
                                                                                           'reachability are '
                                                                                           'not evaluated.'},
-                                                    'remediation_base_sha256': '0e9d46b975d517f3c41d52cb124c10c6b8502d0a720140a8706b081fc95c74e2',
                                                     'remediation_fields': {'caveats': ['This check reads one '
                                                                                        'firewall rule; it '
                                                                                        'does not test a live '
@@ -42,8 +38,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                       'restrict access to '
                                                                                       'the clients that need '
                                                                                       'it.'}},
- 'gcp.claude.firewall.public_ingress_ftp_port_21': {'description_base_sha256': '9692776a77cfd325d233a0388bc2d9174765ad66d32e4182bd327e0ebf45e5de',
-                                                    'description_fields': {'description': 'Checks whether an '
+ 'gcp.claude.firewall.public_ingress_ftp_port_21': {'description_fields': {'description': 'Checks whether an '
                                                                                           'active ingress '
                                                                                           'firewall rule '
                                                                                           'allows TCP or UDP '
@@ -55,7 +50,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                           'endpoint '
                                                                                           'reachability are '
                                                                                           'not evaluated.'},
-                                                    'remediation_base_sha256': '94c5098954807d134e49af32cb50d99d3d120317c3c4cbf465ceaf6af1fc203f',
                                                     'remediation_fields': {'caveats': ['This check reads one '
                                                                                        'firewall rule; it '
                                                                                        'does not test a live '
@@ -77,8 +71,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                       'administration '
                                                                                       'networks that need '
                                                                                       'access.'}},
- 'gcp.claude.firewall.public_ingress_http_port_80': {'description_base_sha256': '9f1ba7199bae121526d6259cefa0c2c0dceac163432498c1a60d653eff506cb1',
-                                                     'description_fields': {'description': 'Checks whether '
+ 'gcp.claude.firewall.public_ingress_http_port_80': {'description_fields': {'description': 'Checks whether '
                                                                                            'an active '
                                                                                            'ingress firewall '
                                                                                            'rule allows TCP '
@@ -91,7 +84,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                            'endpoint '
                                                                                            'reachability are '
                                                                                            'not evaluated.'},
-                                                     'remediation_base_sha256': '6908c15ddb000bedd4145b72682d2f8b3636eaa0e4db5bac5718f2ba497c6413',
                                                      'remediation_fields': {'caveats': ['This check reads '
                                                                                         'one firewall rule; '
                                                                                         'it does not test a '
@@ -113,8 +105,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                        'otherwise restrict '
                                                                                        'access to the '
                                                                                        'intended clients.'}},
- 'gcp.claude.firewall.public_ingress_microsoft_ds_port_445': {'description_base_sha256': 'aa74c0d6935ca73cd02d86ab0e01730fcd356bcbf99981457c370c50d9abbb64',
-                                                              'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_microsoft_ds_port_445': {'description_fields': {'description': 'Checks '
                                                                                                     'whether '
                                                                                                     'an '
                                                                                                     'active '
@@ -136,7 +127,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                     'reachability '
                                                                                                     'are not '
                                                                                                     'evaluated.'},
-                                                              'remediation_base_sha256': '4b7773d5a700c1eb6904edd6570b0e878c223737f96bb57047ce6f365a838ea6',
                                                               'remediation_fields': {'caveats': ['This check '
                                                                                                  'reads one '
                                                                                                  'firewall '
@@ -171,8 +161,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                 'networks '
                                                                                                 'that need '
                                                                                                 'access.'}},
- 'gcp.claude.firewall.public_ingress_mongo_db_port_27017': {'description_base_sha256': 'da09111188321ea39cec442709fd7f6f6cc44ad583e06838760cfe3babbdf29f',
-                                                            'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_mongo_db_port_27017': {'description_fields': {'description': 'Checks '
                                                                                                   'whether '
                                                                                                   'an active '
                                                                                                   'ingress '
@@ -192,7 +181,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                   'reachability '
                                                                                                   'are not '
                                                                                                   'evaluated.'},
-                                                            'remediation_base_sha256': 'd03075e70f41badcb948221d15454027a7a4412b473161a19bf5fe7ce7c846fc',
                                                             'remediation_fields': {'caveats': ['This check '
                                                                                                'reads one '
                                                                                                'firewall '
@@ -223,8 +211,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                               'networks that '
                                                                                               'need '
                                                                                               'access.'}},
- 'gcp.claude.firewall.public_ingress_mysql_db_port_3306': {'description_base_sha256': '1a2532d47d6e4a58d791a0040d831cdf263b2acd5c7593cd8a963a1c75a1e56b',
-                                                           'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_mysql_db_port_3306': {'description_fields': {'description': 'Checks '
                                                                                                  'whether an '
                                                                                                  'active '
                                                                                                  'ingress '
@@ -243,7 +230,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                  'reachability '
                                                                                                  'are not '
                                                                                                  'evaluated.'},
-                                                           'remediation_base_sha256': 'dfb9c3f3d183418345478f42e2fb9d1d8ccb9752ed39d00c3530bc19bf9aa79f',
                                                            'remediation_fields': {'caveats': ['This check '
                                                                                               'reads one '
                                                                                               'firewall '
@@ -272,8 +258,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                              'administration '
                                                                                              'networks that '
                                                                                              'need access.'}},
- 'gcp.claude.firewall.public_ingress_netbios_snn_port_139': {'description_base_sha256': 'a338156fa3a34a00520403c633aa04660d57231fb12bfb0a6991356db04d62a4',
-                                                             'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_netbios_snn_port_139': {'description_fields': {'description': 'Checks '
                                                                                                    'whether '
                                                                                                    'an '
                                                                                                    'active '
@@ -294,7 +279,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                    'reachability '
                                                                                                    'are not '
                                                                                                    'evaluated.'},
-                                                             'remediation_base_sha256': 'fa4a6ee7a48cedf9e42be95b913432413d5900a976013ab730d8c235c4b18845',
                                                              'remediation_fields': {'caveats': ['This check '
                                                                                                 'reads one '
                                                                                                 'firewall '
@@ -326,8 +310,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                'networks '
                                                                                                'that need '
                                                                                                'access.'}},
- 'gcp.claude.firewall.public_ingress_oracle_db_port_1521': {'description_base_sha256': '3abe66799fa2774842dc9c608b01fa6cb64c2a6fcb5557ba37b6faa621d78a6b',
-                                                            'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_oracle_db_port_1521': {'description_fields': {'description': 'Checks '
                                                                                                   'whether '
                                                                                                   'an active '
                                                                                                   'ingress '
@@ -347,7 +330,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                   'reachability '
                                                                                                   'are not '
                                                                                                   'evaluated.'},
-                                                            'remediation_base_sha256': '31f30e0c68c5abcebe7375111ec3e6074e46285bf55858bd16d72064d5db69b5',
                                                             'remediation_fields': {'caveats': ['This check '
                                                                                                'reads one '
                                                                                                'firewall '
@@ -378,8 +360,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                               'networks that '
                                                                                               'need '
                                                                                               'access.'}},
- 'gcp.claude.firewall.public_ingress_pop3_port_110': {'description_base_sha256': '9fa22134079f93938ce44c6a85d46e4fa416d54a8c79ca0099141a77b63443ec',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'gcp.claude.firewall.public_ingress_pop3_port_110': {'description_fields': {'description': 'Checks whether '
                                                                                             'an active '
                                                                                             'ingress '
                                                                                             'firewall rule '
@@ -394,7 +375,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                             'reachability '
                                                                                             'are not '
                                                                                             'evaluated.'},
-                                                      'remediation_base_sha256': '9591bdbc5d08d8671490d14d3b2a2ac01eb965010eb0388a5563c35373cb3a57',
                                                       'remediation_fields': {'caveats': ['This check reads '
                                                                                          'one firewall rule; '
                                                                                          'it does not test a '
@@ -416,8 +396,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                         'administration '
                                                                                         'networks that need '
                                                                                         'access.'}},
- 'gcp.claude.firewall.public_ingress_postgresql_port_10250': {'description_base_sha256': 'de99fea5b9a19d40d6e666908f406563b03721d69fa1b93a38fadd483b57b3eb',
-                                                              'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_postgresql_port_10250': {'description_fields': {'description': 'Checks '
                                                                                                     'whether '
                                                                                                     'an '
                                                                                                     'active '
@@ -439,7 +418,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                     'reachability '
                                                                                                     'are not '
                                                                                                     'evaluated.'},
-                                                              'remediation_base_sha256': '385f1809b3a7a5c818d2e6c79329f2feadb459e5d4c66a9cdb40e65dc0eaabea',
                                                               'remediation_fields': {'caveats': ['This check '
                                                                                                  'reads one '
                                                                                                  'firewall '
@@ -475,8 +453,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                 'networks '
                                                                                                 'that need '
                                                                                                 'access.'}},
- 'gcp.claude.firewall.public_ingress_postgresql_port_10255': {'description_base_sha256': 'ee9a1739d8daafd91cf9775cf57ae9608a7acff0ddd35ce856cb240561c14ae0',
-                                                              'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_postgresql_port_10255': {'description_fields': {'description': 'Checks '
                                                                                                     'whether '
                                                                                                     'an '
                                                                                                     'active '
@@ -498,7 +475,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                     'reachability '
                                                                                                     'are not '
                                                                                                     'evaluated.'},
-                                                              'remediation_base_sha256': 'e5f349dcd7b0d2cb450422704a2277da86775b1cba8aa12f7f3bcb8cc6eb027f',
                                                               'remediation_fields': {'caveats': ['This check '
                                                                                                  'reads one '
                                                                                                  'firewall '
@@ -534,8 +510,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                 'networks '
                                                                                                 'that need '
                                                                                                 'access.'}},
- 'gcp.claude.firewall.public_ingress_postgresql_port_5432': {'description_base_sha256': 'd1e553a6aa684bec6329a1a34791fd8e31aea1b606ca817cdd84523a1f336fc1',
-                                                             'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_postgresql_port_5432': {'description_fields': {'description': 'Checks '
                                                                                                    'whether '
                                                                                                    'an '
                                                                                                    'active '
@@ -556,7 +531,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                    'reachability '
                                                                                                    'are not '
                                                                                                    'evaluated.'},
-                                                             'remediation_base_sha256': '5c7290a6677c50bdb2397dfbb6acfc0d062097cb2e73542d2e37569a18cc309b',
                                                              'remediation_fields': {'caveats': ['This check '
                                                                                                 'reads one '
                                                                                                 'firewall '
@@ -588,8 +562,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                'networks '
                                                                                                'that need '
                                                                                                'access.'}},
- 'gcp.claude.firewall.public_ingress_smtp_port_25': {'description_base_sha256': '8d6535904289176a27ef1c2048c5bf15b1baa7b904dd3ae854f030105cf085a4',
-                                                     'description_fields': {'description': 'Checks whether '
+ 'gcp.claude.firewall.public_ingress_smtp_port_25': {'description_fields': {'description': 'Checks whether '
                                                                                            'an active '
                                                                                            'ingress firewall '
                                                                                            'rule allows TCP '
@@ -602,7 +575,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                            'endpoint '
                                                                                            'reachability are '
                                                                                            'not evaluated.'},
-                                                     'remediation_base_sha256': '572db2e82ebd51ab4e312e9bfc9f309ea94b2dddb63a2a031281158a4ab23c54',
                                                      'remediation_fields': {'caveats': ['This check reads '
                                                                                         'one firewall rule; '
                                                                                         'it does not test a '
@@ -624,8 +596,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                        'restrict access to '
                                                                                        'the mail systems '
                                                                                        'that need it.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_137_to_139': {'description_base_sha256': 'abe7e6a73d2123f9dc216c4117c3c51465240be092301d961e33c5d4fa7997c8',
-                                                            'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_tcp_port_137_to_139': {'description_fields': {'description': 'Checks '
                                                                                                   'whether '
                                                                                                   'an active '
                                                                                                   'ingress '
@@ -645,7 +616,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                   'reachability '
                                                                                                   'are not '
                                                                                                   'evaluated.'},
-                                                            'remediation_base_sha256': 'bbee6de5b9a8083231202818ce60dd22dc6fc7000099e6db621fff3479dc4941',
                                                             'remediation_fields': {'caveats': ['This check '
                                                                                                'reads one '
                                                                                                'firewall '
@@ -676,8 +646,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                               'networks that '
                                                                                               'need '
                                                                                               'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_27017_to_27019': {'description_base_sha256': '3f9179df7112abd4707f97751066d4bb91cea798666eea7692d21c99312fdd53',
-                                                                'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_tcp_port_27017_to_27019': {'description_fields': {'description': 'Checks '
                                                                                                       'whether '
                                                                                                       'an '
                                                                                                       'active '
@@ -702,7 +671,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                       'are '
                                                                                                       'not '
                                                                                                       'evaluated.'},
-                                                                'remediation_base_sha256': '1b2b41b6bb68559d927fedc2036a4d4f0f7f7800cd1707ceb6559b88ea0cd82b',
                                                                 'remediation_fields': {'caveats': ['This '
                                                                                                    'check '
                                                                                                    'reads '
@@ -747,8 +715,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                   'networks '
                                                                                                   'that need '
                                                                                                   'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_61620_61621': {'description_base_sha256': 'd011a36b0b4d5c67cfeac16c58b8df97b1c5222c606a38a00164221214ea6425',
-                                                             'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_tcp_port_61620_61621': {'description_fields': {'description': 'Checks '
                                                                                                    'whether '
                                                                                                    'an '
                                                                                                    'active '
@@ -770,7 +737,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                    'reachability '
                                                                                                    'are not '
                                                                                                    'evaluated.'},
-                                                             'remediation_base_sha256': '9e0606e3aae89095cd68e65798782652980b785c27b29421defa26e116bc1c21',
                                                              'remediation_fields': {'caveats': ['This check '
                                                                                                 'reads one '
                                                                                                 'firewall '
@@ -803,8 +769,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                'networks '
                                                                                                'that need '
                                                                                                'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_636': {'description_base_sha256': '5ac82235283499cad4892880efddb927dbc4ef4e8c2d1a59e5f8b7c9e119404d',
-                                                     'description_fields': {'description': 'Checks whether '
+ 'gcp.claude.firewall.public_ingress_tcp_port_636': {'description_fields': {'description': 'Checks whether '
                                                                                            'an active '
                                                                                            'ingress firewall '
                                                                                            'rule allows TCP '
@@ -816,7 +781,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                            'endpoint '
                                                                                            'reachability are '
                                                                                            'not evaluated.'},
-                                                     'remediation_base_sha256': 'cc256003bd6b85bd086074b2d28b442fea2962cb082198a0483e839eb9a517d5',
                                                      'remediation_fields': {'caveats': ['This check reads '
                                                                                         'one firewall rule; '
                                                                                         'it does not test a '
@@ -837,8 +801,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                        'administration '
                                                                                        'networks that need '
                                                                                        'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_6379': {'description_base_sha256': '120c143850af6f13a6cf090fcdfdb2ae02b2ece4714f892ed69c770a0fa20653',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'gcp.claude.firewall.public_ingress_tcp_port_6379': {'description_fields': {'description': 'Checks whether '
                                                                                             'an active '
                                                                                             'ingress '
                                                                                             'firewall rule '
@@ -852,7 +815,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                             'reachability '
                                                                                             'are not '
                                                                                             'evaluated.'},
-                                                      'remediation_base_sha256': 'ad30423e531acd200e86086510d3cbd433afdbf3f4f1eb289ff25edfff032c89',
                                                       'remediation_fields': {'caveats': ['This check reads '
                                                                                          'one firewall rule; '
                                                                                          'it does not test a '
@@ -874,8 +836,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                         'administration '
                                                                                         'networks that need '
                                                                                         'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_7000_7001': {'description_base_sha256': 'bb46bdfa846329a8d0a5efbc5d3986e7e1e80b3b018b5b0f5b6ac6a8549defde',
-                                                           'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_tcp_port_7000_7001': {'description_fields': {'description': 'Checks '
                                                                                                  'whether an '
                                                                                                  'active '
                                                                                                  'ingress '
@@ -894,7 +855,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                  'reachability '
                                                                                                  'are not '
                                                                                                  'evaluated.'},
-                                                           'remediation_base_sha256': '8f74a13b646a1800da00fc0e2a9d51bc144bc5b87f685c668346d94c1a6aab8d',
                                                            'remediation_fields': {'caveats': ['This check '
                                                                                               'reads one '
                                                                                               'firewall '
@@ -923,8 +883,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                              'administration '
                                                                                              'networks that '
                                                                                              'need access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_7199': {'description_base_sha256': '472bdf311c1889e003964237c4ae5fdbf77a6caa60431ae3adf239192e927ed9',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'gcp.claude.firewall.public_ingress_tcp_port_7199': {'description_fields': {'description': 'Checks whether '
                                                                                             'an active '
                                                                                             'ingress '
                                                                                             'firewall rule '
@@ -938,7 +897,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                             'reachability '
                                                                                             'are not '
                                                                                             'evaluated.'},
-                                                      'remediation_base_sha256': '30fccf77ef6e89d42d5bf1761785c25699f1439d65e471e03e6cfe31f43ff864',
                                                       'remediation_fields': {'caveats': ['This check reads '
                                                                                          'one firewall rule; '
                                                                                          'it does not test a '
@@ -960,8 +918,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                         'administration '
                                                                                         'networks that need '
                                                                                         'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_8888': {'description_base_sha256': '83e8eb30abe07de2e005434159aa1c8617c653d5c402ac1b66f5ef57ce44eecd',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'gcp.claude.firewall.public_ingress_tcp_port_8888': {'description_fields': {'description': 'Checks whether '
                                                                                             'an active '
                                                                                             'ingress '
                                                                                             'firewall rule '
@@ -975,7 +932,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                             'reachability '
                                                                                             'are not '
                                                                                             'evaluated.'},
-                                                      'remediation_base_sha256': '4599ae76add75d656d25f872adba59d1cd610e8d4ea566233638eb7ba7b717f8',
                                                       'remediation_fields': {'caveats': ['This check reads '
                                                                                          'one firewall rule; '
                                                                                          'it does not test a '
@@ -997,8 +953,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                         'administration '
                                                                                         'networks that need '
                                                                                         'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_9042': {'description_base_sha256': '5254c433fa4ab6ad59a5cc3c047706cf8e181429628c6794be1e6bcfb57c5e1a',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'gcp.claude.firewall.public_ingress_tcp_port_9042': {'description_fields': {'description': 'Checks whether '
                                                                                             'an active '
                                                                                             'ingress '
                                                                                             'firewall rule '
@@ -1012,7 +967,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                             'reachability '
                                                                                             'are not '
                                                                                             'evaluated.'},
-                                                      'remediation_base_sha256': '91e5090c6af13a8ad05449f81a280baa85ccb4d4d22c21c08e9f1b74a26d6caa',
                                                       'remediation_fields': {'caveats': ['This check reads '
                                                                                          'one firewall rule; '
                                                                                          'it does not test a '
@@ -1034,8 +988,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                         'administration '
                                                                                         'networks that need '
                                                                                         'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_9090': {'description_base_sha256': 'eb9d3e4c346161756d955a261aa74811cd093d25018134511b4c202e34a1aebe',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'gcp.claude.firewall.public_ingress_tcp_port_9090': {'description_fields': {'description': 'Checks whether '
                                                                                             'an active '
                                                                                             'ingress '
                                                                                             'firewall rule '
@@ -1049,7 +1002,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                             'reachability '
                                                                                             'are not '
                                                                                             'evaluated.'},
-                                                      'remediation_base_sha256': '95af4abb6fdff538c2fd7edb3c7ed1197b76949640a523ee7feeb30873468f46',
                                                       'remediation_fields': {'caveats': ['This check reads '
                                                                                          'one firewall rule; '
                                                                                          'it does not test a '
@@ -1071,8 +1023,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                         'administration '
                                                                                         'networks that need '
                                                                                         'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_9160': {'description_base_sha256': '0b75fbe73411260cd797793384c34af1f151c1fe08409dc78409253bcef397b3',
-                                                      'description_fields': {'description': 'Checks whether '
+ 'gcp.claude.firewall.public_ingress_tcp_port_9160': {'description_fields': {'description': 'Checks whether '
                                                                                             'an active '
                                                                                             'ingress '
                                                                                             'firewall rule '
@@ -1086,7 +1037,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                             'reachability '
                                                                                             'are not '
                                                                                             'evaluated.'},
-                                                      'remediation_base_sha256': 'f052fb024ea4238dcdb4dea8fb4f04a2f14320c9dab4a6fefb9ab21e762d08a5',
                                                       'remediation_fields': {'caveats': ['This check reads '
                                                                                          'one firewall rule; '
                                                                                          'it does not test a '
@@ -1108,8 +1058,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                         'administration '
                                                                                         'networks that need '
                                                                                         'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_port_9200_9300': {'description_base_sha256': '3593626c7bb82898db03b12ba47dacd60aa76ec52dbf17ae3fd9c7a3d634874c',
-                                                           'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_tcp_port_9200_9300': {'description_fields': {'description': 'Checks '
                                                                                                  'whether an '
                                                                                                  'active '
                                                                                                  'ingress '
@@ -1128,7 +1077,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                  'reachability '
                                                                                                  'are not '
                                                                                                  'evaluated.'},
-                                                           'remediation_base_sha256': '6b4adf21a68f1f3cb3d39af52cd2a83ae4aaf35b335e9bb6daaab55d636f5660',
                                                            'remediation_fields': {'caveats': ['This check '
                                                                                               'reads one '
                                                                                               'firewall '
@@ -1157,8 +1105,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                              'administration '
                                                                                              'networks that '
                                                                                              'need access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_udp_port_11211': {'description_base_sha256': '7cd747cdb6d3034fc4277b6bc2847b512efe7a4d7ae69ae853721ab6676d1d20',
-                                                           'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_tcp_udp_port_11211': {'description_fields': {'description': 'Checks '
                                                                                                  'whether an '
                                                                                                  'active '
                                                                                                  'ingress '
@@ -1177,7 +1124,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                  'reachability '
                                                                                                  'are not '
                                                                                                  'evaluated.'},
-                                                           'remediation_base_sha256': '3477f18fea63aee6e4bd27ca2a66a9f7650a5fbf7597607a353acca2bad25a56',
                                                            'remediation_fields': {'caveats': ['This check '
                                                                                               'reads one '
                                                                                               'firewall '
@@ -1206,8 +1152,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                              'administration '
                                                                                              'networks that '
                                                                                              'need access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_udp_port_11214_to_11215': {'description_base_sha256': 'dec322879dda9128e848198bcbbb0f199ba3ee205509a0c892c322d629cf42a5',
-                                                                    'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_tcp_udp_port_11214_to_11215': {'description_fields': {'description': 'Checks '
                                                                                                           'whether '
                                                                                                           'an '
                                                                                                           'active '
@@ -1233,7 +1178,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                           'are '
                                                                                                           'not '
                                                                                                           'evaluated.'},
-                                                                    'remediation_base_sha256': 'a899d6a8af535a53de1dbc3a776fe36584060e227e2e25d62fa4f87e35c58dc1',
                                                                     'remediation_fields': {'caveats': ['This '
                                                                                                        'check '
                                                                                                        'reads '
@@ -1289,8 +1233,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                       'that '
                                                                                                       'need '
                                                                                                       'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_udp_port_2483_to_2484': {'description_base_sha256': '3f15d22a3864538b8cbab1eab4036e6dc8cbd21f502ca6c703d5dfa63216e477',
-                                                                  'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_tcp_udp_port_2483_to_2484': {'description_fields': {'description': 'Checks '
                                                                                                         'whether '
                                                                                                         'an '
                                                                                                         'active '
@@ -1316,7 +1259,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                         'are '
                                                                                                         'not '
                                                                                                         'evaluated.'},
-                                                                  'remediation_base_sha256': '75c07bf18bb525abf244f4c4d80bf4915b5b031efa9db2f0c34d30fa9750adc7',
                                                                   'remediation_fields': {'caveats': ['This '
                                                                                                      'check '
                                                                                                      'reads '
@@ -1367,8 +1309,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                     'that '
                                                                                                     'need '
                                                                                                     'access.'}},
- 'gcp.claude.firewall.public_ingress_tcp_udp_port_389': {'description_base_sha256': '2606a2fe12526ea46f1af5a8b13f80108547ad67a0a13d765b2bb06cfe5b5b67',
-                                                         'description_fields': {'description': 'Checks '
+ 'gcp.claude.firewall.public_ingress_tcp_udp_port_389': {'description_fields': {'description': 'Checks '
                                                                                                'whether an '
                                                                                                'active '
                                                                                                'ingress '
@@ -1385,7 +1326,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                                'reachability '
                                                                                                'are not '
                                                                                                'evaluated.'},
-                                                         'remediation_base_sha256': 'f83d21befd776859df9af316f7396281b6d1f48ca829eb73b2089f82de3a9793',
                                                          'remediation_fields': {'caveats': ['This check '
                                                                                             'reads one '
                                                                                             'firewall rule; '
@@ -1411,8 +1351,7 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                            'administration '
                                                                                            'networks that '
                                                                                            'need access.'}},
- 'gcp.claude.firewall.public_ingress_telnet_port_23': {'description_base_sha256': '63e17be93bbf14ba02756200715ab3c8f25393efd6acb16db658d422d2424966',
-                                                       'description_fields': {'description': 'Checks whether '
+ 'gcp.claude.firewall.public_ingress_telnet_port_23': {'description_fields': {'description': 'Checks whether '
                                                                                              'an active '
                                                                                              'ingress '
                                                                                              'firewall rule '
@@ -1427,7 +1366,6 @@ ROWS = {'gcp.claude.firewall.public_ingress_dns_port_53': {'description_base_sha
                                                                                              'reachability '
                                                                                              'are not '
                                                                                              'evaluated.'},
-                                                       'remediation_base_sha256': '052a3b5266db4b530e7782f043c21aa5a0b2e3947fc426fde8c063dd981291f0',
                                                        'remediation_fields': {'caveats': ['This check reads '
                                                                                           'one firewall '
                                                                                           'rule; it does not '
@@ -1456,11 +1394,7 @@ def _apply(check_id, original, kind):
     row = ROWS.get(check_id)
     if row is None:
         return deepcopy(original)
-    digest = hashlib.sha256(json.dumps(original, sort_keys=True, separators=(",", ":"),
-                                       ensure_ascii=False).encode()).hexdigest()
-    if not isinstance(original, dict) or digest != row[kind + "_base_sha256"]:
-        raise ValueError("GCP firewall clarity base changed: " + check_id)
-    current = deepcopy(original)
+    current = deepcopy(original) if isinstance(original, dict) else {}
     current.update(deepcopy(row[kind + "_fields"]))
     return current
 

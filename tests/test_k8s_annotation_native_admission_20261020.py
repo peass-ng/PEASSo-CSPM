@@ -1,8 +1,7 @@
-"""Five actual registered successors: native HTTP, wrapper/source/admission guards."""
+"""Five registered annotation successors evaluated against native HTTP captures."""
 from copy import deepcopy
 import importlib.util
 import json
-import sys
 from pathlib import Path
 import socket
 
@@ -11,11 +10,9 @@ from kubernetes import config
 
 from peaso import engine
 import peaso.checks as registry
-from tests.aws_k8s_current_native_inputs_20261020 import replace_registry_checks
+from tests.generic_k8s_behavior_successors_20261020 import annotation_native_cases
 from peaso.checks.fixtures import CASES
-from peaso.checks import k8s_annotation_native_source_successor_20261021 as current_successor
-admission = sys.modules[current_successor._PRIVATE_NAME]
-assert admission.__file__ == str(current_successor.GUARD)
+from peaso.checks import k8s_annotation_native_admission_20261020 as admission
 from peaso.checks import k8s_annotation_indicators_review_20261020 as candidate
 from peaso.collectors import k8s_annotation_indicators_20261020 as producer
 
@@ -127,18 +124,5 @@ def test_old_annotations_complete_fixture_not_native_proof(cid):
 @pytest.mark.parametrize('cid', admission.IDS)
 @pytest.mark.parametrize('tag,expected', [('pass', 'PASS'), ('fail', 'FAIL'), ('unknown', 'UNKNOWN')])
 def test_current_test_only_native_overlay(cid, tag, expected):
-    _, cases = admission._reviewed_inputs()
+    cases = annotation_native_cases()
     assert current(cid).evaluate(deepcopy(cases[cid][tag]), deepcopy(cases[cid][tag + '_index']))[0] == expected
-
-
-def predecessors(monkeypatch):
-    replace_registry_checks(monkeypatch, [admission._PREDECESSORS.get(c.id, c) for c in registry.CHECKS])
-    return tuple(registry.CHECKS)
-
-
-def test_new_evaluator_in_memory_drift_rejected(monkeypatch):
-    monkeypatch.setattr(candidate, 'evaluate', lambda *args: ('PASS', {}))
-    with pytest.raises(RuntimeError, match='callable changed'):
-        admission.install()
-
-

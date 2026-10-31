@@ -305,7 +305,7 @@ def test_runtime_helpers_use_compiled_tags_and_reviewed_description(tmp_path, mo
         assert catalog.description_for("aws.fixture.existing")["evaluated"] == ["fixture.enabled"]
         (pack / "compliance_requirements.json").write_text("{}")
         catalog.full_requirements.cache_clear()
-        with pytest.raises(ValueError, match="changed after lookup"):
+        with pytest.raises(ValueError, match="differ from lookup"):
             catalog.full_requirements()
     finally:
         catalog.clear_caches()

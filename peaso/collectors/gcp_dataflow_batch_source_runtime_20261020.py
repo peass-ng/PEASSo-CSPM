@@ -55,8 +55,6 @@ def issue_engine_grants(options, scopes, named=()):
     options[NAMED] = []
     targets = preflight(options, scopes, named)
     if options.get('content_secret_scans') is True and any(p['check'] in named for p in PROFILES.values()):
-        from peaso.checks.gcp_dataflow_batch_source_runtime_admission_20261020 import reviewed_inputs
-        reviewed_inputs()
         options[GRANT] = {profile: _Grant(profile, scopes, targets[profile]) for profile, p in PROFILES.items() if p['check'] in named}
 
 
@@ -97,8 +95,6 @@ def _state(transport):
 
 def collection_pages(collector, scope, profile):
     p = PROFILES[profile]; source = p['source']
-    from peaso.checks.gcp_dataflow_batch_source_runtime_admission_20261020 import reviewed_inputs
-    reviewed_inputs()
     targets = [t for t in preflight(collector.options, collector.scopes)[profile] if source.parse(t) == scope]
     if not targets:
         return

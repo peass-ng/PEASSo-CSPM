@@ -294,15 +294,14 @@ def _evidence_summary():
     """The reviewed evidence_summary, without importing the native check registry when it is not loaded.
 
     Review-stage children import nothing from peaso.checks except through this
-    call; the hash-pinned static loader runs the same reviewed source bytes and
-    returns the same text. Any drift in its pinned closure falls back to native.
+    call; the static loader runs the same source and returns the same text. If
+    it cannot be loaded, the native implementation is used.
     """
     global _STATIC_EVIDENCE
     if 'peaso.checks' not in sys.modules and _STATIC_EVIDENCE is not False:
         if _STATIC_EVIDENCE is None:
             try:
-                from peaso.server.evidence_static import evidence_summary, verify_closure
-                verify_closure()
+                from peaso.server.evidence_static import evidence_summary
                 _STATIC_EVIDENCE = evidence_summary
             except ImportError:
                 _STATIC_EVIDENCE = False

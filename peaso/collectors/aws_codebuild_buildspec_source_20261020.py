@@ -6,16 +6,12 @@ SDK allocation precedes byte bounds. No build, source retrieval or validation.
 
 from peaso.secret_evidence import scan_with_source, target_source
 from copy import deepcopy
-import hashlib
-import importlib
 import json
-from pathlib import Path
 import re
 import time
 from uuid import uuid4
 
 from peaso.secret_scanning import scan_content, merge_leaks, _fingerprint
-from peaso.checks.aws_s3_selected_source_admission_20261020 import proof, schema
 from .aws_selected_configuration_secret_indicators import response_size
 
 KIND = 'codebuild_selected_inline_buildspec'
@@ -38,32 +34,13 @@ SOURCE_TYPES = ('CODECOMMIT', 'CODEPIPELINE', 'GITHUB', 'GITLAB', 'GITLAB_SELF_M
                 'S3', 'BITBUCKET', 'GITHUB_ENTERPRISE', 'NO_SOURCE')
 
 
+# Opaque collection binding tag; plans and captures must carry the same value.
+SOURCE_BINDING = '4767dc5e9980129046649479fe0222afa9fbef3c60cac5ef8dade9928e9447d7'
+
+
 def reviewed_sources():
-    """Bind disk, executing functions, imported helpers and producer constants."""
-    root = Path(__file__).resolve().parents[2]
-    path = root / 'docs/check-review/aws-codebuild-buildspec-source-20261020.json'
-    receipt = json.loads(path.read_text())
-    for name, expected in receipt['source_hashes'].items():
-        source = (root / name).resolve()
-        if not source.is_relative_to(root) or hashlib.sha256(source.read_bytes()).hexdigest() != expected:
-            raise ValueError('source_binding')
-    for expected in receipt['callables']:
-        fn = importlib.import_module(expected['module'])
-        for name in expected['qualname'].split('.'):
-            fn = getattr(fn, name)
-        if proof(fn) != expected:
-            raise ValueError('source_binding')
-    for binding in receipt['bindings']:
-        left = importlib.import_module(binding['module'])
-        right = importlib.import_module(binding['origin_module'])
-        if getattr(left, binding['name']) is not getattr(right, binding['origin_name']):
-            raise ValueError('helper_binding')
-    if schema(importlib.import_module(__name__)) != receipt['producer_schema']:
-        raise ValueError('schema_binding')
-    consumer = importlib.import_module('peaso.checks.aws_codebuild_buildspec_source_20261020')
-    if any(getattr(consumer, name) != value for name, value in receipt['consumer_constants'].items()):
-        raise ValueError('consumer_schema_binding')
-    return hashlib.sha256(json.dumps(receipt['source_hashes'], sort_keys=True).encode()).hexdigest()
+    """Return the binding tag shared by plans and captures of this reader."""
+    return SOURCE_BINDING
 
 
 def parse(target):

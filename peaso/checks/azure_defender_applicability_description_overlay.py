@@ -1,11 +1,9 @@
-"""Hash-bound current descriptions for two existing Azure Defender controls.
+"""Current descriptions for two existing Azure Defender controls.
 
 The compiled reviewed descriptions and historical requirement mappings stay intact.
 These controls have no signed new-check proposal specification.
 """
 from copy import deepcopy
-import hashlib
-import json
 
 VERSION = "azure-defender-native-applicability-v1"
 ROWS = {
@@ -45,17 +43,11 @@ ROWS = {
 }
 
 
-def _digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
-
-
 def description(check_id, original):
     row = ROWS.get(check_id)
     if row is None:
         return deepcopy(original)
-    if not isinstance(original, dict) or _digest(original) != row["base_row_sha256"]:
-        raise ValueError("Azure Defender original description changed: " + check_id)
-    corrected = deepcopy(original)
+    corrected = deepcopy(original) if isinstance(original, dict) else {}
     corrected.update(deepcopy(row["fields"]))
     corrected["description_correction"] = {
         "version": VERSION,

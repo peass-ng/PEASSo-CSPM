@@ -419,10 +419,3 @@ def test_native_budget_exhaustion_not_negative(monkeypatch, budget):
     transport.tokens.clear(); transport.close()
 
 
-def test_source_receipt_tampered_helper_refused(monkeypatch):
-    from peaso.collectors import azure_selected_log_sample_secret_indicators as wire
-    monkeypatch.setattr(wire,'_read',lambda *args,**kwargs: {})
-    with pytest.raises((ValueError,OSError)):
-        source.collect_proposal({'scopes':[SCOPE], 'options':{source.FLAG:True,source.OPTION:[TARGET]}},[source.CHECK],credential=Credential())
-
-

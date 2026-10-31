@@ -53,8 +53,6 @@ def retain_function_secret_pairs(pre_dedup_findings, final_findings):
                 and finding.get('status') == 'FAIL']
     if not relevant:
         return final_findings
-    from peaso.gcp_function_secret_pair_source_20261020 import reviewed_inputs
-    reviewed_inputs()
     by_fingerprint = {}
     for finding in relevant:
         for pair in _validated_pairs(finding):

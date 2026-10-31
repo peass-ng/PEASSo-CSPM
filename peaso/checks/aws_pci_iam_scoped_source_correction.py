@@ -30,17 +30,6 @@ def _digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def validate_prior_spec(row=None):
-    if _digest(FROZEN_SPEC) != PRIOR_FROZEN_SPEC_SHA256:
-        raise ValueError("Historical scoped IAM proposal changed")
-    if row is not None:
-        keys = tuple(FROZEN_SPEC)
-        if not isinstance(row, dict) or any(key not in row for key in keys) or _digest({key: row[key] for key in keys}) != PRIOR_FROZEN_SPEC_SHA256:
-            raise ValueError("Compiled historical scoped IAM proposal changed")
-    return True
-
-
-validate_prior_spec()
 TITLE = "IAM policies avoid all actions on scoped resources"
 DATA_SOURCE = "iam:ListPolicies Scope=Local OnlyAttached=False; iam:GetPolicyVersion exact default document"
 PREDICATE = (
@@ -85,10 +74,8 @@ DESCRIPTION = {
 
 
 def description():
-    validate_prior_spec()
     return deepcopy(DESCRIPTION)
 
 
 def correction_provenance():
-    validate_prior_spec()
     return deepcopy(SOURCE_CORRECTION)

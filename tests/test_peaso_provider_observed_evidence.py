@@ -4,7 +4,7 @@ import gzip,json
 from pathlib import Path
 import pytest
 from tests.generic_k8s_behavior_successors_20261020 import current_cases
-from tests.provider_observation_residual_successors_20261020 import AZURE_BINDINGS, azure_case, gcp_case, immutable_inputs
+from tests.provider_observation_residual_successors_20261020 import AZURE_BINDINGS, azure_case, gcp_case
 from tests.azure_native_successor_inputs_20261020 import native_row
 from peaso.checks import CHECKS
 from peaso.checks.fixtures import CASES

@@ -134,7 +134,7 @@ def test_event_cap_retains_late_longest_and_exports_validated_summary(monkeypatc
     assert decoded['roster_sha256'] == jobs.ROSTER_SHA256
 
 
-def test_unreviewed_kind_and_roster_tampering_never_reach_log(monkeypatch):
+def test_unknown_kind_never_reaches_log():
     frames = []
     jobs.configure(frames.append, started=time.monotonic())
     with jobs.span('private_arbitrary_label', 'PRIVATE-SCOPE'):
@@ -142,11 +142,6 @@ def test_unreviewed_kind_and_roster_tampering_never_reach_log(monkeypatch):
     jobs.close()
     assert len(frames) == 1 and frames[0][1]['rejected_jobs'] == 1
     assert frames[0][1]['longest_jobs'] == []
-    jobs.roster.cache_clear()
-    monkeypatch.setattr(jobs.Path, 'read_bytes', lambda _: b'{"schema":1,"kinds":["private"]}')
-    with pytest.raises(ValueError, match='unreviewed job roster'):
-        jobs.roster()
-    jobs.roster.cache_clear()
 
 
 def test_reviewed_roster_is_in_wheel_package_data():

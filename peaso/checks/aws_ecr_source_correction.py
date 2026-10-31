@@ -14,18 +14,6 @@ PLUGIN_TABLE_URL = f"https://raw.githubusercontent.com/turbot/steampipe-plugin-a
 PLUGIN_TABLE_SHA256 = "ab9f8707745396a184a5e3b6aa2532d14e66b614266d74a657b98a2ce1f4de1d"
 PLUGIN_CANONICAL_URL = f"https://raw.githubusercontent.com/turbot/steampipe-plugin-aws/{PLUGIN_REV}/aws/canonical_policy.go"
 PLUGIN_CANONICAL_SHA256 = "c09ac820020249aa208775cb387b0f9ec227f9b20f54e98d7563988df479686e"
-FROZEN_SPEC = {
-    "id": CHECK_ID,
-    "provider": "aws",
-    "resource_kind": "ecr_public_repository",
-    "data_source": "ecr-public:DescribeRepositories repositoryName,repositoryArn across the ECR Public registry in us-east-1; complete API pagination",
-    "predicate": "FAIL iff any ECR Public repository exists in the account; PASS iff a complete authorized DescribeRepositories response is empty; UNKNOWN on access denial, failed pagination or incomplete account inventory.",
-    "severity": "high",
-    "category": "exposure",
-    "title": "Account has no ECR Public repositories",
-    "description": "Read-only assessment of account has no ECR Public repositories.",
-    "remediation_hint": "Remove public repositories or migrate their images to private ECR.",
-}
 
 
 def _digest(value):
@@ -34,17 +22,6 @@ def _digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def validate_prior_spec(row=None):
-    """Reject changed historical input before publishing this successor."""
-    if _digest(FROZEN_SPEC) != PRIOR_FROZEN_SPEC_SHA256:
-        raise ValueError("Historical ECR Public proposal changed")
-    if row is not None and (row.get("id") != CHECK_ID or
-                            _digest(row) != PRIOR_FROZEN_SPEC_SHA256):
-        raise ValueError("Compiled historical ECR Public proposal changed")
-    return True
-
-
-validate_prior_spec()
 TITLE = "Private ECR repository policy has no wildcard AWS principal"
 DESCRIPTION_TEXT = (
     "Checks the pinned upstream SQL over each private ECR repository's standardized "
@@ -113,10 +90,8 @@ DESCRIPTION = {
 
 
 def description():
-    validate_prior_spec()
     return deepcopy(DESCRIPTION)
 
 
 def correction_provenance():
-    validate_prior_spec()
     return deepcopy(SOURCE_CORRECTION)

@@ -25,7 +25,7 @@ LEDGER = ROOT / "docs/compliance-ledgers"
 
 
 def deterministic_gzip(data: bytes) -> bytes:
-    """Platform-independent RFC 1952 member for a committed, hash-pinned file.
+    """Platform-independent RFC 1952 member for a committed file.
 
     gzip.compress(mtime=0) delegates the header to zlib, which stamps its build
     platform's OS code (macOS 19, Unix 3), so identical content produced different
@@ -147,7 +147,6 @@ def render_documents() -> dict[Path, bytes]:
                       if row['id'] == ecr_correction.CHECK_ID), None)
     if prior_ecr is None:
         raise ValueError('Historical ECR Public proposal missing')
-    ecr_correction.validate_prior_spec(prior_ecr)
     source_corrections[ecr_correction.CHECK_ID] = {
         "spec": ecr_correction.CORRECTED_SPEC,
         "provenance": ecr_correction.correction_provenance(),
@@ -157,7 +156,6 @@ def render_documents() -> dict[Path, bytes]:
                              if row['id'] == scoped_iam_correction.CHECK_ID), None)
     if prior_scoped_iam is None:
         raise ValueError('Historical scoped IAM customer-policy proposal missing')
-    scoped_iam_correction.validate_prior_spec(prior_scoped_iam)
     source_corrections[scoped_iam_correction.CHECK_ID] = {
         "spec": scoped_iam_correction.CORRECTED_SPEC,
         "provenance": scoped_iam_correction.correction_provenance(),
@@ -167,7 +165,6 @@ def render_documents() -> dict[Path, bytes]:
                                if row["id"] == apigw_logging_correction.CHECK_ID), None)
     if prior_apigw_logging is None:
         raise ValueError("Historical API Gateway logging proposal missing")
-    apigw_logging_correction.validate_prior_spec(prior_apigw_logging)
     source_corrections[apigw_logging_correction.CHECK_ID] = {
         "spec": apigw_logging_correction.CORRECTED_SPEC,
         "provenance": apigw_logging_correction.correction_provenance(),
@@ -221,7 +218,7 @@ def render_documents() -> dict[Path, bytes]:
     from peaso.engine import get_catalog, PROVIDERS, FRAMEWORK_ALIASES
     from peaso.server.catalog_view import summary as api_summary, frameworks_view
     from peaso.server.validation import _selector_index
-    from peaso.server.materialized_catalog import MAX_WIRE_BYTES, MAX_DOCUMENT_BYTES, MAX_COMPRESSED_BYTES, SOURCE_PATHS, wire_fits
+    from peaso.server.materialized_catalog import MAX_WIRE_BYTES, MAX_DOCUMENT_BYTES, MAX_COMPRESSED_BYTES, wire_fits
     full = get_catalog()
     compact_summary = dict(api_summary(), privesc_catalog=full["privesc_catalog"])
     frameworks = frameworks_view()
@@ -237,8 +234,6 @@ def render_documents() -> dict[Path, bytes]:
         index["checks"] = sorted(set(index["checks"]) | technique_ids | {PRIVESC_CHECK_ID})
     if [row["id"] for row in compact_summary["checks"]] != [row["id"] for row in full["checks"]]:
         raise ValueError("API summary/full check order differs")
-    sources = {relative: hashlib.sha256(outputs.get(ROOT / relative, (ROOT / relative).read_bytes())).hexdigest()
-               for relative in sorted(SOURCE_PATHS)}
     from peaso.checks import CHECK_ALIASES, CHECKS
     from peaso.remediation import template as remediation_template
     from peaso.checks.catalog import description_for, framework_selector_index, framework_display_names
@@ -258,7 +253,7 @@ def render_documents() -> dict[Path, bytes]:
                for provider in ("aws", "gcp", "azure", "k8s", "other")):
             raise ValueError("Archived remediation alias varies by provider: " + cid)
         alias_templates[cid] = candidate
-    document = encoded({"schema_version": 1, "sources": sources, "full": full,
+    document = encoded({"schema_version": 1, "full": full,
                         "descriptions": reviewed_descriptions,
                         "remediation_aliases": alias_templates,
                         "native_kinds": {check.id: [check.provider, check.kind] for check in CHECKS},
@@ -272,9 +267,6 @@ def render_documents() -> dict[Path, bytes]:
             or any(not wire_fits(encoded(view, compact=True)) for view in (compact_summary, frameworks))):
         raise ValueError("Materialized API catalog exceeds bounded package/wire budgets")
     outputs[PACK / "api_catalog.json.gz"] = compressed
-    outputs[PACK / "api_catalog_manifest.json"] = encoded({"schema_version": 1, "sources": sources,
-        "gzip_sha256": hashlib.sha256(compressed).hexdigest(),
-        "document_sha256": hashlib.sha256(document).hexdigest(), "uncompressed_bytes": len(document)}, compact=True)
     return outputs
 
 

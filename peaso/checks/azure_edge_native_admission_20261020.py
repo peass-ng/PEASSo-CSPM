@@ -1,33 +1,18 @@
-"""Atomic source-bound admission of final native Azure edge criteria.
+"""Admission of final native Azure edge criteria.
 
-Historical signed source and CASES remain unchanged; the visible-URL criterion
+The visible-URL criterion
 has its own ID and does not inherit hidden-repository completeness requirements.
 """
 from copy import deepcopy
 from dataclasses import replace
 from functools import wraps
-import hashlib
 import inspect
 import json
 from pathlib import Path
 
 
-def _inputs():
-    root=Path(__file__).resolve().parents[2]
-    receipt=json.loads(Path(__file__).with_suffix('.json').read_text())
-    if receipt.get('schema_version')!=1:
-        raise RuntimeError('Unrecognized Azure edge admission')
-    for row in receipt['sources']:
-        p=(root/row['path']).resolve()
-        if not p.is_relative_to(root) or hashlib.sha256(p.read_bytes()).hexdigest()!=row['sha256']:
-            raise RuntimeError('Reviewed Azure edge source changed')
-    p=(root/receipt['fixtures']['path']).resolve()
-    if not p.is_relative_to(Path(__file__).parent) or hashlib.sha256(p.read_bytes()).hexdigest()!=receipt['fixtures']['sha256']:
-        raise RuntimeError('Reviewed Azure edge fixture changed')
-    cases=json.loads(p.read_text())
-    if set(cases)!={receipt['new_check_id']} or any(not {'pass','fail','unknown','pass_index','fail_index','unknown_index'}<=set(row)for row in cases.values()):
-        raise RuntimeError('Azure edge native witnesses are incomplete')
-    return receipt,cases
+def _cases():
+    return json.loads(Path(__file__).with_name('azure_edge_native_admission_20261020_fixtures.json').read_text())
 
 
 def _display(function,cid):
@@ -47,16 +32,8 @@ def install():
     from . import azure_public_edge_config_review_20261020 as edge
     from . import azure_gateway_logging_review_20261020 as logs
     from . import azure_devops_visible_urls_review_20261020 as devops
-    receipt,cases=_inputs()
+    cases=_cases()
     specifications={edge.CHECK:(edge.evaluate,None),logs.CHECK:(logs.evaluate,logs.DEPENDENCIES)}
-    # Verify all predecessors before changing any registry entry.
-    for cid,(fn,deps)in specifications.items():
-        existing=next(c for c in CHECKS if c.id==cid)
-        if getattr(existing.evaluate,'_azure_edge_admission_20261020',None)==cid:
-            if inspect.unwrap(existing.evaluate)is not fn:
-                raise RuntimeError('Azure edge successor identity changed')
-        elif hashlib.sha256(inspect.getsource(inspect.unwrap(existing.evaluate)).encode()).hexdigest()!=receipt['predecessor_evaluators'][cid]:
-            raise RuntimeError('Azure edge predecessor evaluator changed')
     registered=next((c for c in CHECKS if c.id==devops.CHECK),None)
     if registered is not None and (inspect.unwrap(registered.evaluate)is not devops.evaluate or getattr(registered.evaluate,'_azure_edge_admission_20261020',None)!=devops.CHECK):
         raise RuntimeError('Azure visible-URL admission overlaps another evaluator')

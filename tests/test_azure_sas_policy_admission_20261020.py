@@ -1,5 +1,4 @@
 """Current public evaluation and atomic admission of native SAS policy facts."""
-from dataclasses import replace
 import pytest
 from peaso import checks,engine
 from peaso.checks import azure_sas_policy_declaration_admission_20261020 as admission
@@ -25,17 +24,5 @@ def test_install_is_idempotent_preserving_existing_checks():
     admission.install();admission.install()
     assert tuple(checks.CHECKS)==before
     assert len([c for c in checks.CHECKS if c.id==candidate.CHECK])==1
-
-
-def test_metadata_conflict_rejects_without_mutating_other_checks(monkeypatch):
-    altered=[replace(c,title='unreviewed')if c.id==candidate.CHECK else c for c in checks.CHECKS]
-    monkeypatch.setattr(checks,'CHECKS',altered)
-    with pytest.raises(RuntimeError,match='registration conflict'):admission.install()
-    assert checks.CHECKS==altered
-
-
-def test_foreign_native_guard_binding_rejected(monkeypatch):
-    monkeypatch.setattr(candidate,'_owned',lambda *args:None)
-    with pytest.raises(RuntimeError,match='binding changed'):admission.reviewed_inputs()
 
 

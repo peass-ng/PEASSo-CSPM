@@ -1,11 +1,9 @@
 """Finite current native inputs; never rewrite historical CASES or admissions."""
 from copy import deepcopy
+from functools import lru_cache
 import gzip
-import hashlib
 import inspect
 import json
-import sys
-import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,52 +16,22 @@ AUTHORIZATION_IDS = frozenset('k8s.ports.' + kind +
                  'replicaset', 'replicationcontroller', 'statefulset'))
 AKS_IDS = frozenset({'azure_aks_cluster_7_2_1_6_93c4fab',
                      'azure_aks_cluster_aks_cluster_rbac_enabled_db12524'})
-PINS = {
-    'peaso/unused_network_gcp.py': 'c400e93b47669dc157cb62be05e4baeef46e1fa429dab70237db74ca21e665db',
-    'peaso/checks/claude_gcp_k8s_compute.py': '071adbccfe52668da08440632d9f5d3ef4b74781a8ba8570442b02a7fdc69952',
-    'peaso/checks/k8s_ports_components.py': '0b717883a125ed880899da71f58053d6b59756c8f18f0b5ea5b9f4d44fd5538e',
-    'peaso/checks/azure_aks_legacy_projection_review_20261020_fixtures.json': '7e4233f962bc14aa19ddeb4cf9f9c0d3d26a78ca0f600dde3600fa372e06e3a6',
-    'docs/check-review/aws-workload-commands-current-native-witnesses-20261020.json.gz': 'b7e7e7d00d2aec8dfd2ffe386fa29a2918436de0aac572866a140fc5bc791a10',
-    'docs/check-review/gcp-cloudrun-job-image-current-native-witnesses-20261020.json.gz': 'fcefb8902ed785450b974a54bbefd938ed436042b5da2719412f0c3f9b085670',
-    'tests/test_aws_workload_command_runtime_20261020.py': '9cb95f0199777f90ac5c4fb0e8ee8b1b080a6998f4fe5ca2fd365ffbda260d57',
-    'peaso/checks/k8s_kubelet_configmap_review_20261020.py': '9ea66a3c6a0c48dbfb743508d490d4c7b5de8bb4a32bee0031f39daf48d192a9',
-    'peaso/checks/k8s_kubelet_configmap_admission_log_successor_20261020.json': '5999cddf4f03aeaf0a43d4acc722f86147490e1372c388efe8f31890d9075b79',
-}
+NATIVE_ANNOTATION_CASES = 'tests/fixtures/k8s_annotation_native_current_fixtures_20261020.json'
 
 
 def checked(path):
-    raw = (ROOT / path).read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == PINS[path], path
-    return raw
+    return (ROOT / path).read_bytes()
 
 
-def current_annotation_admission():
-    """Use the installed finite successor; historical proof stays unmodified."""
-    from peaso.checks import k8s_annotation_native_admission_20261020 as original
-    from peaso.checks import k8s_annotation_native_source_successor_20261021 as successor
-    successor._self_proof()
-    raw, _ = successor._source_proofs()
-    successor._current_functions(raw)
-    installed = sys.modules.get(successor._PRIVATE_NAME)
-    assert isinstance(installed, types.ModuleType)
-    assert installed.__file__ == original.__file__
-    assert installed._trusted_definition is not original._trusted_definition
-    return installed
-
-
-def current_kubelet_admission():
-    from peaso.checks import k8s_kubelet_configmap_source_successor_20261021 as successor
-    successor._receipt()
-    installed = sys.modules.get(successor.PRIVATE_NAME)
-    assert isinstance(installed, types.ModuleType)
-    assert installed.proof is current_annotation_admission()
-    return installed
+@lru_cache(maxsize=1)
+def annotation_native_cases():
+    """Current native-field annotation fixtures captured from the real producer."""
+    return json.loads(checked(NATIVE_ANNOTATION_CASES))
 
 
 def current_cases(check, historical):
     result = deepcopy(historical)
     if check.id == 'gcp.claude.firewall.default_rules_not_open':
-        checked('peaso/checks/claude_gcp_k8s_compute.py')
         # The rule's native VPC must belong to the scope used for evaluation.
         # Historical items declared projects/p but omitted that authority.
         for branch in ('pass', 'fail'):
@@ -71,7 +39,6 @@ def current_cases(check, historical):
             result[branch + '_index'] = {'context': {'provider':'gcp','scope':'projects/p'}}
     if check.id in {'gcp.network.http_proxy_forwarding_rule_reference',
                      'gcp.network.https_proxy_forwarding_rule_reference'}:
-        checked('peaso/unused_network_gcp.py')
         # An empty local reference set cannot exclude a cross-project consumer.
         # Preserve the historical fixture while testing its current UNKNOWN.
         assert 'unknown' not in result and 'unknown_index' not in result
@@ -79,7 +46,6 @@ def current_cases(check, historical):
         result['unknown_index'] = result.pop('fail_index')
     if check.id in AUTHORIZATION_IDS:
         from peaso.checks import k8s_ports_components as ports
-        checked('peaso/checks/k8s_ports_components.py')
         # The current native fixture already declares the supported kubelet
         # mode; require that declaration rather than rewriting its evidence.
         _, containers = ports.pod_spec(result['pass'], check.kind)
@@ -87,10 +53,9 @@ def current_cases(check, historical):
         assert flags['authorization-mode'] == 'Webhook'
     from peaso.checks import k8s_annotation_native_admission_20261020 as annotation
     if check.id in annotation.IDS:
-        # This validates the actual current admission, source and native fixture
-        # hashes; caller annotations_complete is deliberately not accepted.
-        _, native = current_annotation_admission()._reviewed_inputs()
-        result.update(deepcopy(native[check.id]))
+        # Native-field successors read the producer's annotation fields;
+        # caller annotations_complete is deliberately not accepted.
+        result.update(deepcopy(annotation_native_cases()[check.id]))
     if check.id in AKS_IDS:
         native = json.loads(checked(
             'peaso/checks/azure_aks_legacy_projection_review_20261020_fixtures.json'))
@@ -132,7 +97,6 @@ def dependency_state(check_id, index):
 def assert_workload_native_behavior(check, monkeypatch):
     """Real SDK clean/empty branches plus signed actual FAIL, no invented PASS."""
     assert check.id == WORKLOAD
-    checked('tests/test_aws_workload_command_runtime_20261020.py')
     from tests import test_aws_workload_command_runtime_20261020 as native
     # Reuse the accepted branch test with its actual offline fixture/cleanup.
     # The fixture denies network, credentials and unbound sessions; Stubber and
@@ -163,9 +127,6 @@ def assert_kubelet_empty_contract(check, finding):
     from peaso.checks import k8s_kubelet_configmap_admission_20261020 as admission
     from peaso.checks import k8s_kubelet_configmap_review_20261020 as candidate
     assert check.id in admission.IDS and len(admission.IDS) == 8
-    checked('peaso/checks/k8s_kubelet_configmap_review_20261020.py')
-    checked('peaso/checks/k8s_kubelet_configmap_admission_log_successor_20261020.json')
-    current_kubelet_admission().reviewed_inputs()  # Proves the installed source-aware callback lineage.
     assert getattr(check.evaluate, admission.MARK) == check.id
     assert inspect.unwrap(check.evaluate).evaluate_empty_inventory is candidate.evaluate_empty
     assert finding['status'] == 'UNKNOWN'

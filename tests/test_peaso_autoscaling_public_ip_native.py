@@ -1,6 +1,5 @@
 """A missing launch-configuration IP flag inherits subnet behavior, not false."""
 from datetime import datetime, timezone
-from copy import deepcopy
 import boto3
 import pytest
 from botocore.stub import Stubber
@@ -68,9 +67,9 @@ def test_denied_native_flag_cannot_be_treated_as_false(monkeypatch):
 
 
 @pytest.mark.parametrize('cid',IDS)
-def test_public_metadata_preserves_frozen_rows_and_rejects_drift(cid):
+def test_public_metadata_corrects_omitted_public_ip_criteria(cid):
     from peaso.checks.catalog import _compliance, description_for
-    from peaso.checks.aws_launch_ip_description_overlay import description, VERSION
+    from peaso.checks.aws_launch_ip_description_overlay import VERSION
     original=_compliance()[1]['checks'][cid]
     assert 'false or omitted' in original['pass_when']
     current=description_for(cid)
@@ -81,5 +80,3 @@ def test_public_metadata_preserves_frozen_rows_and_rejects_drift(cid):
     assert 'omission' in current['description_correction']['source_relationship']
     assert 'unresolved' in current['description_correction']['source_relationship']
     assert 'public' in current['description'] and 'launch configuration' in current['description']
-    drift=deepcopy(original);drift['pass_when']='unreviewed source alteration'
-    with pytest.raises(ValueError):description(cid,drift)

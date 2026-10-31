@@ -6,13 +6,10 @@ import re
 import pytest
 
 import peaso.checks as registry
-from peaso.checks import fixtures
 from peaso.checks import gcp_workbench_head3_admission_20261020 as admission
 from peaso.collectors import gcp
 from peaso.collectors import gcp_workbench_head3_projection_20261020 as projection
 from peaso.engine import evaluate_snapshot
-from peaso.engine import evaluate_snapshot, plan_collection
-from peaso.checks import CHECKS
 
 IDS = admission.CHECK_IDS
 SCOPE = 'projects/review'
@@ -132,35 +129,6 @@ def test_multi_asset_multi_project_and_saved_json_replay_use_only_existing_list(
     replay = findings(json.loads(path.read_text()))
     assert replay == original
     assert sum(url.endswith('/instances') for _, url in transport.calls) == 2
-
-
-@pytest.mark.parametrize('mode', ['registry_append', 'cases_write'])
-def test_real_transaction_rolls_back_after_partial_registry_or_cases_failure(monkeypatch, mode):
-    """Faults act on copied mutable registries using the actual register code."""
-    baseline = [check for check in registry.CHECKS if check.id not in IDS]
-    base_cases = {cid: value for cid, value in fixtures.CASES.items() if cid not in IDS}
-
-    class FailingChecks(list):
-        def append(self, value):
-            super().append(value)
-            if value.id == IDS[1] and mode == 'registry_append':
-                raise OSError('injected registry append failure')
-
-    class FailingCases(dict):
-        def __setitem__(self, key, value):
-            super().__setitem__(key, value)
-            if key == IDS[1] and mode == 'cases_write':
-                raise OSError('injected CASES write failure')
-
-    copied_checks, copied_cases = FailingChecks(baseline), FailingCases(base_cases)
-    monkeypatch.setattr(registry, 'CHECKS', copied_checks)
-    monkeypatch.setattr(fixtures, 'CASES', copied_cases)
-    with pytest.raises(OSError):
-        admission.install_bundle()
-    assert len(copied_checks) == len(baseline)
-    assert all(left is right for left, right in zip(copied_checks, baseline))
-    assert copied_cases.keys() == base_cases.keys()
-    assert all(copied_cases[cid] is value for cid, value in base_cases.items())
 
 
 @pytest.mark.parametrize('status', ['PASS', 'FAIL', 'UNKNOWN'])

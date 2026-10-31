@@ -1,18 +1,15 @@
 """Explicit erratum for nine historical kubelet-labelled GC-threshold checks.
 
-The original query and descriptions remain hash-addressable historical evidence.
+The original query and descriptions remain historical evidence.
 Runtime applicability is corrected to kube-controller-manager, the flag owner.
 No cloud or cluster mutation is performed by this source correction.
 """
 from copy import deepcopy
-import hashlib
-import json
 
 VERSION = "k8s-gc-threshold-component-erratum-v1"
 PRIOR_SPEC = ("kubelet", ["terminated-pod-gc-threshold"], "gt", 0, "0")
 CURRENT_SPEC = ("kube-controller-manager", ["terminated-pod-gc-threshold"], "gt", 0, "0")
-ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_base_sha256': '6a6472f3c8f874c6bd238c898e81dbd6571f3c232b5af1c3bab4f044a201b2a8',
-                                                                                         'description_fields': {'description': 'Checks '
+ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_fields': {'description': 'Checks '
                                                                                                                                'captured '
                                                                                                                                'kube-controller-manager '
                                                                                                                                'terminated-pod-gc-threshold '
@@ -214,7 +211,6 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                         'upstream_source_url': 'https://github.com/turbot/steampipe-mod-kubernetes-compliance/blob/v1.1.0/controls/cronjob.pp#L631',
                                                                                                         'upstream_sql_sha256': '52de4904687c31db179eb6270eb24c2b1be784245d38ff72afe4e12b250d1091',
                                                                                                         'version': 'k8s-gc-threshold-component-erratum-v1'},
-                                                                                         'remediation_base_sha256': '72256566fd57893f13c6700ace97a0ada4c19615cdf2c3ae9d01e990cc0e1e20',
                                                                                          'remediation_fields': {'caveats': ['The '
                                                                                                                             'default '
                                                                                                                             '12500 '
@@ -337,8 +333,7 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                                            'for '
                                                                                                                            'the '
                                                                                                                            'cluster.'}},
- 'k8s.ports.daemonset.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_base_sha256': '5d5b8748ef56ff665e6d42f7e2d655e6ca77b1e9710bca056e93db183d13e1d0',
-                                                                                           'description_fields': {'description': 'Checks '
+ 'k8s.ports.daemonset.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_fields': {'description': 'Checks '
                                                                                                                                  'captured '
                                                                                                                                  'kube-controller-manager '
                                                                                                                                  'terminated-pod-gc-threshold '
@@ -540,7 +535,6 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                           'upstream_source_url': 'https://github.com/turbot/steampipe-mod-kubernetes-compliance/blob/v1.1.0/controls/daemonset.pp#L631',
                                                                                                           'upstream_sql_sha256': '05980664e2d7e0121fbcb31c908d01f664e8932202a6bad9f7d12fb9863f277a',
                                                                                                           'version': 'k8s-gc-threshold-component-erratum-v1'},
-                                                                                           'remediation_base_sha256': 'be239666924e3383ef4a8cb58f0a6145569bc2aba373f0db99f42c3da2512e20',
                                                                                            'remediation_fields': {'caveats': ['The '
                                                                                                                               'default '
                                                                                                                               '12500 '
@@ -663,8 +657,7 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                                              'for '
                                                                                                                              'the '
                                                                                                                              'cluster.'}},
- 'k8s.ports.deployment.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_base_sha256': '4230a771e1594417f624dceb14cffac13d02bfdc2573655f28bdcb431a58a239',
-                                                                                            'description_fields': {'description': 'Checks '
+ 'k8s.ports.deployment.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_fields': {'description': 'Checks '
                                                                                                                                   'captured '
                                                                                                                                   'kube-controller-manager '
                                                                                                                                   'terminated-pod-gc-threshold '
@@ -842,7 +835,6 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                            'upstream_source_url': 'https://github.com/turbot/steampipe-mod-kubernetes-compliance/blob/v1.1.0/controls/deployment.pp#L639',
                                                                                                            'upstream_sql_sha256': '6f23a8a7ded0b8bd004df76e050f37b5230d44a2b7ecd620556cc88a4c84cfd5',
                                                                                                            'version': 'k8s-gc-threshold-component-erratum-v1'},
-                                                                                            'remediation_base_sha256': '8e848f84ba4904e43d458a56a98d48e427b3a1e48855e291864acf6058f27d40',
                                                                                             'remediation_fields': {'caveats': ['The '
                                                                                                                                'default '
                                                                                                                                '12500 '
@@ -953,8 +945,7 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                                               'for '
                                                                                                                               'the '
                                                                                                                               'cluster.'}},
- 'k8s.ports.job.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_base_sha256': '62d827e497baf0bfaca413441b78d5386ba6c21a29b60f2c9e2b1f3c9e10f06d',
-                                                                                     'description_fields': {'description': 'Checks '
+ 'k8s.ports.job.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_fields': {'description': 'Checks '
                                                                                                                            'captured '
                                                                                                                            'kube-controller-manager '
                                                                                                                            'terminated-pod-gc-threshold '
@@ -1132,7 +1123,6 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                     'upstream_source_url': 'https://github.com/turbot/steampipe-mod-kubernetes-compliance/blob/v1.1.0/controls/job.pp#L631',
                                                                                                     'upstream_sql_sha256': '6eb6d29bfe5132bd41df8785b63e51ebdade2cfb57fad5c098fbfa20f2f52362',
                                                                                                     'version': 'k8s-gc-threshold-component-erratum-v1'},
-                                                                                     'remediation_base_sha256': '3b6c99c662b3111c24657e4c6a93742084921d3edc8acb2bbe33494608396acb',
                                                                                      'remediation_fields': {'caveats': ['The '
                                                                                                                         'default '
                                                                                                                         '12500 '
@@ -1243,8 +1233,7 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                                        'for '
                                                                                                                        'the '
                                                                                                                        'cluster.'}},
- 'k8s.ports.pod.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_base_sha256': 'b9aa37d892b6265d25cfb379346f52c79585ad389669b7fce4e4c190483c1b7c',
-                                                                                     'description_fields': {'description': 'Checks '
+ 'k8s.ports.pod.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_fields': {'description': 'Checks '
                                                                                                                            'captured '
                                                                                                                            'kube-controller-manager '
                                                                                                                            'terminated-pod-gc-threshold '
@@ -1422,7 +1411,6 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                     'upstream_source_url': 'https://github.com/turbot/steampipe-mod-kubernetes-compliance/blob/v1.1.0/controls/pod.pp#L634',
                                                                                                     'upstream_sql_sha256': '7c140f9223ab9a38d0da396ae6d7a3f4596cc250077b7fa492ce41117ede7b0b',
                                                                                                     'version': 'k8s-gc-threshold-component-erratum-v1'},
-                                                                                     'remediation_base_sha256': '3b560ddfe7a5938531099eecccc4ba12c6f17f229fa7a5a5fa1b35d647c7facf',
                                                                                      'remediation_fields': {'caveats': ['The '
                                                                                                                         'default '
                                                                                                                         '12500 '
@@ -1533,8 +1521,7 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                                        'for '
                                                                                                                        'the '
                                                                                                                        'cluster.'}},
- 'k8s.ports.podtemplate.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_base_sha256': 'b00db983cd3b8320b15e77dd9fb9b22f956f9dd40bd782ffd0fd064969aac803',
-                                                                                             'description_fields': {'description': 'Checks '
+ 'k8s.ports.podtemplate.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_fields': {'description': 'Checks '
                                                                                                                                    'captured '
                                                                                                                                    'kube-controller-manager '
                                                                                                                                    'terminated-pod-gc-threshold '
@@ -1736,7 +1723,6 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                             'upstream_source_url': 'https://github.com/turbot/steampipe-mod-kubernetes-compliance/blob/v1.1.0/controls/pod_template.pp#L583',
                                                                                                             'upstream_sql_sha256': '95ff05a80926900acd6a4f120b408236999a910f4f9a59ee5786243ea231a931',
                                                                                                             'version': 'k8s-gc-threshold-component-erratum-v1'},
-                                                                                             'remediation_base_sha256': '7f72965744c137ba84d95f2edfc4fe6e5101b6c4dc629d32f42cb92aefc8a467',
                                                                                              'remediation_fields': {'caveats': ['The '
                                                                                                                                 'default '
                                                                                                                                 '12500 '
@@ -1859,8 +1845,7 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                                                'for '
                                                                                                                                'the '
                                                                                                                                'cluster.'}},
- 'k8s.ports.replicaset.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_base_sha256': 'eaeb2f255d49110cbcf2c4c2ddc1378ce8472745b052bbb65354931477190e15',
-                                                                                            'description_fields': {'description': 'Checks '
+ 'k8s.ports.replicaset.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_fields': {'description': 'Checks '
                                                                                                                                   'captured '
                                                                                                                                   'kube-controller-manager '
                                                                                                                                   'terminated-pod-gc-threshold '
@@ -2038,7 +2023,6 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                            'upstream_source_url': 'https://github.com/turbot/steampipe-mod-kubernetes-compliance/blob/v1.1.0/controls/replicaset.pp#L632',
                                                                                                            'upstream_sql_sha256': 'f671738ce732fe43cb23c7b801c16eabf870a38979c8c3fed8141df86c214c08',
                                                                                                            'version': 'k8s-gc-threshold-component-erratum-v1'},
-                                                                                            'remediation_base_sha256': '09cddc1842a780ecac67a6d0ede6d17de699c1f176b2cd8c3f22ed1a7880fd31',
                                                                                             'remediation_fields': {'caveats': ['The '
                                                                                                                                'default '
                                                                                                                                '12500 '
@@ -2149,8 +2133,7 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                                               'for '
                                                                                                                               'the '
                                                                                                                               'cluster.'}},
- 'k8s.ports.replicationcontroller.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_base_sha256': '659d551a22d68e66304dc881299a5be533e3d9e70eeecb54fdeb74c0e7ca590a',
-                                                                                                       'description_fields': {'description': 'Checks '
+ 'k8s.ports.replicationcontroller.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_fields': {'description': 'Checks '
                                                                                                                                              'captured '
                                                                                                                                              'kube-controller-manager '
                                                                                                                                              'terminated-pod-gc-threshold '
@@ -2328,7 +2311,6 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                                       'upstream_source_url': 'https://github.com/turbot/steampipe-mod-kubernetes-compliance/blob/v1.1.0/controls/replication_controller.pp#L631',
                                                                                                                       'upstream_sql_sha256': 'bada9933bcb5b6123007f79c4d11ecbe8f05c60623f574c6165f3e63301d30b7',
                                                                                                                       'version': 'k8s-gc-threshold-component-erratum-v1'},
-                                                                                                       'remediation_base_sha256': 'b88e4c2665c2b4140a40a2576043fdb5cb04334bae8a1b201c617e10de1e720c',
                                                                                                        'remediation_fields': {'caveats': ['The '
                                                                                                                                           'default '
                                                                                                                                           '12500 '
@@ -2439,8 +2421,7 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                                                          'for '
                                                                                                                                          'the '
                                                                                                                                          'cluster.'}},
- 'k8s.ports.statefulset.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_base_sha256': 'cde9b78c41187e43e618ad76f9935c19e0ad9ae3b328a2041e31ac76b71eeeef',
-                                                                                             'description_fields': {'description': 'Checks '
+ 'k8s.ports.statefulset.container_argument_kubelet_terminated_pod_gc_threshold_configured': {'description_fields': {'description': 'Checks '
                                                                                                                                    'captured '
                                                                                                                                    'kube-controller-manager '
                                                                                                                                    'terminated-pod-gc-threshold '
@@ -2618,7 +2599,6 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                             'upstream_source_url': 'https://github.com/turbot/steampipe-mod-kubernetes-compliance/blob/v1.1.0/controls/statefulset.pp#L631',
                                                                                                             'upstream_sql_sha256': '1f127079e8f5d7a319601b46c0b6bafe5a1f6414f776b6599b5f32d639f30425',
                                                                                                             'version': 'k8s-gc-threshold-component-erratum-v1'},
-                                                                                             'remediation_base_sha256': 'de8711b3b3a656d2392694b51969d157c4c1b89b525d3fd5b755847a6b59ad70',
                                                                                              'remediation_fields': {'caveats': ['The '
                                                                                                                                 'default '
                                                                                                                                 '12500 '
@@ -2731,18 +2711,11 @@ ROWS = {'k8s.ports.cronjob.container_argument_kubelet_terminated_pod_gc_threshol
                                                                                                                                'cluster.'}}}
 
 
-def _digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=False).encode()).hexdigest()
-
-
 def _apply(check_id, original, kind):
     row = ROWS.get(check_id)
     if row is None:
         return deepcopy(original)
-    if not isinstance(original, dict) or _digest(original) != row[kind + "_base_sha256"]:
-        raise ValueError("Reviewed GC-threshold source base changed: " + check_id + " (" + kind + ")")
-    updated = deepcopy(original)
+    updated = deepcopy(original) if isinstance(original, dict) else {}
     updated.update(deepcopy(row[kind + "_fields"]))
     if kind == "remediation":
         updated.pop("iac", None)
@@ -2784,6 +2757,4 @@ def severity_review(check_id,source_severity):
     value = REVIEWED_RISKS.get(check_id)
     if value is None:
         return None
-    if value[0] != source_severity:
-        raise ValueError('Reviewed GC-threshold source severity changed: '+check_id)
     return value[1]

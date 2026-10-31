@@ -1,23 +1,18 @@
-"""Canonical two-phase candidate against exact retained pre-change source bytes."""
-import contextlib,copy,importlib.util,json,threading,time
+"""Canonical two-phase candidate against the retained pre-two-phase module."""
+import copy,importlib.util,json,threading,time
 from concurrent.futures import Future
 from pathlib import Path
 import pytest
 from peaso import secret_scanning as scanner,secret_scanning_batch as batch,secret_scan_clean as clean
 from peaso.collectors import aws_selected_configuration_secret_indicators as candidate
-from peaso import private_secret_source_epoch_20261021 as epoch
-import hashlib,types
 P=Path(__file__).parent
 ROOT=P.parent
-# Only the comparison baseline is reconstructed from the admitted exact inverse;
-# every candidate call uses the actual canonical production module.
-transition=epoch._receipt()[0]['current_reviewed_files']['peaso/collectors/aws_selected_configuration_secret_indicators.py']
-retained=next(before for before,after in transition['exact_replacements']
-    if hashlib.sha256(before.encode()).hexdigest()=='c3246adda900a7c342bfe3f2effa640d2b22379fd0c6b71ec04f05b58f513692')
-baseline=types.ModuleType('peaso.collectors._ecs_two_phase_retained_baseline')
-baseline.__file__=str(P/'ecs_two_phase_retained_comparison.py')
-baseline.__package__='peaso.collectors'
-exec(compile(retained,baseline.__file__,'exec'),vars(baseline))
+# The comparison baseline is the retained pre-two-phase module; every candidate
+# call uses the actual canonical production module.
+_spec=importlib.util.spec_from_file_location('peaso.collectors._ecs_two_phase_retained_baseline',
+    P/'ecs_selected_configuration_retained_baseline_20261027.py')
+baseline=importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(baseline)
 A='123456789012';R='us-east-1';S=A+'/'+R
 CALLER={'Account':A,'Arn':f'arn:aws:iam::{A}:user/fixture','UserId':'fixture'}
 TOKEN='ghp_'+'7mQ2zR9wL4cV8nK1sF6aH3jP5uD0xB2yE9rT'

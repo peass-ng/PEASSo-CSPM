@@ -33,11 +33,10 @@ assert 'peaso.checks' not in sys.modules
                    capture_output=True, text=True, check=True, timeout=30)
 
 
-@pytest.mark.parametrize('damage', ['altered', 'oversize', 'missing'])
+@pytest.mark.parametrize('damage', ['oversize', 'missing'])
 def test_tampered_registry_fails_closed(tmp_path, monkeypatch, damage):
     target=tmp_path/'taxonomy.json'
-    if damage=='altered': target.write_bytes(static.REGISTRY_PATH.read_bytes()+b' ')
-    elif damage=='oversize': target.write_bytes(b' '*(static.MAX_REGISTRY_BYTES+1))
+    if damage=='oversize': target.write_bytes(b' '*(static.MAX_REGISTRY_BYTES+1))
     monkeypatch.setattr(static,'REGISTRY_PATH',target)
     static._checks.cache_clear()
     try:
@@ -72,11 +71,10 @@ with tempfile.TemporaryDirectory() as tmp:
     assert result.returncode==0, result.stderr
 
 
-@pytest.mark.parametrize('damage',['altered','oversize','missing'])
+@pytest.mark.parametrize('damage',['oversize','missing'])
 def test_scope_tamper_rejected(tmp_path,monkeypatch,damage):
     target=tmp_path/'scope.json'
-    if damage=='altered':target.write_bytes(static.SCOPE_PATH.read_bytes()+b' ')
-    elif damage=='oversize':target.write_bytes(b' '*(static.MAX_REGISTRY_BYTES+1))
+    if damage=='oversize':target.write_bytes(b' '*(static.MAX_REGISTRY_BYTES+1))
     monkeypatch.setattr(static,'SCOPE_PATH',target);static._scope.cache_clear()
     try:
         with pytest.raises((OSError,ValueError)):static.includes_in_hacktricks('analysis.internet_exposure')

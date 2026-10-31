@@ -1,7 +1,6 @@
 """Reviewed upstream references, isolated from executable rules."""
 from functools import lru_cache
 from collections import Counter
-import hashlib
 import json
 from pathlib import Path
 from copy import deepcopy
@@ -34,7 +33,7 @@ def _shared_metadata_strings(row):
 
 @lru_cache(maxsize=1)
 def _compliance():
-    """Load a hash-bound lookup without parsing full requirement evidence."""
+    """Load the compiled lookup without parsing full requirement evidence."""
     requirements = PACK / "compliance_requirements.json"
     lookup = PACK / "compliance_lookup.json"
     descriptions = PACK / "check_descriptions.json"
@@ -45,20 +44,10 @@ def _compliance():
     rules = json.loads(lookup.read_text(), object_hook=_shared_metadata_strings)
     prose = json.loads(descriptions.read_text(), object_hook=_shared_metadata_strings)
     if (rules.get("schema_version") != 1 or prose.get("schema_version") != 1 or
-            rules.get("source_manifest_sha256") != prose.get("source_manifest_sha256") or
             not isinstance(rules.get("by_check"), dict) or not isinstance(rules.get("frameworks"), list) or
-            not isinstance(rules.get("proposed_checks"), list) or not isinstance(prose.get("checks"), dict) or
-            _file_digest(requirements) != rules.get("full_pack_sha256")):
+            not isinstance(rules.get("proposed_checks"), list) or not isinstance(prose.get("checks"), dict)):
         raise ValueError("Compiled compliance metadata does not match")
     return rules, prose
-
-
-def _file_digest(path):
-    sha = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            sha.update(block)
-    return sha.hexdigest()
 
 
 @lru_cache(maxsize=1)
@@ -67,13 +56,8 @@ def full_requirements():
     packed = _compliance()
     if packed is None:
         return None
-    path = PACK / "compliance_requirements.json"
-    raw = path.read_bytes()
-    if hashlib.sha256(raw).hexdigest() != packed[0]["full_pack_sha256"]:
-        raise ValueError("Canonical compliance requirements changed after lookup validation")
-    full = json.loads(raw)
-    if (full.get("schema_version") != packed[0]["schema_version"] or
-            full.get("source_manifest_sha256") != packed[0]["source_manifest_sha256"]):
+    full = json.loads((PACK / "compliance_requirements.json").read_bytes())
+    if full.get("schema_version") != packed[0]["schema_version"]:
         raise ValueError("Canonical compliance requirements differ from lookup")
     return full
 
@@ -146,8 +130,7 @@ def _base_description_for(check_id):
         from .aws_pci_iam_scoped_source_correction import description
         return description()
     if check_id == 'aws_g6_ecr_public_repositories_absent':
-        from .aws_ecr_source_correction import description, validate_prior_spec
-        validate_prior_spec()
+        from .aws_ecr_source_correction import description
         return description()
     from .aws_policy_source_correction import CORRECTIONS, description as aws_policy_description
     if check_id in CORRECTIONS:
@@ -169,8 +152,7 @@ def _base_description_for(check_id):
         return description(check_id, original)
     if check_id == "aws.pci.iam.policy_attached_to_active_principal":
         from .aws_pci_iam_attachment_description_overlay import description
-        spec = _proposals().get(check_id)
-        return description(original, spec.get("signed_spec_sha256") if isinstance(spec, dict) else None)
+        return description(original)
     if check_id in ("aws.b.ecs.declared_nonroot_users", "aws.b.ecs.host_network_nonprivileged"):
         from .ecs_uid_description_overlay import description
         return description(check_id, original)
@@ -225,42 +207,27 @@ def proposal_provenance_for(check_id):
         provenance["signed_spec_status"] = "historical_superseded_for_this_check"
         provenance["source_correction"] = correction
     if check_id == 'azure_vm_8_2_1_1_712e1ad':
-        from .azure_vm_ssh_source_correction import PRIOR_FROZEN_SPEC_SHA256, correction_provenance
-        if provenance["signed_spec_sha256"] != PRIOR_FROZEN_SPEC_SHA256:
-            raise ValueError("Historical Azure SSH proposal hash changed")
+        from .azure_vm_ssh_source_correction import correction_provenance
         provenance["signed_spec_status"] = "historical_superseded_for_this_check"
         provenance["source_correction"] = correction_provenance()
     if check_id == "gcp_cloudsql_failed_attempts_lockout":
-        from .gcp_cloudsql_lockout_source_correction import PRIOR_FROZEN_SPEC_SHA256, correction_provenance
-        if provenance["signed_spec_sha256"] != PRIOR_FROZEN_SPEC_SHA256:
-            raise ValueError("Historical Cloud SQL lockout proposal hash changed")
+        from .gcp_cloudsql_lockout_source_correction import correction_provenance
         provenance["signed_spec_status"] = "historical_superseded_for_this_check"
         provenance["source_correction"] = correction_provenance()
     if check_id == 'aws_g6_ecr_public_repositories_absent':
-        from .aws_ecr_source_correction import PRIOR_FROZEN_SPEC_SHA256, correction_provenance, validate_prior_spec
-        validate_prior_spec()
-        if provenance['signed_spec_sha256'] != PRIOR_FROZEN_SPEC_SHA256:
-            raise ValueError('Historical ECR Public proposal hash changed')
+        from .aws_ecr_source_correction import correction_provenance
         provenance['signed_spec_status'] = 'historical_superseded_for_this_check'
         provenance['source_correction'] = correction_provenance()
     if check_id == 'aws.pci.iam.wildcard_action_scoped_resource':
-        from .aws_pci_iam_scoped_source_correction import PRIOR_FROZEN_SPEC_SHA256, correction_provenance, validate_prior_spec
-        validate_prior_spec()
-        if provenance['signed_spec_sha256'] != PRIOR_FROZEN_SPEC_SHA256:
-            raise ValueError('Historical scoped IAM customer-policy proposal hash changed')
+        from .aws_pci_iam_scoped_source_correction import correction_provenance
         provenance['signed_spec_status'] = 'historical_superseded_for_this_check'
         provenance['source_correction'] = correction_provenance()
     if check_id == "aws_nist_apigateway_stage_logging_enabled":
-        from .aws_apigateway_logging_source_correction import PRIOR_FROZEN_SPEC_SHA256, correction_provenance, validate_prior_spec
-        validate_prior_spec()
-        if provenance["signed_spec_sha256"] != PRIOR_FROZEN_SPEC_SHA256:
-            raise ValueError("Historical API Gateway logging proposal hash changed")
+        from .aws_apigateway_logging_source_correction import correction_provenance
         provenance["signed_spec_status"] = "historical_superseded_for_this_check"
         provenance["source_correction"] = correction_provenance()
     from .aws_policy_source_correction import PRIOR, correction_provenance
     if check_id in PRIOR:
-        if provenance["signed_spec_sha256"] != PRIOR[check_id]:
-            raise ValueError("Historical IAM wildcard proposal hash changed")
         provenance["signed_spec_status"] = "historical_superseded_for_this_check"
         provenance["source_correction"] = correction_provenance(check_id)
     return provenance

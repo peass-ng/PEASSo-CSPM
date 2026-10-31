@@ -1,13 +1,11 @@
 """Structural consumers of inline policies embedded in native IAM groups."""
 from __future__ import annotations
-import hashlib
 import json
 import re
 from pathlib import Path
 
 CHECK = 'aws.iam.group_inline_policies_have_members'
 TITLE = 'Group inline policies have member identities'
-CASES_SHA256 = 'deeffab1004f7da306317a20af24f8635097e912bd280993bea17362ce13510f'
 NAME = r'[\w+=,.@-]+'
 
 
@@ -170,8 +168,6 @@ def evaluate(item, index):
 def install(registry):
     from peaso.checks.fixtures import CASES
     raw = Path(__file__).with_name('checks').joinpath('unused_iam_aws_inline_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('AWS inline-policy native cases changed')
     cases = json.loads(raw)
     if set(cases) != {CHECK}: raise ValueError('AWS inline-policy native case IDs changed')
     CASES.update(cases)

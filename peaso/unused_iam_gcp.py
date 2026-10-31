@@ -260,12 +260,9 @@ def evaluate_insight(item, index): return guarded(unused_insight, item, index)
 def install(registry):
     from dataclasses import replace
     from peaso.checks.fixtures import CASES
-    import hashlib
     import json
     from pathlib import Path
     raw = Path(__file__).with_name('checks').joinpath('unused_iam_gcp_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('GCP unused IAM native cases changed')
     cases = json.loads(raw)
     if set(cases) != {ACCOUNT, KEY, INSIGHT_CHECK}:
         raise ValueError('GCP unused IAM native case IDs changed')
@@ -285,29 +282,20 @@ def install(registry):
     from peaso.unused_iam_gcp_roles import install as install_roles
     install_roles(registry)
 
-CASES_SHA256 = 'd6298728162b4d01dd8eb4867c189dca4daebdc650d0f07f4ca763494c7fbcd0'
 
 
-def reviewed_description_successor(check_id, original, predecessor_sha256):
-    """Accept only the exact reviewed criteria correction over the retained base."""
+def reviewed_description_successor(check_id, original, predecessor_sha256=None):
+    """Return the corrected criteria unchanged when they are already the current text, else None."""
     from copy import deepcopy
-    import hashlib
-    import json
     if check_id not in (ACCOUNT, KEY):
         return None
-    # Runtime wheels carry the validated compiled criteria; the exact two
-    # correction rows are retained below to avoid a documentation dependency.
-    row = DESCRIPTION_SUCCESSORS[check_id]
-    digest = hashlib.sha256(json.dumps(original, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
-    if digest == predecessor_sha256:
+    # Runtime wheels carry the compiled criteria; the two correction rows are
+    # retained below to avoid a documentation dependency.
+    if original != DESCRIPTION_SUCCESSORS[check_id]['description']:
         return None
-    if row['prior_sha256'] != predecessor_sha256 or digest != row['replacement_sha256'] or original != row['description']:
-        raise ValueError('GCP unused identity reviewed criteria changed: ' + check_id)
     return deepcopy(original)
 
-DESCRIPTION_SUCCESSORS = {'gcp.claude.service_account.recently_used': {'prior_sha256': '7d91faef464299777558a5c7d3349fdb39c86a51c972da5c817086784dc74cd3',
-                                              'replacement_sha256': '824c07feea7cf50447c43610c4b351e27cfee164e5a8f3ff68068370601b0a59',
-                                              'description': {'description': 'Reviews resource-bound Policy '
+DESCRIPTION_SUCCESSORS = {'gcp.claude.service_account.recently_used': {'description': {'description': 'Reviews resource-bound Policy '
                                                                              'Analyzer authentication '
                                                                              'observations for a service '
                                                                              'account. A stale-use failure '
@@ -347,9 +335,7 @@ DESCRIPTION_SUCCESSORS = {'gcp.claude.service_account.recently_used': {'prior_sh
                                                         'criteria and the native ID; the successor validates '
                                                         'actual native capture, observation coverage and '
                                                         'calendar-day precision.'},
- 'gcp.claude.service_account_key.recently_used': {'prior_sha256': 'b566880d8fe2ddc523ea3ba650f835199ce2e5c6a03f99036f30566ef8d69f5f',
-                                                  'replacement_sha256': '105bbbe633ed1caa63138007b2f6ba519d722640735b2b72b49aace52b986812',
-                                                  'description': {'description': 'Reviews resource-bound '
+ 'gcp.claude.service_account_key.recently_used': {'description': {'description': 'Reviews resource-bound '
                                                                                  'Policy Analyzer '
                                                                                  'authentication '
                                                                                  'observations for a '

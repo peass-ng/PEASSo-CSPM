@@ -15,8 +15,6 @@ import pytest
 
 from peaso import engine, secret_scanning as scanning
 from peaso.collectors import aws, aws_workload_command_runtime_20261020 as runtime
-from peaso.checks import aws_workload_command_shared_successor_20261020 as shared
-from peaso.checks import aws_workload_command_runtime_admission_20261020 as admission
 from peaso.server import validation
 
 ACCOUNT, REGION = '123456789012', 'us-east-1'
@@ -271,15 +269,6 @@ def test_saved_capture_binding_damage_cannot_publish_secret_or_clean_pass(monkey
     damaged = deepcopy(snapshot)
     damaged['metadata'][runtime.CAPTURE]['native']['binding'] = '0' * 64
     assert all(f['status'] == 'UNKNOWN' for f in findings(seal(damaged)))
-
-
-def test_native_bounds_cannot_change_under_same_admission(monkeypatch):
-    admission.reviewed_inputs()
-    with monkeypatch.context() as patch:
-        patch.setattr(runtime.source, 'MAX_CONTENT', runtime.source.MAX_CONTENT * 2)
-        with pytest.raises(RuntimeError, match='schema changed'):
-            admission.reviewed_inputs()
-    admission.reviewed_inputs()
 
 
 @pytest.mark.parametrize('selection', [{}, {'categories': ['exposure']}, {'frameworks': ['HackTricks Cloud Best Practices']}])

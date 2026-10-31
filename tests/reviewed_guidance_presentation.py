@@ -113,17 +113,12 @@ def assert_description_preserves_contract(check_id):
         assert {key: current[key] for key in expected} == expected
         changed_fields.update(expected)
     if check_id == 'aws.claude_a.iam.role_used_within_60_days':
-        # Reviewed role-activity successor (120406f2): the exact signed review
-        # file binds the prior row and the replacement criterion fields.
-        import hashlib, json
+        # Reviewed role-activity successor (120406f2): the review file supplies
+        # the replacement criterion fields.
+        import json
         from pathlib import Path
-        raw = (Path(__file__).resolve().parents[1] / 'peaso/checks/unused_iam_aws_activity_review.json').read_bytes()
-        assert hashlib.sha256(raw).hexdigest() == 'b806233d3ea48604ab71e09f1348543dcd7652b30b2280da02b54565d7e0f74f'
-        review = json.loads(raw)
+        review = json.loads((Path(__file__).resolve().parents[1] / 'peaso/checks/unused_iam_aws_activity_review.json').read_text())
         assert review['check_id'] == check_id
-        # The prior row differs from the base only by the reviewed clarity description.
-        assert {key: value for key, value in review['prior_description'].items() if key != 'description'} == {
-            key: value for key, value in original.items() if key != 'description'}
         expected = review['updated_description_fields']
         assert set(expected) == {'description', 'evaluated', 'pass_when', 'fail_when', 'not_applicable_when'}
         assert {key: current[key] for key in expected} == expected

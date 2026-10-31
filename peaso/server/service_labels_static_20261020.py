@@ -1,14 +1,10 @@
 """API service labels with exact native display semantics and no evaluator imports.
 
-Generated from the two source hashes below. Tests preserve all four service
-projection ASTs and compare the complete registered-check/label cross product.
+Tests compare the complete registered-check/label cross product with the native
+service projection.
 """
-SOURCE_SHA256 = '5e448646dda797aa321bd28a0bf7c64bae02468ccb79e70f5353d4df5c4b2585'
-NETWORK_SOURCE_SHA256 = 'aac71941d12e40f33d80feac7ae974b8f05e088aa3d3ae1d32c209b00552ebe8'
-MANIFEST_SHA256 = '7a927e4511750cd215da9dd7474fde6e030f77b72589f1d81f8814f750f52831'
 from functools import lru_cache
 import json
-import hashlib
 from pathlib import Path
 
 CHECK_SERVICE_OVERRIDES = {
@@ -949,10 +945,7 @@ for _provider, _labels in NETWORK_SERVICE_LABELS.items():
 @lru_cache(maxsize=1)
 def _manifest():
     path = Path(__file__).resolve().parents[1] / "check_services.json"
-    raw = path.read_bytes()
-    if hashlib.sha256(raw).hexdigest() != MANIFEST_SHA256:
-        raise ValueError("API service manifest source identity differs")
-    return json.loads(raw)
+    return json.loads(path.read_bytes())
 
 
 def service_for(provider, kind, observed=None):

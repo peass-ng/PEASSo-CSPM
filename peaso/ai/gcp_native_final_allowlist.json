@@ -1,5 +1,4 @@
 {
-  "audit_sha256": "73c3ded77b64866f99640af52281a428ed9f2fb0ef6f222503d6d6965337bfd9",
   "checks": [
     {
       "check_id": "gcp.claude.bucket.retention_90_days",
@@ -421,24 +420,7 @@
   ],
   "provider": "gcp",
   "replay_qualification": {
-    "hosted_receipt_sha256": null,
     "status": "pending_hosted"
-  },
-  "source_sha256": {
-    "peaso/checks/__init__.py": "9e30d82d62313b05b8b0c8c83b4c3bb1de339563dd8976fc2d59929cce4587ae",
-    "peaso/checks/claude2_gcp_services.py": "66a53c222fd1c5e58a8f02db7efb24f65e9fcdeca276007adc29b369feabcd48",
-    "peaso/checks/claude_gcp_k8s_compute.py": "071adbccfe52668da08440632d9f5d3ef4b74781a8ba8570442b02a7fdc69952",
-    "peaso/checks/claude_gcp_k8s_iam.py": "e5080847e9facfe4c70b2cb38089dc6b830b1fb74d55700ff23d359225a78a2e",
-    "peaso/checks/compliance_new_gcp.py": "56b124e95fc5fe69701bf8b155378d60ce89478364c22df4b8b93e152a602487",
-    "peaso/checks/compliance_new_gcp_storage.py": "068fed8fa3bb4d6b5fa0bef0e7d8c79b56db2a9ddeca5cc8f1190b1aa36c1f47",
-    "peaso/checks/facts.py": "15d83fc5f44bfca7bd3022f7528bfd54c5738d6459fe999f59c2fd4498a1c926",
-    "peaso/checks/gcp.py": "2a05ef582c4527eb97cf757ec9419cb0d8eb7a61bc33be76e02c8a7721eb6bd6",
-    "peaso/checks/gcp_extended.py": "f2d535d449b2babb2d7ba61d839be491b0c83c25642b5f63e41051ffec2689ae",
-    "peaso/checks/gcp_ports_compute.py": "47805cd4afa8bc54214f9ad4e3fb5f962022f3cea7112bbc252d6bca316b22d5",
-    "peaso/checks/gcp_ports_logging.py": "934a60b40e695d14753ddc9da1bec3237e6d0918f0ab4ec625128632ec33fa5d",
-    "peaso/checks/gcp_ports_relationships.py": "72b4a70549ab096bc52935ce7c36ac3a877d44a7aa203636713247cf04dbb693",
-    "peaso/checks/gcp_ports_services.py": "4d0572d9f8dc88212772031afdb125725f1f7fca37b87cb790e647d494802ab2",
-    "peaso/checks/hacktricks_bp_gcp.py": "82c87cd9815ae4064acf84174667ba418fc5f464d8fdaf7f4495a6ce303c6434"
   },
   "version": 2
 }

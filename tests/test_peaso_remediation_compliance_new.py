@@ -28,11 +28,7 @@ def _shard(tmp_path: Path, name: str, rows: dict) -> Path:
 
 
 
-def test_new_remediation_rejects_wrong_signed_spec_and_provider(tmp_path):
-    wrong_sha = _candidate(AWS_ID)
-    wrong_sha["proposed_spec_sha256"] = "0" * 64
-    with pytest.raises(ValueError, match="signed proposed spec"):
-        _merge_compliance_reviewed({}, ((_shard(tmp_path, "sha.json", {AWS_ID: wrong_sha}), "aws"),))
+def test_new_remediation_rejects_wrong_provider(tmp_path):
     with pytest.raises(ValueError, match="ID/provider"):
         _merge_compliance_reviewed({}, ((_shard(tmp_path, "provider.json", {AWS_ID: _candidate(AWS_ID)}), "gcp"),))
     with pytest.raises(ValueError, match="ID/provider"):

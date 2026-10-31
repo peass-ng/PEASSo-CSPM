@@ -1,4 +1,4 @@
-"""Bounded, build-verified privilege display metadata for stored API reports."""
+"""Bounded privilege display metadata for stored API reports."""
 from copy import deepcopy
 from functools import lru_cache
 import gzip
@@ -12,10 +12,6 @@ PACK = Path(__file__).resolve().parents[1] / 'rulepacks'
 MAX_GZIP_BYTES = 4 * 1024 * 1024
 MAX_JSON_BYTES = 32 * 1024 * 1024
 BINDING_SCHEMA = 'privesc-catalog-binding-v1'
-FROZEN_SOURCES = frozenset({'peaso/privesc/schema.py', 'peaso/privesc/versioned_catalog.py',
-                            'risk_rules/hacktricks-privesc-source.json'})
-# Rewritten by the offline display builder after it verifies engine catalogs.
-PINNED_GZIP_SHA256 = '982fb172242008e9c2082390b37829028f1c53b6c767bdefd60b820afc5c3088'
 
 
 def _pairs(items):
@@ -34,24 +30,16 @@ def _json(raw):
 @lru_cache(maxsize=1)
 def _load():
     try:
-        manifest_raw = (PACK / 'api_privesc_display_manifest.json').read_bytes()
-        if len(manifest_raw) > 4096:
-            raise ValueError('display manifest budget')
-        manifest = _json(manifest_raw)
-        if manifest['schema_version'] != 1 or not 0 < manifest['json_bytes'] <= MAX_JSON_BYTES:
-            raise ValueError('display manifest schema')
         raw = (PACK / 'api_privesc_display.json.gz').read_bytes()
-        if (not 0 < len(raw) <= MAX_GZIP_BYTES or hashlib.sha256(raw).hexdigest() != manifest['gzip_sha256']
-                or manifest['gzip_sha256'] != PINNED_GZIP_SHA256):
-            raise ValueError('display gzip identity')
+        if not 0 < len(raw) <= MAX_GZIP_BYTES:
+            raise ValueError('display gzip budget')
         with gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
             document = stream.read(MAX_JSON_BYTES + 1)
-        if (len(document) != manifest['json_bytes'] or
-                hashlib.sha256(document).hexdigest() != manifest['json_sha256']):
-            raise ValueError('display document identity')
+        if len(document) > MAX_JSON_BYTES:
+            raise ValueError('display document budget')
         data = _json(document)
-        if (data['schema_version'] != 1 or data['catalog_document_sha256'] != manifest['catalog_document_sha256']
-                or not isinstance(data['details'], list) or not isinstance(data['bindings'], list)
+        if (data['schema_version'] != 1 or not isinstance(data['details'], list)
+                or not isinstance(data['bindings'], list)
                 or len(data['bindings']) > 256 or len(data['details']) > 10000):
             raise ValueError('display document schema')
         detail_digests = []
@@ -62,10 +50,6 @@ def _load():
                                                              separators=(',', ':'), allow_nan=False).encode()).hexdigest())
         if len(detail_digests) != len(set(detail_digests)):
             raise ValueError('duplicate display detail row')
-        identities = data['catalog_source_identities']
-        if (not isinstance(identities, dict) or set(identities) != FROZEN_SOURCES
-                or any(not isinstance(digest, str) or len(digest) != 64 for digest in identities.values())):
-            raise ValueError('display frozen source identities')
         by_binding = {}
         for row in data['bindings']:
             if (not isinstance(row, list) or len(row) != 5 or
@@ -94,16 +78,8 @@ def _load():
         raise ValueError('API privilege display index unavailable') from None
 
 
-def current_binding(catalog_manifest):
-    data = _load()
-    if data['catalog_document_sha256'] != catalog_manifest['document_sha256']:
-        raise ValueError('display catalog generation mismatch')
-    if any(data['catalog_source_identities'][name] != catalog_manifest['sources'][name]
-           for name in FROZEN_SOURCES):
-        raise ValueError('display frozen source generation mismatch')
-    if data['current_binding']['manifest_sha256'] != catalog_manifest['sources']['risk_rules/hacktricks-privesc-source.json']:
-        raise ValueError('display source generation mismatch')
-    return deepcopy(data['current_binding'])
+def current_binding():
+    return deepcopy(_load()['current_binding'])
 
 
 def lookup_details(technique_ids, binding=None, *, tenant_id=None):

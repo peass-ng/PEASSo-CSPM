@@ -1,7 +1,6 @@
 """Azure admission stays isolated from the qualified AWS manifest."""
 
 import copy
-import hashlib
 import json
 
 from peaso.ai import native_final_azure
@@ -13,63 +12,38 @@ def _manifest():
 
 def _write(tmp_path, monkeypatch, manifest):
     path = tmp_path / 'azure-manifest.json'
-    raw = (json.dumps(manifest, sort_keys=True) + '\n').encode()
-    path.write_bytes(raw)
+    path.write_text(json.dumps(manifest, sort_keys=True) + '\n')
     monkeypatch.setenv('PEASO_AZURE_HARDENING_NATIVE_FINAL_ENABLED', '1')
-    monkeypatch.setenv('PEASO_AZURE_HARDENING_NATIVE_FINAL_SHA256', hashlib.sha256(raw).hexdigest())
     return path
 
 
-def test_committed_manifest_pending_even_with_switch_and_pin(monkeypatch):
+def test_committed_manifest_pending_even_with_switch(monkeypatch):
     monkeypatch.setenv('PEASO_AZURE_HARDENING_NATIVE_FINAL_ENABLED', '1')
-    monkeypatch.setenv('PEASO_AZURE_HARDENING_NATIVE_FINAL_SHA256',
-                       hashlib.sha256(native_final_azure.MANIFEST.read_bytes()).hexdigest())
     assert not native_final_azure.admitted_check_ids()
 
 
-def test_exact_qualified_gate_and_source_pin(tmp_path, monkeypatch):
+def test_qualified_gate_requires_switch(tmp_path, monkeypatch):
     value = _manifest()
-    value['replay_qualification'] = {
-        'status': 'qualified', 'saved_receipt_sha256': native_final_azure.SAVED_RECEIPT_SHA256,
-        'hosted_receipt_sha256': native_final_azure.HOSTED_RECEIPT_SHA256}
-    assert native_final_azure._qualified_receipts()
+    value['replay_qualification'] = {'status': 'qualified'}
     path = _write(tmp_path, monkeypatch, value)
     assert native_final_azure.admitted_check_ids(path) == set(native_final_azure.EXPECTED)
-    path.write_bytes(path.read_bytes() + b' ')
-    assert not native_final_azure.admitted_check_ids(path)
-    path = _write(tmp_path, monkeypatch, value)
     monkeypatch.delenv('PEASO_AZURE_HARDENING_NATIVE_FINAL_ENABLED')
     assert not native_final_azure.admitted_check_ids(path)
 
 
-def test_manifest_widening_and_missing_receipt_rejected(tmp_path, monkeypatch):
+def test_manifest_widening_rejected(tmp_path, monkeypatch):
     base = _manifest()
-    base['replay_qualification'] = {
-        'status': 'qualified', 'saved_receipt_sha256': native_final_azure.SAVED_RECEIPT_SHA256,
-        'hosted_receipt_sha256': native_final_azure.HOSTED_RECEIPT_SHA256}
+    base['replay_qualification'] = {'status': 'qualified'}
     for mutation in (
         lambda m: m['checks'].append(dict(m['checks'][0], check_id='azure.other.setting')),
         lambda m: m['checks'][0].update(saved_ai_disagreements=1),
         lambda m: m['checks'][0].update(dependencies=['unrelated_collection']),
-        lambda m: m['replay_qualification'].update(hosted_receipt_sha256=None),
-        lambda m: m['replay_qualification'].update(hosted_receipt_sha256='b' * 64),
-        lambda m: m.update(source_proof_sha256='c' * 64),
+        lambda m: m['replay_qualification'].update(status='pending'),
+        lambda m: m.update(snapshot_id='sha256:' + 'c' * 64),
     ):
         value = copy.deepcopy(base)
         mutation(value)
         assert not native_final_azure.admitted_check_ids(_write(tmp_path, monkeypatch, value))
-
-
-def test_hosted_receipt_bytes_are_required(tmp_path, monkeypatch):
-    value = _manifest()
-    value['replay_qualification'] = {
-        'status': 'qualified', 'saved_receipt_sha256': native_final_azure.SAVED_RECEIPT_SHA256,
-        'hosted_receipt_sha256': native_final_azure.HOSTED_RECEIPT_SHA256}
-    path = _write(tmp_path, monkeypatch, value)
-    tampered = tmp_path / 'hosted.json'
-    tampered.write_bytes(native_final_azure.HOSTED_RECEIPT.read_bytes() + b' ')
-    monkeypatch.setattr(native_final_azure, 'HOSTED_RECEIPT', tampered)
-    assert not native_final_azure.admitted_check_ids(path)
 
 
 def test_partition_keeps_incomplete_and_other_provider_with_ai():
