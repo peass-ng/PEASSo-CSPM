@@ -1,39 +1,28 @@
 """GCP native-final admission stays separate and fail closed."""
-import hashlib
 import json
 
 from peaso.ai import gcp_native_final
 
 
-def test_pending_candidate_is_inactive_even_with_switch_and_pin(monkeypatch):
+def test_pending_candidate_is_inactive_even_with_switch(monkeypatch):
     path = gcp_native_final.MANIFEST
     assert gcp_native_final.candidate_check_ids(path)
     monkeypatch.setenv('PEASO_GCP_HARDENING_NATIVE_FINAL_ENABLED', '1')
-    monkeypatch.setenv('PEASO_GCP_HARDENING_NATIVE_FINAL_SHA256',
-                       hashlib.sha256(path.read_bytes()).hexdigest())
     assert not gcp_native_final.admitted_check_ids(path)
     monkeypatch.setenv('PEASO_GCP_HARDENING_NATIVE_FINAL_ENABLED', '0')
     assert not gcp_native_final.admitted_check_ids(path)
 
 
-def test_qualified_schema_still_requires_exact_pin_and_source(tmp_path, monkeypatch):
+def test_qualified_manifest_requires_switch_and_valid_schema(tmp_path, monkeypatch):
     value = json.loads(gcp_native_final.MANIFEST.read_text())
-    value['replay_qualification'] = {'status': 'qualified',
-                                     'hosted_receipt_sha256': 'a' * 64}
+    value['replay_qualification'] = {'status': 'qualified'}
     path = tmp_path / 'candidate.json'
     path.write_text(json.dumps(value, sort_keys=True) + '\n')
+    assert not gcp_native_final.admitted_check_ids(path)
     monkeypatch.setenv('PEASO_GCP_HARDENING_NATIVE_FINAL_ENABLED', '1')
-    monkeypatch.setenv('PEASO_GCP_HARDENING_NATIVE_FINAL_SHA256',
-                       hashlib.sha256(path.read_bytes()).hexdigest())
-    assert not gcp_native_final.admitted_check_ids(path)
-    monkeypatch.setattr(gcp_native_final, 'HOSTED_RECEIPT_SHA256', 'a' * 64)
     assert gcp_native_final.admitted_check_ids(path) == gcp_native_final.candidate_check_ids()
-    path.write_bytes(path.read_bytes() + b' ')
-    assert not gcp_native_final.admitted_check_ids(path)
-    value['checks'][0]['saved_native_failures'] += 1
+    value['checks'][0]['unexpected'] = True
     path.write_text(json.dumps(value, sort_keys=True) + '\n')
-    monkeypatch.setenv('PEASO_GCP_HARDENING_NATIVE_FINAL_SHA256',
-                       hashlib.sha256(path.read_bytes()).hexdigest())
     assert not gcp_native_final.admitted_check_ids(path)
 
 

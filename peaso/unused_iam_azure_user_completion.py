@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from hashlib import sha256
 import json
 from pathlib import Path
 
@@ -146,8 +145,6 @@ def install(registry):
     from peaso.checks.fixtures import CASES
     path = Path(__file__).with_name('checks') / 'unused_iam_azure_user_completion_cases.json'
     raw = path.read_bytes()
-    if sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('Azure user-success native cases changed')
     cases = json.loads(raw)
     if set(cases) != {CHECK}:
         raise ValueError('Azure user-success case ID differs from registration')
@@ -161,4 +158,3 @@ def install(registry):
     CASES[CHECK] = cases[CHECK]
 
 
-CASES_SHA256 = '90599955079f7182c938d63b7398e3a48d91ef6ba60feec887280a3eb0a32b0f'

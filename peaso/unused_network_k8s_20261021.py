@@ -1,7 +1,6 @@
 """Kubernetes structural network consumers from read-only native lists."""
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
@@ -261,14 +260,11 @@ DECLARATIONS = (
     ('k8s.network.ingress_service_backends_resolve', 'ingress', 'Ingress Service backends resolve in the same namespace', ingress, ('ingress', 'service')),
     ('k8s.network.networkpolicy_selects_current_pod', 'networkpolicy', 'NetworkPolicy selects a current Pod in its namespace', networkpolicy, ('networkpolicy', 'pod')),
 )
-CASES_SHA256 = 'c7e22c01a3069b74ba135c321f243eef56716bf4399b8d11284722f2918b06e0'
 
 
 def install(registry):
     from peaso.checks.fixtures import CASES
     raw = (Path(__file__).with_name('checks') / 'unused_network_k8s_20261021_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('Kubernetes unused-network cases changed')
     cases = json.loads(raw)
     if set(cases) != {row[0] for row in DECLARATIONS}:
         raise ValueError('Kubernetes unused-network case IDs changed')

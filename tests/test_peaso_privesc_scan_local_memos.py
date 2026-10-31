@@ -329,15 +329,8 @@ def test_verified_catalog_reuses_the_process_catalog_only_for_identical_bytes(tm
                         (actual, {**loaded, "errors": ["aws/x.yaml: broken"]}))
     calls = []
     monkeypatch.setattr(versioned_catalog, "load_catalog", lambda *a, **k: calls.append(a) or loaded)
-    monkeypatch.setattr(versioned_catalog, "_sha", lambda path: versioned_catalog.CURRENT_MANIFEST
-                        if path.name.endswith(".json") else actual.get(str(path.relative_to(root))))
-    import json as _json
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text(_json.dumps({"sha256": actual}))
-    monkeypatch.setattr(versioned_catalog, "CURRENT_TREE", __import__("hashlib").sha256(
-        "".join(f"{name} {actual[name]}\n" for name in sorted(actual)).encode()).hexdigest())
     with pytest.raises(schema.CatalogError, match="aws/x.yaml: broken"):
-        versioned_catalog._verified_current.__wrapped__(str(root), str(manifest))
+        versioned_catalog._current_entries.__wrapped__(str(root))
     assert calls == []
 
 

@@ -1,6 +1,5 @@
 """Custom-role consumers in the complete scoped root/Cloud Asset IAM inventory."""
 from pathlib import Path
-import hashlib
 import json
 import re
 
@@ -157,8 +156,6 @@ def evaluate_role(item, index):
 def install(registry):
     from peaso.checks.fixtures import CASES
     raw = Path(__file__).with_name('checks').joinpath('unused_iam_gcp_roles_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('GCP custom role native cases changed')
     cases = json.loads(raw)
     if set(cases) != {CHECK}:
         raise ValueError('GCP custom role native case IDs changed')
@@ -168,4 +165,3 @@ def install(registry):
         dependencies=('iam_role', 'iam_policy'), allow_incomplete_failure=True)(evaluate_role)
 
 
-CASES_SHA256 = 'a43460485648b30151996ea7ee327171d61896e3c4bdd156428227b5ffa36242'

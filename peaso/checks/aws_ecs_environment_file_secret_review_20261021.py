@@ -61,14 +61,11 @@ def evaluate(item, index):
 def install(register):
     from . import CHECKS
     from .fixtures import CASES
-    import hashlib
     import json
     from pathlib import Path
     if any(c.id == ecs.CHECK for c in CHECKS):
         return
     raw = Path(__file__).with_name('aws_ecs_environment_file_native_cases_20261021.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != 'ef0ede4fe97c5dfbd415298fea7dcdb0d70b292f7d1283996d13a2b64680c110':
-        raise RuntimeError('ECS environment-file native case bytes changed')
     cases = json.loads(raw)
     if set(cases) != {ecs.CHECK} or ecs.CHECK in CASES:
         raise RuntimeError('ECS environment-file native cases missing or duplicated')

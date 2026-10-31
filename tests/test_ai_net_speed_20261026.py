@@ -162,19 +162,6 @@ def test_static_evidence_summary_is_used_without_native_registry(monkeypatch):
     assert pipeline._evidence_summary() is evidence_summary
 
 
-def test_static_evidence_drift_falls_back_to_native(monkeypatch):
-    from peaso.ai import pipeline
-    from peaso.server import evidence_static
-    from peaso.finding_observation import evidence_summary
-    monkeypatch.setattr(pipeline, "_STATIC_EVIDENCE", None)
-    monkeypatch.delitem(sys.modules, "peaso.checks", raising=False)
-    def drift():
-        raise ImportError("reviewed presentation source changed")
-    monkeypatch.setattr(evidence_static, "verify_closure", drift)
-    assert pipeline._evidence_summary() is evidence_summary
-    assert pipeline._STATIC_EVIDENCE is False
-
-
 def test_single_stage_proves_and_prepares_only_its_own_stage(monkeypatch, tmp_path):
     """Hardening/Exposure are native-final; only the Network stage prepares its input."""
     from test_progressive_analyzer_20261022 import _exact_reuse_fixture

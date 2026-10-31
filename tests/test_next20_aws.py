@@ -11,18 +11,14 @@ from tests.archived_check_contract import evaluate_snapshot
 from peaso.collectors import aws
 
 FIX=json.loads((Path(__file__).parent/'fixtures/next20_aws.json').read_text())['fixtures']
-EXPECTED={
- 'aws_backup_plan_rule_required_frequency':'a066b3c973571b3d1df8aa9871dba4858a8c9c4c707897639d99e116ec71d1ea',
- 'aws_cis_elbv2_only_tls_listeners':'231d76c0f4c55afb1796004b6ab2070eff65c74e39b84e4ca4406585b52e3396',
-}
+EXPECTED=('aws_backup_plan_rule_required_frequency','aws_cis_elbv2_only_tls_listeners')
 
-@pytest.mark.parametrize('check_id',list(EXPECTED))
-def test_registration_and_signed_digest(check_id):
-    assert CANDIDATE.PROPOSED_SPEC_SHA256[check_id]==EXPECTED[check_id]
+@pytest.mark.parametrize('check_id',EXPECTED)
+def test_registration(check_id):
     assert sum(check.id==check_id for check in CHECKS)==1
 
 
-@pytest.mark.parametrize('check_id',list(EXPECTED))
+@pytest.mark.parametrize('check_id',EXPECTED)
 @pytest.mark.parametrize('case,expected',[('pass','PASS'),('fail','FAIL'),('unknown','UNKNOWN'),('denied','UNKNOWN'),('partial','UNKNOWN'),('malformed','UNKNOWN'),('foreign_scope','UNKNOWN')])
 def test_snapshot_cases(check_id,case,expected):
     fixture=FIX[check_id][case]

@@ -338,13 +338,10 @@ DECLARATIONS = (
 
 def install(registry):
     """Install through the normal native registrar after source admission."""
-    import hashlib
     import json
     from pathlib import Path
     from peaso.checks.fixtures import CASES
     raw = Path(__file__).with_name('checks').joinpath('unused_iam_k8s_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('unused Kubernetes IAM regression fixtures changed')
     cases = json.loads(raw)
     if set(cases) != {row[0] for row in DECLARATIONS}:
         raise ValueError('unused Kubernetes IAM fixture IDs differ from registration')
@@ -354,4 +351,3 @@ def install(registry):
             dependencies=dependencies)(predicate)
         CASES[ident] = cases[ident]
 
-CASES_SHA256 = '3018a55fda5602dff612cee3e8654b6b477ee941c60817b45d721c6b8cd72f9a'

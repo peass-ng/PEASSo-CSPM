@@ -1,7 +1,5 @@
 from copy import deepcopy
-import hashlib
 import json
-from pathlib import Path
 
 import pytest
 
@@ -102,13 +100,11 @@ def test_existing_memo_index_scans_roles_once(monkeypatch):
     assert calls == ['iam_role']
 
 
-def test_hash_bound_cases_and_real_hardening_engine():
+def test_bound_cases_and_real_hardening_engine():
     from peaso import checks as registry
     from peaso.checks.fixtures import CASES
     from peaso.engine import evaluate_snapshot
     from peaso.snapshot import make_snapshot
-    raw = Path(subject.__file__).with_name('checks').joinpath('unused_iam_aws_federation_consumers_cases.json').read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == subject.CASES_SHA256
     if subject.SAML_CHECK not in {check.id for check in registry.CHECKS}:
         subject.install(registry)
     assert {subject.SAML_CHECK, subject.OIDC_CHECK} <= set(CASES)

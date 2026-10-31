@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import fnmatch
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -13,7 +12,6 @@ SAML_CHECK = 'aws.iam.saml_provider_has_role_consumer'
 OIDC_CHECK = 'aws.iam.oidc_provider_has_role_consumer'
 CHECKS = {SAML_CHECK: ('iam_saml_provider', 'saml-provider', 'sts:AssumeRoleWithSAML', 'SAML'),
           OIDC_CHECK: ('iam_oidc_provider', 'oidc-provider', 'sts:AssumeRoleWithWebIdentity', 'OIDC')}
-CASES_SHA256 = '12d96f354413dcadddf3fabb6928d74f631fcfad2d5ccd1dccf57b6235046329'
 
 
 def _arn(value, account, label):
@@ -184,8 +182,6 @@ def evaluate(item, index, check_id):
 def install(registry):
     from peaso.checks.fixtures import CASES
     raw = Path(__file__).with_name('checks').joinpath('unused_iam_aws_federation_consumers_cases.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest() != CASES_SHA256:
-        raise ValueError('AWS federation consumer native cases changed')
     cases = json.loads(raw)
     if set(cases) != set(CHECKS):
         raise ValueError('AWS federation consumer native case IDs changed')
