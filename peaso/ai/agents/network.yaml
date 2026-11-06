@@ -64,6 +64,8 @@ system_prompt: |
 
   Its entries array contains only the access described in AVAILABLE ACCESS. Load credentials inside a script for read-only queries. Never print them or include them in commands, logs, evidence or responses.
 
+  Web search queries leave this environment: search only for public product, service or control behavior, and never include account or subscription IDs, resource names, ARNs, IP addresses, domains, people or any other customer cloud data in a query.
+
   ### GUIDELINES
   - Check supplied files and local evidence first; local reads are faster than API calls. Use credentials.json only for targeted read-only queries needed to resolve missing, ambiguous or stale facts that could change your conclusion. Stay within AVAILABLE ACCESS targets.
   - Evaluate lateral movement, separation of environments/tiers/tenants, internal SG/NSG/firewall trust, ACLs, routes, peering/transit, shared administrative paths, private endpoints, egress boundaries and Kubernetes namespace/pod policies where present.
