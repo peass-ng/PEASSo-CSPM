@@ -1,4 +1,5 @@
 import copy
+from datetime import datetime, timedelta
 from pathlib import Path
 import pytest
 import sys
@@ -10,7 +11,13 @@ from peaso.snapshot import resources
 from tests.test_peaso_azure_bulk_native import Transport,SUB
 
 native=m.native_universal_mfa
+
 TENANT='/tenants/'+Transport.tenant
+
+def shifted(snap, days):
+ # The policy must be current at collection time, whenever the suite runs.
+ created=datetime.fromisoformat(snap['created_at'].replace('Z','+00:00'))
+ return (created+timedelta(days=days)).isoformat().replace('+00:00','Z')
 
 def fixture(cid=m.USERS, mode='complete', strength=None):
  rule={'id':'ca-1','state':'enabled','conditions':{'users':{'includeUsers':['All'],'excludeUsers':[],
@@ -43,7 +50,7 @@ def fixture(cid=m.USERS, mode='complete', strength=None):
  snap=azure.collect({'scopes':[SUB],'options':{'retries':0}},['conditional_access_policy','directory_user','directory_security_defaults']+(['authentication_strength'] if strength is not None else []),transport=api)
  idx=_index(snap,resources(snap));idx['context']={'provider':'azure','scope':TENANT,'created_at':snap['created_at'],
   'metadata':{**snap['metadata'],'compliance_policy':{'sw13':{'status':'collected','scope':TENANT,'authorized_by':'security-owner','document_id':'policy',
-   'observed_at':'2026-10-01T00:00:00Z','expires_at':'2026-11-01T00:00:00Z','checks':{cid.replace('.','|'):{
+   'observed_at':shifted(snap,-30),'expires_at':shifted(snap,30),'checks':{cid.replace('.','|'):{
     'userScope':'administrative' if cid==m.ADMIN else 'all','designatedGroups':['group'],'designatedRoles':[],
     'requiredApplications':['app-1'],'requiredClientAppTypes':['browser']}}}}}}
  idx=copy.deepcopy(idx)
