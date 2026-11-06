@@ -371,6 +371,8 @@ def test_pinned_codex_cli_and_chack_use_only_private_relay(tmp_path,monkeypatch,
     report={'provider':'aws','findings':[],'graphs':{'network':{'nodes':[{'id':'vpc-1','type':'vpc'}],'edges':[]}}}
     network.build(root,network.prepare(report,inventory,{}),[],private_json)
     (root/'credentials.json').write_text('{"entries":[]}')
+    # Project docs in the working directory must never reach the model.
+    (root/'AGENTS.md').write_text('PLANTED_PROJECT_DOC_MARKER\n')
     authentication = {'access_token': model_relay.placeholder('account')}
     if provider:
         authentication.update(provider=provider, model='gpt-5.3-codex', thinking='high')
@@ -384,6 +386,7 @@ def test_pinned_codex_cli_and_chack_use_only_private_relay(tmp_path,monkeypatch,
         assert process.returncode==0,process.stderr[-2000:]
         assert json.loads((root/'result.json').read_text())==expected
         assert ('POST',prefix+'/responses') in routes
+        assert requests and all('PLANTED_PROJECT_DOC_MARKER' not in json.dumps(r) for r in requests)
         if provider:
             assert requests[-1]['model'] == 'gpt-5.3-codex'
             assert requests[-1]['reasoning']['effort'] == 'high'

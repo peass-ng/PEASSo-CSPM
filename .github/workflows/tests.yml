@@ -120,6 +120,7 @@ jobs:
       - name: Install the shipped AI CLIs for the local relay compatibility tests
         run: |
           npm install --global @openai/codex@0.147.0 @anthropic-ai/claude-code@2.1.304
+          npm i -g opencode-ai@1.19.5
           echo "PEASO_TEST_CODEX_BIN=$(command -v codex)" >> "$GITHUB_ENV"
           echo "PEASO_TEST_CLAUDE_BIN=$(command -v claude)" >> "$GITHUB_ENV"
       - name: Install Terraform (compiles the hosted workflow definition in tests)

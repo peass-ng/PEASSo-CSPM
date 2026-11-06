@@ -13,6 +13,11 @@ RUN npm run build
 
 FROM node:22-bookworm-slim AS codex-runtime
 RUN npm install --global @openai/codex@0.147.0 @anthropic-ai/claude-code@2.1.304
+# opencode-ai's postinstall copies the native binary into bin/opencode.exe: force
+# scripts on, then drop the ~200 MB per-platform packages it was copied from.
+RUN npm install --global --ignore-scripts=false opencode-ai@1.19.5 \
+    && rm -rf /usr/local/lib/node_modules/opencode-ai/node_modules \
+    && opencode --version
 
 FROM python:3.12-slim-bookworm AS runtime
 ARG AWS_CLI_VERSION=2.38.0
@@ -33,6 +38,7 @@ COPY --from=codex-runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=codex-runtime /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
 RUN ln -s /usr/local/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex
 RUN ln -s /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe /usr/local/bin/claude
+RUN ln -s /usr/local/lib/node_modules/opencode-ai/bin/opencode.exe /usr/local/bin/opencode && opencode --version
 RUN pip install --no-cache-dir --constraint /app/infra/aws/sdk-constraints.txt ".[ai,hosted]" && groupadd -g 10001 peaso && useradd -u 10001 -g 10001 --no-create-home peaso
 USER 10001:10001
 RUN python scripts/peaso_test_resources/verify_runtime_bundle.py \
