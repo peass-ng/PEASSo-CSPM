@@ -108,6 +108,44 @@ def claude_thinking_effort(
     return resolved
 
 
+OPENCODE_SDK_OPENAI = "@ai-sdk/openai"
+OPENCODE_SDK_OPENAI_COMPATIBLE = "@ai-sdk/openai-compatible"
+OPENCODE_SDK_ANTHROPIC = "@ai-sdk/anthropic"
+OPENCODE_SDK_OPENROUTER = "@openrouter/ai-sdk-provider"
+
+# OpenRouter's ``reasoning.effort`` stops at ``xhigh``.
+_OPENROUTER_EFFORT_CAP = {"max": "xhigh"}
+
+
+def opencode_thinking_effort(value: Any, sdk: str) -> dict[str, Any]:
+    """Model ``options`` that carry the effort through opencode's provider SDK.
+
+    opencode passes a model's ``options`` to the AI SDK provider named by the
+    provider's ``npm`` package, so the effort has to be spelled the way that
+    package expects:
+
+    * ``@ai-sdk/openai`` (Responses API) and ``@ai-sdk/openai-compatible``
+      (Chat Completions) take ``reasoningEffort`` and forward every level
+      unchanged, as the Codex and OpenAI backends do.
+    * ``@ai-sdk/anthropic`` takes adaptive thinking plus ``effort``, whose
+      levels are low..max; ``none`` turns thinking off and ``minimal`` becomes
+      ``low``.
+    * ``@openrouter/ai-sdk-provider`` takes ``reasoning.effort``, which tops
+      out at ``xhigh``.
+    """
+    effort = normalize_thinking_effort(value)
+    if sdk == OPENCODE_SDK_ANTHROPIC:
+        if effort == "none":
+            return {"thinking": {"type": "disabled"}}
+        return {
+            "thinking": {"type": "adaptive"},
+            "effort": "low" if effort == "minimal" else effort,
+        }
+    if sdk == OPENCODE_SDK_OPENROUTER:
+        return {"reasoning": {"effort": _OPENROUTER_EFFORT_CAP.get(effort, effort)}}
+    return {"reasoningEffort": effort}
+
+
 def _gemini_model_name(model_name: Any) -> str:
     return str(model_name or "").strip().lower().rsplit("/", 1)[-1]
 
