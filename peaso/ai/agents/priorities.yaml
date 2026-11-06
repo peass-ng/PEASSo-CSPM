@@ -114,6 +114,7 @@ agent:
   output_schema_file: ../recommendations.schema.json
   output_schema_strict: true
 tools:
+  native_web_search_enabled: false
   exec_enabled: true
   exec_timeout_seconds: 60
   exec_max_output_chars: 16000
