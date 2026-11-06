@@ -1,5 +1,5 @@
 Upstream chack-agent declares the MIT license in pyproject.toml and installed
-package metadata at commit b16c99558fbed3f818eda20342a8e310ea30b366. That tree
+package metadata at commit df5c50f4e558acef9a513d850f2fc7c839d49ac3. That tree
 contains no standalone LICENSE file or copied copyright notice. Copyright
 remains with the original authors; no new copyright holder/year is asserted.
 

@@ -1,5 +1,6 @@
 """ARM-shaped collect_live -> frozen engine; no cloud calls or active probes."""
 import copy,importlib.util,json,sys
+from datetime import datetime,timedelta,timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 import pytest
@@ -8,7 +9,9 @@ from tests.archived_check_contract import evaluate_snapshot
 CID='azure.other.function_invoke_rate_limit'
 SUB='/subscriptions/11111111-1111-1111-1111-111111111111';ROOT=SUB+'/resourceGroups/rg/providers/'
 SITE=ROOT+'Microsoft.Web/sites/fixture';SERVICE=ROOT+'Microsoft.ApiManagement/service/gateway';API=SERVICE+'/apis/example';OP=API+'/operations/invoke';FUNCTION=SITE+'/functions/invoke'
-POLICY={'status':'collected','scope':SUB,'observationStart':'2026-10-01T00:00:00Z','observationEnd':'2026-11-01T00:00:00Z','maxCalls':2,'maxRenewalPeriodSeconds':60,'stableCounterKeys':['caller']}
+_NOW=datetime.now(timezone.utc).replace(microsecond=0)
+WINDOW_START,WINDOW_END=((_NOW+timedelta(days=d)).strftime('%Y-%m-%dT%H:%M:%SZ') for d in (-15,15))
+POLICY={'status':'collected','scope':SUB,'observationStart':WINDOW_START,'observationEnd':WINDOW_END,'maxCalls':2,'maxRenewalPeriodSeconds':60,'stableCounterKeys':['caller']}
 XML='<policies><inbound/><backend><forward-request/></backend><outbound/><on-error/></policies>'
 class Denied(Exception):status_code=403
 
