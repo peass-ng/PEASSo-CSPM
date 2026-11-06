@@ -28,7 +28,9 @@ def main():
             '--config', 'model_providers.cspm-relay.wire_api="responses"',
             '--config', 'model_providers.cspm-relay.requires_openai_auth=' + ('false' if api_key else 'true'),
             '--config', 'model_providers.cspm-relay.supports_websockets=false',
-            '--config', 'chatgpt_base_url="' + base + '"']
+            '--config', 'chatgpt_base_url="' + base + '"',
+            # The working directory holds scanned-account data: never load its AGENTS.md.
+            '--config', 'project_doc_max_bytes=0']
     if api_key:
         args += ['--config', 'model_providers.cspm-relay.env_key="OPENAI_API_KEY"']
     os.execv(binary, args)

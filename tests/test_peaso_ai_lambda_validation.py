@@ -7,20 +7,27 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / 'peaso/ai/_vendor/chack'
-PIN = '53ab40167c4df367e2e7ca980f1bf3ac8c0b3375'
 
 
-def test_vendored_helpers_and_data_match_exact_worker_pin():
+def test_vendored_helpers_match_their_recorded_upstream_bytes():
+    import hashlib
+    import tomllib
     manifest = json.loads((VENDOR/'provenance.json').read_text())
-    assert manifest['commit'] == PIN and PIN in (ROOT/'pyproject.toml').read_text()
+    # The worker always installs chack-agent master; the vendored copy is re-synced from it.
+    extras = tomllib.loads((ROOT/'pyproject.toml').read_text())['project']['optional-dependencies']['ai']
+    assert [dep for dep in extras if dep.startswith('chack-agent')] == [
+        'chack-agent @ git+https://github.com/carlospolop/chack-agent.git@master']
     assert manifest['license']['declared'] == 'MIT'
-    for name in manifest['files']:
-        assert (VENDOR/name).is_file()
+    for name, entry in manifest['files'].items():
+        data = (VENDOR/name).read_bytes()
+        assert (hashlib.sha256(data).hexdigest(), len(data)) == (entry['sha256'], entry['bytes'])
+    notice = (VENDOR/'LICENSE').read_bytes()
+    assert hashlib.sha256(notice).hexdigest() == manifest['license']['notice_sha256']
+    assert manifest['commit'].encode() in notice
     from peaso.ai._vendor.chack import thinking_effort
     assert thinking_effort._PUBLISHED_EFFORTS_FILE == str(VENDOR/'config/thinking_effort.yaml')
     assert thinking_effort.published_thinking_efforts()
     # All non-Python vendor assets must also enter installed wheels.
-    import tomllib
     package_data = tomllib.loads((ROOT/'pyproject.toml').read_text())['tool']['setuptools']['package-data']
     assert set(package_data['peaso.ai._vendor.chack']) >= {'config/thinking_effort.yaml', 'LICENSE', 'provenance.json'}
 
