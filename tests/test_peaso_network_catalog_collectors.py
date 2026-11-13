@@ -608,10 +608,9 @@ def test_new_aws_sdk_operations_and_iam_permissions_are_reviewed():
 
 def test_generated_customer_role_contains_network_metadata_reads_within_iam_limits():
     from pathlib import Path
-    from scripts.peaso_deploy_customer_policy import build_policy, split_policy, policy_size
+    from scripts.peaso_deploy_customer_policy import build_policy, split_policy, policy_size, read_documents
     template = json.loads((Path(__file__).resolve().parents[1] / "infra/aws/customer-role.json").read_text())
-    documents = [resource["Properties"]["PolicyDocument"] for name, resource in sorted(template["Resources"].items())
-                 if resource["Type"] == "AWS::IAM::ManagedPolicy"]
+    documents = read_documents(template)
     assert documents == split_policy(build_policy())
     assert all(policy_size(document) <= 6144 for document in documents)
     assert len(documents) <= 10

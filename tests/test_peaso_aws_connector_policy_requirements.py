@@ -12,7 +12,7 @@ from test_peaso_connector_access_check import IdentityStub
 
 ACCOUNT = '555566667777'
 PREFIX = 'arn:aws:iam::aws:policy/'
-POLICIES = ['ReadOnlyAccess', 'SecurityAudit']
+POLICIES = ['ReadOnlyAccess', 'SecurityAudit', 'IAMAccessAnalyzerFullAccess']
 
 
 def test_hosted_role_attaches_recommended_managed_policies_within_quota():
@@ -20,11 +20,10 @@ def test_hosted_role_attaches_recommended_managed_policies_within_quota():
 
     template = json.loads((Path(__file__).parents[1] / 'infra/aws/customer-role.json').read_text())
     role = template['Resources']['AuditRole']['Properties']
-    # The hosted role attaches the read-only baseline policies. Temporary
-    # Access Analyzer create/delete is granted by a scoped inline policy, so
-    # the broad IAMAccessAnalyzerFullAccess policy is not attached.
-    assert role['ManagedPolicyArns'] == [PREFIX + 'ReadOnlyAccess', PREFIX + 'SecurityAudit']
-    assert PREFIX + 'IAMAccessAnalyzerFullAccess' not in role['ManagedPolicyArns']
+    # The hosted role attaches the read-only baseline policies plus the AWS
+    # managed policy that lets scans create a temporary Access Analyzer.
+    assert role['ManagedPolicyArns'] == [PREFIX + 'ReadOnlyAccess', PREFIX + 'SecurityAudit',
+                                         PREFIX + 'IAMAccessAnalyzerFullAccess']
     custom = sum(resource['Type'] == 'AWS::IAM::ManagedPolicy'
                  for resource in template['Resources'].values())
     assert custom + len(role['ManagedPolicyArns']) <= IAM_MANAGED_POLICIES_PER_ROLE
@@ -69,7 +68,7 @@ def inspect(iam, resource='user/path/scan', service='iam', partition='aws'):
     return issues
 
 
-def test_readonly_alone_warns_only_for_missing_security_audit_policy(monkeypatch):
+def test_readonly_alone_warns_only_for_missing_recommended_policies(monkeypatch):
     iam = IAM(['ReadOnlyAccess'])
     class Session:
         def client(self, service, **kwargs):
@@ -86,14 +85,14 @@ def test_readonly_alone_warns_only_for_missing_security_audit_policy(monkeypatch
     assert result['requires_warning_acknowledgement'] is True
     assert result['scope_summary']['warning'] == 1
     assert result['scope_results'][0]['status'] == 'warning'
-    assert len(result['issues']) == 1
+    assert len(result['issues']) == 2
     assert all(any(PREFIX + name in issue['message'] for issue in result['issues']) for name in POLICIES[1:])
 
 
 @pytest.mark.parametrize('names,critical,advisories', [
-    ([], True, 2), (['SecurityAudit'], False, 1),
-    (['ReadOnlyAccess'], False, 1), (POLICIES, False, 0),
-    (['AdministratorAccess'], True, 2),
+    ([], True, 3), (['SecurityAudit', 'IAMAccessAnalyzerFullAccess'], False, 1),
+    (['ReadOnlyAccess', 'IAMAccessAnalyzerFullAccess'], False, 1), (['ReadOnlyAccess', 'SecurityAudit'], False, 1),
+    (POLICIES, False, 0), (['AdministratorAccess'], True, 3),
 ])
 def test_required_and_recommended_policy_classification(names, critical, advisories):
     issues = inspect(IAM(names))

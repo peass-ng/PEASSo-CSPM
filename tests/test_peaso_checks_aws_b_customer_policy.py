@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import pytest
 import scripts.peaso_deploy_customer_policy as policy_module
-from scripts.peaso_deploy_customer_policy import (
+from scripts.peaso_deploy_customer_policy import (read_documents, 
     ACTION_ALIASES, VERIFIED_ACTIONS,
     UNGRANTED_CREDENTIAL_OPERATIONS,
     build_policy, iam_action, policy_size, split_policy, IAM_MANAGED_POLICY_LIMIT, IAM_MANAGED_POLICIES_PER_ROLE,
@@ -270,17 +270,10 @@ def test_existing_inline_policies_are_preserved_beside_managed_policies(tmp_path
     assert "CspmConfigurationReadOnly9" not in written["Resources"]
     signed = json.loads((root / "infra/aws/customer-role.json").read_text())["Resources"]
     expected = signed | {"AuditRole": written["Resources"]["AuditRole"]}
-    for number, document in enumerate(split_policy(build_policy()), 1):
-        expected[f"CspmConfigurationReadOnly{number}"] = {
-            **signed[f"CspmConfigurationReadOnly{number}"],
-            "Properties": {**signed[f"CspmConfigurationReadOnly{number}"]["Properties"],
-                           "PolicyDocument": document},
-        }
     assert written["Resources"]["AuditRole"] == expected["AuditRole"]
     assert {name for name in written["Resources"] if name.startswith("CspmConfigurationReadOnly")} == {
-        f"CspmConfigurationReadOnly{number}" for number in range(1, len(split_policy(build_policy())) + 1)}
-    for number, document in enumerate(split_policy(build_policy()), 1):
-        assert written["Resources"][f"CspmConfigurationReadOnly{number}"]["Properties"]["PolicyDocument"] == document
+        name for name in signed if name.startswith("CspmConfigurationReadOnly")}
+    assert read_documents(written) == split_policy(build_policy())
     assert {key: value for key, value in written["Resources"].items()
             if not key.startswith("CspmConfigurationReadOnly")} == {
         key: value for key, value in expected.items() if not key.startswith("CspmConfigurationReadOnly")}

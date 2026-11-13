@@ -31,8 +31,8 @@ def test_full_exposure_role_fits_default_attachment_quota(tmp_path):
     resources = json.loads(target.read_text())["Resources"]
     generated = [name for name in resources if name.startswith(policy.MANAGED_POLICY_PREFIX)]
     managed = resources["AuditRole"]["Properties"]["ManagedPolicyArns"]
-    assert len(generated) == 8
     assert len(generated) + len(managed) == policy.IAM_MANAGED_POLICIES_PER_ROLE
-    assert "arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess" not in managed
+    assert "arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess" in managed
+    assert policy.read_documents(json.loads(target.read_text())) == policy.split_policy(policy.build_policy())
     assert all(policy.policy_size(resources[name]["Properties"]["PolicyDocument"])
                <= policy.IAM_MANAGED_POLICY_LIMIT for name in generated)

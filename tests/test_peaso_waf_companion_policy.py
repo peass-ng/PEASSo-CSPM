@@ -64,7 +64,7 @@ def test_refresh_is_idempotent_and_preserves_role_and_every_existing_resource(tm
  assert all(updated['Resources'][key]==value for key,value in original['Resources'].items()
             if not key.startswith('CspmConfigurationReadOnly'))
  assert updated['Parameters']==original['Parameters'] and updated['Outputs']==original['Outputs']
- documents=[r['Properties']['PolicyDocument'] for name,r in sorted(updated['Resources'].items()) if r['Type']=='AWS::IAM::ManagedPolicy']
+ documents=policy.read_documents(updated)
  assert documents==policy.split_policy(policy.build_policy())
  assert all(policy.policy_size(document)<=6144 for document in documents)
  # The role is delivered by S3 TemplateURL (quick-create, or `cloudformation deploy`

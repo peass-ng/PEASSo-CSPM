@@ -384,17 +384,9 @@ IAM_MANAGED_POLICY_LIMIT = 6144
 IAM_MANAGED_POLICIES_PER_ROLE = 10  # default IAM quota for attached managed policies
 MANAGED_POLICY_PREFIX = "CspmConfigurationReadOnly"
 # Scans create a temporary Access Analyzer only in a Region with no usable
-# analyzer, then delete it. Create/Delete are scoped to the scan's own
-# peaso-scan-* names; the service-linked role is created on first use only.
-ACCESS_ANALYZER_LIFECYCLE_POLICY_NAME = "CspmTemporaryAccessAnalyzer"
-ACCESS_ANALYZER_LIFECYCLE_POLICY = {"Version": "2012-10-17", "Statement": [
-    {"Sid": "ScanOwnedAccessAnalyzerLifecycle", "Effect": "Allow",
-     "Action": ["access-analyzer:CreateAnalyzer", "access-analyzer:DeleteAnalyzer"],
-     "Resource": {"Fn::Sub": "arn:${AWS::Partition}:access-analyzer:*:${AWS::AccountId}:analyzer/peaso-scan-*"}},
-    {"Sid": "AccessAnalyzerServiceLinkedRole", "Effect": "Allow", "Action": "iam:CreateServiceLinkedRole",
-     "Resource": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/access-analyzer.amazonaws.com/*"},
-     "Condition": {"StringEquals": {"iam:AWSServiceName": "access-analyzer.amazonaws.com"}}},
-]}
+# analyzer, then delete it. The AWS managed IAMAccessAnalyzerFullAccess policy
+# covers create/delete and the Access Analyzer service-linked role.
+ACCESS_ANALYZER_MANAGED_POLICY = "arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess"
 TEMPLATE_DESCRIPTION = ("Dedicated HackTricks CSPM inventory/configuration reads and IAM credential-report evidence "
                         "generation, with AWS managed read policies and a temporary Access Analyzer (created only "
                         "when none exists and deleted after the scan); no secret values.")
@@ -1227,6 +1219,17 @@ def split_policy(policy):
     return documents
 
 
+def read_documents(template):
+    """Generated read partitions in order: managed policies, then the inline overflow."""
+    resources = template["Resources"]
+    numbered = sorted((int(name[len(MANAGED_POLICY_PREFIX):]), resource["Properties"]["PolicyDocument"])
+                      for name, resource in resources.items()
+                      if name.startswith(MANAGED_POLICY_PREFIX) and name[len(MANAGED_POLICY_PREFIX):].isdigit())
+    overflow = [item["PolicyDocument"] for item in resources["AuditRole"]["Properties"].get("Policies", [])
+                if item.get("PolicyName") == MANAGED_POLICY_PREFIX + "Inline"]
+    return [document for _, document in numbered] + overflow
+
+
 def refresh(root: Path, *, read_actions=None, include_credential_report_generation=None):
     import sys
     sys.path.insert(0, str(root))
@@ -1244,36 +1247,25 @@ def refresh(root: Path, *, read_actions=None, include_credential_report_generati
         "Description": "Collector role ARN shown by the CSPM connector setup",
     }
     role["AssumeRolePolicyDocument"]["Statement"][0]["Principal"]["AWS"] = {"Ref": "CollectorRoleArn"}
-    # Remove the redundant broad Access Analyzer attachment before deciding
-    # whether an exact API Gateway statement must move inline. The complete
-    # collector reads must already be present in the reviewed custom policy.
-    analyzer_managed = "arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess"
-    if len(documents) + len(role.get("ManagedPolicyArns", [])) > IAM_MANAGED_POLICIES_PER_ROLE:
-        from peaso.collectors.aws import READ_ACTIONS
-        required = {iam_action(service, operation) for service, operation in READ_ACTIONS
-                    if service == "accessanalyzer"}
-        explicit = {action for document in documents for statement in document["Statement"]
-                    for action in ([statement["Action"]] if isinstance(statement["Action"], str)
-                                   else statement["Action"])}
-        if required <= explicit:
-            role["ManagedPolicyArns"] = [arn for arn in role.get("ManagedPolicyArns", [])
-                                         if arn != analyzer_managed]
+    managed = [arn for arn in role.get("ManagedPolicyArns", []) if arn != ACCESS_ANALYZER_MANAGED_POLICY]
+    role["ManagedPolicyArns"] = managed + [ACCESS_ANALYZER_MANAGED_POLICY]
     # Keep the exact scoped API Gateway statement inline if one additional
     # ordinary read partition would exceed the role's attachment quota.
     gateway_inline_name = "CspmApiGatewayConfigurationRead"
+    overflow_inline_name = MANAGED_POLICY_PREFIX + "Inline"
     inline = [item for item in role.get("Policies", []) if item.get("PolicyName") not in
-              (MANAGED_POLICY_PREFIX, gateway_inline_name, ACCESS_ANALYZER_LIFECYCLE_POLICY_NAME)]
-    inline.append({"PolicyName": ACCESS_ANALYZER_LIFECYCLE_POLICY_NAME,
-                   "PolicyDocument": json.loads(json.dumps(ACCESS_ANALYZER_LIFECYCLE_POLICY))})
+              (MANAGED_POLICY_PREFIX, gateway_inline_name, overflow_inline_name, "CspmTemporaryAccessAnalyzer")]
     template["Description"] = TEMPLATE_DESCRIPTION
     if len(documents) + len(role.get("ManagedPolicyArns", [])) > IAM_MANAGED_POLICIES_PER_ROLE:
         candidate = documents[-2] if len(documents) >= 2 else None
         statements = candidate.get("Statement") if isinstance(candidate, dict) else None
-        if (not isinstance(statements, list) or len(statements) != 1 or
-                statements[0].get("Sid") != "ApiGatewayConfigurationRead"):
-            raise ValueError("Customer role exceeds the attached managed-policy quota")
-        inline.append({"PolicyName": gateway_inline_name, "PolicyDocument": candidate})
-        documents.pop(-2)
+        if (isinstance(statements, list) and len(statements) == 1 and
+                statements[0].get("Sid") == "ApiGatewayConfigurationRead"):
+            inline.append({"PolicyName": gateway_inline_name, "PolicyDocument": candidate})
+            documents.pop(-2)
+        else:
+            # One read partition moves inline so the AWS managed policies fit.
+            inline.append({"PolicyName": overflow_inline_name, "PolicyDocument": documents.pop()})
     aggregate = sum(policy_size(item["PolicyDocument"]) for item in inline)
     if aggregate > IAM_INLINE_ROLE_LIMIT:
         raise ValueError("Customer role aggregate inline policies exceed 10240-character limit")

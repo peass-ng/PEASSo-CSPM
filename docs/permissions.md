@@ -20,14 +20,12 @@ Use the CloudFormation template `infra/aws/customer-role.json`. It creates one I
   (`CollectorRoleArn` parameter) and only with the matching `sts:ExternalId` (`ExternalId`
   parameter, which must start with `hacktricks-cspm-` and be at least 32 characters).
 - A maximum session length of one hour.
-- The AWS managed policies `ReadOnlyAccess` and `SecurityAudit`.
-- Eight customer managed policies (`CspmConfigurationReadOnly1` to `8`) that add the extra
-  `List*`, `Describe*`, `Get*`, `Batch*`, `View*`, `Search*` and `Lookup*` actions the
-  collectors use for services the managed policies miss.
-- An inline policy `CspmTemporaryAccessAnalyzer` that allows `access-analyzer:CreateAnalyzer`
-  and `access-analyzer:DeleteAnalyzer` only on analyzers named `peaso-scan-*`, and
-  `iam:CreateServiceLinkedRole` only when `iam:AWSServiceName` is
-  `access-analyzer.amazonaws.com`.
+- The AWS managed policies `ReadOnlyAccess`, `SecurityAudit` and `IAMAccessAnalyzerFullAccess`
+  (the last one lets the scan create a temporary Access Analyzer where none exists).
+- Seven customer managed policies (`CspmConfigurationReadOnly1` to `7`) and one inline policy
+  (`CspmConfigurationReadOnlyInline`) that add the extra `List*`, `Describe*`, `Get*`, `Batch*`,
+  `View*`, `Search*` and `Lookup*` actions the collectors use for services the managed policies
+  miss. One partition is inline because IAM allows 10 attached managed policies per role.
 
 A few actions in those policies are not strictly reads but are needed to produce report data:
 `iam:GenerateCredentialReport`, `iam:GenerateServiceLastAccessedDetails` and
@@ -70,18 +68,8 @@ scan created. Pre-existing analyzers are never changed or deleted. AWS creates t
 Analyzer service-linked role on first use. Unused-access analyzers are billed by AWS while they
 exist.
 
-Grant these actions for this (the hosted role template already includes them):
-
-```json
-{"Version": "2012-10-17", "Statement": [
-  {"Sid": "ScanOwnedAccessAnalyzerLifecycle", "Effect": "Allow",
-   "Action": ["access-analyzer:CreateAnalyzer", "access-analyzer:DeleteAnalyzer"],
-   "Resource": "arn:aws:access-analyzer:*:*:analyzer/peaso-scan-*"},
-  {"Sid": "AccessAnalyzerServiceLinkedRole", "Effect": "Allow", "Action": "iam:CreateServiceLinkedRole",
-   "Resource": "arn:aws:iam::*:role/aws-service-role/access-analyzer.amazonaws.com/*",
-   "Condition": {"StringEquals": {"iam:AWSServiceName": "access-analyzer.amazonaws.com"}}}
-]}
-```
+Attach the AWS managed policy `arn:aws:iam::aws:policy/IAMAccessAnalyzerFullAccess` for this
+(the hosted role template already includes it).
 
 If creation is denied, the scan still reads any existing analyzers and reports the affected
 Access Analyzer checks as `UNKNOWN` with the reason `access_analyzer_create_denied`; the scan
