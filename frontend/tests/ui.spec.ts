@@ -81,6 +81,7 @@ test("every authentication option explains access and permission setup", async (
   await accessKeyGuide.locator("summary").first().click();
   await expect(accessKeyGuide.locator(".auth-guide-step").first()).toContainText("aws iam create-access-key");
   await expect(accessKeyGuide.locator(".auth-guide-step").last()).toContainText("aws iam attach-user-policy");
+  await expect(accessKeyGuide.locator(".auth-guide-step").last()).toContainText("access-analyzer:CreateAnalyzer");
   await expect(accessKeyGuide).not.toContainText("Copy and run");
   await page.getByLabel("Authentication", { exact: true }).selectOption("assume_role");
   const awsGuide = page.locator(".auth-setup-guide");

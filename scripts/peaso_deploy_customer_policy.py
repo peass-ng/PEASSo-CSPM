@@ -383,6 +383,21 @@ IAM_INLINE_ROLE_LIMIT = 10240
 IAM_MANAGED_POLICY_LIMIT = 6144
 IAM_MANAGED_POLICIES_PER_ROLE = 10  # default IAM quota for attached managed policies
 MANAGED_POLICY_PREFIX = "CspmConfigurationReadOnly"
+# Scans create a temporary Access Analyzer only in a Region with no usable
+# analyzer, then delete it. Create/Delete are scoped to the scan's own
+# peaso-scan-* names; the service-linked role is created on first use only.
+ACCESS_ANALYZER_LIFECYCLE_POLICY_NAME = "CspmTemporaryAccessAnalyzer"
+ACCESS_ANALYZER_LIFECYCLE_POLICY = {"Version": "2012-10-17", "Statement": [
+    {"Sid": "ScanOwnedAccessAnalyzerLifecycle", "Effect": "Allow",
+     "Action": ["access-analyzer:CreateAnalyzer", "access-analyzer:DeleteAnalyzer"],
+     "Resource": {"Fn::Sub": "arn:${AWS::Partition}:access-analyzer:*:${AWS::AccountId}:analyzer/peaso-scan-*"}},
+    {"Sid": "AccessAnalyzerServiceLinkedRole", "Effect": "Allow", "Action": "iam:CreateServiceLinkedRole",
+     "Resource": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/aws-service-role/access-analyzer.amazonaws.com/*"},
+     "Condition": {"StringEquals": {"iam:AWSServiceName": "access-analyzer.amazonaws.com"}}},
+]}
+TEMPLATE_DESCRIPTION = ("Dedicated HackTricks CSPM inventory/configuration reads and IAM credential-report evidence "
+                        "generation, with AWS managed read policies and a temporary Access Analyzer (created only "
+                        "when none exists and deleted after the scan); no secret values.")
 REVIEWED_ROLE_SHA256 = "0ce4fa48e6c0e625520303644e4f7c465772a4dec90d0fa8f46b07726a2f7e5a"
 REVIEWED_ROLE_PATH = Path(__file__).resolve().parents[1] / "infra/aws" / "customer-policy-allocation.json"
 EVIDENCE_OPERATION = ("iam", "generate_credential_report")
@@ -1247,7 +1262,10 @@ def refresh(root: Path, *, read_actions=None, include_credential_report_generati
     # ordinary read partition would exceed the role's attachment quota.
     gateway_inline_name = "CspmApiGatewayConfigurationRead"
     inline = [item for item in role.get("Policies", []) if item.get("PolicyName") not in
-              (MANAGED_POLICY_PREFIX, gateway_inline_name)]
+              (MANAGED_POLICY_PREFIX, gateway_inline_name, ACCESS_ANALYZER_LIFECYCLE_POLICY_NAME)]
+    inline.append({"PolicyName": ACCESS_ANALYZER_LIFECYCLE_POLICY_NAME,
+                   "PolicyDocument": json.loads(json.dumps(ACCESS_ANALYZER_LIFECYCLE_POLICY))})
+    template["Description"] = TEMPLATE_DESCRIPTION
     if len(documents) + len(role.get("ManagedPolicyArns", [])) > IAM_MANAGED_POLICIES_PER_ROLE:
         candidate = documents[-2] if len(documents) >= 2 else None
         statements = candidate.get("Statement") if isinstance(candidate, dict) else None

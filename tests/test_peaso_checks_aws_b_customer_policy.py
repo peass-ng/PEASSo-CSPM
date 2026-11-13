@@ -262,7 +262,11 @@ def test_existing_inline_policies_are_preserved_beside_managed_policies(tmp_path
     target.write_text(json.dumps(original))
     refresh(tmp_path)
     written = json.loads(target.read_text())
-    assert written["Resources"]["AuditRole"]["Properties"]["Policies"] == [existing]
+    policies = written["Resources"]["AuditRole"]["Properties"]["Policies"]
+    assert policies[0] == existing
+    # The regenerated template keeps the published temporary-analyzer grant.
+    published = json.loads((root / "infra/aws/customer-role.json").read_text())
+    assert policies[1:] == published["Resources"]["AuditRole"]["Properties"]["Policies"]
     assert "CspmConfigurationReadOnly9" not in written["Resources"]
     signed = json.loads((root / "infra/aws/customer-role.json").read_text())["Resources"]
     expected = signed | {"AuditRole": written["Resources"]["AuditRole"]}

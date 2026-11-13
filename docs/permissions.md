@@ -1,7 +1,8 @@
 # Permissions
 
-PEASO CSPM only needs **read** access. It never needs permission to create, change or delete
-cloud resources, and it never needs APIs that return secret values. This page lists the access
+PEASO CSPM needs **read** access, plus one narrow AWS exception: it may create a temporary IAM
+Access Analyzer and delete it again (see [Access Analyzer](#access-analyzer)). It never changes
+or deletes your own resources, and it never needs APIs that return secret values. This page lists the access
 each provider needs and the authentication methods each mode supports.
 
 When access is missing, the affected checks report `DENIED` or `UNKNOWN`. They never turn into
@@ -23,6 +24,10 @@ Use the CloudFormation template `infra/aws/customer-role.json`. It creates one I
 - Eight customer managed policies (`CspmConfigurationReadOnly1` to `8`) that add the extra
   `List*`, `Describe*`, `Get*`, `Batch*`, `View*`, `Search*` and `Lookup*` actions the
   collectors use for services the managed policies miss.
+- An inline policy `CspmTemporaryAccessAnalyzer` that allows `access-analyzer:CreateAnalyzer`
+  and `access-analyzer:DeleteAnalyzer` only on analyzers named `peaso-scan-*`, and
+  `iam:CreateServiceLinkedRole` only when `iam:AWSServiceName` is
+  `access-analyzer.amazonaws.com`.
 
 A few actions in those policies are not strictly reads but are needed to produce report data:
 `iam:GenerateCredentialReport`, `iam:GenerateServiceLastAccessedDetails` and
@@ -53,9 +58,34 @@ auth object or an `organization_role_name` option.
 
 ### Access Analyzer
 
-The AWS collector does not create or call IAM Access Analyzer analyzers. Access Analyzer data
-is only used when it is already present in saved scan results. You do not need
-`IAMAccessAnalyzerFullAccess` or any other Access Analyzer write permission.
+For each scanned account and Region the collector lists the existing IAM Access Analyzer
+analyzers and reads their findings (`ListAnalyzers`, `GetAnalyzer`, `ListFindings`,
+`GetFinding`, included in `ReadOnlyAccess`).
+
+When a Region has no usable analyzer, the scan creates a temporary one named `peaso-scan-*` (an
+external-access analyzer, and one unused-access analyzer per account and partition when none
+exists), waits for it to become active, reads its findings and then deletes it. Deletion runs
+when the scan succeeds, fails, is cancelled or hits its deadline, and only targets analyzers the
+scan created. Pre-existing analyzers are never changed or deleted. AWS creates the Access
+Analyzer service-linked role on first use. Unused-access analyzers are billed by AWS while they
+exist.
+
+Grant these actions for this (the hosted role template already includes them):
+
+```json
+{"Version": "2012-10-17", "Statement": [
+  {"Sid": "ScanOwnedAccessAnalyzerLifecycle", "Effect": "Allow",
+   "Action": ["access-analyzer:CreateAnalyzer", "access-analyzer:DeleteAnalyzer"],
+   "Resource": "arn:aws:access-analyzer:*:*:analyzer/peaso-scan-*"},
+  {"Sid": "AccessAnalyzerServiceLinkedRole", "Effect": "Allow", "Action": "iam:CreateServiceLinkedRole",
+   "Resource": "arn:aws:iam::*:role/aws-service-role/access-analyzer.amazonaws.com/*",
+   "Condition": {"StringEquals": {"iam:AWSServiceName": "access-analyzer.amazonaws.com"}}}
+]}
+```
+
+If creation is denied, the scan still reads any existing analyzers and reports the affected
+Access Analyzer checks as `UNKNOWN` with the reason `access_analyzer_create_denied`; the scan
+itself does not fail.
 
 ## Google Cloud
 
@@ -157,10 +187,11 @@ it, the finding says the app settings could not be read and names the missing ac
 
 ## What is never needed
 
-- Any write, create, update, delete, tag or attach permission.
+- Any write, create, update, delete, tag or attach permission, except the scoped temporary
+  Access Analyzer grants above.
 - Secret value APIs (for example Secrets Manager `GetSecretValue`, Key Vault secret get, Secret
   Manager `versions.access`) for the core scan.
-- Permission to create Access Analyzer analyzers or any other cloud-side scanning resource.
+- Permission to create any other cloud-side scanning resource.
 
 ## Best practices
 

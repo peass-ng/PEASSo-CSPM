@@ -16,13 +16,26 @@ export const awsPolicyArns = [
   "arn:aws:iam::aws:policy/SecurityAudit",
 ];
 const awsPolicyList = awsPolicyArns.join(" ");
-const awsPermissions = "ReadOnlyAccess or SecurityAudit, or verified equivalent baseline inventory permissions, are required. We recommend both read policies for broad inventory and security configuration coverage. Optional exact secret-content checks need separate per-surface reads; see docs/permissions.md. Access is read-only: the scan never creates, changes or deletes IAM Access Analyzer analyzers, so no Access Analyzer write permission such as IAMAccessAnalyzerFullAccess is needed.";
-export const awsHostedPermissions = "Deploy the customer role template from Onboarding in each target account. It creates the role, External ID trust, collector-specific read policies, ReadOnlyAccess and SecurityAudit. All grants are read-only; the scan never creates or deletes IAM Access Analyzer analyzers. Its metadata grants do not cover every optional exact secret-content check; see docs/permissions.md and preserve any separately deployed read grants when updating the role.";
+// Lets the scan create a temporary IAM Access Analyzer only where none exists,
+// and delete only that scan-owned (peaso-scan-*) analyzer afterwards.
+export const awsAccessAnalyzerPolicy = JSON.stringify({ Version: "2012-10-17", Statement: [
+  { Sid: "ScanOwnedAccessAnalyzerLifecycle", Effect: "Allow",
+    Action: ["access-analyzer:CreateAnalyzer", "access-analyzer:DeleteAnalyzer"],
+    Resource: "arn:aws:access-analyzer:*:*:analyzer/peaso-scan-*" },
+  { Sid: "AccessAnalyzerServiceLinkedRole", Effect: "Allow", Action: "iam:CreateServiceLinkedRole",
+    Resource: "arn:aws:iam::*:role/aws-service-role/access-analyzer.amazonaws.com/*",
+    Condition: { StringEquals: { "iam:AWSServiceName": "access-analyzer.amazonaws.com" } } },
+] });
+const awsAccessAnalyzerPolicyFile = "printf '%s' '" + awsAccessAnalyzerPolicy + "' > hacktricks-cspm-access-analyzer.json";
+const awsPermissions = "ReadOnlyAccess or SecurityAudit, or verified equivalent baseline inventory permissions, are required. We recommend both read policies for broad inventory and security configuration coverage. Optional exact secret-content checks need separate per-surface reads; see docs/permissions.md. Also add the small HackTricksCspmAccessAnalyzer inline policy shown below: in each Region with no usable IAM Access Analyzer the scan creates a temporary analyzer (named peaso-scan-*), reads its findings and deletes it afterwards. It never changes or deletes analyzers you already have. Without this policy, existing analyzers are still read and Regions without one report the Access Analyzer checks as UNKNOWN.";
+export const awsHostedPermissions = "Deploy the customer role template from Onboarding in each target account. It creates the role, External ID trust, collector-specific read policies, ReadOnlyAccess, SecurityAudit, and a scoped Access Analyzer policy. The scan creates a temporary IAM Access Analyzer (named peaso-scan-*) only in a Region where none exists, and deletes it after reading its findings; existing analyzers are never changed. Its metadata grants do not cover every optional exact secret-content check; see docs/permissions.md and preserve any separately deployed read grants when updating the role.";
 const awsRoleGrant = { label: "AWS CLI: attach policies to role", value: [
   "ROLE_NAME='REPLACE_WITH_SCANNING_ROLE_NAME'",
   "for POLICY_ARN in " + awsPolicyList + "; do",
   '  aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn "$POLICY_ARN"',
   "done",
+  awsAccessAnalyzerPolicyFile,
+  'aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name HackTricksCspmAccessAnalyzer --policy-document file://hacktricks-cspm-access-analyzer.json',
 ].join("\n") };
 const awsCreateUser = { label: "AWS CLI: create scanning user and access key", value: [
   "USER_NAME='hacktricks-cspm-scan'",
@@ -34,6 +47,8 @@ const awsUserGrant = { label: "AWS CLI: attach policies to scanning user", value
   "for POLICY_ARN in " + awsPolicyList + "; do",
   '  aws iam attach-user-policy --user-name "$USER_NAME" --policy-arn "$POLICY_ARN"',
   "done",
+  awsAccessAnalyzerPolicyFile,
+  'aws iam put-user-policy --user-name "$USER_NAME" --policy-name HackTricksCspmAccessAnalyzer --policy-document file://hacktricks-cspm-access-analyzer.json',
 ].join("\n") };
 const awsSsoGrant = { label: "AWS CLI: attach policies to IAM Identity Center permission set", value: [
   "INSTANCE_ARN='REPLACE_WITH_SSO_INSTANCE_ARN'",
@@ -41,6 +56,8 @@ const awsSsoGrant = { label: "AWS CLI: attach policies to IAM Identity Center pe
   "for POLICY_ARN in " + awsPolicyList + "; do",
   '  aws sso-admin attach-managed-policy-to-permission-set --instance-arn "$INSTANCE_ARN" --permission-set-arn "$PERMISSION_SET_ARN" --managed-policy-arn "$POLICY_ARN"',
   "done",
+  awsAccessAnalyzerPolicyFile,
+  'aws sso-admin put-inline-policy-to-permission-set --instance-arn "$INSTANCE_ARN" --permission-set-arn "$PERMISSION_SET_ARN" --inline-policy file://hacktricks-cspm-access-analyzer.json',
   'aws sso-admin provision-permission-set --instance-arn "$INSTANCE_ARN" --permission-set-arn "$PERMISSION_SET_ARN" --target-type ALL_PROVISIONED_ACCOUNTS',
 ].join("\n") };
 const awsDefaultAccess = { label: "AWS CLI: verify the selected server identity", value: "aws sts get-caller-identity" };

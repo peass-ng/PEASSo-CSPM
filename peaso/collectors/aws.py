@@ -1,4 +1,8 @@
-"""AWS configuration inventory with no live Access Analyzer access."""
+"""AWS configuration inventory with scoped temporary Access Analyzer lifecycle.
+
+General requests remain read-only; scan-owned analyzers are created and cleaned
+up by a dedicated handler. The legacy scanner is never imported.
+"""
 from __future__ import annotations
 
 import copy
@@ -366,7 +370,8 @@ _ANALYZER_READ = threading.local()
 
 
 def _analyzer_read_only(operation):
-    """Access Analyzer is read only: list/get existing analyzers and findings."""
+    """Generic Access Analyzer requests only list/get analyzers and findings.
+    Scan-owned create/delete goes through AnalyzerLifecycle's own client."""
     from .aws_access_analyzer_lifecycle import READ_ONLY_OPERATIONS
     if operation not in READ_ONLY_OPERATIONS:
         raise ReadFailure("not_collected", "access_analyzer_live_api_banned")
@@ -3168,10 +3173,10 @@ def collect(connector, requirements=None):
                 register_context(requests, session, identity, regions_for(identity["Account"]))
     metadata["access_analyzer_lifecycle"] = []
     if "access_analyzer" in wanted:
-        metadata["collection"] = "read-existing-access-analyzers"
+        metadata["collection"] = "read-only-with-temporary-access-analyzers"
     analyzer_lifecycle = AnalyzerLifecycle(requests, metadata["access_analyzer_lifecycle"], progress_callback)
-    # Retain collection ordering; Access Analyzer preparation is inert and
-    # never makes a live service call.
+    # A global call cap assigns budget by admission order. Keep the original
+    # analyzer-first admission in that explicitly limited mode.
     defer_analyzer_preparation = requests.max_calls is None
     automatic_sources = {
         aws_lambda_environment_secret_indicators.KIND: frozenset({'lambda_function'}),
@@ -3343,8 +3348,9 @@ def collect(connector, requirements=None):
                             elif kind == "aws_cloudtrail_activity":
                                 future = activity_jobs[(id(identity), region)]
                             elif kind == "access_analyzer" and defer_analyzer_preparation:
-                                # Preserve collection ordering for the inert
-                                # Access Analyzer inventory placeholder.
+                                # Preparation can make slow SDK calls in every
+                                # Region. Queue ordinary reads first so they
+                                # progress while analyzers are prepared.
                                 deferred_analyzers.append((len(regional_jobs), session, identity, region))
                                 future = None
                             else:
