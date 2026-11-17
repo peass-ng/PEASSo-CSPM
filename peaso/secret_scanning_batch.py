@@ -9,8 +9,7 @@ import tempfile
 import time
 
 
-# Matches the adaptive archive batches; bytes stay bounded by MAX_BATCH_BYTES.
-MAX_BATCH_ITEMS = 2048
+MAX_BATCH_ITEMS = 512
 MAX_METRIC_BATCH_ITEMS = 2048
 MAX_BATCH_BYTES = 64 * 1024 * 1024
 _PREPARED_BATCH = ContextVar('prepared_content_batch', default=None)

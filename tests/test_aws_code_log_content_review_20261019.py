@@ -24,6 +24,8 @@ def isolated_detector_dependencies(monkeypatch, request):
     else:
         monkeypatch.setattr(secret_scanning, '_scan_kingfisher', lambda *args: [])
         monkeypatch.setattr(secret_scanning, '_scan_trufflehog', lambda *args: [])
+        from peaso import secret_scanning_batch
+        monkeypatch.setattr(secret_scanning_batch, '_prepare_trufflehog_batch', lambda items, timeout: None)
     yield
     secret_scanning._RESULTS.clear()
 
@@ -434,5 +436,3 @@ def test_log_page_batches_respect_item_and_byte_bounds(sdk, monkeypatch):
     assert sample['complete'] and sample['events_inspected'] == 5000
     assert sum(n for n, _ in sizes) == 5000
     assert all(n <= batch.MAX_BATCH_ITEMS and size <= 64 * 1024 for n, size in sizes)
-    # Batches fill to the byte bound instead of a fixed small event count.
-    assert len(sizes) <= 10

@@ -68,7 +68,7 @@ def test_log_groups_match_serial_status_order_and_private_source(monkeypatch):
     assert parallel == serial
     assert [row['ContentSecretIndicators']['collection_status'] for row in parallel] == [
         'collected', 'access_denied', 'collected', 'collected', 'collected']
-    assert requests.peak == 2
+    assert requests.peak == content.LOG_GROUP_WORKERS
     assert all('ContentSecretIndicators' not in row for row in GROUPS)
     assert not hasattr(secret_evidence._source, 'fields') or not secret_evidence._source.fields
 
@@ -90,7 +90,7 @@ def test_global_caps_and_deadline_keep_serial_admission(monkeypatch):
     assert requests.peak == 1
 
 
-def test_detector_batch_memory_is_one_group_at_a_time(monkeypatch):
+def test_detector_batches_are_bounded_by_the_log_group_workers(monkeypatch):
     active = peak = 0
     lock = threading.Lock()
     @contextmanager
@@ -110,7 +110,8 @@ def test_detector_batch_memory_is_one_group_at_a_time(monkeypatch):
     monkeypatch.setattr(secret_scanning, 'prepared_content_batch', prepared)
     requests = Requests()
     content.ENRICHERS['log_group'](requests, None, REGION, GROUPS)
-    assert requests.peak == 2 and peak == 1
+    assert requests.peak == content.LOG_GROUP_WORKERS
+    assert 1 <= peak <= content.LOG_GROUP_WORKERS
 
 
 def test_disabled_and_repository_enrichment_do_not_spawn(monkeypatch):

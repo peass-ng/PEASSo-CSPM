@@ -33,9 +33,7 @@ MAX_LOG_EVENTS = 200000
 MAX_LOG_BYTES = 128 * 1024 * 1024
 MAX_LOG_PAGES = 2000
 MAX_LOG_RECORDS = 200
-# Each prepared batch costs one scanner start (~3s in hosted collectors) almost
-# regardless of size, so log pages are scanned in the largest allowed batches.
-SCAN_BATCH_EVENTS = 2048
+SCAN_BATCH_EVENTS = 500
 CATEGORIES = {'private_key', 'cloud_credential', 'password_assignment', 'secret'}
 _LOG_SCANNER_GATE = ContextVar('aws_log_scanner_gate', default=None)
 
@@ -385,7 +383,10 @@ def scan_logs(requests, session, region, item):
         return _failure(scan, exc)
 
 
-LOG_GROUP_WORKERS = 2
+# Detector preparation is a single-threaded TruffleHog process (~3s per batch in
+# hosted collectors), so a few log groups prepare concurrently on the collector's
+# spare cores. Staging still checks tmpfs capacity and falls back to serial scans.
+LOG_GROUP_WORKERS = 3
 
 
 def _enricher(scanner, *, parallel_logs=False):
@@ -393,8 +394,8 @@ def _enricher(scanner, *, parallel_logs=False):
         output = copy.deepcopy(items)
         # A global call/item cap must retain input-order admission. Each log
         # group otherwise owns its own page, byte, and message budgets. Keep
-        # only two scans in flight: each holds at most one response page of
-        # log text and starts its own bounded detector process.
+        # only LOG_GROUP_WORKERS scans in flight: each holds at most one response
+        # page of log text and starts its own bounded detector process.
         parallel = (parallel_logs and len(output) > 1
                     and getattr(requests, 'content_secret_scans', False) is True
                     and getattr(requests, 'max_calls', None) is None
@@ -402,9 +403,9 @@ def _enricher(scanner, *, parallel_logs=False):
                     and getattr(requests, 'deadline', None) is None
                     and getattr(requests, 'workers', 1) > 1)
         if parallel:
-            # Keep detector preparation and its subprocess at one per scan,
-            # while allowing the two independent AWS read chains to overlap.
-            gate = threading.Lock()
+            # At most one detector preparation per worker; independent AWS read
+            # chains and detector processes overlap.
+            gate = threading.BoundedSemaphore(LOG_GROUP_WORKERS)
             def run(item):
                 token = _LOG_SCANNER_GATE.set(gate)
                 try:
