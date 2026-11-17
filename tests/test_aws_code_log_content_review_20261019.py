@@ -24,6 +24,8 @@ def isolated_detector_dependencies(monkeypatch, request):
     else:
         monkeypatch.setattr(secret_scanning, '_scan_kingfisher', lambda *args: [])
         monkeypatch.setattr(secret_scanning, '_scan_trufflehog', lambda *args: [])
+        from peaso import secret_scanning_batch
+        monkeypatch.setattr(secret_scanning_batch, '_prepare_trufflehog_batch', lambda items, timeout: None)
     yield
     secret_scanning._RESULTS.clear()
 
@@ -413,3 +415,24 @@ def test_many_positive_events_keep_failing_beyond_retained_records(sdk):
     item, index = fixture('logs')
     item['ContentSecretIndicators'] = sample
     assert checks.logs(item, index)[0] == 'FAIL'
+
+
+def test_log_page_batches_respect_item_and_byte_bounds(sdk, monkeypatch):
+    from peaso import secret_scanning_batch as batch
+    requests, session, stubs, _ = sdk
+    monkeypatch.setattr(batch, 'MAX_BATCH_BYTES', 64 * 1024)
+    sizes = []
+    original = batch.prepared_content_batch
+    def recording(items, **kwargs):
+        sizes.append((len(items), sum(len(payload) for payload, _ in items)))
+        return original(items, **kwargs)
+    monkeypatch.setattr(c, 'prepared_content_batch', recording, raising=False)
+    import peaso.secret_scanning as scanning
+    monkeypatch.setattr(scanning, 'prepared_content_batch', recording)
+    stamp = log_args(requests)['startTime'] + 1
+    events = [{'timestamp': stamp, 'message': 'clean %05d ' % i + 'x' * 90} for i in range(5000)]
+    stubs['logs'].add_response('filter_log_events', {'events': events}, log_args(requests))
+    sample = c.scan_logs(requests, session, REGION, GROUP)
+    assert sample['complete'] and sample['events_inspected'] == 5000
+    assert sum(n for n, _ in sizes) == 5000
+    assert all(n <= batch.MAX_BATCH_ITEMS and size <= 64 * 1024 for n, size in sizes)

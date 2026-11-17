@@ -183,12 +183,13 @@ def project_response(response, service, operation, arguments, *, request_context
                 raise ValueError()
             remaining = request_context['remaining_bytes']
             from peaso.secret_scanning import prepared_content_batch, scan_content
-            pending = []
+            from peaso.secret_scanning_batch import MAX_BATCH_BYTES
+            pending, pending_bytes = [], 0
             def flush():
-                nonlocal pending
+                nonlocal pending, pending_bytes
                 if not pending:
                     return
-                batch, pending = pending, []
+                batch, pending, pending_bytes = pending, [], 0
                 # Preparation stages only already-admitted message bytes in
                 # volatile tmpfs. Each original event still enters the normal
                 # scanner with its own thread-local source context.
@@ -219,7 +220,10 @@ def project_response(response, service, operation, arguments, *, request_context
                 size = len(payload)
                 readable = size <= remaining
                 if readable:
+                    if pending_bytes + size > MAX_BATCH_BYTES:
+                        flush()
                     pending.append((timestamp, message, payload, row))
+                    pending_bytes += size
                     remaining -= size
                     if len(pending) == SCAN_BATCH_EVENTS:
                         flush()
@@ -379,7 +383,10 @@ def scan_logs(requests, session, region, item):
         return _failure(scan, exc)
 
 
-LOG_GROUP_WORKERS = 2
+# Detector preparation is a single-threaded TruffleHog process (~3s per batch in
+# hosted collectors), so a few log groups prepare concurrently on the collector's
+# spare cores. Staging still checks tmpfs capacity and falls back to serial scans.
+LOG_GROUP_WORKERS = 3
 
 
 def _enricher(scanner, *, parallel_logs=False):
@@ -387,8 +394,8 @@ def _enricher(scanner, *, parallel_logs=False):
         output = copy.deepcopy(items)
         # A global call/item cap must retain input-order admission. Each log
         # group otherwise owns its own page, byte, and message budgets. Keep
-        # only two scans in flight: each holds at most one response page of
-        # log text and starts its own bounded detector process.
+        # only LOG_GROUP_WORKERS scans in flight: each holds at most one response
+        # page of log text and starts its own bounded detector process.
         parallel = (parallel_logs and len(output) > 1
                     and getattr(requests, 'content_secret_scans', False) is True
                     and getattr(requests, 'max_calls', None) is None
@@ -396,9 +403,9 @@ def _enricher(scanner, *, parallel_logs=False):
                     and getattr(requests, 'deadline', None) is None
                     and getattr(requests, 'workers', 1) > 1)
         if parallel:
-            # Keep detector preparation and its subprocess at one per scan,
-            # while allowing the two independent AWS read chains to overlap.
-            gate = threading.Lock()
+            # At most one detector preparation per worker; independent AWS read
+            # chains and detector processes overlap.
+            gate = threading.BoundedSemaphore(LOG_GROUP_WORKERS)
             def run(item):
                 token = _LOG_SCANNER_GATE.set(gate)
                 try:

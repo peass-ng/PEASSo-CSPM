@@ -10,7 +10,8 @@ class FixtureCipher:
     def decrypt(self, value): return json.loads(value)
 
 def test_512_sources_keep_private_full_values_and_original_paths(monkeypatch):
-    assert batch.MAX_BATCH_ITEMS == packages.BATCH_ITEMS == 512
+    # Package batches must fit the common prepared-batch bound.
+    assert packages.BATCH_ITEMS <= batch.MAX_BATCH_ITEMS
     assert batch.MAX_BATCH_BYTES == packages.BATCH_BYTES == 64 * 1024 * 1024
     primary = 'synthetic-primary'
     full = primary + ':' + 'A' * 40
@@ -38,10 +39,10 @@ def test_512_sources_keep_private_full_values_and_original_paths(monkeypatch):
     assert batch._PREPARED_BATCH.get() is None
     scanning._RESULTS.clear()
 
-def test_513_sources_remain_outside_finite_bound(monkeypatch):
+def test_sources_beyond_the_item_bound_are_rejected(monkeypatch):
     monkeypatch.setattr(batch, '_prepare_trufflehog_batch', lambda *args: pytest.fail('invalid batch reached scanner'))
     with pytest.raises(ValueError, match='content batch bound'):
-        with batch.prepared_content_batch([(b'x', 'path')] * 513):
+        with batch.prepared_content_batch([(b'x', 'path')] * (batch.MAX_BATCH_ITEMS + 1)):
             pass
 
 

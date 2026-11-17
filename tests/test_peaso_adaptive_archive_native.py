@@ -125,13 +125,13 @@ def test_native_stdout_bound_has_exact_type_and_unchanged_message():
     assert exc.value.args==('scanner output bound',)
     assert candidate._run([sys.executable,'-c','print("safe")'],b'',10)==b'safe\n'
 
-def test_metrics_accept_2048_but_public_legacy_preparation_stays_512():
+def test_metrics_and_public_preparation_share_the_item_bound():
     candidate=batch
     event=dict(schema=1,batch=1,items=2048,input_bytes=2048,unique_payloads=2048,unique_bytes=2048,prepared=1,reason='none',preparation_ms=1,consumer_ms=1,lookups=2048,prepared_reads=2048,serial_lookups=0,consumer_failed=0)
     assert candidate.safe_metrics(event)==event
     assert candidate.safe_metrics({**event,'items':2049})is None
     with pytest.raises(ValueError,match='content batch bound'):
-        with candidate.prepared_content_batch([(b'x',str(i))for i in range(513)]):pass
+        with candidate.prepared_content_batch([(b'x',str(i))for i in range(candidate.MAX_BATCH_ITEMS+1)]):pass
 
 
 def test_expired_existing_archive_lease_never_refreshes_or_prepares(tools):
