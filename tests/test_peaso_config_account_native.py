@@ -198,3 +198,15 @@ def test_cross_partition_region_name_rejected_in_derivation_and_evaluation():
     snapshot = make_snapshot("aws", [A + "/us-east-1"], [envelope], created_at=NOW)
     found = evaluate_snapshot(snapshot, checks=[CHECK])["findings"]
     assert len(found) == 1 and found[0]["status"] == "UNKNOWN"
+
+
+def test_scp_denied_region_leaves_the_required_config_regions():
+    # eu-west-1 is enabled but an Organizations SCP denies it, so the scan
+    # excluded it: it cannot hold a recorder and must not be demanded.
+    identity, discovery, regional = facts(regions=("us-east-1",))
+    assert verdict(A, identity, discovery, regional)[0] != "PASS"
+    discovery[0]["scp_denied_regions"] = ["eu-west-1"]
+    assert verdict(A, identity, discovery, regional)[0] == "PASS"
+    # An exclusion naming a Region that was never enabled is not trusted.
+    discovery[0]["scp_denied_regions"] = ["eu-west-1", "ap-south-1"]
+    assert verdict(A, identity, discovery, regional)[0] != "PASS"

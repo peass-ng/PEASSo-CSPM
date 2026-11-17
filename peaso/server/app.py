@@ -76,6 +76,15 @@ def _credential_target_coverage(bundle):
             result.append({"level": "credential_target", "scope": account, "account": account,
                 "role_arn": arn, "status": "not_collected", "code": "duplicate_account_target",
                 "error_code": "duplicate_account_target"})
+        region = row.get("region")
+        if (row.get("level") == "region" and row.get("status") == "not_applicable"
+                and row.get("error_code") == "scp_denied_region"
+                and isinstance(account, str) and re.fullmatch(r"[0-9]{12}", account)
+                and isinstance(region, str) and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+", region)):
+            result.append({"level": "region", "scope": f"{account}/{region}", "account": account,
+                "region": region, "status": "not_applicable", "denied_by": "service_control_policy",
+                "code": "scp_denied_region", "error_code": "scp_denied_region",
+                "reason": "Excluded: an AWS Organizations service control policy denies this Region, so it cannot hold resources."})
     return result
 
 

@@ -70,6 +70,12 @@ def derive(account, identity, discoveries, collections, captured_at):
         seen.add(name)
         if state != "not-opted-in":
             enabled.append(name)
+    # Regions an Organizations SCP denies were excluded from the scan; they
+    # cannot hold Config recorders, so they leave the required set too.
+    denied = proof.get("scp_denied_regions", [])
+    if not isinstance(denied, list) or any(region not in enabled for region in denied):
+        return bad("malformed", "config_region_scp_exclusion_malformed")
+    enabled = [region for region in enabled if region not in denied]
     if not enabled or sorted(enabled) != proof.get("regions"):
         return bad("malformed", "config_enabled_region_projection_mismatch")
     joined = []
@@ -100,7 +106,8 @@ def derive(account, identity, discoveries, collections, captured_at):
                            "caller_arn": identity["Arn"], "partition": caller.group(1),
                            "source_operation": proof["source_operation"], "all_regions": True,
                            "read_only": True, "observed_at": captured_at,
-                           "raw_regions": raw, "regions": sorted(enabled)},
+                           "raw_regions": raw, "regions": sorted(enabled),
+                           **({"scp_denied_regions": sorted(denied)} if denied else {})},
              "Regions": joined,
              "_provenance": {"read_only": True, "account_global_complete": True,
                              "source_operation": "ec2:DescribeRegions+config:DescribeConfigurationRecorders+config:DescribeDeliveryChannels+config:DescribeConfigurationRecorderStatus",
