@@ -83,12 +83,33 @@ for suffix, minimum, reuse, age in [("strong_min_length_8", 8, False, False), ("
     install()
 
 
+def root_without_credentials(summary):
+    """True when GetAccountSummary proves the root user has no sign-in or API credential.
+
+    Organizations centralized root access deletes member-account root passwords, access
+    keys and signing certificates; MFA then has no credential to protect.
+    """
+    counts = summary.get("SummaryMap") if isinstance(summary, dict) else None
+    if not isinstance(counts, dict):
+        return False
+    fields = ("AccountPasswordPresent", "AccountAccessKeysPresent")
+    values = [counts.get(field) for field in fields] + [counts.get("AccountSigningCertificatesPresent", 0)]
+    return all(type(value) is int and value == 0 for value in values)
+
+
+ROOT_WITHOUT_CREDENTIALS = ("Root user has no password, access keys or signing certificates (for example under "
+                            "AWS Organizations centralized root access); root MFA has no credential to protect.")
+
+
 @register("aws.a.iam.root_summary_mfa", "aws", "hardening", "iam_account_summary", "Root account MFA is configured",
     "high", "IA-2", "Configure MFA for the root account and verify root credential governance.")
 def root_mfa(item, index):
     value = get(item, "SummaryMap.AccountMFAEnabled", int)
     if value not in {0, 1}:
         return unknown("malformed account MFA summary flag")
+    if value != 1 and root_without_credentials(item):
+        return "NOT_APPLICABLE", {"reason": ROOT_WITHOUT_CREDENTIALS, "account_mfa_enabled": value,
+                                  "root_credentials_present": False}
     return result(value != 1, account_mfa_enabled=value)
 CASES["aws.a.iam.root_summary_mfa"] = {"pass": {"SummaryMap": {"AccountMFAEnabled": 1}}, "fail": {"SummaryMap": {"AccountMFAEnabled": 0}}, "missing": {}, "malformed": None}
 NATIVE_IDS.append("aws.a.iam.root_summary_mfa")
@@ -119,6 +140,15 @@ NATIVE_IDS.append("aws.a.iam.report_console_mfa")
     "high", "IA-2", "Review and configure MFA for each applicable IAM principal.")
 def report_all_mfa(item, index):
     mfa = csv_boolean(item, "mfa_active")
+    if not mfa:
+        # IAM MFA devices protect console sign-in; a principal with no password (root:
+        # and no access keys or signing certificates) has no credential MFA applies to.
+        root = isinstance(item, dict) and item.get("user") == "<root_account>"
+        fields = ("password_enabled",) + (("access_key_1_active", "access_key_2_active", "cert_1_active", "cert_2_active") if root else ())
+        if all(get(item, field, str) == "false" for field in fields):
+            return "NOT_APPLICABLE", {"reason": ROOT_WITHOUT_CREDENTIALS if root else
+                                      "IAM user has no console password; MFA applies to console sign-in only.",
+                                      "mfa_active": mfa, "password_enabled": False}
     return result(not mfa, mfa_active=mfa)
-CASES["aws.a.iam.report_all_mfa"] = {"pass": {"mfa_active": "true"}, "fail": {"mfa_active": "false"}, "missing": {}, "malformed": None}
+CASES["aws.a.iam.report_all_mfa"] = {"pass": {"mfa_active": "true"}, "fail": {"mfa_active": "false", "user": "alice", "password_enabled": "true"}, "missing": {}, "malformed": None}
 NATIVE_IDS.append("aws.a.iam.report_all_mfa")

@@ -192,14 +192,93 @@ def marketplace_subscribe(document):
 ESCALATION_UNIVERSE = frozenset(a for _, concrete in ESCALATION_COMBOS.values() for a in concrete)
 
 
+START_SESSION = frozenset({"ssm:StartSession"})
+# AWS-owned Session Manager documents that give a shell or run arbitrary commands.
+SHELL_SESSION_DOCUMENTS = ("SSM-SessionManagerRunShell", "AWS-StartInteractiveCommand", "AWS-StartNonInteractiveCommand",
+                           "AWS-StartSSHSession")
+
+
+def _true(value):
+    values = value if isinstance(value, list) else [value]
+    return bool(values) and all(v is True or (isinstance(v, str) and v.strip().lower() == "true") for v in values)
+
+
+def _document_check_enforced(statement):
+    """Allow statement carries Bool/BoolIfExists ssm:SessionDocumentAccessCheck = true."""
+    condition = statement.get("Condition")
+    if not isinstance(condition, dict):
+        return False
+    for operator, block in condition.items():
+        if not isinstance(operator, str) or operator.lower() not in ("bool", "boolifexists") or not isinstance(block, dict):
+            continue
+        if any(isinstance(k, str) and k.lower() == "ssm:sessiondocumentaccesscheck" and _true(v) for k, v in block.items()):
+            return True
+    return False
+
+
+def _covers_shell_document(resource):
+    """Resource pattern matches an AWS shell/command session document ARN (e.g. "*", document/*)."""
+    return isinstance(resource, str) and any(
+        fnmatchcase("arn:%s:ssm:%s::document/%s" % (partition, region, shell), resource)
+        for partition in ("aws", "aws-us-gov", "aws-cn") for region in ("us-east-1", "us-gov-west-1", "cn-north-1")
+        for shell in SHELL_SESSION_DOCUMENTS)
+
+
+def _non_shell_document(resource):
+    """A specific SSM document ARN whose name cannot match an AWS shell/command session document."""
+    return (isinstance(resource, str) and resource.startswith("arn:") and ":document/" in resource
+            and resource.split(":document/", 1)[1].strip("*?") != "" and not _covers_shell_document(resource))
+
+
+def start_session_restricted(document):
+    """ssm:StartSession limited to non-shell session documents (port forwarding), so no interactive shell.
+
+    Every Allow statement granting ssm:StartSession either names only specific non-shell SSM
+    documents, or (for its instance/target resources) enforces ssm:SessionDocumentAccessCheck=true,
+    which makes Session Manager require an explicitly allowed document instead of falling back to
+    the default shell document. At least one statement must enforce that check.
+    Document content is not collected, so customer-owned documents are judged by name only.
+    """
+    enforced = False
+    for s in statements_of(document):
+        effect = s.get("Effect", "")
+        if not isinstance(effect, str) or effect.strip().lower() != "allow":
+            continue
+        granted = expand(s.get("Action"), START_SESSION)
+        if patterns(s.get("NotAction")):
+            granted |= START_SESSION - expand(s.get("NotAction"), START_SESSION)
+        if not granted:
+            continue
+        if "NotResource" in s:
+            return False
+        resources = patterns(s.get("Resource"))
+        if resources and all(_non_shell_document(r) for r in resources):
+            continue
+        if not _document_check_enforced(s) or any(
+                _covers_shell_document(r) or (":document/" in r and not _non_shell_document(r)) for r in resources):
+            return False
+        enforced = True
+    return enforced
+
+
 def privilege_escalation(document):
-    """Prowler check_privilege_escalation: sorted matched combination patterns."""
+    """Prowler check_privilege_escalation: sorted matched combination patterns.
+
+    Deviation: the StartSession-only combination is not reported when sessions are restricted to
+    non-shell (port-forwarding) documents with ssm:SessionDocumentAccessCheck=true.
+    """
     if not document:
         return []
     effective = effective_actions(document, ESCALATION_UNIVERSE)
+    restricted = None
     matched = set()
-    for pats, concrete in ESCALATION_COMBOS.values():
+    for name, (pats, concrete) in ESCALATION_COMBOS.items():
         if concrete and set(concrete).issubset(effective):
+            if name == "SSMStartSession":
+                if restricted is None:
+                    restricted = start_session_restricted(document)
+                if restricted:
+                    continue
             matched.update(pats)
     return sorted(matched)
 

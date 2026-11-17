@@ -8,6 +8,8 @@ documents. Membership of groups comes from each user's GAAD ``GroupList``.
 """
 from __future__ import annotations
 
+from fnmatch import fnmatchcase
+
 import json
 from collections.abc import Mapping
 from datetime import timedelta
@@ -187,6 +189,70 @@ def count_rows(statements, action_ok, resource_ok=lambda r: True):
     return hits
 
 
+_ANY_KEY_IDS = ("0f1e2d3c-4b5a-6978-8a9b-acbdcedf0011", "mrk-5a6b7c8d9e0f11223344556677889900")
+
+
+def kms_all_keys_resource(resource):
+    """Whether a Resource pattern covers arbitrary KMS keys ("*", key/*, alias/*, arn:aws:kms:*...).
+
+    A single key ARN, or a pattern pinned to a specific key or alias name, covers one key. The
+    pattern is tested against two unrelated key IDs in the pattern's own region and account, so
+    only a wildcard in the key/alias position (or a bare "*") counts.
+    """
+    if not isinstance(resource, str):
+        return False
+    if resource == "*":
+        return True
+    parts = resource.split(":", 5)
+    if len(parts) != 6 or parts[0] != "arn" or not fnmatchcase("kms", parts[2]):
+        return False
+    region = parts[3] if not any(c in parts[3] for c in "*?") else "us-east-1"
+    acct = parts[4] if not any(c in parts[4] for c in "*?") else "123456789012"
+    partition = parts[1] if not any(c in parts[1] for c in "*?") else "aws"
+    for kind, names in (("key", _ANY_KEY_IDS), ("alias", ("alias/zz-unrelated-a", "alias/zz-unrelated-b"))):
+        candidates = ["arn:%s:kms:%s:%s:%s" % (partition, region, acct, n if kind == "alias" else "key/" + n) for n in names]
+        if all(fnmatchcase(c, resource) for c in candidates):
+            return True
+    return False
+
+
+def _pinned(values):
+    values = values if isinstance(values, list) else [values]
+    # "?" matches one character (e.g. the 6-character Secrets Manager ARN suffix); "*" opens the value up.
+    return bool(values) and all(isinstance(v, str) and "*" not in v and v.strip("?") for v in values)
+
+
+def kms_condition_restricts_keys(statement):
+    """Condition pins the usable keys or ciphertexts to specific values.
+
+    kms:EncryptionContext:<k> / kms:EncryptionContextKeys / aws:ResourceTag/<k> / kms:KeyOrigin-style
+    values under a positive String operator (StringEquals, StringLike without wildcard,
+    ForAllValues/ForAnyValue variants, IfExists) restrict which data or keys can be decrypted.
+    kms:ViaService alone does not: every key is still usable through that service.
+    """
+    condition = statement.get("Condition") if isinstance(statement, dict) else None
+    if not isinstance(condition, dict):
+        return False
+    for operator, block in condition.items():
+        if not isinstance(operator, str) or not isinstance(block, dict):
+            continue
+        op = operator.lower().split(":")[-1].replace("ifexists", "")
+        if op not in ("stringequals", "stringequalsignorecase", "stringlike", "arnequals", "arnlike"):
+            continue
+        for key, value in block.items():
+            k = key.lower() if isinstance(key, str) else ""
+            if (k.startswith("kms:encryptioncontext:") or k in ("kms:encryptioncontextkeys", "kms:grantoperations")
+                    or k.startswith("aws:resourcetag/")) and _pinned(value):
+                return True
+    return False
+
+
+def kms_blocked_rows(statements, actions):
+    """Allow rows granting ``actions`` on all KMS keys without a key-restricting condition."""
+    return count_rows([s for s in statements if not kms_condition_restricts_keys(s.get("_raw"))],
+                      lambda a: a in actions, kms_all_keys_resource)
+
+
 def star_star(statements):
     return count_rows(statements, lambda a: a in ("*", "*:*"), lambda r: r == "*")
 
@@ -348,7 +414,8 @@ def attached_star_star(item, index):
     return result_rows(hits)
 
 
-def _custom_action_check(cid, title, rows, matcher, failing, *, resource_ok=lambda r: r == "*", severity="high", remediation, note=None, docs=(GAAD,)):
+def _custom_action_check(cid, title, rows, matcher, failing, *, resource_ok=lambda r: r == "*", statement_ok=lambda raw: True, severity="high",
+                         remediation, note=None, docs=(GAAD,)):
     @install(cid, "iam_policy", title, SAFE, failing, rows=rows, severity=severity, category="least_privilege", control="AC-6",
         remediation=remediation, docs=list(docs), extra={"na": w(failing, Arn=AWS_ARN)}, note=note)
     def evaluate(item, index):
@@ -356,6 +423,7 @@ def _custom_action_check(cid, title, rows, matcher, failing, *, resource_ok=lamb
             return "NOT_APPLICABLE", {"reason": "AWS managed policy"}
         matched = set()
         def count_and_describe(rows):
+            rows = [r for r in rows if statement_ok(r.get("_raw"))]
             hits = count_rows(rows, matcher, resource_ok)
             if hits:
                 for statement in rows:
@@ -378,9 +446,10 @@ _custom_action_check("aws.claude_a.iam.custom_policy_no_kms_star", "Customer man
     remediation="Remove kms:* on \"*\"; grant key usage per key ARN.")
 _custom_action_check("aws.claude_a.iam.custom_policy_no_blocked_kms_actions", "Customer managed policy does not allow kms:Decrypt or kms:ReEncryptFrom",
     [C + "iam_policy_custom_no_blocked_kms_actions"], lambda a: a in ("kms:decrypt", "kms:reencryptfrom"),
-    pol(allow("kms:Decrypt", "arn:aws:kms:us-east-1:%s:key/k" % ACCOUNT)), resource_ok=lambda r: True, severity="medium",
+    pol(allow("kms:Decrypt", "*")), resource_ok=kms_all_keys_resource,
+    statement_ok=lambda raw: not kms_condition_restricts_keys(raw), severity="medium",
     remediation="Remove kms:Decrypt/kms:ReEncryptFrom from customer managed policies or scope them to approved keys.",
-    note="Source LIKE patterns have no %, so only the exact lowercased actions match (kms:* is not counted); any Resource row counts.")
+    note="Exact lowercased actions kms:decrypt / kms:reencryptfrom (kms:* is not counted) on all keys (\"*\" or a key/alias wildcard); single-key resources and statements whose condition pins the encryption context or resource tags are scoped and do not count.")
 
 
 def kms_decrypt_statements(statements, acct):
@@ -459,9 +528,9 @@ def _principal_checks():
             @install("aws.claude_a.iam.%s_inline_no_blocked_kms_actions" % label, kind, "IAM %s inline policies do not allow blocked KMS decrypt actions" % label,
                 base, inline(kind, allow("kms:Decrypt*", "*")), rows=[C + "iam_policy_inline_no_blocked_kms_actions"], severity="medium",
                 category="least_privilege", control="AC-6", remediation="Remove broad KMS decrypt grants from inline policies; scope to approved keys.",
-                docs=[GAAD], note="Exact lowercased actions kms:decrypt, kms:decrypt*, kms:reencryptfrom, kms:*, kms:reencrypt* with any Resource row.")
+                docs=[GAAD], note="Exact lowercased actions kms:decrypt, kms:decrypt*, kms:reencryptfrom, kms:*, kms:reencrypt* on all keys (\"*\" or a key/alias wildcard); single-key resources and statements whose condition pins the encryption context or resource tags are scoped and do not count (kms:ViaService alone does not scope).")
             def blocked(item, index):
-                hits = _identity_inline_hits(item, kind, lambda rows: count_rows(rows, lambda a: a in ("kms:decrypt", "kms:decrypt*", "kms:reencryptfrom", "kms:*", "kms:reencrypt*"), lambda r: True))
+                hits = _identity_inline_hits(item, kind, lambda rows: kms_blocked_rows(rows, ("kms:decrypt", "kms:decrypt*", "kms:reencryptfrom", "kms:*", "kms:reencrypt*")))
                 return result(hits > 0, matching_statement_rows=hits)
 
             na = {"na": w(SVC_ROLE, RolePolicyList=[{"PolicyName": "x", "PolicyDocument": doc(allow("kms:*"))}])} if kind == "iam_role" else {}
