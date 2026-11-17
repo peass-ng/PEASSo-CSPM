@@ -79,6 +79,23 @@ def _credential_target_coverage(bundle):
     return result
 
 
+CONNECTOR_AUTH_METHODS = frozenset({
+    "default", "profile", "sso", "access_keys", "assume_role", "web_identity", "container", "task_role",
+    "adc", "gcloud", "platform-service-account", "service-account", "service_account", "impersonation",
+    "external-account", "metadata", "token", "client-cert-inline", "workload-identity-inline", "az-cli",
+    "client-secret", "client-cert", "certificate", "managed-identity", "workload-identity", "kubeconfig-inline",
+    "certificate-inline", "kubeconfig", "in_cluster",
+})
+
+
+def auth_summary(auth: dict) -> dict:
+    summary = {"configured": bool(auth), "fields": sorted(auth)}
+    # The edit form reopens on the saved method; only known method names are echoed.
+    if auth.get("method") in CONNECTOR_AUTH_METHODS:
+        summary["mode"] = auth["method"]
+    return summary
+
+
 def create_app(settings=None, *, store=None, authenticator=None, artifacts=None):
     # Intake needs the signed ID roster, never the native evaluator registry.
     from .native_policy_validation_static_20261020 import install as install_static_review_validation
@@ -273,7 +290,7 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
             input_mode=data.get("input_mode"), options=auth.get("options", {}), proof=auth.get("scheduling_proof"), hosted=settings.auth_mode == "cognito")
         from peaso.content_scan_selection import configured_checks
         data['content_scan_checks'] = configured_checks(data['provider'], auth.get('options', {}))
-        data["auth"] = {"configured": bool(auth["auth"]), "fields": sorted(auth["auth"])}
+        data["auth"] = auth_summary(auth["auth"])
         onboarding = onboarding_details(auth["auth"]) if include_onboarding else None
         if onboarding:
             data["onboarding"] = onboarding
@@ -722,7 +739,7 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         data["scheduling"] = scheduling_eligibility(data["provider"], private["auth"],
             input_mode=data.get("input_mode"), options=private.get("options", {}),
             proof=private.get("scheduling_proof"), hosted=settings.auth_mode == "cognito")
-        data["auth"] = {"configured": bool(private["auth"]), "fields": sorted(private["auth"])}
+        data["auth"] = auth_summary(private["auth"])
         onboarding = onboarding_details(private["auth"]) if user.auth_kind != "api_key" and user.workspace_role != "read" else None
         if onboarding:
             data["onboarding"] = onboarding
