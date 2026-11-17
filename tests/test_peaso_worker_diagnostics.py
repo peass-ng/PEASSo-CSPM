@@ -297,3 +297,46 @@ def test_public_failure_decoder_is_bounded_for_both_stores_and_scan_routes(crash
         store_error("Legacy provider error")
         assert client.get(f"/api/scans/{job['id']}", headers={"Authorization": "Bearer alice"}).json()["error"] == "Legacy provider error"
     assert marker not in caplog.text
+
+
+def test_a_worker_that_stops_early_names_why(tmp_path, caplog):
+    store = SQLiteStore(tmp_path / "state")
+    settings = Settings(state_dir=tmp_path / "state", identity_dir=tmp_path / "identity")
+    connector = store.add_connector("alice", {"provider": "aws"},
+                                    CredentialCipher(settings.identity_dir).encrypt({"auth": {}, "options": {}}))
+    job = store.enqueue("alice", {"connector_id": connector["id"]})
+    assert store.admit("alice", job["id"])
+    actual_context = multiprocessing.get_context("spawn")
+
+    class Sleeping:
+        def __init__(self, *, target, args, daemon):
+            self.connection = args[-1]
+
+        def start(self):
+            self.process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                                            pass_fds=(self.connection.fileno(),))
+            store.cancel("alice", job["id"])
+
+        def is_alive(self):
+            return self.process.poll() is None
+
+        def join(self, timeout):
+            try:
+                self.process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                pass
+
+        def terminate(self):
+            self.process.terminate()
+
+        def kill(self):
+            self.process.kill()
+
+    class Context:
+        Pipe = staticmethod(actual_context.Pipe)
+        Process = Sleeping
+
+    with patch("peaso.worker.multiprocessing.get_context", return_value=Context()), \
+            patch("peaso.worker._verify_aws_credentials", lambda connector: None):
+        Worker("collector", settings, store=store, artifacts=FileArtifacts(tmp_path / "artifacts")).run_once("alice", job["id"])
+    assert "reason=status_changed status=cancelled" in caplog.text

@@ -1216,15 +1216,23 @@ class Worker:
             while not self.stopping.is_set():
                 now = time.time()
                 if now >= job["deadline"]:
+                    LOGGER.warning("Scan worker stopped: reason=deadline_reached")
                     self.store.expire_job(job["tenant"], job["id"], now)
                     return True
                 if now >= next_heartbeat:
                     if not self.store.heartbeat(job["id"], job["owner"], self.settings.lease_seconds):
+                        status = control_read(job["tenant"], job["id"])["status"]
+                        if status in {"collecting", "analyzing"}:
+                            LOGGER.warning("Scan worker stopped: reason=lease_lost late_by_s=%.1f",
+                                           max(0.0, now - next_heartbeat) if next_heartbeat else 0.0)
+                        else:
+                            LOGGER.warning("Scan worker stopped: reason=status_changed status=%s", status)
                         return True
                     next_heartbeat = now + max(0.2, self.settings.lease_seconds / 3)
                 # Cancellation is checked independently of the heartbeat interval.
                 control = control_read(job["tenant"], job["id"])
                 if control["status"] not in {"collecting", "analyzing"}:
+                    LOGGER.warning("Scan worker stopped: reason=status_changed status=%s", control["status"])
                     return True
                 stages_settled = (stage_poll(control, native_checkpoint=native_checkpoint)
                                   if stage_poll is not None else True)
@@ -1277,6 +1285,8 @@ class Worker:
                                 stage=event.get("stage", "collector"))
                             parent.send(("__checkpoint_ack__", event["sequence"], bool(accepted)))
                             if not accepted:
+                                LOGGER.warning("Scan worker stopped: reason=checkpoint_rejected sequence=%s",
+                                               event["sequence"])
                                 return True
                             if self.role == "analyzer" and event.get("stage") == "analyzer_native":
                                 native_checkpoint = event
