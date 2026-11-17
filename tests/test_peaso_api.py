@@ -92,6 +92,15 @@ def test_connector_ciphertext_redaction_validation_and_private_files(client, set
         assert path.stat().st_mode & 0o777 == 0o600
 
 
+def test_saved_connector_reopens_on_its_known_auth_method(client):
+    keys = add_connector(client, auth={"method": "access_keys", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "s"},
+                         options={"snapshot": snapshot()})
+    assert client.get("/api/connectors/" + keys["id"]).json()["auth"]["mode"] == "access_keys"
+    assert client.get("/api/connectors").json()["items"][0]["auth"]["mode"] == "access_keys"
+    odd = add_connector(client, auth={"method": "secret-value-123456", "token": "a"}, options={"snapshot": snapshot()})
+    assert "mode" not in client.get("/api/connectors/" + odd["id"]).json()["auth"]
+
+
 def test_redaction_never_corrupts_connector_route_or_structural_metadata(client):
     value = add_connector(client, auth={"method": "token", "token": "a", "context": "aws"}, options={"snapshot": snapshot()})
     listed = client.get("/api/connectors").json()["items"][0]
