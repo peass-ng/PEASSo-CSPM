@@ -1422,6 +1422,8 @@ def evidence_summary(finding):
         if e.get('public') is False and e.get('organization_inventory') is True and present('external_accounts') and all(len(x)==12 and x.isdecimal() for x in e['external_accounts']):
             return 'The declaration names accounts outside the collected organization: '+names('external_accounts')+'.'
         return None
+    if cid=='aws.gap.accessanalyzer.no_active_findings' and present('external_resources'):
+        return 'Access Analyzer reports access from outside the zone of trust to: '+names('external_resources')+'.'
     if cid=='aws_cloudfront_origin_failover_configured':
         if e.get('origin_group_count')==0 and type(e.get('origin_group_count')) is int:return 'No CloudFront origin failover group is configured.'
         if positive(e.get('origin_group_count')) and present('invalid_origin_groups'):return 'Origin groups failing the declared member or failover-code checks: '+names('invalid_origin_groups')+'.'
