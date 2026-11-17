@@ -217,7 +217,7 @@ def _path(value):
 
 
 def _scan(raw, name, requests):
-    from peaso.secret_scanning import scan_content
+    from peaso.secret_scanning import UNAVAILABLE_REASONS, scan_content
     from peaso.collection_lease import check as check_lease
     check_lease(requests)
     with source_context(path=name):
@@ -229,7 +229,7 @@ def _scan(raw, name, requests):
     refs = [{'File': safe_name, 'Categories': categories, 'Leaks': outcome['leaks']}] if categories else []
     check_lease(requests)
     if not outcome['complete']:
-        raise PartialArchive(refs, 0, 0)
+        raise PartialArchive(refs, 0, 0, UNAVAILABLE_REASONS.get())
     return refs
 
 
@@ -353,9 +353,11 @@ def _download_image_layers(requests, session, region, account, repo, digest,
 
 class PartialArchive(ValueError):
     """Carries safe observations only; caught before the projection boundary."""
-    def __init__(self, refs, expanded, members):
+    def __init__(self, refs, expanded, members, causes=()):
         super().__init__('archive incomplete after proven observation')
         self.refs, self.expanded, self.members = refs, expanded, members
+        # Safe slugs naming why a secret engine was unavailable, when known.
+        self.causes = tuple(causes)
 
 
 def scan_zip(raw, requests):
@@ -639,7 +641,7 @@ def _scan_reader(reader, size, name, requests, remaining, enqueue=None, causes=N
                 refs.extend(found)
             except PartialArchive as partial:
                 refs.extend(partial.refs)
-                causes.add('engine_incomplete'); return refs, False
+                causes.update(('engine_incomplete',) + partial.causes); return refs, False
         overlap = payload[-SCAN_OVERLAP:]
     return refs, True
 
@@ -819,7 +821,7 @@ def _image(response, arguments, requests, session, region):
                             add_refs(partial.refs, ld)
                             failed_files.add(file_key)
                             complete = False
-                            causes.add('engine_incomplete')
+                            causes.update(('engine_incomplete',) + partial.causes)
                             continue
                     count = file_counts.get(file_key, 0) + len(found)
                     if count > REFERENCE_LIMIT:
@@ -901,7 +903,7 @@ def _image(response, arguments, requests, session, region):
                 complete = False; causes.add('archive_partial')
         except PartialArchive as partial:
             add_refs(partial.refs, descriptors[0][0])
-            complete = False; causes.add('engine_incomplete')
+            complete = False; causes.update(('engine_incomplete',) + partial.causes)
         except Exception as exc:
             complete = False
             causes.add(exc.code if isinstance(exc, Unsupported) else
