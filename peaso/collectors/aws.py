@@ -2806,6 +2806,63 @@ def collect(connector, requirements=None):
             return {**proof, "status": failure.status, "error": {"code": failure.code}}, [], failure
         return {**proof, "status": "collected", "regions": enabled}, enabled, None
 
+    def exclude_scp_denied_regions(enabled_by_account, proofs):
+        """Drop enabled Regions an AWS Organizations SCP denies, in place.
+
+        Landing zones often deny every action outside approved Regions
+        (aws:RequestedRegion). Those Regions cannot hold resources, so reading
+        them only yields denied inventories. One cheap read-only regional
+        call per account/Region, run on a small bounded pool, proves it: only
+        a denial whose message names a service control policy drops the
+        Region. Any other outcome (IAM denial, throttling, network) keeps it,
+        and an account where every Region would be dropped keeps them all.
+        """
+        from peaso.policy_denial import SERVICE_CONTROL_POLICY
+        sessions = {identity["Account"]: account_session for account_session, identity in contexts}
+        pairs = [(account, region) for account, enabled in enabled_by_account.items()
+                 if account in sessions and len(enabled) > 1 for region in enabled]
+        if not pairs:
+            return
+
+        def scp_denied(pair):
+            account, region = pair
+            try:
+                # The exact first-page read of the regional VPC inventory, so
+                # its cached response is reused there instead of read again.
+                requests.call(sessions[account], "ec2", region, "describe_vpcs")
+            except Exception as exc:
+                failure = _failure(exc)
+                return failure.status == "denied" and getattr(failure.code, "denied_by", None) == SERVICE_CONTROL_POLICY
+            return False
+
+        with ThreadPoolExecutor(max_workers=min(8, len(pairs)), thread_name_prefix="aws-region-probe") as probe_pool:
+            outcomes = list(probe_pool.map(scp_denied, pairs))
+        denied = {}
+        for (account, region), blocked in zip(pairs, outcomes):
+            if blocked:
+                denied.setdefault(account, []).append(region)
+        for account, dropped in sorted(denied.items()):
+            kept = [region for region in enabled_by_account[account] if region not in dropped]
+            if not kept:
+                continue
+            enabled_by_account[account][:] = kept
+            metadata.setdefault("scp_denied_regions", {})[account] = sorted(dropped)
+            metadata.setdefault("scan_coverage", []).extend({"level": "region", "scope": f"{account}/{region}",
+                "account": account, "region": region, "status": "not_applicable", "denied_by": SERVICE_CONTROL_POLICY,
+                "code": "scp_denied_region", "error_code": "scp_denied_region",
+                "reason": "Excluded: an AWS Organizations service control policy denies this Region, so it cannot hold resources."}
+                for region in sorted(dropped))
+            for proof in proofs:
+                if proof.get("account_id") == account and proof.get("status") == "collected":
+                    proof["regions"] = list(kept)
+                    proof["scp_denied_regions"] = sorted(dropped)
+            # Account-wide collectors (WAF, S3 backup) derive the enabled
+            # Regions from this private DescribeRegions copy.
+            backup = requests.backup_region_discovery.get(account)
+            if backup is not None:
+                backup.items = [row for row in backup.items
+                                if not (isinstance(row, dict) and row.get("RegionName") in dropped)]
+
     if not explicit_regions:
         metadata["region_discovery"] = []
         for account_session, identity in contexts:
@@ -2816,6 +2873,7 @@ def collect(connector, requirements=None):
                 region_discovery_errors[account] = failure
             else:
                 discovered_regions[account] = enabled
+        exclude_scp_denied_regions(discovered_regions, metadata["region_discovery"])
         if discovered_regions:
             regions[:] = sorted({region for values in discovered_regions.values() for region in values})
         metadata["regions"] = list(regions)
@@ -2834,7 +2892,11 @@ def collect(connector, requirements=None):
             metadata["region_discovery"].append(proof)
             if failure is None:
                 account_wide_regions[account] = enabled
-                metadata["account_wide_regions"][account] = list(enabled)
+        # Only the account-wide Region universe shrinks; the explicit
+        # connector Regions and scopes are never touched.
+        exclude_scp_denied_regions(account_wide_regions, metadata["region_discovery"])
+        for account, enabled in account_wide_regions.items():
+            metadata["account_wide_regions"][account] = list(enabled)
     # Freeze exact account/region pairs only after target resolution and region
     # discovery have succeeded for the entire selection. An observed subset,
     # fallback region, truncated organization roster or failed role is not a

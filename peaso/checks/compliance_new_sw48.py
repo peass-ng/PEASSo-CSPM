@@ -119,7 +119,11 @@ def _config(item, index):
         seen.add(name)
         if state != 'not-opted-in':
             enabled.append(name)
-    enabled = sorted(enabled)
+    # Regions an Organizations SCP denies were excluded from the scan.
+    denied = discovery.get('scp_denied_regions', [])
+    if not isinstance(denied, list) or any(region not in enabled for region in denied):
+        raise Unavailable('malformed SCP Region exclusion')
+    enabled = sorted(region for region in enabled if region not in denied)
     rows = get(proof, 'Regions', list)
     if (not enabled or get(discovery, 'regions', list) != enabled or len(rows) != len(enabled)
             or [get(row, 'RegionName', str) for row in rows] != enabled):

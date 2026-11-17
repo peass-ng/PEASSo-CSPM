@@ -1324,3 +1324,72 @@ def test_cloudtrail_account_inventory_home_authority_across_native_regions(sdk, 
         assert {x["SourceRegion"] for x in row["_account_trail_observations"]} == {REGION, shadow_region}
     else:
         assert inventory["error"]["code"] in {"ambiguous_account_trail", "AccessDeniedException"}
+
+
+SCP_DENY = ("User: arn:aws:iam::123456789012:user/reviewer is not authorized to perform: ec2:DescribeVpcs "
+            "with an explicit deny in a service control policy")
+IAM_DENY = "You are not authorized to perform this operation. User is not authorized to perform: ec2:DescribeVpcs"
+
+
+def _enabled_regions(add, rows):
+    add("sts").add_response("get_caller_identity", IDENTITY, {})
+    add("ec2").add_response("describe_regions", {"Regions": [
+        {"RegionName": name, "OptInStatus": "opt-in-not-required"} for name in rows]}, {"AllRegions": True})
+
+
+@pytest.mark.parametrize("message,dropped", [(SCP_DENY, True), (IAM_DENY, False)])
+def test_discovered_region_denied_by_scp_leaves_the_scan(sdk, message, dropped):
+    _, add, _ = sdk
+    denied = "eu-west-1"
+    _enabled_regions(add, [REGION, denied])
+    # One read per Region: the probe is the VPC inventory's own first page.
+    add("ec2").add_response("describe_vpcs", {"Vpcs": []}, {})
+    add("ec2", denied).add_client_error("describe_vpcs", "UnauthorizedOperation", message, expected_params={})
+    snapshot = aws.collect({"provider": "aws", "scopes": [], "options": {}}, ["vpc"])
+    metadata = snapshot["metadata"]
+    scopes = {c["scope"] for c in snapshot["collections"] if c["type"] == "vpc"}
+    proof = metadata["region_discovery"][0]
+    # The native DescribeRegions rows are kept as observed either way.
+    assert {row["RegionName"] for row in proof["raw_regions"]} == {REGION, denied}
+    if dropped:
+        assert metadata["regions"] == [REGION]
+        assert proof["regions"] == [REGION]
+        assert metadata["scp_denied_regions"] == {ACCOUNT: [denied]}
+        assert scopes == {f"{ACCOUNT}/{REGION}"}
+        rows = [r for r in metadata["scan_coverage"] if r["level"] == "region"]
+        assert [(r["scope"], r["status"], r["denied_by"]) for r in rows] == [
+            (f"{ACCOUNT}/{denied}", "not_applicable", "service_control_policy")]
+        from peaso.server.app import _credential_target_coverage
+        assert [r["scope"] for r in _credential_target_coverage({"snapshot_metadata": metadata})] == [f"{ACCOUNT}/{denied}"]
+    else:
+        # A plain IAM gap of this identity is not proof the Region is unusable.
+        assert metadata["regions"] == [denied, REGION]
+        assert "scp_denied_regions" not in metadata
+        assert scopes == {f"{ACCOUNT}/{REGION}", f"{ACCOUNT}/{denied}"}
+
+
+def test_scp_probe_never_empties_the_discovered_regions(sdk):
+    _, add, _ = sdk
+    other = "eu-west-1"
+    _enabled_regions(add, [REGION, other])
+    for region in (REGION, other):
+        add("ec2", region).add_client_error("describe_vpcs", "UnauthorizedOperation", SCP_DENY, expected_params={})
+    snapshot = aws.collect({"provider": "aws", "scopes": [], "options": {}}, ["aws_account"])
+    assert snapshot["metadata"]["regions"] == [other, REGION]
+    assert "scp_denied_regions" not in snapshot["metadata"]
+
+
+def test_scp_probe_narrows_account_wide_regions_but_not_explicit_regions(sdk):
+    _, add, _ = sdk
+    denied = "eu-west-1"
+    _enabled_regions(add, [REGION, denied])
+    add("ec2").add_response("describe_vpcs", {"Vpcs": []}, {})
+    add("ec2", denied).add_client_error("describe_vpcs", "UnauthorizedOperation", SCP_DENY, expected_params={})
+    add("cloudtrail").add_response("describe_trails", {"trailList": []}, {"includeShadowTrails": True})
+    snapshot = aws.collect({"provider": "aws", "scopes": [ACCOUNT], "options": {"regions": [REGION]}},
+                           ["cloudtrail_account_inventory"])
+    metadata = snapshot["metadata"]
+    assert metadata["account_wide_regions"] == {ACCOUNT: [REGION]}
+    assert metadata["scp_denied_regions"] == {ACCOUNT: [denied]}
+    assert snapshot["scopes"] == [f"{ACCOUNT}/{REGION}"]
+    assert envelope(snapshot, "cloudtrail_account_inventory")["status"] == "empty"
