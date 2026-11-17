@@ -19,7 +19,7 @@ INDEX_TYPES = frozenset(('application/vnd.oci.image.index.v1+json',
 CONTAINER_CONFIG_TYPES = frozenset(('application/vnd.oci.image.config.v1+json',
                                     'application/vnd.docker.container.image.v1+json'))
 # cosign's tag-schema fallback: sha256-<subject hex>[.sig|.att|.sbom|...].
-REFERRER_TAG = re.compile(r'sha256-[0-9a-f]{64}(?:\.[A-Za-z0-9_-]{1,32})?\Z')
+REFERRER_TAG = re.compile(r'sha256-[0-9a-f]+(?:\.[A-Za-z0-9_-]{1,32})?\Z')
 
 
 def is_referrer(row):
