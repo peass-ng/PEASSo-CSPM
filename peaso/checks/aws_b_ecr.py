@@ -11,7 +11,18 @@ def immutable_tags(item, index):
     mode = get(item, "imageTagMutability", str)
     if mode not in {"MUTABLE", "IMMUTABLE", "IMMUTABLE_WITH_EXCLUSION", "MUTABLE_WITH_EXCLUSION"}:
         return unknown("unknown mutability mode", configured=mode)
-    return result(mode != "IMMUTABLE", image_tag_mutability=mode, exclusion_filters=item.get("imageTagMutabilityExclusionFilters", []), semantics="Exact full-immutability source predicate; exclusion modes are preserved rather than normalized to booleans.")
+    filters = item.get("imageTagMutabilityExclusionFilters", [])
+    if mode == "IMMUTABLE_WITH_EXCLUSION" and _cosign_only(filters):
+        return result(False, image_tag_mutability=mode, exclusion_filters=filters, cosign_signature_tags_only=True,
+                      semantics="Only cosign/sigstore sha256-<digest> signature and attestation tags stay mutable; every other tag is immutable, so release tags cannot be overwritten.")
+    return result(mode != "IMMUTABLE", image_tag_mutability=mode, exclusion_filters=filters, semantics="Exact full-immutability source predicate; exclusion modes are preserved rather than normalized to booleans.")
+
+
+def _cosign_only(filters):
+    """Every mutable exclusion is a WILDCARD under cosign's literal ``sha256-`` signature-tag prefix."""
+    return (isinstance(filters, list) and bool(filters)
+            and all(isinstance(f, dict) and f.get("filterType") == "WILDCARD" and isinstance(f.get("filter"), str)
+                    and f["filter"].startswith("sha256-") for f in filters))
 
 
 @install("aws.b.ecr.lifecycle_rules", "ecr_repository", "ECR repository has lifecycle rule metadata", {"LifecyclePolicy": {"lifecyclePolicyText": '{"rules":[{"rulePriority":1}]}'}}, {"LifecyclePolicy": {"collection_status": "empty", "absent": True}}, query="ecr_repository_lifecycle_policy_configured")
