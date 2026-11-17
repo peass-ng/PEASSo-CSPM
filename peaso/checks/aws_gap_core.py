@@ -27,14 +27,16 @@ NATIVE_IDS = []
 CT = "https://docs.aws.amazon.com/awscloudtrail/latest/APIReference/"
 
 
-def install(cid, kind, title, severity, control, remediation, *, category="hardening", target="resource", dependencies=None, cases, ids=None):
+def install(cid, kind, title, severity, control, remediation, *, category="hardening", target="resource", dependencies=None, cases, ids=None,
+            allow_incomplete_failure=False):
     """Register a gap predicate and its behaviour fixtures (``cases`` uses the shared CASES keys)."""
     if not cid.startswith("aws.gap."):
         raise ValueError("aws_gap predicate ids must use the aws.gap. prefix")
     deps = list(dependencies or [kind])
 
     def decorate(function):
-        register(cid, "aws", category, kind, title, severity, control, remediation, target=target, dependencies=deps)(function)
+        register(cid, "aws", category, kind, title, severity, control, remediation, target=target, dependencies=deps,
+                 allow_incomplete_failure=allow_incomplete_failure)(function)
         case = {"missing": {}, "malformed": None, **cases}
         if target == "scope" and "unknown" not in case:
             case["unknown"] = {}
@@ -557,23 +559,90 @@ def securityhub_region(context, index):
 
 ANALYZER = {"arn": "arn:aws:access-analyzer:us-east-1:%s:analyzer/a" % ACCOUNT, "name": "a", "type": "ACCOUNT", "status": "ACTIVE",
             "Findings": [{"id": "f0", "status": "ARCHIVED"}]}
+SCOPE_CONTEXT = {"provider": "aws", "scope": SCOPE, "_scope": SCOPE, "Account": ACCOUNT}
+EXPOSED_BUCKET = {"id": "f1", "status": "ACTIVE", "findingType": "ExternalAccess", "resource": "arn:aws:s3:::shared-bucket",
+                  "resourceType": "AWS::S3::Bucket", "resourceOwnerAccount": ACCOUNT,
+                  "FindingDetails": {"collection_status": "collected", "items": [{"externalAccessDetails": {
+                      "principal": {"AWS": "999988887777"}, "action": ["s3:GetObject"], "condition": {}, "isPublic": False}}]}}
+SCAN_ANALYZER = {"arn": "arn:aws:access-analyzer:us-east-1:%s:analyzer/peaso-scan-0123-external" % ACCOUNT,
+                 "name": "peaso-scan-0123-external", "type": "ACCOUNT", "status": "ACTIVE", "_scan_temporary": True,
+                 "_coverage": {"InitialAnalysis": {"status": "partial", "reason": "initial_analysis_completion_unconfirmed"}},
+                 "Findings": [EXPOSED_BUCKET]}
+
+
+def _scan_index(analyzers):
+    index = idx(access_analyzer=analyzers)
+    envelope = index["collections"]["access_analyzer"][0]
+    envelope.update(status="partial", error={"code": "initial_analysis_completion_unconfirmed"})
+    return index
 
 
 @install("aws.gap.accessanalyzer.no_active_findings", "access_analyzer", "Active IAM Access Analyzer has no active findings", "medium", "AC-6",
     "Review each active Access Analyzer finding and resolve the access or archive it as intended.", category="least_privilege",
-    cases={"pass": ANALYZER, "fail": w(ANALYZER, Findings=[{"id": "f1", "status": "ACTIVE"}]),
-           "not_applicable": w(ANALYZER, status="CREATING"),
-           "variants": [("UNKNOWN", w(ANALYZER, Findings=[{"id": "f1", "status": "future"}]), None)]})
-def analyzer_findings(item, index):
-    status = get(item, "status", str)
-    if status != "ACTIVE":
-        return "NOT_APPLICABLE", {"reason": "analyzer is not ACTIVE", "status": status}
-    findings = list_of_objects(get(item, "Findings", list))
-    states = [f.get("status") for f in findings]
-    if any(s not in ("ACTIVE", "ARCHIVED", "RESOLVED") for s in states):
-        raise Unavailable("unrecognized finding status")
-    active = states.count("ACTIVE")
-    return result(active > 0, active_findings=active, findings=len(findings))
+    target="scope", allow_incomplete_failure=True,
+    cases={"pass": SCOPE_CONTEXT, "pass_index": idx(access_analyzer=[ANALYZER]),
+           "fail": SCOPE_CONTEXT, "fail_index": idx(access_analyzer=[w(ANALYZER, Findings=[EXPOSED_BUCKET])]),
+           "not_applicable": SCOPE_CONTEXT, "not_applicable_index": idx(access_analyzer=[w(ANALYZER, status="CREATING")]),
+           "variants": [("UNKNOWN", SCOPE_CONTEXT, idx(access_analyzer=[w(ANALYZER, Findings=[{"id": "f1", "status": "future"}])])),
+                        ("FAIL", SCOPE_CONTEXT, _scan_index([SCAN_ANALYZER])),
+                        ("UNKNOWN", SCOPE_CONTEXT, _scan_index([w(SCAN_ANALYZER, Findings=[])]))],
+           "unknown": SCOPE_CONTEXT, "unknown_index": _denied_index(idx(access_analyzer=[ANALYZER]), ["access_analyzer"])})
+def analyzer_findings(context, index):
+    """Report active findings by the resources they name, never by a scan-owned analyzer.
+
+    Findings from a temporary scan analyzer are real provider evidence about the
+    customer's resources, so they still fail the Region. A temporary analyzer
+    with no findings proves nothing (its initial analysis may be unfinished).
+    """
+    from .aws_a_facts import scope_subject
+    from .aws_access_analyzer_scope import inventory, describe, is_external_access, is_scan_temporary, bounded, FINDING_STATES
+    scope = scope_subject(context)
+    customer, temporary, listing_complete = inventory(index, scope)
+    active_analyzers = [a for a in customer + temporary if a.get("status") == "ACTIVE"]
+    exposed, other, total, unresolved = [], [], 0, False
+    for analyzer in active_analyzers:
+        try:
+            findings = list_of_objects(get(analyzer, "Findings", list))
+        except Unavailable:
+            unresolved = True
+            continue
+        coverage = analyzer.get("_coverage", {}).get("Findings")
+        if coverage is not None and (not isinstance(coverage, dict) or coverage.get("status") not in ("collected", "empty")):
+            unresolved = True
+        total += len(findings)
+        for finding in findings:
+            state = finding.get("status")
+            if state not in FINDING_STATES:
+                unresolved = True
+            elif state == "ACTIVE":
+                (exposed if is_external_access(finding) else other).append(describe(finding, analyzer))
+    if exposed or other:
+        shown, more = bounded(exposed)
+        evidence = {"active_findings": len(exposed) + len(other), "findings": total,
+                    "external_resources": sorted({row["resource"] for row in exposed if isinstance(row.get("resource"), str)}),
+                    "externally_accessible_resources": shown,
+                    "customer_analyzers": [a.get("arn") for a in customer]}
+        if more:
+            evidence["externally_accessible_resources_not_shown"] = more
+        if other:
+            evidence["other_active_findings"], extra = bounded(other)
+            if extra:
+                evidence["other_active_findings_not_shown"] = extra
+        scan_types = sorted({str(a.get("type")) for a in active_analyzers if is_scan_temporary(a)})
+        if scan_types:
+            evidence["scan_temporary_analyzer"] = ("The account had no %s analyzer here; PEASO created a temporary one for the scan, "
+                                                   "read its findings and deleted it." % "/".join(scan_types))
+        return result(True, **evidence)
+    if unresolved or not listing_complete:
+        raise Unavailable("Access Analyzer findings not fully collected")
+    if not active_analyzers:
+        return "NOT_APPLICABLE", {"reason": "no ACTIVE analyzer in the Region",
+                                  "statuses": [a.get("status") for a in customer]}
+    for analyzer in active_analyzers:
+        initial = analyzer.get("_coverage", {}).get("InitialAnalysis", {})
+        if initial.get("status") not in (None, "collected", "empty"):
+            raise Unavailable("Access Analyzer initial analysis is incomplete")
+    return result(False, active_findings=0, findings=total, customer_analyzers=[a.get("arn") for a in customer])
 
 
 # =========================================================================== Security group high-risk ports (IPv4 and IPv6)
