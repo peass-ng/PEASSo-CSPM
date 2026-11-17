@@ -1,6 +1,7 @@
 """Unregistered optional static package indicators, not Kingfisher equivalence."""
 import re
 from .facts import Unavailable, get
+from peaso import oci_index_20261021 as oci_index
 from .aws_configuration_secret_review_20261019 import _member
 from peaso.collectors.aws_package_content_indicators import (SCHEMA, CATEGORIES, LAMBDA_IMAGE_OPERATION, _arn, _digest, _path,
                                                              image_member_path, parse_ecr_image_uri)
@@ -34,6 +35,22 @@ def _safe_code(value):
 def _incomplete(reason, base):
     return reason == base or (isinstance(reason, str) and reason.startswith(base + ': ') and _safe_code(reason) == reason)
 
+
+def _index_children(graph, digest, complete):
+    """Child manifest digests of the selected multi-platform index, as the collector bound them."""
+    if (not isinstance(graph, dict) or set(graph) != {'parent_digest', 'media_type', 'children', 'complete', 'parent_binding_stable'}
+            or graph['parent_digest'] != digest or graph['media_type'] not in oci_index.INDEX_TYPES
+            or type(graph['complete']) is not bool or type(graph['parent_binding_stable']) is not bool
+            or complete and not (graph['complete'] and graph['parent_binding_stable'])
+            or not isinstance(graph['children'], list) or not 0 < len(graph['children']) <= oci_index.MAX_CHILDREN):
+        raise Unavailable('invalid image index graph')
+    children = set()
+    for child in graph['children']:
+        if (not isinstance(child, dict) or not _digest(child.get('digest')) or child['digest'] == digest
+                or child['digest'] in children):
+            raise Unavailable('invalid image index child')
+        children.add(child['digest'])
+    return children
 
 def evaluate(kind, item, index):
     try:
@@ -82,7 +99,9 @@ def evaluate(kind, item, index):
         if not isinstance(indicator, dict): raise Unavailable('indicator absent')
         expected = {'Schema', 'ResourceId', 'AccountId', 'Region', 'SourceOperation', 'NativeResponseComplete',
                     'collection_status', 'References', 'HighConfidenceSecretPresent', 'Reason'}
-        if (set(indicator) != expected or _field(indicator, 'Schema', str) != SCHEMA or _field(indicator, 'ResourceId', str) != identity
+        # A multi-platform repository image also carries its verified index graph.
+        graph = 'IndexGraph' in indicator and kind == 'ecr_repository'
+        if (set(indicator) - ({'IndexGraph'} if graph else set()) != expected or _field(indicator, 'Schema', str) != SCHEMA or _field(indicator, 'ResourceId', str) != identity
                 or _field(indicator, 'AccountId', str) != account or _field(indicator, 'Region', str) != region
                 or _field(indicator, 'SourceOperation', str) != operation): raise Unavailable('projection provenance absent')
         complete = _field(indicator, 'NativeResponseComplete', bool)
@@ -91,13 +110,15 @@ def evaluate(kind, item, index):
         if indicator['collection_status'] != ('collected' if complete else 'partial') or not (
                 indicator['Reason'] is None if complete else _incomplete(indicator['Reason'], base)):
             raise Unavailable('contradictory completeness')
+        children = _index_children(indicator['IndexGraph'], digest, complete) if graph else None
         refs = _field(indicator, 'References', list)
         if len(refs) > 5000: raise Unavailable('observation limit')
         for ref in refs:
-            if not isinstance(ref, dict) or set(ref) - {'Leaks'} - ({'ChildManifestDigest'} if image is not None else set()) != (
+            if not isinstance(ref, dict) or set(ref) - {'Leaks'} - ({'ChildManifestDigest'} if image is not None or graph else set()) != (
                     {'File', 'Categories', 'LayerDigest'} if layered else {'File', 'Categories'}):
                 raise Unavailable('invalid reference')
             if 'ChildManifestDigest' in ref and not _digest(ref['ChildManifestDigest']): raise Unavailable('invalid image reference')
+            if graph and ref.get('ChildManifestDigest') not in children: raise Unavailable('invalid image reference')
             # Image members keep their real names (``Foo$1.class``, ``a:b``); ZIP members are restricted.
             try:
                 safe = (image_member_path if layered else _path)(get(ref, 'File', str))

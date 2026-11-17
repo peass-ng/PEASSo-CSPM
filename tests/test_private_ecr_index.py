@@ -180,6 +180,30 @@ def test_foreign_child_and_bad_parent_rejected(monkeypatch):
             'imageIds': [{'imageDigest': parent}]}, sdk, object(), REGION)
 
 
+def _repository_check(parent, source):
+    from peaso.checks import aws_package_content_review_20261019 as package_check
+    item = {'repositoryArn': f'arn:aws:ecr:{REGION}:{ACCOUNT}:repository/{REPO}', 'repositoryName': REPO,
+            'registryId': ACCOUNT, 'PackageContentSource': {'collection_status': 'collected',
+            'SelectedImageDigest': parent, **source}}
+    ix = {'context': {'provider': 'aws', 'Account': ACCOUNT, 'scope': SCOPE},
+          'collections': {'ecr_repository': [{'type': 'ecr_repository', 'scope': SCOPE,
+                                             'status': 'collected', 'items': [item]}]}}
+    return package_check.image_layers(item, ix)
+
+
+def test_repository_index_image_leak_fails_and_clean_passes(monkeypatch):
+    parent, raw, leaves, sdk, positive = project(monkeypatch, hit=True)
+    status, evidence = _repository_check(parent, positive)
+    assert status == 'FAIL' and evidence['source_complete'] is True, evidence
+    assert evidence['references'][0]['ChildManifestDigest'] == leaves['amd64'][0]
+    parent, raw, leaves, sdk, clean = project(monkeypatch)
+    assert _repository_check(parent, clean)[0] == 'PASS'
+    # A reference bound to a manifest outside the selected index is not trusted.
+    parent, raw, leaves, sdk, foreign = project(monkeypatch, hit=True)
+    foreign['PackageSecretIndicators']['References'][0]['ChildManifestDigest'] = sha(b'foreign')
+    assert _repository_check(parent, foreign)[0] == 'UNKNOWN'
+
+
 class SDK:
     def __init__(self, parent, raw, leaves, *, deny=None, drift=False):
         import threading
