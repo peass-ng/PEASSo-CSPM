@@ -145,7 +145,27 @@ def evaluate(item, collection):
             'credential_validation': 'not_attempted', 'coverage': 'selected_definition_command_literals_only',
             'scans': deepcopy(item['scans'])}
     except (ValueError, TypeError, KeyError, IndexError, AttributeError, StopIteration):
-        return 'UNKNOWN', {'observed': 'Selected command literal evidence was missing, unsupported, incomplete or unbound. Secret absence could not be assessed.'}
+        return 'UNKNOWN', {'observed': 'Selected command literal evidence was missing, unsupported, incomplete or unbound. Secret absence could not be assessed.',
+                           'reason': _reason(item, collection)}
+
+
+def _reason(row, collection):
+    """Name what kept one selected definition from being assessed."""
+    try:
+        if row.get('native_bound') is not True:
+            return 'definition_not_read'
+        engines = sorted({e['engine'] for s in row.get('scans') or [] for e in s['engines'] if e['status'] != 'complete'})
+        if engines:
+            return 'secret_engine_unavailable: ' + ', '.join(engines)
+        if row.get('native_complete') is not True:
+            return 'definition_read_incomplete'
+        if not row.get('scans'):
+            return 'no_command_literals_scanned'
+        if isinstance(collection, dict) and collection.get('complete') is not True:
+            return 'selected_collection_incomplete'
+        return 'command_evidence_binding_rejected'
+    except (TypeError, KeyError, AttributeError):
+        return 'command_evidence_unreadable'
 
 
 def evaluate_collection(collection):
@@ -169,4 +189,9 @@ def evaluate_collection(collection):
         return 'PASS', {'observed': 'Both offline detectors completed without detecting supported secrets in every selected returned command array. Coverage is limited to the selected active definition revisions.',
             'secret_leaks': [], 'complete': True, 'credential_validation': 'not_attempted',
             'coverage': 'selected_definition_command_literals_only'}
-    return 'UNKNOWN', {'observed': 'Selected command literal coverage was incomplete. Secret absence could not be assessed.'}
+    reasons = sorted({evidence.get('reason') or 'definition_incomplete' for status, evidence in outcomes if status == 'UNKNOWN'}
+                     | ({'definition_incomplete'} if any(status != 'UNKNOWN' and evidence.get('complete') is not True for status, evidence in outcomes) else set()))
+    return 'UNKNOWN', {'observed': 'Selected command literal coverage was incomplete. Secret absence could not be assessed.',
+                       'reason': '%d of %d selected definitions unassessed: %s' % (
+                           sum(status == 'UNKNOWN' or evidence.get('complete') is not True for status, evidence in outcomes),
+                           len(outcomes), ', '.join(reasons))}

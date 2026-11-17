@@ -98,10 +98,27 @@ def _evaluate(item, index, mode):
         if witnesses:
             return result(True, **evidence, observed=f'High-confidence secret categories in {len(witnesses)} sampled record(s); review bounded evidence.')
         if matching[0]['status'] != 'collected' or not sample['complete'] or sample['collection_status'] != 'collected' or sample['errors'] or any(not r['readable'] or r.get('scanner_complete') is not True for r in records):
-            return unknown('incomplete negative scan', **evidence, observed='No category proved in readable records; incomplete scope requires review.')
+            return unknown(_incomplete_reason(mode, sample, records, inspected_events, MAX_LOG_EVENTS, byte_cap), **evidence,
+                           observed='No category proved in readable records; incomplete scope requires review.')
         return result(False, **evidence, observed=f'No supported secret categories in {inspected_events} inspected record(s); only declared bounded scope assessed.')
     except (Unavailable, KeyError, TypeError, ValueError, AttributeError):
         return unknown('content evidence missing, disabled, foreign or malformed', observed='Content scan unavailable or unbound; no secret-absence verdict.')
+
+
+def _incomplete_reason(mode, sample, records, inspected_events, event_cap, byte_cap):
+    """Name the bound or failure that stopped a negative scan from covering its whole scope."""
+    if mode == 'logs' and inspected_events >= event_cap:
+        return f'log window exceeds the {event_cap} event scan bound; first {inspected_events} events scanned without findings'
+    if sample['inspected_bytes'] >= byte_cap:
+        return f'scope exceeds the {byte_cap} byte scan bound'
+    if sample['errors']:
+        codes = sorted({str(e.get('code') or e.get('error') or 'error') if isinstance(e, dict) else str(e) for e in sample['errors']})
+        return 'read errors: ' + ', '.join(codes[:5])
+    if any(not r['readable'] for r in records):
+        return f'{sum(not r["readable"] for r in records)} record(s) unreadable or over the per-record size bound'
+    if any(r.get('scanner_complete') is not True for r in records):
+        return 'secret scanner did not complete for every record'
+    return 'incomplete negative scan'
 
 
 def repository(item, index):

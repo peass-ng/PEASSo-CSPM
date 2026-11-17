@@ -348,6 +348,15 @@ def test_native_both_engine_timeouts_never_clean(monkeypatch):
     monkeypatch.setattr(scanning,'_scan_kingfisher',timeout)
     _,findings,_=collect(monkeypatch,missing_engine='trufflehog',real=True)
     assert [f['status']for f in findings]==['UNKNOWN']
+    assert findings[0]['evidence']['reason'].startswith('secret_engine_unavailable: ')
+
+
+@pytest.mark.parametrize('fmt',source.FORMATS[:1])
+def test_denied_read_names_the_failed_step(monkeypatch,fmt):
+    _,findings,_=collect(monkeypatch,fmt,False,fault='denied')
+    assert [f['status']for f in findings]==['UNKNOWN']
+    reason=findings[0]['evidence']['reason']
+    assert reason.startswith('s3_source_') and reason!='unknown_reason_not_supplied',reason
 
 
 def test_fixed_native_sdk_ignores_configured_endpoint(monkeypatch):

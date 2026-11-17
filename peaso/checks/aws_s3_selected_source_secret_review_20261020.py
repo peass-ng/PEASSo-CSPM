@@ -114,4 +114,29 @@ def evaluate(item, index):
             'source_requests': list(refs), 'object_bytes': obj['length']}
     except (ValueError, KeyError, TypeError, AttributeError, IndexError):
         return 'UNKNOWN', {'observed': 'Selected S3 source content was unreadable, unsupported, incomplete or unbound. A clean result cannot be established.',
-            'complete': False, 'coverage': 'incomplete'}
+            'complete': False, 'coverage': 'incomplete', 'reason': _reason(item, index)}
+
+
+def _reason(item, index):
+    """Name the first read or scan step that kept the selected object unassessed."""
+    try:
+        m = item[MARKER]
+        ledger = {r['id']: r for r in index['context']['metadata'][KIND + '_receipts']}
+        for ref in m['source_requests']:
+            r = ledger.get(ref) or {}
+            if not r.get('bound') or r.get('http_status') != 200:
+                status = r.get('http_status')
+                return 's3_source_%s_%s' % (r.get('phase', 'read'), 'http_%d' % status if type(status) is int else 'failed')
+        if len(m['source_requests']) < 5:
+            return 's3_source_read_not_finished'
+        engines = sorted({e['engine'] for p in m['parts'] for e in p['engines'] if e['status'] != 'complete'})
+        if engines:
+            return 'secret_engine_unavailable: ' + ', '.join(engines)
+        if not m['parts']:
+            return 's3_source_no_supported_text'
+        for flag in ('content_complete', 'head_coherent', 'complete'):
+            if m[flag] is not True:
+                return 's3_source_' + flag + '_false'
+        return 's3_source_evidence_binding_rejected'
+    except (KeyError, TypeError, AttributeError):
+        return 's3_source_not_collected'
