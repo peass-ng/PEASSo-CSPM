@@ -37,7 +37,7 @@ READ_ACTIONS = {
     ("events", "list_event_buses"), ("events", "list_targets_by_rule"),
     ("ssm", "list_inventory_entries"), ("ssm", "list_compliance_items"),
     ("cognito-idp", "list_user_pools"), ("cognito-idp", "describe_user_pool_client"),
-    ("elbv2", "describe_listeners"), ("codepipeline", "get_pipeline"),
+    ("elbv2", "describe_listeners"), ("elbv2", "describe_rules"), ("codepipeline", "get_pipeline"),
     ("apigateway", "get_client_certificate"), ("shield", "describe_protection"),
     ("route53", "get_health_check"), ("kafka", "describe_cluster_v2"),
     ("lambda", "get_function_code_signing_config"), ("lambda", "get_code_signing_config"),
@@ -263,14 +263,22 @@ def _peering(requests, session, region, item):
     return _provenance(item, "describe_vpc_peering_connections")
 
 
+_ACTION_KEYS = ["Type", "Order", ("RedirectConfig", ["Protocol"])]
+
+
 @_each
 def _lb(requests, session, region, item):
     read = requests.pages(session, "elbv2", region, "describe_listeners", "Listeners", LoadBalancerArn=item["LoadBalancerArn"])
-    listeners = _list(read, ["ListenerArn", "Protocol", ("Certificates", ["CertificateArn"])])
+    listeners = _list(read, ["ListenerArn", "Protocol", "Port", ("Certificates", ["CertificateArn"]), ("DefaultActions", _ACTION_KEYS)])
     if read.status in _OK:
         for listener in listeners["items"]:
             # DescribeListeners omits Certificates when none are attached.
             listener.setdefault("Certificates", [])
+            # ALB HTTP listeners that only redirect to HTTPS serve no plaintext content (Security Hub ELB.1);
+            # the same cached DescribeRules read the load_balancer collector issues proves every rule redirects.
+            if item.get("Type") == "application" and listener.get("Protocol") == "HTTP" and isinstance(listener.get("ListenerArn"), str):
+                rules = requests.pages(session, "elbv2", region, "describe_rules", "Rules", ListenerArn=listener["ListenerArn"])
+                listener["Rules"] = _list(rules, ["RuleArn", "IsDefault", ("Actions", _ACTION_KEYS)])
     item["Listeners"] = listeners
     return _provenance(item, "describe_load_balancers")
 

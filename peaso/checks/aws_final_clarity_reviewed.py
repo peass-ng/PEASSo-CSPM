@@ -1023,7 +1023,7 @@ ROWS = json.loads(r'''
   },
   "aws_g6_elbv2_only_https_tls_listeners": {
     "description_fields": {
-      "description": "Checks that ALB/NLB listeners use HTTPS or TLS and declare a certificate."
+      "description": "Checks that ALB/NLB listeners use HTTPS or TLS and declare a certificate; ALB HTTP listeners that only redirect to HTTPS are accepted."
     },
     "remediation_fields": {
       "summary": "Use TLS where this load balancer terminates encryption; preserve intentional encrypted TCP passthrough.",

@@ -95,3 +95,31 @@ def test_actual_swc_producer_shapes(cid,kind,producer):
  fixture['index']['collections'][kind][0]['items']=[item]
  fixture['index'][kind][0]['data']=item
  assert batch.EVALUATORS[cid](item,fixture['index'])[0]=='PASS'
+
+
+@pytest.mark.parametrize('rule_action,expected',[
+ ({'Type':'redirect','RedirectConfig':{'Protocol':'HTTPS','Port':'443'}},'PASS'),
+ ({'Type':'forward','TargetGroupArn':'arn:tg'},'FAIL')])
+def test_swc_producer_collects_http_redirect_rules(rule_action,expected):
+ import copy
+ from peaso.collectors import aws_facts_swc
+ from peaso.collectors.aws import ReadResult
+ cid='aws_g6_elbv2_only_https_tls_listeners'
+ fixture=copy.deepcopy(next(f for f in FIXTURES if f['id']==cid and f['name']=='pass'))
+ raw=copy.deepcopy(fixture['item']);raw.pop('Listeners')
+ https=copy.deepcopy(fixture['item']['Listeners']['items'][0])
+ redirect=[{'Type':'redirect','Order':1,'RedirectConfig':{'Protocol':'HTTPS','Port':'443','StatusCode':'HTTP_301'}}]
+ http={'ListenerArn':https['ListenerArn']+'-http','Protocol':'HTTP','Port':80,'DefaultActions':redirect}
+ calls=[]
+ class OfflineRequests:
+  def pages(self,session,service,region,operation,expression,**arguments):
+   calls.append(operation)
+   if operation=='describe_listeners':return ReadResult([copy.deepcopy(https),copy.deepcopy(http)],'collected')
+   assert operation=='describe_rules' and arguments=={'ListenerArn':http['ListenerArn']}
+   return ReadResult([{'RuleArn':'r1','Priority':'10','IsDefault':False,'Actions':[rule_action]},
+                      {'RuleArn':'r0','Priority':'default','IsDefault':True,'Actions':copy.deepcopy(redirect)}],'collected')
+ item=aws_facts_swc._lb(OfflineRequests(),object(),'us-east-1',[raw])[0]
+ assert calls==['describe_listeners','describe_rules']
+ fixture['index']['collections']['load_balancer_v2'][0]['items']=[item]
+ fixture['index']['load_balancer_v2'][0]['data']=item
+ assert batch.EVALUATORS[cid](item,fixture['index'])[0]==expected

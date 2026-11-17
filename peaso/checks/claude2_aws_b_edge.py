@@ -453,18 +453,22 @@ SECURE_POLICIES = ["ELBSecurityPolicy-TLS-1-2-2017-01", "ELBSecurityPolicy-TLS-1
                    "ELBSecurityPolicy-FS-1-2-Res-2019-08", "ELBSecurityPolicy-FS-1-2-Res-2020-10", "ELBSecurityPolicy-TLS13-1-2-2021-06",
                    "ELBSecurityPolicy-TLS13-1-3-2021-06", "ELBSecurityPolicy-TLS13-1-2-Res-2021-06", "ELBSecurityPolicy-TLS13-1-2-Ext1-2021-06",
                    "ELBSecurityPolicy-TLS13-1-2-Ext2-2021-06"] + PQ_POLICIES
-# Security Hub ELB.17 fixed, noncustomizable sslPolicies parameter, reviewed 2026-10-12.
-# The pinned Steampipe default has six different names; retain that source
-# divergence in the check note rather than treating its old variable as AWS's
-# current recommendation.
+# Security Hub ELB.17 fixed, noncustomizable sslPolicies parameter, re-reviewed 2026-11-17 against
+# https://docs.aws.amazon.com/securityhub/latest/userguide/elb-controls.html#elb-17. AWS dropped the
+# 2021-06/2023-04 Res policies and added the RFC9151 FIPS and TLS13-1-2 (FIPS-)PQ policies. The plain
+# ELBSecurityPolicy-TLS13-1-2-2021-06 (the ELB default) is not on the list. The pinned Steampipe default
+# has different names; that source divergence stays in the check note.
 RECOMMENDED_POLICIES = ["ELBSecurityPolicy-TLS13-1-3-2021-06", "ELBSecurityPolicy-TLS13-1-3-FIPS-2023-04",
-                        "ELBSecurityPolicy-TLS13-1-2-Res-2021-06", "ELBSecurityPolicy-TLS13-1-2-Res-FIPS-2023-04",
                         "ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09", "ELBSecurityPolicy-TLS13-1-3-PQ-2025-09",
-                        "ELBSecurityPolicy-TLS13-1-2-Res-FIPS-PQ-2025-09", "ELBSecurityPolicy-TLS13-1-3-FIPS-PQ-2025-09"]
+                        "ELBSecurityPolicy-TLS13-1-2-Res-FIPS-PQ-2025-09", "ELBSecurityPolicy-TLS13-1-3-FIPS-PQ-2025-09",
+                        "ELBSecurityPolicy-TLS13-1-2-RFC9151-FIPS-2023-07", "ELBSecurityPolicy-TLS13-1-2-RFC9151-INTEROP1-FIPS-2023-07",
+                        "ELBSecurityPolicy-TLS13-1-2-RFC9151-INTEROP2-FIPS-2023-07", "ELBSecurityPolicy-TLS13-1-3-RFC9151-FIPS-2023-07",
+                        "ELBSecurityPolicy-TLS13-1-2-FIPS-PQ-2025-09", "ELBSecurityPolicy-TLS13-1-2-PQ-2025-09"]
 # Explicitly source-reviewed names only. An unrecognized future name must not
 # be reported as a definite obsolete policy solely from its spelling.
 REVIEWED_NON_RECOMMENDED_POLICIES = (set(SECURE_POLICIES) | set(PQ_POLICIES) |
     {"ELBSecurityPolicy-TLS13-1-2-FIPS-2023-04", "ELBSecurityPolicy-TLS13-1-2-2021-06",
+     "ELBSecurityPolicy-TLS13-1-2-Res-2021-06", "ELBSecurityPolicy-TLS13-1-2-Res-FIPS-2023-04",
      "ELBSecurityPolicy-TLS13-1-0-2021-06", "ELBSecurityPolicy-TLS13-1-1-2021-06",
      "ELBSecurityPolicy-TLS-1-1-2017-01", "ELBSecurityPolicy-2016-08", "ELBSecurityPolicy-2015-05"}) - set(RECOMMENDED_POLICIES)
 GOOD_POLICY = "ELBSecurityPolicy-TLS13-1-2-2021-06"
@@ -484,6 +488,8 @@ def _l(protocol, policy=None, certs=(), actions=None, port=443, rules=None):
 
 
 REDIRECT = [{"Type": "redirect", "RedirectConfig": {"Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}]
+REDIRECT_RULE = {"RuleArn": "default", "IsDefault": True, "Actions": REDIRECT}
+FORWARD_RULE = {"RuleArn": "default", "IsDefault": True, "Actions": [{"Type": "forward", "TargetGroupArn": "arn:tg"}]}
 
 
 def _lb(kind="application", listeners=(), attrs=None, scheme="internal", groups=None):
@@ -636,6 +642,65 @@ def v2_nlb_tls(item, index):
     return result("TLS" not in protocols, protocols=protocols)
 
 
+def _routing_redirects_https(actions):
+    """True/False for the terminal routing action of an ALB action list; None when missing or malformed."""
+    actions = list_of_objects(actions)
+    routing = []
+    for action in actions:
+        action_type = get(action, "Type", str)
+        if action_type in ("forward", "redirect", "fixed-response"):
+            routing.append(action)
+        elif action_type not in ("authenticate-oidc", "authenticate-cognito", "jwt-validation"):
+            return None
+    if len(routing) != 1 or routing[0] is not actions[-1]:
+        return None
+    action = routing[0]
+    if get(action, "Type", str) != "redirect":
+        return False
+    config = get(action, "RedirectConfig", dict)
+    # AWS retains the request protocol for #{protocol} or an omitted field.
+    protocol = optional(config, "Protocol", "#{protocol}", str)
+    return protocol == "HTTPS" if protocol in ("HTTP", "HTTPS", "#{protocol}") else None
+
+
+def http_redirect_only_status(row):
+    """Classify a plaintext ALB listener as "redirect", "serving" or "unresolved".
+
+    Plaintext listeners are serving unless the DescribeListeners default action redirects to HTTPS;
+    only then are the DescribeRules facts needed, and incomplete ones are unresolved (UNKNOWN).
+    """
+    try:
+        if _routing_redirects_https(optional(row, "DefaultActions", [], list)) is not True:
+            return "serving"
+    except Unavailable:
+        return "serving"
+    try:
+        return "redirect" if http_listener_redirects_https(row) else "serving"
+    except Unavailable:
+        return "unresolved"
+
+
+def http_listener_redirects_https(row):
+    """Whether an ALB HTTP listener only redirects to HTTPS (Security Hub ELB.1 semantics).
+
+    True when the default action and every DescribeRules routing action redirect to HTTPS, so the
+    listener never serves content in plaintext. False when a known action forwards or responds.
+    Raises Unavailable when the default action or rules are missing, malformed or inconsistent.
+    """
+    default_redirect = _routing_redirects_https(get(row, "DefaultActions", list))
+    rules_container = get(row, "Rules", dict)
+    get(rules_container, "items", list)
+    rules = detail_list(row, "Rules")
+    default_rules = [rule for rule in rules if get(rule, "IsDefault", bool)]
+    if len(default_rules) != 1:
+        raise Unavailable("default listener rule missing or duplicated")
+    rule_redirects = [_routing_redirects_https(get(rule, "Actions", list)) for rule in rules]
+    default_rule_redirect = rule_redirects[rules.index(default_rules[0])]
+    if default_redirect is None or any(value is None for value in rule_redirects) or default_redirect != default_rule_redirect:
+        raise Unavailable("listener rule actions incomplete or inconsistent with default action")
+    return bool(default_redirect) and all(rule_redirects)
+
+
 @install("aws.c2b.elbv2.http_listeners_redirect_https", "load_balancer", "ALB HTTP listener defaults and all rules redirect to HTTPS",
          _lb(listeners=[_l("HTTPS", GOOD_POLICY, [ACM_ARN]), _l("HTTP", port=80, actions=REDIRECT,
                             rules=[{"RuleArn": "default", "IsDefault": True, "Actions": REDIRECT}])]),
@@ -655,26 +720,6 @@ def v2_http_redirect(item, index):
     kind = _type(item)
     if kind != "application":
         return "NOT_APPLICABLE", {"type": kind}
-    def redirects(actions):
-        """Return None when the terminal routing action is missing or malformed."""
-        actions = list_of_objects(actions)
-        routing = []
-        for action in actions:
-            action_type = get(action, "Type", str)
-            if action_type in ("forward", "redirect", "fixed-response"):
-                routing.append(action)
-            elif action_type not in ("authenticate-oidc", "authenticate-cognito", "jwt-validation"):
-                return None
-        if len(routing) != 1 or routing[0] is not actions[-1]:
-            return None
-        action = routing[0]
-        if get(action, "Type", str) != "redirect":
-            return False
-        config = get(action, "RedirectConfig", dict)
-        # AWS retains the request protocol for #{protocol} or an omitted field.
-        protocol = optional(config, "Protocol", "#{protocol}", str)
-        return protocol == "HTTPS" if protocol in ("HTTP", "HTTPS", "#{protocol}") else None
-
     listeners = get(item, "Listeners", dict)
     get(listeners, "items", list)  # A collected container without items is incomplete.
     plain, unresolved = [], []
@@ -691,18 +736,7 @@ def v2_http_redirect(item, index):
         if protocol != "HTTP":
             continue
         try:
-            default_redirect = redirects(get(row, "DefaultActions", list))
-            rules_container = get(row, "Rules", dict)
-            get(rules_container, "items", list)
-            rules = detail_list(row, "Rules")
-            default_rules = [rule for rule in rules if get(rule, "IsDefault", bool)]
-            if len(default_rules) != 1 or not rules:
-                raise Unavailable("default listener rule missing or duplicated")
-            rule_redirects = [redirects(get(rule, "Actions", list)) for rule in rules]
-            default_rule_redirect = rule_redirects[rules.index(default_rules[0])]
-            if default_redirect is None or any(value is None for value in rule_redirects) or default_redirect != default_rule_redirect:
-                raise Unavailable("listener rule actions incomplete or inconsistent with default action")
-            if not default_redirect or not all(rule_redirects):
+            if not http_listener_redirects_https(row):
                 plain.append(arn)
         except Unavailable:
             unresolved.append(arn)
@@ -877,7 +911,7 @@ def alb_egress(item, index):
          rows=[C + "elb_application_network_lb_https_tls_listener_recommended_security_policy", C + "foundational_security_elb_17"], severity="medium", control="SC-8",
          remediation="Review client compatibility and set listener SslPolicy to a current Security Hub ELB.17 approved policy; AWS recommends the 2025-09 Res-PQ or Res-FIPS-PQ policy where supported.", docs=[D_ALB_POL, D_NLB_POL, "https://docs.aws.amazon.com/securityhub/latest/userguide/elb-controls.html#elb-17"],
          extra={"not_applicable": _lb(listeners=[_l("HTTP", port=80)]), "gateway": _lb("gateway"), "gateway_expect": "NOT_APPLICABLE"},
-         note="Security Hub ELB.17 fixed sslPolicies parameter reviewed 2026-10-12 = " + str(RECOMMENDED_POLICIES) + ". The pinned Steampipe default set differs "
+         note="Security Hub ELB.17 fixed sslPolicies parameter reviewed 2026-11-17 = " + str(RECOMMENDED_POLICIES) + ". The pinned Steampipe default set differs "
               "(six older names, no PQ), so its framework row needs separate scope review. Only ALB HTTPS and NLB TLS listeners are evaluated; "
               "known other policies fail, while missing or unreviewed names are UNKNOWN. The pinned query's else branch alarmed on every HTTP/TCP listener.")
 def v2_recommended(item, index):
@@ -904,35 +938,78 @@ def v2_recommended(item, index):
     return result(False, approved_policies=[_policy(row) for row in rows])
 
 
+def _plaintext_listeners(item, kind):
+    """Split non-TLS listeners into (serving, unresolved, redirect-only) listener rows.
+
+    An ALB HTTP listener whose default action and every rule redirect to HTTPS never serves
+    content in plaintext (Security Hub ELB.1 semantics), so it is not a plaintext listener.
+    """
+    wanted = "HTTPS" if kind == "application" else "TLS"
+    serving, unresolved, redirects = [], [], []
+    for row in _listeners(item):
+        if _protocol(row) == wanted:
+            continue
+        if kind == "application" and _protocol(row) == "HTTP":
+            {"redirect": redirects, "serving": serving, "unresolved": unresolved}[http_redirect_only_status(row)].append(row)
+            continue
+        serving.append(row)
+    return serving, unresolved, redirects
+
+
+def _listener_label(row):
+    return _protocol(row) + ":" + str(get(row, "Port", int))
+
+
 @install("aws.c2b.elbv2.listeners_acm_certificate", "load_balancer", "Every ALB/NLB listener uses an ACM certificate",
-         _lb(listeners=[_l("HTTPS", GOOD_POLICY, [ACM_ARN])]), _lb(listeners=[_l("HTTPS", GOOD_POLICY, [ACM_ARN]), _l("HTTP", port=80, actions=REDIRECT)]),
+         _lb(listeners=[_l("HTTPS", GOOD_POLICY, [ACM_ARN]), _l("HTTP", port=80, actions=REDIRECT, rules=[REDIRECT_RULE])]),
+         _lb(listeners=[_l("HTTPS", GOOD_POLICY, [ACM_ARN]), _l("HTTP", port=80, rules=[FORWARD_RULE])]),
          rows=[C + "elb_application_network_lb_use_ssl_certificate"], severity="medium", control="SC-17",
-         remediation="Terminate TLS on every listener with an ACM certificate (replace HTTP/TCP listeners with HTTPS/TLS).", docs=[D_LISTENER, D_ACM],
-         extra={"iam": _lb("network", listeners=[_l("TLS", GOOD_POLICY, [IAM_CERT_ARN])]), "iam_expect": "FAIL", "not_applicable": _lb("gateway")},
-         note="Faithful to the pinned query: any listener without an ACM certificate, including plain HTTP/TCP listeners, alarms; no listeners passes.")
+         remediation="Terminate TLS on every listener with an ACM certificate (replace HTTP/TCP listeners with HTTPS/TLS).", docs=[D_LISTENER, D_ACM, D_RULES],
+         extra={"iam": _lb("network", listeners=[_l("TLS", GOOD_POLICY, [IAM_CERT_ARN])]), "iam_expect": "FAIL", "not_applicable": _lb("gateway"),
+                "redirect_without_rules": _lb(listeners=[_l("HTTPS", GOOD_POLICY, [ACM_ARN]), _l("HTTP", port=80, actions=REDIRECT)]),
+                "redirect_without_rules_expect": "UNKNOWN"},
+         note="Pinned query semantics: any listener without an ACM certificate, including plain HTTP/TCP listeners, alarms; no listeners passes. "
+              "An ALB HTTP listener whose default action and every rule redirect to HTTPS cannot hold a certificate and serves nothing in "
+              "plaintext, so it is excluded; incomplete rule facts for it are UNKNOWN.")
 def v2_acm(item, index):
     kind = _type(item)
     if kind == "gateway":
         return "NOT_APPLICABLE", {"type": kind}
-    bare = [get(row, "ListenerArn", str) for row in _listeners(item) if not any(":acm:" in arn for arn in _certificates(row))]
-    return result(bool(bare), listeners_without_acm_certificate=bare)
+    _, unresolved, redirects = _plaintext_listeners(item, kind)
+    skipped = {id(row) for row in unresolved + redirects}
+    bare = [get(row, "ListenerArn", str) for row in _listeners(item)
+            if id(row) not in skipped and not any(":acm:" in arn for arn in _certificates(row))]
+    if bare:
+        return result(True, listeners_without_acm_certificate=bare)
+    if unresolved:
+        return unknown("HTTP listener rules incomplete", unresolved_listeners=[get(row, "ListenerArn", str) for row in unresolved])
+    return result(False, listeners_without_acm_certificate=[], https_redirect_listeners=[_listener_label(row) for row in redirects])
 
 
 @install("aws.c2b.elbv2.listeners_secure_protocol", "load_balancer", "ALB listeners use HTTPS and NLB listeners use TLS",
-         _lb("network", listeners=[_l("TLS", GOOD_POLICY, [ACM_ARN])]), _lb(listeners=[_l("HTTPS", GOOD_POLICY, [ACM_ARN]), _l("HTTP", port=80, actions=REDIRECT)]),
+         _lb(listeners=[_l("HTTPS", GOOD_POLICY, [ACM_ARN]), _l("HTTP", port=80, actions=REDIRECT, rules=[REDIRECT_RULE])]),
+         _lb(listeners=[_l("HTTPS", GOOD_POLICY, [ACM_ARN]), _l("HTTP", port=80, rules=[FORWARD_RULE])]),
          rows=[C + "elb_application_network_listener_uses_secure_protocol", C + "foundational_security_elb_18"], severity="medium", control="SC-8",
-         remediation="Use HTTPS listeners on application load balancers and TLS listeners on network load balancers.", docs=[D_LISTENER, "https://docs.aws.amazon.com/securityhub/latest/userguide/elb-controls.html#elb-18"],
-         extra={"not_applicable": _lb("gateway"), "no_listeners": _lb("application"), "no_listeners_expect": "NOT_APPLICABLE"})
+         remediation="Use HTTPS listeners on application load balancers and TLS listeners on network load balancers.", docs=[D_LISTENER, D_RULES, "https://docs.aws.amazon.com/securityhub/latest/userguide/elb-controls.html#elb-18"],
+         extra={"not_applicable": _lb("gateway"), "no_listeners": _lb("application"), "no_listeners_expect": "NOT_APPLICABLE",
+                "nlb_tls": _lb("network", listeners=[_l("TLS", GOOD_POLICY, [ACM_ARN])]), "nlb_tls_expect": "PASS",
+                "nlb_tcp": _lb("network", listeners=[_l("TLS", GOOD_POLICY, [ACM_ARN]), _l("TCP", port=80)]), "nlb_tcp_expect": "FAIL",
+                "redirect_without_rules": _lb(listeners=[_l("HTTP", port=80, actions=REDIRECT)]), "redirect_without_rules_expect": "UNKNOWN"},
+         note="An ALB HTTP listener whose default action and every rule redirect to HTTPS (Security Hub ELB.1 semantics) serves no plaintext "
+              "content and is not flagged; the strict ELB.18 Config rule also flags such redirect listeners. Incomplete rule facts are UNKNOWN.")
 def v2_secure_protocol(item, index):
     kind = _type(item)
     if kind == "gateway":
         return "NOT_APPLICABLE", {"type": kind}
-    rows = _listeners(item)
-    if not rows:
+    if not _listeners(item):
         return "NOT_APPLICABLE", {"reason": "no listeners"}
     wanted = "HTTPS" if kind == "application" else "TLS"
-    plain = [_protocol(row) + ":" + str(get(row, "Port", int)) for row in rows if _protocol(row) != wanted]
-    return result(bool(plain), insecure_listeners=plain, required_protocol=wanted)
+    serving, unresolved, redirects = _plaintext_listeners(item, kind)
+    if serving:
+        return result(True, insecure_listeners=[_listener_label(row) for row in serving], required_protocol=wanted)
+    if unresolved:
+        return unknown("HTTP listener rules incomplete", unresolved_listeners=[_listener_label(row) for row in unresolved])
+    return result(False, insecure_listeners=[], required_protocol=wanted, https_redirect_listeners=[_listener_label(row) for row in redirects])
 
 
 # =========================================================================== Classic ELB
