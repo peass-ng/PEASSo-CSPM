@@ -43,3 +43,26 @@ def test_complete_scans_report_no_engine_reason(monkeypatch):
     monkeypatch.setattr(secret_scanning, '_scan_trufflehog', lambda *args: [])
     assert p._scan(b'ready=true', 'config.py', REQUESTS) == []
     assert secret_scanning.UNAVAILABLE_REASONS.get() == ()
+
+
+def test_a_window_that_misses_the_short_deadline_gets_one_longer_attempt(monkeypatch):
+    timeouts = []
+    def slow_once(payload, path, timeout):
+        timeouts.append(timeout)
+        if len(timeouts) == 1:
+            raise TimeoutError('scanner deadline')
+        return []
+    monkeypatch.setattr(secret_scanning, '_scan_kingfisher', lambda *args: [])
+    monkeypatch.setattr(secret_scanning, '_scan_trufflehog', slow_once)
+    assert p._scan(b'ready=true', 'config.py', REQUESTS) == []
+    assert timeouts[0] < timeouts[1] <= 60
+
+
+def test_a_window_that_keeps_timing_out_stays_incomplete(monkeypatch):
+    def slow(*args):
+        raise TimeoutError('scanner deadline')
+    monkeypatch.setattr(secret_scanning, '_scan_kingfisher', lambda *args: [])
+    monkeypatch.setattr(secret_scanning, '_scan_trufflehog', slow)
+    with pytest.raises(p.PartialArchive) as partial:
+        p._scan(b'ready=true', 'config.py', REQUESTS)
+    assert partial.value.causes == ('trufflehog_timeouterror_scanner_deadline',)

@@ -222,6 +222,11 @@ def _scan(raw, name, requests):
     check_lease(requests)
     with source_context(path=name):
         outcome = scan_content(bytes(raw), name)
+        # A busy task can starve one window past the short default deadline;
+        # give only that window one longer, still bounded, attempt.
+        if not outcome['complete'] and UNAVAILABLE_REASONS.get() and all(
+                'timeouterror' in reason for reason in UNAVAILABLE_REASONS.get()):
+            outcome = scan_content(bytes(raw), name, timeout=60)
         categories = inspect_text(raw.decode('latin-1'), 'unused')['MatchedCategories']
     if outcome['leaks']:
         categories = sorted(set(categories) | {'secret'})

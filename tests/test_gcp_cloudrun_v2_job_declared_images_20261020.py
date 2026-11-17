@@ -368,7 +368,8 @@ def test_real_positive_after_incomplete_config_and_first_layer(real, monkeypatch
     def wrapper(name, original):
         def scan(payload, path, timeout):
             calls[name] = calls.get(name, 0) + 1
-            if calls[name] <= 2: raise TimeoutError()
+            # Config, first layer and that layer's one longer retry all time out.
+            if calls[name] <= 3: raise TimeoutError()
             return original(payload, path, timeout)
         return scan
     for name in ('_scan_kingfisher', '_scan_trufflehog'):
