@@ -159,3 +159,52 @@ def test_old_dynamo_reservation_release_cannot_free_resumed_capacity(tmp_path):
         assert store.release_admission(tenant, job["id"], 1) is False
         capacity = client.get_item(TableName="fenced_resume", Key=attrs({"PK": "GLOBAL", "SK": "SCAN_CAPACITY"}))
         assert row(capacity["Item"])["active_count"] == 0
+
+
+def test_dynamo_reconcile_admissions_queries_reservations_without_table_scan():
+    boto3 = pytest.importorskip("boto3")
+    moto = pytest.importorskip("moto")
+    from peaso.storage.dynamodb import DynamoStore, attrs, row
+    with moto.mock_aws():
+        client = boto3.client("dynamodb", region_name="us-east-1")
+        client.create_table(TableName="reconcile", KeySchema=[{"AttributeName": "PK", "KeyType": "HASH"},
+                                                    {"AttributeName": "SK", "KeyType": "RANGE"}],
+                            AttributeDefinitions=[{"AttributeName": "PK", "AttributeType": "S"},
+                                                  {"AttributeName": "SK", "AttributeType": "S"}],
+                            BillingMode="PAY_PER_REQUEST")
+
+        class NoScanClient:
+            forbid_scan = False
+
+            def __getattr__(self, name):
+                if name == "scan" and self.forbid_scan:
+                    raise AssertionError("reconcile_admissions must not scan the table")
+                return getattr(client, name)
+
+        guarded = NoScanClient()
+        store = DynamoStore("reconcile", guarded)
+        now = time.time()
+        tenant = "owner"
+        connector = store.add_connector(tenant, {"provider": "aws", "scopes": ["123456789012/us-east-1"],
+                                                "options": {}, "input_mode": "live"}, "sealed-auth")
+        job = store.enqueue(tenant, {"connector_id": connector["id"], "checks": ["example"]},
+                            limit=2, timeout=120, now=now)
+        assert store.admit(tenant, job["id"], now=now + 1)
+        # An orphaned reservation whose job no longer exists frees its capacity.
+        client.put_item(TableName="reconcile", Item=attrs(dict(
+            store._reservation_key(tenant, "missing-job", 0), kind="scan_reservation",
+            id="missing-job", tenant=tenant, attempt=0)))
+        client.update_item(TableName="reconcile", Key=attrs({"PK": "GLOBAL", "SK": "SCAN_CAPACITY"}),
+                           UpdateExpression="ADD active_count :one",
+                           ExpressionAttributeValues=attrs({":one": 1}))
+        guarded.forbid_scan = True
+        store.reconcile_admissions(now=now + 3)
+        orphan = client.get_item(TableName="reconcile", Key=attrs(store._reservation_key(tenant, "missing-job", 0)))
+        assert "Item" not in orphan
+        live = client.get_item(TableName="reconcile", Key=attrs(store._reservation_key(tenant, job["id"], 0)))
+        assert "Item" in live
+        capacity = client.get_item(TableName="reconcile", Key=attrs({"PK": "GLOBAL", "SK": "SCAN_CAPACITY"}))
+        assert row(capacity["Item"])["active_count"] == 1
+        # A past-deadline admitted job is still expired by the reconcile pass.
+        store.reconcile_admissions(now=now + 10_000)
+        assert store.job(tenant, job["id"])["status"] == "timed_out"
