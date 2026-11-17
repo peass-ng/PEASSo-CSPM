@@ -1052,9 +1052,24 @@ class DynamoStore:
         except ClientError:
             return False
 
+    def _reservations(self):
+        # Every reservation lives under PK=GLOBAL (see _reservation_key), so a
+        # strongly consistent Query finds them all without reading the table.
+        arguments = {"TableName": self.table, "ConsistentRead": True,
+                     "KeyConditionExpression": "PK=:global AND begins_with(SK,:prefix)",
+                     "ExpressionAttributeValues": attrs({":global": "GLOBAL", ":prefix": "SCAN_RESERVATION/"})}
+        result = []
+        while True:
+            page = self.client.query(**arguments)
+            result += [value for value in (row(item) for item in page.get("Items", []))
+                       if value.get("kind") == "scan_reservation"]
+            if not page.get("LastEvaluatedKey"):
+                return result
+            arguments["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+
     def reconcile_admissions(self, now=None):
         now = time.time() if now is None else now
-        for reservation in self._scan("scan_reservation"):
+        for reservation in self._reservations():
             try:
                 job = self.job(reservation["tenant"], reservation["id"])
             except StoreError as exc:
