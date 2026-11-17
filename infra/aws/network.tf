@@ -55,10 +55,12 @@ resource "aws_vpc_endpoint" "s3" {
       Resource = "${aws_s3_bucket.ai_transport.arn}/invocations/*"
     },
     {
-      # Customer roles still control authorization. Endpoint routing allows
-      # configuration-only inventory while denying customer object contents.
+      # Customer roles still control authorization. In-Region buckets are read
+      # through this endpoint, so it must allow every S3 read the collector
+      # issues (bucket configuration, sampled object ACLs and the object reads
+      # of explicitly selected leak sources); other Regions bypass it anyway.
       Effect   = "Allow", Principal = "*",
-      Action   = ["s3:ListAllMyBuckets", "s3:GetAccountPublicAccessBlock", "s3:GetBucketAcl", "s3:GetBucketLocation", "s3:GetBucketLogging", "s3:GetBucketPolicy", "s3:GetBucketPolicyStatus", "s3:GetBucketPublicAccessBlock", "s3:GetBucketVersioning", "s3:GetEncryptionConfiguration", "s3:GetBucketOwnershipControls"],
+      Action   = ["s3:ListAllMyBuckets", "s3:GetAccountPublicAccessBlock", "s3:GetBucketAcl", "s3:GetBucketLocation", "s3:GetBucketLogging", "s3:GetBucketPolicy", "s3:GetBucketPolicyStatus", "s3:GetBucketPublicAccessBlock", "s3:GetBucketVersioning", "s3:GetEncryptionConfiguration", "s3:GetBucketOwnershipControls", "s3:GetLifecycleConfiguration", "s3:GetBucketNotification", "s3:GetReplicationConfiguration", "s3:GetBucketObjectLockConfiguration", "s3:GetBucketTagging", "s3:GetBucketWebsite", "s3:ListBucket", "s3:GetObject", "s3:GetObjectVersion", "s3:GetObjectAcl"],
       Resource = "*"
     }
   ] })
