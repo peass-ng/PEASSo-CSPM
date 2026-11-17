@@ -38480,6 +38480,9 @@ def federated_findings(snapshot, resources):
             title = "Workforce federation trust review"
         elif resource["type"] == "workload_identity_provider" and evidence.get("provider_type") not in (None, "oidc"):
             title = "Workload federation trust review"
+        elif evidence.get("federated_trusts") and all("saml-provider/" in str(review.get("federated_principal")).lower()
+                                                       for review in evidence["federated_trusts"]):
+            title = "Federated (SAML) trust review"
         elif status == "FAIL":
             title = "Federated (OIDC) trust is not pinned to a subject"
         else:

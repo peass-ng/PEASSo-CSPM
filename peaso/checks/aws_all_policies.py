@@ -7,6 +7,7 @@ from pathlib import Path
 from . import register, result, unknown
 from .facts import Unavailable, complete_items, get, list_of_objects, memoized
 from .aws_policy_source_correction import CORRECTIONS
+from .aws_policy_boundary_usage import boundary_only
 
 MODES = {
     'aws.nist.all_iam_policies_no_star_star': 'star',
@@ -62,6 +63,8 @@ def _documents(index):
         detail = get(row, 'DefaultDocument', dict)
         if get(detail, 'VersionId', str) != get(row, 'DefaultVersionId', str):
             raise Unavailable('default policy version mismatch')
+        if boundary_only(row):
+            continue  # A permissions boundary only limits access; it grants nothing.
         out.extend((arn, statement) for statement in _statements(get(detail, 'Document', dict)))
     return out
 

@@ -77,7 +77,9 @@ def test_credential_report_console_and_all_principal_mfa_variants_are_distinct(p
     item = {"password_enabled": password, "mfa_active": mfa}
     assert REGISTRY["aws.a.iam.report_console_mfa"].evaluate(item, {})[0] == expected
     if mfa == "false":
-        assert REGISTRY["aws.a.iam.report_all_mfa"].evaluate(item, {})[0] == "FAIL"
+        # Every principal that can sign in needs MFA; one with no console password has nothing for MFA to protect.
+        all_mfa = {"true": "FAIL", "false": "NOT_APPLICABLE", "not_supported": "FAIL"}[password]
+        assert REGISTRY["aws.a.iam.report_all_mfa"].evaluate(item, {})[0] == all_mfa
 
 
 def test_root_key_count_is_not_a_boolean_and_mfa_flag_is_bounded():

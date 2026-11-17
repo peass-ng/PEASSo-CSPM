@@ -96,6 +96,10 @@ def hardware_mfa(item, index):
     enabled = get(summaries[0], "SummaryMap.AccountMFAEnabled", int)
     if enabled not in (0, 1):
         return unknown("invalid account MFA summary value")
+    from .aws_a_iam import ROOT_WITHOUT_CREDENTIALS, root_without_credentials
+    if enabled != 1 and root_without_credentials(summaries[0]):
+        return "NOT_APPLICABLE", {"reason": ROOT_WITHOUT_CREDENTIALS, "account_mfa_enabled": enabled,
+                                  "root_credentials_present": False}
     devices = complete_items(index, "iam_virtual_mfa_device", scope)
     account = scope.split("/")[0]
     virtual_root = False
