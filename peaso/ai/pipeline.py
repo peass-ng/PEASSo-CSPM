@@ -4,6 +4,7 @@ import copy
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -21,6 +22,8 @@ from peaso.server.config import Settings
 from .auth import personal_token
 from .contracts import validate_actions, validate_network
 from . import isolation
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _priorities_have_evidence(report, reviews, network_input):
@@ -721,7 +724,9 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                                                     require_assessment=True)
                 result['actions'] = recommendations['actions']
                 result['limitations'].extend(recommendations['limitations'])
-            except Exception:
+            except Exception as exc:
+                # Exception class only: messages may carry model or tenant data.
+                LOGGER.warning('AI priorities stage failed: %s', type(exc).__name__)
                 failed_stage = True
                 result['limitations'].append('Prioritized recommendations could not be completed.')
         result['status'] = 'partial' if failed_stage else 'completed'

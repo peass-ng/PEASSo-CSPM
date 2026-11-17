@@ -1331,7 +1331,7 @@ def _dedupe_cross_scope(findings, native_ids, provider):
         elif finding["resource_id"].startswith("inventory:") and finding["status"] in ("EMPTY", "UNKNOWN"):
             shape = json.dumps(finding.get("evidence"), sort_keys=True, default=str)
             groups[("inventory", (finding["resource_id"], finding["status"], shape))].append(position)
-    replaced, dropped = {}, set()
+    replaced, dropped, collapsed = {}, set(), set()
     for (kind, key), members in groups.items():
         if len(members) < 2:
             continue
@@ -1353,11 +1353,24 @@ def _dedupe_cross_scope(findings, native_ids, provider):
             scope = _common_scope(provider, scopes)
             merged = dict(first, id=digest([provider, scope, first["resource_id"], first["check_id"]]), scope=scope,
                 evidence=dict(first["evidence"], scopes=scopes, scope_count=len(scopes)))
+            collapsed.add(members[0])
         replaced[members[0]] = merged
         dropped.update(members[1:])
     if not replaced:
         return findings
-    return [replaced.get(position, finding) for position, finding in enumerate(findings) if position not in dropped]
+    output = [replaced.get(position, finding) for position, finding in enumerate(findings) if position not in dropped]
+    # Finding ids are unique report keys. Two collapsed inventory rows of one
+    # check, resource and status can differ only in evidence (for example
+    # "partial" in some regions, "unknown" in others) and share a scope: keep
+    # the plain id when it is unique and otherwise add the evidence shape.
+    counts = Counter(row["id"] for row in output)
+    for position in collapsed:
+        merged = replaced[position]
+        if counts[merged["id"]] > 1:
+            shape = json.dumps(findings[position].get("evidence"), sort_keys=True, default=str)
+            merged["id"] = digest([provider, merged["scope"], merged["resource_id"], merged["check_id"],
+                                   merged["status"], shape])
+    return output
 
 
 def _scope_check_scopes(snapshot, check):

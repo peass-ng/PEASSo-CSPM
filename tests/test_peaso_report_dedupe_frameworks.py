@@ -331,6 +331,27 @@ def test_not_collected_inventory_rows_merge_but_distinct_statuses_do_not(registr
     assert rows[1]["evidence"]["scopes"] == SCOPES[1:]
 
 
+def test_inventory_rows_differing_only_in_collection_status_keep_unique_ids_for_ai(registry, tmp_path):
+    # Some regions report a partial collection, others an unknown one: both
+    # collapse to UNKNOWN account-level rows that must remain distinct report
+    # keys, or the Priorities context cannot be built for the scan.
+    scopes = SCOPES + [f"{ACCOUNT}/ap-south-1"]
+    collections = [{"type": "lambda_function", "scope": scope, "service": "lambda", "status": status, "items": [],
+                    "error": {"code": "coverage_incomplete"}}
+                   for scope, status in zip(scopes, ("partial", "partial", "unknown", "unknown"))]
+    snapshot = make_snapshot("aws", scopes, collections, created_at="2026-01-01T00:00:00+00:00")
+    report = evaluate_snapshot(snapshot, categories=["hardening"], checks=[LAMBDA.id])
+    rows = _rows(report, LAMBDA.id)
+    assert sorted((f["status"], f["evidence"]["collection_status"], tuple(f["evidence"]["scopes"])) for f in rows) == [
+        ("UNKNOWN", "partial", tuple(scopes[:2])), ("UNKNOWN", "unknown", tuple(scopes[2:]))]
+    assert len({f["id"] for f in report["findings"]}) == len(report["findings"])
+
+    from peaso.ai.briefing import build
+    from peaso.ai.pipeline import private_json
+    build(tmp_path, {"report": report, "inventory": []}, [], [], private_json)
+    assert (tmp_path / "platform.json").is_file()
+
+
 def test_labels_are_stored_once_per_check_and_round_trip_losslessly():
     snapshot = demo_snapshot("aws")
     report = evaluate_snapshot(snapshot, include_not_applicable=False)
