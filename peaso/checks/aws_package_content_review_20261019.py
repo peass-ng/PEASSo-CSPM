@@ -169,7 +169,7 @@ DETAILS = [
   'Publish a reviewed Lambda layer without embedded credentials, replace affected function attachments, and rotate confirmed exposed credentials.'),
  ('ecr_repository', 'image_layers', 'ecr', 'ecr_repository_image_no_secrets',
   '0bf55a8808f33f5a2091c8d685e1fb65395b1d5df49733190a9770910817fe99',
-  'Complete DescribeImages inventory selects one uniquely latest pushed digest. Only a single-platform OCI/Docker schema-2 manifest is supported: inspect config Env/history and every regular tar/gzip layer file, including deleted-file layers. Multiarch indexes are UNKNOWN rather than sampling a platform; older images are outside scope. Digest integrity is checked transiently. Limits: 16 MiB actual per blob, 32 MiB actual per image, 64 MiB expanded and 5000 members across config/layers.',
+  'Complete DescribeImages inventory selects one uniquely latest pushed digest. Single-platform OCI/Docker schema-2 manifests and every child of a multi-platform index are supported: inspect config Env/history and every regular tar/gzip layer file, including deleted-file layers. No platform is sampled; older images are outside scope. Digest integrity is checked transiently. Limits: 16 MiB actual per blob, 32 MiB actual per image, 64 MiB expanded and 5000 members across config/layers.',
   'Rebuild and republish the ECR image without literal credentials in environment, build history or filesystem layers, and rotate confirmed exposed values.'),
 ]
 DECLARATIONS, ADMISSION_DATA = [], {'schema_version': 1, 'checks': []}
