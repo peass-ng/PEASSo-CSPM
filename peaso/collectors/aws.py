@@ -1256,6 +1256,8 @@ SPECS = {
 GLOBAL_TYPES = {"iam_customer_policy", "iam_managed_policy", "aws_account", "aws_account_configuration", "cloudtrail_account_inventory", "config_account_region_coverage", "config_account_aggregator_inventory", "config_delegated_administrator", "iam_user", "iam_group", "iam_role", "iam_policy", "iam_account_summary", "iam_password_policy", "iam_credential_report", "iam_access_key", "iam_virtual_mfa_device", "iam_server_certificate", "bucket", "s3_account_public_access_block", "organization_account", "organization_parent", "scp_policy"}
 AWS_TYPES = sorted(set(SPECS) | GLOBAL_TYPES)
 GLOBAL_SCOPE = "global"
+# Home region of each partition's global endpoints (S3, S3 Control, IAM, ...).
+_PARTITION_HOME_REGIONS = ("us-east-1", "us-gov-west-1", "cn-north-1")
 # Account inventories assembled from every enabled Region, even with a Region list.
 ACCOUNT_WIDE_REGIONAL_KINDS = frozenset({"config_account_aggregator_inventory", "cloudtrail_account_inventory",
     "macie2_account_classification_job_inventory", "metric_alarm_account_inventory"})
@@ -2401,6 +2403,29 @@ def collect(connector, requirements=None):
             return list(dict.fromkeys(paired_regions[account]))
         return discovered_regions.get(account, regions)
 
+    def global_regions(account):
+        """Scan regions for account-wide reads, the partition home region first.
+
+        Enabled regions are sorted, so the first one is often a region (such as
+        ap-northeast-1) that a region-restricting SCP denies. Account-wide
+        reads therefore start in the partition home region when it is scanned.
+        """
+        candidates = list(regions_for(account))
+        home = next((name for name in _PARTITION_HOME_REGIONS if name in candidates), None)
+        return ([home] if home else []) + [name for name in candidates if name != home]
+
+    def global_read(account, read):
+        """Run an account-wide regional read, moving to the next scanned region
+        on denial (an explicit region deny); the first denial is kept when every
+        region is denied."""
+        first = None
+        for region in global_regions(account):
+            result = read(region)
+            if result.status != "denied":
+                return result
+            first = first or result
+        return first
+
     requests = Requests(options)
     requests.progress_callback = progress_callback
     aws_lambda_environment_secret_indicators.initialize(requests, initial_content_options, connector.get('scopes') or [])
@@ -2832,7 +2857,7 @@ def collect(connector, requirements=None):
         from peaso.runtime_metrics import span as _runtime_span
         with _runtime_span("collection.job", job_kind=kind, job_scope=identity["Account"]):
             account = identity["Account"]
-            region = regions_for(account)[0]
+            region = global_regions(account)[0]
             if kind in FETCHERS:
                 return regional_job(session, identity, region, kind)
             if kind == "aws_account":
@@ -2959,7 +2984,7 @@ def collect(connector, requirements=None):
                 from .aws_facts_gap import metric_alarm_rows
                 return metric_alarm_rows(regional_job, session, identity, account_wide_regions.get(account) or regions_for(account))
             if kind == "bucket":
-                return _buckets(requests, session, region, account)
+                return global_read(account, lambda selected: _buckets(requests, session, selected, account))
             if kind == "iam_customer_policy":
                 from .aws_customer_policies import collect as collect_customer_policies
                 return collect_customer_policies(requests, session, region, account)
@@ -2977,7 +3002,8 @@ def collect(connector, requirements=None):
             if kind == "iam_access_key":
                 return _access_keys(requests, session, region)
             if kind == "s3_account_public_access_block":
-                return _single(requests, session, region, "s3control", "get_public_access_block", AccountId=account, absent=("NoSuchPublicAccessBlockConfiguration",))
+                return global_read(account, lambda selected: _single(requests, session, selected, "s3control",
+                    "get_public_access_block", AccountId=account, absent=("NoSuchPublicAccessBlockConfiguration",)))
             if kind == "organization_account":
                 if org_inventory is not None and account == base_account:
                     return org_inventory
@@ -3331,7 +3357,7 @@ def collect(connector, requirements=None):
                         else:
                             lane = content_pool if content_workers and kind in content_kinds else pool
                             future = lane.submit(global_job, session, identity, kind)
-                        jobs.append((kind, identity, regions_for(identity["Account"])[0], session, future))
+                        jobs.append((kind, identity, global_regions(identity["Account"])[0], session, future))
             # Regional jobs are queued behind the global ones without a per-Region
             # barrier; emission below stays in the same deterministic order.
             regional_jobs, deferred_analyzers = [], []
