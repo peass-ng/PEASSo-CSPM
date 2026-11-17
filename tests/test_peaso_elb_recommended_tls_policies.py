@@ -5,19 +5,22 @@ import pytest
 
 from peaso.checks import CHECKS
 from peaso.checks.claude2_aws_b_edge import _lb, _l
-from peaso.checks.claude2_aws_b_edge import RECOMMENDED_POLICIES, _lb, _l
 
 
 CHECK = next(check for check in CHECKS if check.id == "aws.c2b.elbv2.recommended_tls_policy")
 ELB17 = {
     "ELBSecurityPolicy-TLS13-1-3-2021-06",
     "ELBSecurityPolicy-TLS13-1-3-FIPS-2023-04",
-    "ELBSecurityPolicy-TLS13-1-2-Res-2021-06",
-    "ELBSecurityPolicy-TLS13-1-2-Res-FIPS-2023-04",
     "ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09",
     "ELBSecurityPolicy-TLS13-1-3-PQ-2025-09",
     "ELBSecurityPolicy-TLS13-1-2-Res-FIPS-PQ-2025-09",
     "ELBSecurityPolicy-TLS13-1-3-FIPS-PQ-2025-09",
+    "ELBSecurityPolicy-TLS13-1-2-RFC9151-FIPS-2023-07",
+    "ELBSecurityPolicy-TLS13-1-2-RFC9151-INTEROP1-FIPS-2023-07",
+    "ELBSecurityPolicy-TLS13-1-2-RFC9151-INTEROP2-FIPS-2023-07",
+    "ELBSecurityPolicy-TLS13-1-3-RFC9151-FIPS-2023-07",
+    "ELBSecurityPolicy-TLS13-1-2-FIPS-PQ-2025-09",
+    "ELBSecurityPolicy-TLS13-1-2-PQ-2025-09",
 }
 
 
@@ -42,6 +45,8 @@ def test_all_documented_security_hub_policies_pass_for_supported_listener(kind, 
     "ELBSecurityPolicy-TLS13-1-2-2021-06",
     "ELBSecurityPolicy-TLS13-1-2-FIPS-2023-04",
     "ELBSecurityPolicy-TLS13-1-2-Ext1-PQ-2025-09",
+    "ELBSecurityPolicy-TLS13-1-2-Res-2021-06",
+    "ELBSecurityPolicy-TLS13-1-2-Res-FIPS-2023-04",
 ])
 def test_explicitly_reviewed_nonapproved_policies_fail_without_calling_them_all_obsolete(policy):
     status, evidence = CHECK.evaluate(listener("application", policy), {})

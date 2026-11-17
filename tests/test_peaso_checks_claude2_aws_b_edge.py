@@ -273,3 +273,58 @@ def test_origin_traffic_all_used_https_is_pass():
                             [_cf_origin("safe", "https-only"), _cf_origin("other", "match-viewer")])
     item["Config"]["DistributionConfig"]["OriginGroups"] = {"Quantity": 0}
     assert _cf_status(item) == "PASS"
+
+
+def _edge_alb(http_rules):
+    """Real ALB shape: HTTP:80 redirects to HTTPS; HTTPS:443 (ACM, TLS13-1-2-2021-06) fixed-response default, forward rules."""
+    fixed = {"Type": "fixed-response", "FixedResponseConfig": {"StatusCode": "404"}}
+    http = _http_listener(80, REDIRECT, http_rules)
+    https = {"ListenerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:listener/app/1/443", "Protocol": "HTTPS", "Port": 443,
+             "SslPolicy": "ELBSecurityPolicy-TLS13-1-2-2021-06",
+             "Certificates": [{"CertificateArn": "arn:aws:acm:us-east-1:111122223333:certificate/c1"}],
+             "DefaultActions": [deepcopy(fixed)],
+             "Rules": {"collection_status": "collected", "items": [_rule(False, FORWARD), _rule(True, fixed)]}}
+    item = _alb(http, https)
+    item["Scheme"] = "internet-facing"
+    return item
+
+
+PLAINTEXT_CHECKS = ("aws.c2b.elbv2.listeners_secure_protocol", "aws.c2b.elbv2.listeners_acm_certificate", CHECK)
+
+
+def test_https_redirect_only_http_listener_is_not_a_plaintext_listener():
+    item = _edge_alb([_rule(True, REDIRECT)])
+    for check in PLAINTEXT_CHECKS:
+        assert _status(item, check) == "PASS", check
+
+
+def test_http_listener_serving_content_through_any_rule_still_fails():
+    item = _edge_alb([_rule(False, FORWARD), _rule(True, REDIRECT)])
+    for check in PLAINTEXT_CHECKS:
+        assert _status(item, check) == "FAIL", check
+
+
+def test_http_listener_with_forward_default_fails_even_without_rules():
+    item = _edge_alb([])
+    listener = item["Listeners"]["items"][0]
+    listener["DefaultActions"] = [deepcopy(FORWARD)]
+    del listener["Rules"]
+    for check in PLAINTEXT_CHECKS[:2]:
+        assert _status(item, check) == "FAIL", check
+
+
+def test_redirect_listener_with_uncollected_rules_is_unknown_not_fail():
+    item = _edge_alb([_rule(True, REDIRECT)])
+    item["Listeners"]["items"][0]["Rules"] = {"collection_status": "denied", "error": {"code": "AccessDenied"}}
+    for check in PLAINTEXT_CHECKS:
+        assert _status(item, check) == "UNKNOWN", check
+
+
+def test_default_tls13_1_2_policy_is_outside_security_hub_elb17_and_optional_policy_checks_stay_low():
+    from peaso.checks import CHECKS
+    item = _edge_alb([_rule(True, REDIRECT)])
+    assert _status(item, "aws.c2b.elbv2.recommended_tls_policy") == "FAIL"
+    severity = {check.id: check.severity for check in CHECKS}
+    for check in ("aws.c2b.elbv2.listener_fips_tls", "aws.c2b.elbv2.listener_pqc_tls"):
+        assert _status(item, check) == "FAIL"
+        assert severity[check] in ("low", "info")
