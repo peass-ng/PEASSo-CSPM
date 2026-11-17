@@ -207,14 +207,15 @@ ROWS = {'aws.c2b.acm.in_use_not_expiring_7_days': {'description_fields': {'descr
                                                                            'are updated.'}},
  'aws.c2b.elbv2.listeners_secure_protocol': {'description_fields': {'description': 'Checks that ALB '
                                                                                    'listeners use HTTPS and '
-                                                                                   'NLB listeners use TLS.'},
-                                             'remediation_fields': {'caveats': ['This strict '
-                                                                                'listener-protocol check '
-                                                                                'also flags HTTP redirects '
-                                                                                'and TCP TLS pass-through; '
-                                                                                'it does not establish that '
-                                                                                'their traffic is '
-                                                                                'plaintext.'],
+                                                                                   'NLB listeners use TLS; '
+                                                                                   'ALB HTTP listeners that '
+                                                                                   'only redirect to HTTPS '
+                                                                                   'are accepted.'},
+                                             'remediation_fields': {'caveats': ['This listener-protocol '
+                                                                                'check also flags TCP TLS '
+                                                                                'pass-through; it does not '
+                                                                                'establish that its traffic '
+                                                                                'is plaintext.'],
                                                                     'steps': ['Use HTTPS or TLS termination '
                                                                               'where appropriate for the '
                                                                               'application.',
