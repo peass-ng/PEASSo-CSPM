@@ -146,13 +146,14 @@ def test_gzip_layer_streams_through_virtual_validator(monkeypatch, scanner):
     assert result['References']
 
 
-def test_symlink_partial_hardlink_content_visited(monkeypatch, scanner):
+def test_symlink_complete_hardlink_content_visited(monkeypatch, scanner):
+    # A symlink has no content of its own; its target is visited as a file.
     layer = tar_bytes([('file', 'etc/app.txt', b"password='" + TOKEN.encode() + b"'\n"),
                        ('hardlink', 'etc/alias.txt', 'etc/app.txt'),
                        ('symlink', 'etc/current.txt', 'app.txt')])
     result, _ = exercise(monkeypatch, layer)
-    assert result['NativeResponseComplete'] is False
-    assert result['collection_status'] == 'partial'
+    assert result['NativeResponseComplete'] is True
+    assert result['collection_status'] == 'collected'
     assert result['References']
     assert any(r['File'] == 'etc/alias.txt' for r in result['References'])
 
