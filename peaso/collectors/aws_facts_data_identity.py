@@ -1139,9 +1139,10 @@ _ECR_SCANNABLE_MEDIA = {
 
 
 def _ecr_scannable(row):
+    from .aws_ecr_image_rows import is_referrer
     tags = row.get("imageTags", [])
     return (isinstance(row.get("artifactMediaType"), str) and row["artifactMediaType"] in _ECR_SCANNABLE_MEDIA
-        and isinstance(tags, list) and not any(isinstance(tag, str) and tag.startswith("sha256-") and tag.endswith(".sig") for tag in tags))
+        and isinstance(tags, list) and not is_referrer(row))
 
 
 def _ecr_pushed_at(row):
@@ -1211,7 +1212,7 @@ def _ecr_repository(requests, session, region, items):
         if isinstance(name, str):
             arguments = {"repositoryName": name, **({"registryId": item["registryId"]} if isinstance(item.get("registryId"), str) else {})}
             item["Images"] = _list(requests.pages(session, "ecr", region, "describe_images", "imageDetails", **arguments),
-                ["imageDigest", "imageTags", "imagePushedAt", "artifactMediaType", "imageManifestMediaType", ("imageScanStatus", ["status"]),
+                ["imageDigest", "imageTags", "imagePushedAt", "artifactMediaType", "imageManifestMediaType", "subjectManifestDigest", ("imageScanStatus", ["status"]),
                  ("imageScanFindingsSummary", ["findingSeverityCounts", "imageScanCompletedAt"])])
             if (isinstance(scanning, dict) and scanning.get("scanOnPush") is True
                     and getattr(requests, "ecr_latest_scan_requested", False)

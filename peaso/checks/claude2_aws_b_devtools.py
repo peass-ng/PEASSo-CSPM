@@ -615,7 +615,8 @@ def _scannable(image):
     tags = optional(image, "imageTags", [], list)
     if media is None:
         raise Unavailable("image artifact media type not collected")
-    if any(isinstance(tag, str) and tag.startswith("sha256-") and tag.endswith(".sig") for tag in tags):
+    from peaso.collectors.aws_ecr_image_rows import is_referrer
+    if is_referrer(image):
         return False
     return media in _SCANNABLE
 
