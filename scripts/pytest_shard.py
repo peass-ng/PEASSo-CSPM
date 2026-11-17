@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -22,75 +23,32 @@ TESTS = Path("tests")
 _SHARD_ENV = "PEASO_CI_PYTEST_SHARD"
 _SHARDS_ENV = "PEASO_CI_PYTEST_SHARDS"
 
-# Seconds summed from the completed JUnit files in Actions run 39701781083.
-# The previous run was interrupted on shards 0 and 6, so unmeasured files use
-# source size. Hints schedule work only; they never select test outcomes.
-HISTORIC_SECONDS = {
-    "test_azure_databricks_notebook_secret_integration_20261020.py": 1501.49,
-    "test_gcp_dataflow_batch_source_runtime_20261020.py": 1229,
-    "test_peaso_compliance_draft_isolation.py": 1019,
-    "test_k8s_selected_metadata_production_20261020.py": 824,
-    "test_k8s_selected_metadata_runtime_gates_20261020.py": 588,
-    "test_peaso_native_pipeline_acceptance.py": 543,
-    "test_azure_function_package_integrated_20261020.py": 525,
-    "test_peaso_privesc_integration.py": 501,
-    "test_peaso_cli_connector_parity.py": 394,
-    "test_peaso_related_snapshots.py": 382,
-    "test_peaso_gcp_remaining_clarity_reviewed.py": 354,
-    "test_aws_codebuild_buildspec_runtime_20261020.py": 304,
-    "test_gcp_function_secret_paired_integration_20261020.py": 303,
-    "test_peaso_graph_scale.py": 206,
-    "test_peaso_engine.py": 196,
-    "test_gcp_function_source_secret_review_20261019.py": 137,
-    "test_gcp_function_secret_partial_page_20261020.py": 121,
-    "test_api_finding_types_static_20261020.py": 107,
-    "test_aws_selected_configuration_secret_review_20261020.py": 107,
-    "test_peaso_iam_grants_api.py": 99,
-    "test_peaso_cli_cancellation.py": 99,
-    "test_peaso_privesc_schema_ext_k8s_blockers.py": 99,
-    "test_native_policy_validation_static_20261020.py": 98,
-    "test_aws_identity_sdk_closure_review.py": 95,
-    "gcp_batch_referenced_source_20261020_test.py": 92,
-    "test_gcp_configuration_secret_review_20261019.py": 92,
-    "test_peaso_compliance_compiler_determinism.py": 88,
-    "test_azure_acr_image_secret_review_20261020.py": 86,
-    "test_aws_identity_closure_review.py": 79,
-    "test_azure_function_package_source_20261020.py": 77,
-}
+# Per-file seconds summed from the JUnit reports of a complete CI run (refresh
+# with --record-junit). Files without a measurement use source size. Hints
+# schedule work only; they never select test outcomes.
+SECONDS_FILE = Path(__file__).with_name("pytest_shard_seconds.json")
 
-# Individual testcase seconds from the completed shard 11 JUnit in Actions run
-# 39723210201. With loadfile, the module took 1,501.49 seconds on one worker;
-# these seven cases account for 1,492.45 seconds of it. Assign them longest
-# first so each occupies a different job; unknown nodes retain their hash owner.
-MEASURED_NODE_SECONDS = {
-    "test_azure_databricks_notebook_secret_integration_20261020.py": {
-        "test_reviewed_bytes_cannot_change_before_admission[consumer]": 223.60,
-        "test_reviewed_bytes_cannot_change_before_admission[producer]": 222.51,
-        "test_reviewed_bytes_cannot_change_before_admission[fixture]": 212.27,
-        "test_typed_consumer_and_reachable_helper_identity_guard[helper]": 210.41,
-        "test_reviewed_bytes_cannot_change_before_admission[receipt]": 210.13,
-        "test_typed_consumer_and_reachable_helper_identity_guard[function]": 208.01,
-        "test_reviewed_bytes_cannot_change_before_admission[proposal]": 205.52,
-    },
-}
-
-# Loadfile keeps each selected module on one xdist worker. These modules have
-# independent parametrized cases and dominated the old critical path, so spread
-# their node IDs across isolated Actions jobs without raising per-job CPU use.
+# Loadfile keeps each module on one xdist worker. Modules measured at 100+
+# seconds would set a job's critical path, and their tests are independent, so
+# spread their node IDs across isolated Actions jobs.
 SPLIT_COUNTS = {
-    "test_azure_databricks_notebook_secret_integration_20261020.py": 7,
-    "test_gcp_dataflow_batch_source_runtime_20261020.py": 4,
-    "test_peaso_compliance_draft_isolation.py": 4,
-    "test_k8s_selected_metadata_production_20261020.py": 4,
-    "test_k8s_selected_metadata_runtime_gates_20261020.py": 2,
-    "test_peaso_native_pipeline_acceptance.py": 2,
-    "test_azure_function_package_integrated_20261020.py": 2,
-    "test_peaso_privesc_integration.py": 2,
-    "test_peaso_cli_connector_parity.py": 2,
-    "test_peaso_gcp_remaining_clarity_reviewed.py": 2,
-    "test_aws_codebuild_buildspec_runtime_20261020.py": 2,
-    "test_gcp_function_secret_paired_integration_20261020.py": 2,
+    "test_peaso_gcp_remaining_clarity_reviewed.py": 4,
+    "test_azure_acr_image_secret_review_20261020.py": 2,
+    "test_aws_selected_configuration_secret_review_20261020.py": 2,
+    "test_peaso_collectors_aws.py": 2,
+    "test_k8s_selected_metadata_production_20261020.py": 2,
+    "test_gcp_configuration_secret_review_20261019.py": 2,
+    "test_gcp_dataflow_batch_source_runtime_20261020.py": 2,
+    "test_aws_s3_selected_source_integration_20261020.py": 2,
+    "test_aws_code_log_content_review_20261019.py": 2,
 }
+
+
+def _measured_seconds() -> dict[str, float]:
+    try:
+        return json.loads(SECONDS_FILE.read_text())
+    except FileNotFoundError:
+        return {}
 
 
 def test_files() -> list[Path]:
@@ -100,8 +58,8 @@ def test_files() -> list[Path]:
     )
 
 
-def _weight(path: Path) -> float:
-    return HISTORIC_SECONDS.get(path.name, max(1, path.stat().st_size * 0.0003))
+def _weight(path: Path, measured: dict[str, float]) -> float:
+    return measured.get(path.as_posix(), max(1, path.stat().st_size * 0.0003))
 
 
 def _splits(path: Path, count: int) -> int:
@@ -114,8 +72,9 @@ def partition(files: list[Path], count: int) -> list[list[Path]]:
     shards: list[list[Path]] = [[] for _ in range(count)]
     # Shard zero runs the isolated performance gate before its ordinary tests.
     weights = [240.0] + [0.0] * (count - 1)
+    measured = _measured_seconds()
     units = [
-        (path, slot, _weight(path) / _splits(path, count))
+        (path, slot, _weight(path, measured) / _splits(path, count))
         for path in files
         for slot in range(_splits(path, count))
     ]
@@ -146,18 +105,49 @@ def _verify(files: list[Path], shards: list[list[Path]]) -> None:
 
 def owner_for(nodeid: str, path: Path, placements: dict[Path, list[int]]) -> int:
     owners = placements[path]
-    measured = MEASURED_NODE_SECONDS.get(path.name, {})
-    prefix = f"{path}::"
-    if nodeid.startswith(prefix) and nodeid[len(prefix):] in measured:
-        loads = {owner: 0.0 for owner in owners}
-        assigned = {}
-        for name, seconds in sorted(measured.items(), key=lambda item: (-item[1], item[0])):
-            owner = min(owners, key=lambda index: (loads[index], index))
-            assigned[name] = owner
-            loads[owner] += seconds
-        return assigned[nodeid[len(prefix):]]
     slot = int.from_bytes(hashlib.sha256(nodeid.encode()).digest()[:8], "big") % len(owners)
     return owners[slot]
+
+
+_SELECTED: dict[tuple[str, str], frozenset[Path]] = {}
+
+
+def _selected_files() -> frozenset[Path] | None:
+    shard_text, count_text = os.environ.get(_SHARD_ENV), os.environ.get(_SHARDS_ENV)
+    if shard_text is None or count_text is None:
+        return None
+    key = (shard_text, count_text)
+    if key not in _SELECTED:
+        _SELECTED[key] = frozenset(partition(test_files(), int(count_text))[int(shard_text)])
+    return _SELECTED[key]
+
+
+def _ignore_unselected(collection_path, config):
+    """Skip other shards' test files with one set lookup.
+
+    Thousands of ``--ignore`` options make pytest compare every collected path
+    against every option (minutes per job), and the tests conftest would parse
+    each skipped file. Every file is still collected by exactly one shard.
+    """
+    selected = _selected_files()
+    if selected is None:
+        return None
+    path = Path(collection_path)
+    if path.suffix != ".py" or not (path.name.startswith("test_") or path.name.endswith("_test.py")):
+        return None
+    try:
+        relative = path.relative_to(Path.cwd())
+    except ValueError:
+        return None
+    return None if relative in selected or relative.parts[:1] != (TESTS.name,) else True
+
+
+try:
+    import pytest
+except ImportError:  # main() only needs pytest in the child process.
+    pass
+else:
+    pytest_ignore_collect = pytest.hookimpl(tryfirst=True)(_ignore_unselected)
 
 
 def pytest_collection_modifyitems(config, items) -> None:
@@ -180,12 +170,34 @@ def pytest_collection_modifyitems(config, items) -> None:
         items[:] = selected
 
 
+def record_junit(reports: list[str]) -> dict[str, float]:
+    """Sum testcase seconds per test file across JUnit reports."""
+    import xml.etree.ElementTree as ET
+
+    seconds: dict[str, float] = {}
+    for report in reports:
+        for case in ET.parse(report).iter("testcase"):
+            parts = case.get("classname", "").split(".")
+            while parts and not Path(*parts[:-1], parts[-1] + ".py").is_file():
+                parts.pop()
+            if parts:
+                name = Path(*parts[:-1], parts[-1] + ".py").as_posix()
+                seconds[name] = seconds.get(name, 0.0) + float(case.get("time") or 0)
+    return {name: round(value, 1) for name, value in sorted(seconds.items()) if value >= 0.5}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--shard", type=int, required=True)
-    parser.add_argument("--shards", type=int, required=True)
+    parser.add_argument("--record-junit", nargs="+", metavar="REPORT", help=f"rewrite {SECONDS_FILE.name} from JUnit reports")
+    parser.add_argument("--shard", type=int)
+    parser.add_argument("--shards", type=int)
     parser.add_argument("--verify", action="store_true", help="check coverage and print shard sizes without pytest")
     args, pytest_args = parser.parse_known_args()
+    if args.record_junit:
+        SECONDS_FILE.write_text(json.dumps(record_junit(args.record_junit), indent=0) + "\n")
+        return 0
+    if args.shard is None or args.shards is None:
+        parser.error("--shard and --shards are required")
     if pytest_args and pytest_args[0] == "--":
         pytest_args.pop(0)
     files = test_files()
@@ -202,9 +214,7 @@ def main() -> int:
         return 0
     if not pytest_args:
         parser.error("pass pytest options after --")
-    selected = set(shards[args.shard])
-    ignored = [f"--ignore={path}" for path in files if path not in selected]
-    command = [sys.executable, "-m", "pytest", "-p", "scripts.pytest_shard", *pytest_args, *ignored, str(TESTS)]
+    command = [sys.executable, "-m", "pytest", "-p", "scripts.pytest_shard", *pytest_args, str(TESTS)]
     env = {**os.environ, _SHARD_ENV: str(args.shard), _SHARDS_ENV: str(args.shards)}
     return subprocess.call(command, env=env)
 
