@@ -300,19 +300,30 @@ def github_provider(client_ids=("sts.amazonaws.com",), detail_status="collected"
 
 @pytest.mark.parametrize("condition,expected,codes", [
     ({"StringEquals": {"SAML:aud": "https://signin.aws.amazon.com/saml"}},
-     "FAIL", {"saml_issuer_wide"}),
+     "PASS", {"saml_idp_role_assignment"}),
     ({"StringEquals": {"SAML:aud": "https://signin.aws.amazon.com/saml", "SAML:sub": "alice@example.com"}},
      "MANUAL", {"saml_claim_scope"}),
     ({"StringLike": {"SAML:aud": "*", "SAML:sub": "*"}},
-     "FAIL", {"saml_no_aud", "saml_issuer_wide"}),
+     "MANUAL", {"saml_no_aud", "saml_idp_role_assignment"}),
 ])
-def test_saml_role_trust_classifies_issuer_wide_and_claim_scoped_access(condition, expected, codes):
+def test_saml_role_trust_is_not_judged_by_oidc_subject_pinning(condition, expected, codes):
     statement = trust({"Federated": SAML}, condition, "sts:AssumeRoleWithSAML")
     found = findings(aws(coll("iam_role", [role([statement])]),
                          coll("iam_saml_provider", [{"Arn": SAML}])), "analysis.federated_trust")
     assert len(found) == 1 and found[0]["status"] == expected
+    assert "OIDC" not in found[0]["title"]
     assert {problem["code"] for review in found[0]["evidence"]["federated_trusts"]
             for problem in review["problems"]} == codes
+
+
+def test_identity_center_permission_set_role_trust_passes():
+    provider = f"arn:aws:iam::{ACCOUNT}:saml-provider/AWSSSO_0a1b2c3d4e5f6a7b_DO_NOT_DELETE"
+    statement = trust({"Federated": provider}, {"StringEquals": {"SAML:aud": "https://signin.aws.amazon.com/saml"}},
+                      ["sts:AssumeRoleWithSAML", "sts:TagSession"])
+    found = findings(aws(coll("iam_role", [role([statement])]),
+                         coll("iam_saml_provider", [{"Arn": provider}])), "analysis.federated_trust")
+    assert len(found) == 1 and found[0]["status"] == "PASS" and found[0]["severity"] == "info"
+    assert found[0]["evidence"]["federated_trusts"][0]["problems"] == []
 
 
 def test_saml_provider_needs_matching_assume_role_action():

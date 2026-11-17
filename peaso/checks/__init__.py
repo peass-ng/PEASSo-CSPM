@@ -153,6 +153,10 @@ def register(id, provider, category, kind, title, severity, control, remediation
                 # Provider/control-plane-managed objects: see peaso.checks.k8s_managed.
                 from .k8s_managed import apply
                 return apply(kind, item, index, status, evidence)
+            if provider == "aws" and target == "resource":
+                # Policies used only as permissions boundaries grant nothing.
+                from .aws_policy_boundary_usage import apply as boundary_apply
+                return boundary_apply(id, kind, item, status, evidence)
             return status, evidence
 
         def checked(item, index):
@@ -1624,3 +1628,7 @@ _unused_iam_k8s.install(__import__(__name__, fromlist=['CHECKS']))
 
 from peaso import unused_iam_azure as _unused_iam_azure
 _unused_iam_azure.install(__import__(__name__, fromlist=['CHECKS']))
+
+# Configuration checks judge in-use and latest ECS task-definition revisions only.
+from . import aws_ecs_revision_selection as _aws_ecs_revision_selection
+_aws_ecs_revision_selection.install()

@@ -602,6 +602,14 @@ def _aws_saml_provider_state(snapshot, provider):
     return _aws_identity_provider_state(snapshot, provider, "iam_saml_provider", "saml-provider")[0]
 
 
+_IDENTITY_CENTER_SAML = re.compile(r"arn:aws[a-z-]*:iam::[0-9]{12}:saml-provider/AWSSSO_[0-9A-Fa-f]+_DO_NOT_DELETE")
+
+
+def _aws_identity_center_saml_provider(provider):
+    """IAM Identity Center's AWS-managed SAML provider for its permission-set roles."""
+    return bool(_IDENTITY_CENTER_SAML.fullmatch(str(provider)))
+
+
 def _federated_deny_may_apply(statement, provider, action):
     if not isinstance(statement, dict) or statement.get("Effect") != "Deny":
         return False
@@ -689,23 +697,37 @@ def aws_federated_trust(snapshot, resource):
                                     "problems": [{"code": "saml_provider_unknown", "severity": "review",
                                                   "message": "IAM SAML provider inventory is missing or incomplete"}]})
                     continue
+                # SAML is not OIDC: the IdP must sign an assertion whose Role attribute names
+                # this role ARN, so there is no issuer-wide "sub" to pin. SAML:aud pinned to
+                # the AWS sign-in endpoint is the expected, AWS-documented trust shape.
                 audience = [(op, values) for op, key, values in conditions if key.lower() == "saml:aud"
                             and "ifexists" not in op.lower() and POSITIVE.match(op.lower())
                             and values and all(value and not any(c in value for c in "*?${}") for value in values)]
-                if not audience:
-                    problems.append({"code": "saml_no_aud", "severity": "low",
-                                     "message": "SAML recipient is not positively pinned in the role trust"})
+                identity_center = _aws_identity_center_saml_provider(provider)
+                if identity_center:
+                    reviews.append({"statement": f"AssumeRolePolicyDocument.Statement[{index}]", "federated_principal": provider,
+                                    "issuer": issuer, "multi_tenant_issuer": False, "trust_kind": "saml",
+                                    "aws_managed_identity_center": True,
+                                    "conditions": copy.deepcopy(statement.get("Condition")),
+                                    "problems": [] if audience else [
+                                        {"code": "saml_no_aud", "severity": "low",
+                                         "message": "SAML recipient is not positively pinned in the role trust"}]})
+                    continue
                 identity_claims = [(op, key, values) for op, key, values in conditions
                                    if key.lower().startswith("saml:") and key.lower() not in
                                    {"saml:aud", "saml:iss", "saml:doc", "saml:namequalifier"}
                                    and "ifexists" not in op.lower() and POSITIVE.match(op.lower())
                                    and values and all(value and value not in ("*", "?*") for value in values)]
-                if not identity_claims and not any(not key.lower().startswith("saml:") for _, key, _ in conditions):
-                    problems.append({"code": "saml_issuer_wide", "message":
-                                     "No caller-identity condition limits which SAML provider identities may assume the role"})
-                else:
+                scoped = identity_claims or any(not key.lower().startswith("saml:") for _, key, _ in conditions)
+                if not audience:
+                    problems.append({"code": "saml_no_aud", "severity": "low" if scoped else "review",
+                                     "message": "SAML recipient is not positively pinned in the role trust"})
+                if scoped:
                     problems.append({"code": "saml_claim_scope", "severity": "review",
                                      "message": "SAML claim conditions are declared; IdP assertion ownership and membership are not enumerable from IAM"})
+                else:
+                    problems.append({"code": "saml_idp_role_assignment", "severity": "low",
+                                     "message": "Which IdP users may assume the role is decided by the IdP's Role attribute assignment, not by the role trust"})
             elif ":oidc-provider/" in str(provider):
                 provider_state, provider_item = _aws_identity_provider_state(
                     snapshot, provider, "iam_oidc_provider", "oidc-provider")
@@ -800,7 +822,7 @@ def aws_federated_trust(snapshot, resource):
                 any(p.get("severity") not in ("low", "review") for p in r["problems"]) for r in reviews)
     severity = "critical" if multi else "high" if serious else "medium" if review else "info"
     return status, severity, {"federated_trusts": reviews, "risk_state": "observed" if serious else "conditional" if review else "reviewed",
-        "semantics": "Declared web-identity trust conditions; provider-side claim customisation and session policies are not modelled."}
+        "semantics": "Declared web-identity (OIDC) and SAML trust conditions; OIDC trust must pin a subject, while SAML trust is scoped by the IdP's signed Role assertion and pinned by SAML:aud. Provider-side claim customisation and session policies are not modelled."}
 
 
 def gcp_wif_provider(snapshot, resource):

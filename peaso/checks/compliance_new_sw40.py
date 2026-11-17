@@ -13,6 +13,7 @@ from urllib.parse import unquote
 
 from . import CHECKS, register, result, unknown
 from .aws_all_policies import scan as _customer_policy_scan
+from .aws_policy_boundary_usage import boundary_only
 from .facts import Unavailable, complete_items, get, optional, list_of_objects
 
 _ACCOUNT = re.compile(r"^[0-9]{12}$")
@@ -132,6 +133,8 @@ def _all_policy_statements(index, *, managed_only=False):
         if arn in seen:
             raise Unavailable("duplicate managed-policy ARN")
         seen.add(arn)
+        if boundary_only(row):
+            continue  # A permissions boundary only limits access; it grants nothing.
         found.extend((arn, statement) for statement in statements)
     if not managed_only:
         for kind, name_key, field in (("iam_user", "UserName", "UserPolicyList"),
