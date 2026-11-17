@@ -8,6 +8,7 @@ from copy import deepcopy
 from functools import lru_cache
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import ContextVar
 import hashlib
 import base64
 import hmac
@@ -26,6 +27,9 @@ from .secret_scanning_batch import prepared_content_batch, prepared_output as _p
 KINGFISHER_VERSION = '1.4.0'
 TRUFFLEHOG_VERSION = '3.92.5'
 _KEY = secrets.token_bytes(32)
+# Why the last scan_content call in this context left an engine unavailable:
+# engine, exception type and a fixed-vocabulary message only, never content.
+UNAVAILABLE_REASONS = ContextVar('secret_engine_unavailable_reasons', default=())
 _LOCK = threading.Lock()
 _RESULT_LOCK = threading.Lock()
 _RESULTS = OrderedDict()
@@ -323,7 +327,7 @@ def scan_content(payload, path='content', *, timeout=15, _redact_values=None):
         if _redact_values is not None:
             _redact_values(frozenset())
         return deepcopy(cached)
-    observations, engines, matches_by_engine, known_values = [], [], [], set()
+    observations, engines, matches_by_engine, known_values, reasons = [], [], [], set(), []
     # TruffleHog stays on the caller thread: prepared batch outputs are
     # context-local and full-match private evidence uses its source context.
     # Kingfisher has no capture side effects and retains its existing SDK lock.
@@ -334,13 +338,13 @@ def scan_content(payload, path='content', *, timeout=15, _redact_values=None):
             kingfisher = Future()
             try:
                 kingfisher.set_result(_scan_kingfisher(payload, path, timeout))
-            except Exception:
-                kingfisher.set_exception(RuntimeError('scanner unavailable'))
+            except Exception as exc:
+                kingfisher.set_exception(exc)
         trufflehog = Future()
         try:
             trufflehog.set_result(_scan_trufflehog(payload, path, timeout))
-        except Exception:
-            trufflehog.set_exception(RuntimeError('scanner unavailable'))
+        except Exception as exc:
+            trufflehog.set_exception(exc)
         for name, version, pending in (('kingfisher', KINGFISHER_VERSION, kingfisher),
                                        ('trufflehog', TRUFFLEHOG_VERSION, trufflehog)):
             try:
@@ -354,9 +358,13 @@ def scan_content(payload, path='content', *, timeout=15, _redact_values=None):
                 known_values.update(getattr(matches, 'redaction_values', ()))
                 matches_by_engine.append((name, matches))
                 engines.append({'engine': name, 'version': version, 'status': 'complete'})
-            except Exception:
-                # No exception text, matched values, raw JSON or tracebacks escape.
+            except Exception as exc:
+                # No matched values, raw JSON or tracebacks escape.
+                text = str(exc)
+                reasons.append('_'.join([name, type(exc).__name__.lower()] +
+                                        (text.split() if re.fullmatch(r'[a-z ]{1,60}', text) else [])))
                 engines.append({'engine': name, 'version': version, 'status': 'unavailable'})
+    UNAVAILABLE_REASONS.set(tuple(reasons))
     # Found values and their exact paths stay visible to the tenant. The
     # callback contract is kept, but there is nothing to redact.
     if _redact_values is not None:
