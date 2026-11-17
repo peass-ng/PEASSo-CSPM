@@ -1063,11 +1063,18 @@ def enrich(kind, requests, session, region, items):
                 if inventory.status != 'collected' or not inventory.items or len(inventory.items) > 5000: raise ValueError('incomplete image inventory')
                 images, digests = [], set()
                 from datetime import datetime
+                from .aws_ecr_image_rows import is_container_image
                 for row in inventory.items:
                     digest, pushed = row['imageDigest'], row['imagePushedAt']
                     if (not _digest(digest) or digest in digests or not isinstance(pushed, datetime) or pushed.tzinfo is None
                             or row.get('registryId') != account or row.get('repositoryName') != repo): raise ValueError('image inventory binding incomplete')
-                    digests.add(digest); images.append((pushed, digest))
+                    digests.add(digest)
+                    # Signatures, attestations and SBOMs are pushed after the
+                    # image they reference; the newest image is what runs.
+                    if is_container_image(row): images.append((pushed, digest))
+                if not images:
+                    source = {'collection_status': 'not_collected', 'error': {'code': 'ecr_no_container_image'}}
+                    raise Unsupported('ecr_no_container_image')
                 images.sort()
                 if len(images) > 1 and images[-1][0] == images[-2][0]: raise ValueError('ambiguous latest image')
                 digest = images[-1][1]

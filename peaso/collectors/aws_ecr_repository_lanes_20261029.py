@@ -41,8 +41,11 @@ def _upper_bound(requests, session, region, account, item):
                                registryId=account, repositoryName=repo)
     if inventory.status != 'collected' or not inventory.items or len(inventory.items) > 5000:
         return 0
+    from .aws_ecr_image_rows import is_container_image
     latest, tie = None, False
     for row in inventory.items:
+        if isinstance(row, dict) and not is_container_image(row):
+            continue  # The enricher never selects a signature or attestation.
         pushed = row.get('imagePushedAt') if isinstance(row, dict) else None
         if not isinstance(pushed, datetime) or pushed.tzinfo is None:
             return None
@@ -50,6 +53,8 @@ def _upper_bound(requests, session, region, account, item):
             latest, tie = (pushed, row), False
         elif pushed == latest[0]:
             tie = True
+    if latest is None:
+        return 0  # No container image: the enricher reads nothing more.
     if tie:
         return None
     row = latest[1]

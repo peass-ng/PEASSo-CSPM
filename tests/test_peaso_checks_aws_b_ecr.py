@@ -34,3 +34,17 @@ def test_new_exclusion_modes_are_not_full_repository_immutability():
     for mode in ("MUTABLE", "MUTABLE_WITH_EXCLUSION", "IMMUTABLE_WITH_EXCLUSION"):
         assert check({"imageTagMutability": mode}, {})[0] == "FAIL"
     assert check({"imageTagMutability": "FUTURE_MODE"}, {})[0] == "UNKNOWN"
+
+
+def test_cosign_signature_tag_exclusion_keeps_release_tags_immutable():
+    check = evaluator("aws.b.ecr.all_tags_immutable")
+
+    def repo(*filters, mode="IMMUTABLE_WITH_EXCLUSION"):
+        return {"imageTagMutability": mode,
+                "imageTagMutabilityExclusionFilters": [{"filterType": "WILDCARD", "filter": f} for f in filters]}
+    assert check(repo("sha256-*"), {})[0] == "PASS"
+    assert check(repo("sha256-*.sig", "sha256-*.att"), {})[0] == "PASS"
+    for broader in (("*",), ("latest",), ("dev*",), ("sha256-*", "release-*"), ("*sha256-*",)):
+        assert check(repo(*broader), {})[0] == "FAIL"
+    assert check(repo(), {})[0] == "FAIL"
+    assert check(repo("sha256-*", mode="MUTABLE_WITH_EXCLUSION"), {})[0] == "FAIL"
