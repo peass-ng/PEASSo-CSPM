@@ -1038,6 +1038,8 @@ def _finding_factory(check, provider, frameworks=None):
 def _unknown_coverage_reason(findings=(), *, collection_status=None):
     """Describe evidence gaps without copying SDK messages or native payloads."""
     states = {"denied": "Read access to required inventory was denied.",
+              "blocked_by_policy": ("An AWS Organizations policy (SCP/RCP) denies this read for every principal it governs; "
+                                    "it is an organization guardrail, not a missing permission of the scanning identity."),
               "malformed": "Required inventory response was malformed.",
               "timeout": "Required inventory read timed out.",
               "partial": "Required inventory collection is partial; conclusions need the missing evidence.",
@@ -1086,12 +1088,63 @@ def _unknown_coverage_reason(findings=(), *, collection_status=None):
 def _safe_collection_error_code(collection):
     """Known machine error identifiers remain evidence; arbitrary text is omitted."""
     error = collection.get("error", {})
-    code = error.get("code") if isinstance(error, dict) else None
+    if not isinstance(error, dict):
+        return None
     known = {"demo_permission_denied", "AccessDenied", "AccessDeniedException", "UnauthorizedOperation", "Forbidden", "Unauthorized",
+             "ForbiddenException", "UnrecognizedClientException", "InvalidClientTokenId", "ExpiredToken", "ExpiredTokenException",
              "PermissionDenied", "permission_denied", "PERMISSION_DENIED", "401", "403", "read_timeout",
              "resource_limit", "page_limit", "scope_limit", "collection_cancelled", "malformed_response",
              "not_requested", "unsupported_inventory", "api_unavailable", "SERVICE_DISABLED", "NOT_FOUND"}
-    return code if isinstance(code, str) and code in known else None
+    # Wrapper collectors keep the provider code behind their own failure code.
+    for key in ("code", "cause_code"):
+        code = error.get(key)
+        if isinstance(code, str) and code in known:
+            return str(code)
+    return None
+
+
+def _org_policy_denials(snapshot):
+    """Map (type, scope) of denied AWS collections to the Organizations policy that denied them.
+
+    A collection whose own error names an SCP/RCP denial is recorded as such.
+    Some services omit the policy reason from AccessDenied; their denial is
+    attributed to the guardrail only when its scope (account/Region) already
+    shows SCP/RCP denials and the same inventory was readable in another scope
+    of the same account, so the scanning identity does hold the permission
+    (typical of a Region-restriction SCP). Returns {key: (policy, inferred)}."""
+    if snapshot.get("provider") != "aws":
+        return {}
+    from .credential_health import provider_read
+    from .policy_denial import denied_by
+    explicit, scope_policy, readable, denied = {}, {}, set(), []
+    for collection in snapshot["collections"]:
+        kind, scope = collection.get("type"), collection.get("scope")
+        if not isinstance(scope, str):
+            continue
+        if provider_read(collection):
+            readable.add((kind, scope.split("/", 1)[0]))
+        elif collection.get("status") == "denied" and collection.get("items") == []:
+            policy = denied_by(collection.get("error"))
+            if policy is not None:
+                explicit[(kind, scope)] = (policy, False)
+                scope_policy.setdefault(scope, policy)
+            else:
+                denied.append((kind, scope))
+    inferred = {(kind, scope): (scope_policy[scope], True) for kind, scope in denied
+                if scope in scope_policy and (kind, scope.split("/", 1)[0]) in readable}
+    return {**inferred, **explicit}
+
+
+def _org_policy_evidence(denial):
+    policy, inferred = denial
+    label = "service control policy" if policy == "service_control_policy" else "resource control policy"
+    return {"reason": "an AWS Organizations " + label + " denies this read" + (
+                " (inferred: the provider gave no reason, this scope shows " + label + " denials and the "
+                "same inventory is readable elsewhere in the account)" if inferred else ""),
+        "denied_by": policy, "denied_by_inferred": inferred, "collection_status": "denied",
+        "semantics": ("Organization guardrail, not a missing permission of the scanning identity and not a resource "
+                      "security pass: principals the policy governs cannot use this API here, and granting IAM "
+                      "permissions cannot lift it.")}
 
 
 def _unsupported_aws_region(snapshot, collection):
@@ -1471,17 +1524,29 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
     with _runtime_span('engine.index'):
         index = _index(snapshot, inventory)
     coverage, findings = [], []
+    # Reads an AWS Organizations SCP/RCP denies are a guardrail, not an IAM gap.
+    org_policy_denials = _org_policy_denials(snapshot)
+    def org_policy_denial(collection):
+        if collection.get("status") != "denied" or collection.get("items") != []:
+            return None
+        return org_policy_denials.get((collection.get("type"), collection.get("scope")))
     for collection in snapshot["collections"]:
         retirement = _retired_collection_evidence(provider, snapshot, collection)
         psp_absence = _psp_resource_absence_evidence(provider, snapshot, collection)
         unsupported_region = _unsupported_aws_region(snapshot, collection)
-        coverage_status = "unknown" if retirement and retirement[0] == "unknown" else "not_applicable" if psp_absence or unsupported_region else collection["status"]
+        policy_denial = org_policy_denial(collection)
+        coverage_status = ("unknown" if retirement and retirement[0] == "unknown" else "not_applicable" if psp_absence or unsupported_region
+            else "blocked_by_policy" if policy_denial else collection["status"])
         from .check_services import service_for
         coverage.append({"level": "collection", "type": collection["type"], "scope": collection["scope"],
             "service": service_for(provider, collection["type"], collection.get("service")), "status": coverage_status,
             "resource_count": len(collection["items"]), "reason": retirement[1]["reason"] if retirement else psp_absence["reason"] if psp_absence else _unsupported_aws_region_evidence(collection)["reason"] if unsupported_region else
-                _unknown_coverage_reason(collection_status=collection["status"])
+                _unknown_coverage_reason(collection_status=coverage_status)
                 if collection["status"] not in ("collected", "empty") else ""})
+        if policy_denial:
+            coverage[-1]["denied_by"] = policy_denial[0]
+            if policy_denial[1]:
+                coverage[-1]["denied_by_inferred"] = True
         code = "retired_service" if retirement else "pod_security_policy_api_absent" if psp_absence else _safe_collection_error_code(collection)
         if code is not None:
             coverage[-1]["error_code"] = code
@@ -1585,9 +1650,14 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
                     scoped = scoped_index(scope)
                     management_only = _aws_management_account_only_evidence(snapshot, check.id, scope)
                     incomplete = [{"type": kind, "status": "not_collected"} for kind in check.dependencies if not scoped["collections"].get(kind)]
+                    blocked = [org_policy_denial(c) for kind in check.dependencies for c in scoped["collections"].get(kind, []) if c["status"] not in ("collected", "empty")]
                     incomplete += [{"type": kind, "status": c["status"]} for kind in check.dependencies for c in scoped["collections"].get(kind, []) if c["status"] not in ("collected", "empty")]
+                    policy_blocked = not management_only and bool(incomplete) and len(blocked) == len(incomplete) and all(blocked)
                     if management_only:
                         status, evidence = "NOT_APPLICABLE", management_only
+                    elif policy_blocked:
+                        # Every missing dependency is denied by an organization guardrail.
+                        status, evidence = "NOT_APPLICABLE", {**_org_policy_evidence(blocked[0]), "dependencies": incomplete, "target": "scope"}
                     elif incomplete:
                         status, evidence = "DENIED" if any(row["status"] == "denied" for row in incomplete) else "UNKNOWN", {"reason": "required scoped inventory incomplete", "dependencies": incomplete, "target": "scope"}
                         empty_dependencies = getattr(check, "empty_applicability_dependencies", ())
@@ -1621,9 +1691,11 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
                             status, evidence = "UNKNOWN", {"reason": "missing or malformed scoped facts", "error_kind": type(exc).__name__}
                     findings.extend(collapse([emit_finding(scope, "scope:" + scope, check.kind, status, evidence)]))
                     coverage.append({"level": "check", "check_id": check.id, "type": check.kind, "scope": scope,
-                        "target": "scope", "status": "unknown" if status in ("UNKNOWN", "DENIED") else "manual" if status == "MANUAL" else "evaluated",
-                        "by_status": {status: 1}, "reason": _unknown_coverage_reason([{"status": status, "evidence": evidence}])
-                        if status in ("UNKNOWN", "DENIED") else "Scoped presence/aggregate evaluation over collected facts."})
+                        "target": "scope", "status": "blocked_by_policy" if policy_blocked else "unknown" if status in ("UNKNOWN", "DENIED") else "manual" if status == "MANUAL" else "evaluated",
+                        "by_status": {status: 1}, "reason": _unknown_coverage_reason(collection_status="blocked_by_policy") if policy_blocked
+                        else _unknown_coverage_reason([{"status": status, "evidence": evidence}])
+                        if status in ("UNKNOWN", "DENIED") else "Scoped presence/aggregate evaluation over collected facts.",
+                        **({"denied_by": blocked[0][0]} if policy_blocked else {})})
                 continue
             check_findings = []
             collections = index["collections"].get(check.kind, [])
@@ -1650,6 +1722,7 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
                     if check.id in _PSP_RESOURCE_CHECK_IDS and check.kind == "podsecuritypolicy"
                     and getattr(check, "target", "resource") == "resource" else None)
                 unsupported_region = _unsupported_aws_region(snapshot, collection)
+                policy_denial = None if management_only else org_policy_denial(collection)
                 scope_findings = []
                 prepared_automatic = (automatic_batch_adapter.prepare(scoped_index(scope), check.id)
                     if automatic_batch_adapter is not None else None)
@@ -1668,7 +1741,7 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
                     except (KeyError, TypeError, ValueError, AttributeError, IndexError) as exc:
                         status, evidence = "UNKNOWN", {"reason": "missing or malformed provider facts", "error_kind": type(exc).__name__}
                     scope_findings.append(emit_finding(scope, resource["id"], resource["service"], status, evidence))
-                unavailable = (collection_status not in ("collected", "empty") and not psp_absence and not unsupported_region and not management_only) or bool(retirement and retirement[0] == "unknown")
+                unavailable = (collection_status not in ("collected", "empty") and not psp_absence and not unsupported_region and not management_only and not policy_denial) or bool(retirement and retirement[0] == "unknown")
                 empty_evaluated = False
                 if (not retirement and not scope_findings and collection_status == "empty"
                         and collection.get("type") == check.kind and collection.get("scope") == scope
@@ -1704,19 +1777,21 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
                             scope_findings.append(emit_finding(scope, "scope:" + scope,
                                 collection.get("service", check.kind), status, evidence))
                 if unavailable or not scope_findings:
-                    status = "UNKNOWN" if retirement and retirement[0] == "unknown" else "NOT_APPLICABLE" if retirement or psp_absence or unsupported_region or management_only else "DENIED" if collection_status == "denied" else "EMPTY" if collection_status == "empty" else "UNKNOWN"
+                    status = "UNKNOWN" if retirement and retirement[0] == "unknown" else "NOT_APPLICABLE" if retirement or psp_absence or unsupported_region or management_only or policy_denial else "DENIED" if collection_status == "denied" else "EMPTY" if collection_status == "empty" else "UNKNOWN"
                     scope_findings.append(emit_finding(scope, "inventory:" + check.kind, collection.get("service", check.kind), status,
-                        retirement[1] if retirement else psp_absence if psp_absence else _unsupported_aws_region_evidence(collection) if unsupported_region else management_only if management_only else {"collection_status": collection_status, "reason": collection.get("error", {}).get("code", "no collected resources"),
+                        retirement[1] if retirement else psp_absence if psp_absence else _unsupported_aws_region_evidence(collection) if unsupported_region else management_only if management_only else _org_policy_evidence(policy_denial) if policy_denial else {"collection_status": collection_status, "reason": collection.get("error", {}).get("code", "no collected resources"),
                          "semantics": "Inventory coverage, not a resource security pass."}))
                 check_findings.extend(scope_findings)
                 counts = dict(Counter(f["status"] for f in scope_findings))
-                check_status = "not_applicable" if management_only or unsupported_region else "partial" if unavailable and collection_status == "partial" else "denied" if collection_status == "denied" else "unknown" if unavailable or counts.get("UNKNOWN") or counts.get("DENIED") else "empty" if collection_status == "empty" else "manual" if counts.get("MANUAL") else "evaluated"
+                check_status = "not_applicable" if management_only or unsupported_region else "blocked_by_policy" if policy_denial and not retirement else "partial" if unavailable and collection_status == "partial" else "denied" if collection_status == "denied" else "unknown" if unavailable or counts.get("UNKNOWN") or counts.get("DENIED") else "empty" if collection_status == "empty" else "manual" if counts.get("MANUAL") else "evaluated"
                 if empty_evaluated:
                     check_status = "unknown" if counts.get("UNKNOWN") or counts.get("DENIED") else "manual" if counts.get("MANUAL") else "evaluated"
                 coverage.append({"level": "check", "check_id": check.id, "type": check.kind, "scope": scope,
                     **({"target": "scope"} if empty_evaluated else {}),
                     "status": check_status, "by_status": counts, "reason": _unknown_coverage_reason(scope_findings, collection_status=collection_status)
-                    if check_status in ("unknown", "denied", "partial") and not retirement and not psp_absence else retirement[1]["reason"] if retirement else psp_absence["reason"] if psp_absence else ""})
+                    if check_status in ("unknown", "denied", "partial") and not retirement and not psp_absence else retirement[1]["reason"] if retirement else psp_absence["reason"] if psp_absence
+                    else _unknown_coverage_reason(collection_status=check_status) if check_status == "blocked_by_policy" else "",
+                    **({"denied_by": policy_denial[0]} if check_status == "blocked_by_policy" else {})})
             findings.extend(collapse(_dedupe_cross_scope(check_findings, native_ids, provider)))
     emit_progress(phase="evaluating", provider=provider, completed=len(selected), total=len(selected),
                   resources=len(inventory), dynamic_total=False)

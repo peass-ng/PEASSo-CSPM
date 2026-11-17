@@ -134,7 +134,7 @@ h1 { font: 600 40px/1.05 'Chakra Petch', sans-serif; color: #eef7f6; letter-spac
 .badge.access_denied { color: #f2b985; background: rgba(230,149,76,.08); border-color: rgba(230,149,76,.38); }
 .badge.medium, .badge.review, .badge.partial, .badge.manual { color: #e6c98f; background: rgba(217,183,122,.08); border-color: rgba(217,183,122,.35); }
 .badge.low { color: #8fb3e0; background: rgba(143,179,224,.08); border-color: rgba(143,179,224,.35); }
-.badge.info { color: #8a9aa3; background: rgba(138,154,163,.08); border-color: rgba(138,154,163,.35); }
+.badge.info, .badge.blocked_by_policy { color: #8a9aa3; background: rgba(138,154,163,.08); border-color: rgba(138,154,163,.35); }
 .badge.completed, .badge.pass, .badge.passed, .badge.collected, .badge.configured, .badge.supported { color: var(--mint); background: rgba(166,227,212,.08); border-color: rgba(166,227,212,.35); }
 .badge.collecting, .badge.analyzing, .badge.queued, .badge.running { color: var(--ice); background: rgba(127,216,230,.08); border-color: rgba(127,216,230,.35); }
 .state { border: 1px solid var(--line); min-height: 245px; }
