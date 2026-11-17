@@ -693,24 +693,35 @@ ANALYZER = {"arn": "arn:aws:access-analyzer:us-east-1:%s:analyzer/a" % ACCOUNT, 
 def analyzer_without_findings(context, index):
     # Positive provider findings remain failures even if another page/analyzer
     # was unreadable. Missing inventory must never turn into a clean result.
+    # A scan-created temporary analyzer is not the customer's: its findings are
+    # reported by the resource they name, and it never satisfies "has an analyzer".
+    from .aws_access_analyzer_scope import inventory, is_scan_temporary
     rows = index.get("access_analyzer", [])
     observed = []
     for row in rows:
         analyzer = row.get("data", row) if isinstance(row, Mapping) else {}
+        temporary = is_scan_temporary(analyzer)
         for finding in analyzer.get("Findings", []) or []:
             if not isinstance(finding, Mapping) or finding.get("status") not in (None, "ACTIVE"):
                 continue
-            observed.append({"analyzer": analyzer.get("arn"), "analyzer_type": analyzer.get("type"),
+            observed.append({**({"analyzer_source": "temporary PEASO scan analyzer (deleted after the scan)"} if temporary
+                               else {"analyzer": analyzer.get("arn")}),
+                "analyzer_type": analyzer.get("type"),
                 "unused_access_days": ((analyzer.get("configuration") or {}).get("unusedAccess") or {}).get("unusedAccessAge"),
                 **finding})
     if observed:
         return result(True, findings=len(observed), access_analyzer_findings=observed,
             unused_access_findings=sum(str(f.get("findingType", "")).startswith("Unused") for f in observed))
+    customer, temporary, listing_complete = inventory(index)
+    if not listing_complete:
+        raise Unavailable("incomplete inventory: access_analyzer")
+    if not customer:
+        return result(True, analyzers=0, scan_temporary_analyzers=len(temporary))
+    if any(get(a, "status", str) != "ACTIVE" for a in customer):
+        return result(True, statuses=[a["status"] for a in customer])
+    if temporary:
+        raise Unavailable("scan temporary analyzer initial analysis is incomplete")
     analyzers = items(index, "access_analyzer")
-    if not analyzers:
-        return result(True, analyzers=0)
-    if any(get(a, "status", str) != "ACTIVE" for a in analyzers):
-        return result(True, statuses=[a["status"] for a in analyzers])
     for analyzer in analyzers:
         initial = analyzer.get("_coverage", {}).get("InitialAnalysis", {})
         if initial.get("status") not in (None, "collected", "empty"):
