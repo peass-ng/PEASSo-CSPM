@@ -836,7 +836,7 @@ def _config_delivery_edges(kind):
                 if not isinstance(source, dict):
                     failure = failure or ("malformed", {"code": "config_rule_source_invalid"})
                     continue
-                row = {**_pick(item, ("ConfigRuleArn", "ConfigRuleName", "ConfigRuleState")),
+                row = {**_pick(item, ("ConfigRuleArn", "ConfigRuleName", "ConfigRuleState", "CreatedBy")),
                        "Source": _pick(source, ("Owner", "SourceIdentifier")), "id": arn}
             rows.append(row)
         return _finish(rows, failure)
