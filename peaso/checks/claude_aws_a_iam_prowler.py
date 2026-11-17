@@ -217,10 +217,20 @@ def _document_check_enforced(statement):
 
 
 def _covers_shell_document(resource):
-    """Resource pattern matches an AWS shell/command session document ARN (e.g. "*", document/*)."""
-    return isinstance(resource, str) and any(
-        fnmatchcase("arn:%s:ssm:%s::document/%s" % (partition, region, shell), resource)
-        for partition in ("aws", "aws-us-gov", "aws-cn") for region in ("us-east-1", "us-gov-west-1", "cn-north-1")
+    """Resource pattern matches a shell/command session document ARN (e.g. "*", document/*).
+
+    AWS-owned documents have no account in their ARN, while SSM-SessionManagerRunShell (the
+    Session Manager preferences document) lives in the customer's account, so both forms are tried
+    with the account and region the pattern itself names."""
+    if not isinstance(resource, str):
+        return False
+    parts = resource.split(":", 5)
+    region = parts[3] if len(parts) > 3 and parts[3] and not any(c in parts[3] for c in "*?") else None
+    account = parts[4] if len(parts) > 4 and parts[4] and not any(c in parts[4] for c in "*?") else "123456789012"
+    regions = ((region,) if region else ()) + ("us-east-1", "us-gov-west-1", "cn-north-1")
+    return any(
+        fnmatchcase("arn:%s:ssm:%s:%s:document/%s" % (partition, reg, acct, shell), resource)
+        for partition in ("aws", "aws-us-gov", "aws-cn") for reg in regions for acct in ("", account)
         for shell in SHELL_SESSION_DOCUMENTS)
 
 

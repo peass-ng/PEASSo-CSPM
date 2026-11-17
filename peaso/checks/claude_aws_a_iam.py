@@ -226,9 +226,10 @@ def kms_condition_restricts_keys(statement):
     """Condition pins the usable keys or ciphertexts to specific values.
 
     kms:EncryptionContext:<k> / kms:EncryptionContextKeys / aws:ResourceTag/<k> / kms:KeyOrigin-style
-    values under a positive String operator (StringEquals, StringLike without wildcard,
-    ForAllValues/ForAnyValue variants, IfExists) restrict which data or keys can be decrypted.
-    kms:ViaService alone does not: every key is still usable through that service.
+    values under a positive String operator (StringEquals, StringLike without wildcard, ForAnyValue)
+    restrict which data or keys can be decrypted. IfExists and ForAllValues operators do not: they
+    also match a request that carries no such key (for example a ciphertext without encryption
+    context), so every key and ciphertext stays usable. kms:ViaService alone does not either.
     """
     condition = statement.get("Condition") if isinstance(statement, dict) else None
     if not isinstance(condition, dict):
@@ -236,7 +237,10 @@ def kms_condition_restricts_keys(statement):
     for operator, block in condition.items():
         if not isinstance(operator, str) or not isinstance(block, dict):
             continue
-        op = operator.lower().split(":")[-1].replace("ifexists", "")
+        lowered = operator.lower()
+        if lowered.endswith("ifexists") or lowered.startswith("forallvalues:"):
+            continue
+        op = lowered.split(":")[-1]
         if op not in ("stringequals", "stringequalsignorecase", "stringlike", "arnequals", "arnlike"):
             continue
         for key, value in block.items():

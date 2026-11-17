@@ -39,6 +39,10 @@ def test_all_keys_with_pinned_encryption_context_passes():
     assert kms(allow("kms:Decrypt", "arn:aws:kms:us-east-1:%s:key/*" % ACCOUNT, Condition=condition)) == ("PASS", "PASS")
     one_secret = {"StringLike": {"kms:EncryptionContext:SecretARN": SECRET[:-6] + "??????"}}
     assert kms(allow("kms:Decrypt", "arn:aws:kms:us-east-1:%s:key/*" % ACCOUNT, Condition=one_secret)) == ("PASS", "PASS")
+    # IfExists / ForAllValues also match ciphertexts that carry no encryption context.
+    for loose in ({"StringEqualsIfExists": {"kms:EncryptionContext:SecretARN": SECRET}},
+                  {"ForAllValues:StringEquals": {"kms:EncryptionContextKeys": "SecretARN"}}):
+        assert kms(allow("kms:Decrypt", "*", Condition=loose)) == ("FAIL", "FAIL"), loose
     wildcard = {"StringLike": {"kms:EncryptionContext:SecretARN": "arn:aws:secretsmanager:*"}}
     assert kms(allow("kms:Decrypt", "*", Condition=wildcard)) == ("FAIL", "FAIL")
 
@@ -65,6 +69,11 @@ def test_shell_capable_session_is_escalation():
     shell = "arn:aws:ssm:us-east-1::document/SSM-SessionManagerRunShell"
     assert session_role(allow("ssm:StartSession", INSTANCES, Condition=DOC_CHECK), allow("ssm:StartSession", shell)) == "FAIL"
     assert session_role(allow("ssm:StartSession", "*", Condition=DOC_CHECK)) == "FAIL"
+    # The Session Manager preferences shell document lives in the customer's account.
+    for account_shell in ("arn:aws:ssm:us-east-1:%s:document/SSM-SessionManagerRunShell" % ACCOUNT,
+                          "arn:aws:ssm:*:%s:document/SSM-*" % ACCOUNT):
+        assert session_role(allow("ssm:StartSession", INSTANCES, Condition=DOC_CHECK),
+                            allow("ssm:StartSession", account_shell)) == "FAIL", account_shell
     any_doc = "arn:aws:ssm:us-east-1:%s:document/*" % ACCOUNT
     assert session_role(allow("ssm:StartSession", INSTANCES, Condition=DOC_CHECK), allow("ssm:StartSession", any_doc)) == "FAIL"
     assert session_role(allow("ssm:StartSession", [INSTANCES, any_doc], Condition=DOC_CHECK)) == "FAIL"
