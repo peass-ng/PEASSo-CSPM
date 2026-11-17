@@ -165,6 +165,13 @@ def listeners(item,index):
         if not arn.startswith(expected):raise Unavailable('listener belongs to different load balancer')
         protocol=get(listener,'Protocol',str)
         if protocol not in ('HTTP','HTTPS','TCP','TLS','UDP','TCP_UDP','GENEVE','QUIC','TCP_QUIC'):raise Unavailable('unknown protocol')
+        if protocol=='HTTP' and typ=='application':
+            # Security Hub ELB.1: an HTTP listener whose default action and every rule redirect
+            # to HTTPS serves nothing in plaintext; a redirect default with incomplete rules is UNKNOWN.
+            from .claude2_aws_b_edge import http_redirect_only_status
+            redirect=http_redirect_only_status(listener)
+            if redirect=='unresolved':raise Unavailable('HTTP redirect listener rules incomplete')
+            if redirect=='redirect':return result(False,protocol=protocol,https_redirect_only=True)
         if protocol not in ('HTTPS','TLS'):return result(True,protocol=protocol)
         certs=list_of_objects(get(listener,'Certificates',list))
         return result(not (has_cert := any(get(c,'CertificateArn',str) for c in certs)),protocol=protocol,certificate_configured=has_cert)

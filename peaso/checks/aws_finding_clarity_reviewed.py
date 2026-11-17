@@ -3578,10 +3578,10 @@ ROWS = {'aws.a.accessanalyzer.region_active': {'description_fields': {'descripti
                                                                       'before changing listener policy.'}},
  'aws.c2b.elbv2.listeners_acm_certificate': {'description_fields': {'description': 'Checks that every non-Gateway '
                                                                                    'ELBv2 listener has an ACM '
-                                                                                   'certificate ARN; plaintext '
-                                                                                   'listeners also fail this '
-                                                                                   'certificate-presence '
-                                                                                   'criterion.'},
+                                                                                   'certificate ARN; serving '
+                                                                                   'plaintext listeners also '
+                                                                                   'fail, HTTPS-only redirect '
+                                                                                   'listeners are skipped.'},
                                              'remediation_fields': {'steps': ['Attach an appropriate ACM '
                                                                               'certificate to TLS-terminating '
                                                                               'listeners; assess intentional '
