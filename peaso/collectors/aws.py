@@ -156,6 +156,12 @@ def _failure(exc):
         return ReadFailure("unknown" if state in TRANSIENT_SERVICE_STATES else "empty", state)
     if code in {"AccessDenied", "AccessDeniedException", "UnauthorizedOperation", "ForbiddenException", "UnrecognizedClientException", "InvalidClientTokenId", "ExpiredToken", "ExpiredTokenException"}:
         status = "denied"
+        # An Organizations SCP/RCP denial is not an IAM gap of this identity.
+        # Keep only the policy type; the message itself is never retained.
+        from peaso.policy_denial import PolicyDenialCode, policy_from_message
+        policy = policy_from_message(error.get("Message") if isinstance(error, dict) else None)
+        if policy is not None:
+            code = PolicyDenialCode(code, policy)
     elif "timeout" in type(exc).__name__.lower() or isinstance(exc, TimeoutError):
         status = "timeout"
     elif isinstance(exc, (ValueError, TypeError, KeyError)):
@@ -2612,7 +2618,13 @@ def collect(connector, requirements=None):
             from .aws_priority_tags_native import SOURCE_KINDS
             envelope["covered_source_kinds"] = list(SOURCE_KINDS)
         if error:
-            envelope["error"] = error
+            from peaso.policy_denial import denied_by
+            policy = denied_by(error) if status in ("denied", "partial") else None
+            # Persist the in-memory policy marker as an explicit, plain field.
+            envelope["error"] = ({key: str(value) if isinstance(value, str) else value for key, value in error.items()}
+                                 if isinstance(error, dict) else error)
+            if policy is not None:
+                envelope["error"]["denied_by"] = policy
         collections.append(envelope)
         from peaso.collection_events import emit_collection
         if not ((auto_lambda_environment and kind == aws_lambda_environment_secret_indicators.KIND)

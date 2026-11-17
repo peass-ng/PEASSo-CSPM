@@ -696,7 +696,7 @@ def collect(kind):
                 return ReadResult([], 'not_collected', {'code': 'sdk_operation_unavailable'})
         session = MetadataSession(session)
         service = plan['service']
-        failures, rows, unsupported = [], [], []
+        failures, rows, unsupported, causes = [], [], [], []
         def pages(step, context):
             try:
                 arguments = _arguments(step, context)
@@ -709,6 +709,8 @@ def collect(kind):
                 failures.append(result.status)
                 error = result.error if isinstance(result.error, dict) else {}
                 unsupported.append(error.get('code') == 'unsupported_region_service')
+                if isinstance(error.get('code'), str):
+                    causes.append((result.status, error['code']))
             return result.items
         parents = [({'NetworkAccountId': account}, [])]
         for step in plan.get('parents', []):
@@ -789,7 +791,13 @@ def collect(kind):
             # The SDK proves the service has no endpoint in this Region.
             return ReadResult([], 'not_collected', {'code': 'unsupported_region_service'})
         status = 'partial' if rows and failures else failures[0] if failures else 'collected' if rows else 'empty'
-        return ReadResult(rows, status, {'code': 'native_network_inventory_incomplete', 'cause_status': failures[0]} if failures else None)
+        error = {'code': 'native_network_inventory_incomplete', 'cause_status': failures[0]} if failures else None
+        # Keep the provider code behind the first failure (e.g. AccessDeniedException):
+        # coverage then names the real cause instead of an anonymous wrapper.
+        cause = next((code for state, code in causes if failures and state == failures[0]), None)
+        if error is not None and cause is not None:
+            error['cause_code'] = cause
+        return ReadResult(rows, status, error)
     return fetch
 
 

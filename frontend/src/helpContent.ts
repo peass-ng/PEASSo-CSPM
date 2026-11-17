@@ -38,7 +38,7 @@ export const concepts = [
   ["Check / control", "A rule that evaluates collected facts against a defined security criterion. Its detail explains what passes, what fails and which evidence is required."],
   ["Finding", "A check’s result for an asset or scope, with severity, status, observed evidence and remediation. A grouped finding collects affected assets for the same control."],
   ["Severity", "Potential security impact: critical, high, medium, low or info. Severity and status are separate: an important control can pass or lack sufficient evidence."],
-  ["Coverage", "What was collected and evaluated. Missing permissions, unsupported services, limits and unavailable facts can leave gaps even when execution completes."],
+  ["Coverage", "What was collected and evaluated. Missing permissions, unsupported services, limits and unavailable facts can leave gaps even when execution completes. Blocked by policy marks AWS reads an Organizations SCP or RCP denies (for example Regions outside an allowed-Region SCP): an organization guardrail, not a permission the scanning role is missing."],
   ["Framework / checklist", "A collection of mapped controls, such as HackTricks Cloud Best Practices or a named compliance version. A mapping helps organize review; it is not a certification."],
   ["Observed evidence", "The recorded settings and facts supporting a result. Open the finding for asset details, source references and the remediation plan."],
   ["Declared vs effective access", "Declared grants are permissions present in policies and trust rules. Effective access also depends on applicable denies, conditions, boundaries and organizational controls."],

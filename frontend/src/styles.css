@@ -860,6 +860,7 @@ h1 {
 }
 .badge.low,
 .badge.info,
+.badge.blocked_by_policy,
 .badge.collecting,
 .badge.analyzing,
 .badge.queued {
