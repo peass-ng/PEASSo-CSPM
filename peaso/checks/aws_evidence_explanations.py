@@ -248,7 +248,7 @@ def _observation(finding, row):
                 'Selected inline CodeBuild source was unavailable, incomplete or unbound.'}):
         return 'The selected inline CodeBuild source could not be fully inspected, so no clean result is established.'
     if (cid == 'aws.review.s3.selected_source_secret_indicators' and finding.get('status') == 'UNKNOWN'
-            and e == {'observed': 'Selected S3 source content was unreadable, unsupported, incomplete or unbound. A clean result cannot be established.',
+            and {k: v for k, v in e.items() if k != 'reason'} == {'observed': 'Selected S3 source content was unreadable, unsupported, incomplete or unbound. A clean result cannot be established.',
                       'complete': False, 'coverage': 'incomplete'}):
         return 'The selected S3 source could not be fully inspected, so no clean result is established.'
     if _text(observed) and ' ' in observed and observed.endswith('.') and not observed.lstrip().startswith(('{', '[')):

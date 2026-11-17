@@ -237,7 +237,10 @@ def test_log_event_bound_cut_is_partial(sdk, monkeypatch, secret_last):
     assert not sample['complete'] and sample['collection_status'] == 'partial'
     item, index = fixture('logs')
     item['ContentSecretIndicators'] = sample
-    assert checks.logs(item, index)[0] == ('FAIL' if secret_last else 'UNKNOWN')
+    status, evidence = checks.logs(item, index)
+    assert status == ('FAIL' if secret_last else 'UNKNOWN')
+    if not secret_last:
+        assert 'exceeds the 100 event scan bound' in evidence['reason']
 
 
 @pytest.mark.parametrize('mode', ['file', 'logs'])
