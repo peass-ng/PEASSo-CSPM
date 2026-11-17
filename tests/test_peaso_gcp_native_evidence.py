@@ -346,6 +346,20 @@ def test_scc_actual_http_transport_allows_only_read_operations(monkeypatch, path
         transport.request('POST', url, body={})
 
 
+@pytest.fixture
+def history_clock(monkeypatch):
+    # The fixture window must stay inside the 35-day native CAI retention.
+    from datetime import datetime, timezone
+    from peaso.collectors import gcp
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 20, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(gcp, 'datetime', Clock)
+
+
 def history_snapshot(mode='complete'):
     start, end = '2026-10-12T00:00:00+00:00', '2026-10-13T00:00:00+00:00'
     name = '//compute.googleapis.com/' + PROJECT + '/zones/us-central1-a/instances/vm'
@@ -401,6 +415,7 @@ def history_snapshot(mode='complete'):
 @pytest.mark.parametrize('mode,expected', [('complete', 'PASS'), ('missinglog', 'FAIL'), ('failure', 'FAIL'),
     ('pendingoperation', 'FAIL'), ('completedoperation', 'PASS'), ('unchanged', 'NOT_APPLICABLE'),
     ('missingcurrent', 'PASS'), ('numeric_alias', 'PASS'), ('selected', 'PASS'), ('wildcard', 'PASS')])
+@pytest.mark.usefixtures('history_clock')
 def test_cai_history_real_asof_timestamps_and_admin_activity_join(mode, expected):
     result, api = history_snapshot(mode)
     assert verdict(result, 'gcp_c5_asset_change_audit') == expected
@@ -417,6 +432,7 @@ def test_cai_history_real_asof_timestamps_and_admin_activity_join(mode, expected
 
 @pytest.mark.parametrize('mode', ['deniedprevious', 'partialprevious', 'missingreadtime', 'wrongreadtime',
     'foreignasset', 'deniedlog', 'foreignlog', 'wrongtype', 'wrongwindow', 'foreignbinding', 'alias_conflict'])
+@pytest.mark.usefixtures('history_clock')
 def test_cai_history_partial_mismatched_or_foreign_evidence_stays_unknown(mode):
     result, _ = history_snapshot(mode)
     assert verdict(result, 'gcp_c5_asset_change_audit') in ('UNKNOWN', 'DENIED')
