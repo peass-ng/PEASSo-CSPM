@@ -691,6 +691,117 @@ def _scan_reader(reader, size, name, requests, remaining, enqueue=None, causes=N
     return refs, True
 
 
+# Third-party distribution content. Every image file is still scanned; these
+# rules only decide which image hits are reported as the image owner's leaks.
+# Package databases whose listed digests prove a file is unmodified distro content.
+_DPKG_MD5SUMS = re.compile(r'var/lib/dpkg/(?:info|status\.d)/[^/]+\.md5sums')
+_APK_INSTALLED = 'lib/apk/db/installed'
+PACKAGE_DB_FILE_LIMIT = 8 * 1024 * 1024
+PACKAGE_DB_LIMIT = 64 * 1024 * 1024
+# Package-manager metadata: hashes, file lists and maintainer scripts of packages.
+_PACKAGE_METADATA = re.compile(r'(?:var/lib/dpkg|(?:usr/)?lib/apk/db|var/lib/rpm|usr/lib/sysimage/rpm)/')
+# Vendored dependency trees; only their binaries (scanned as printable strings) are suppressed.
+_VENDORED = re.compile(r'(?:^|/)(?:node_modules|site-packages|dist-packages|vendor|\.cargo/registry)/')
+# Upstream distribution documentation; only keyword-proximity hits are suppressed there.
+_UPSTREAM_DOCS = re.compile(r'(?:^|/)share/(?:doc|man|info)/|(?:^|/)(?:LICEN[CS]E|COPYING|CHANGELOG|CHANGES|NOTICE|HISTORY)[^/]*$'
+                            r'|^opt/[^/]+/(?:.+/)?README[^/]*$|(?:^|/)(?:node_modules|site-packages|dist-packages|vendor)/(?:.+/)?README[^/]*$',
+                            re.IGNORECASE)
+# Self-identifying formats stay reported even in documentation.
+_STRUCTURED_CATEGORIES = {'private_key', 'cloud_credential'}
+_STRUCTURED_RULE = re.compile(r'private.?key|(?:^|[^a-z])aws(?:[^a-z]|$)')
+# Merged /usr: a package may list lib/x while the image stores usr/lib/x, or the reverse.
+_USR_MERGED = re.compile(r'(?:s?bin|lib[^/]*)/')
+
+
+class _ObservedReader:
+    """Pass one image member's bytes through unchanged while hashing them.
+
+    A package database member is also kept (bounded) so its listed digests can
+    be parsed once every layer has been visited.
+    """
+    def __init__(self, reader, keep):
+        self.reader, self.consumed, self.binary = reader, 0, False
+        self.md5, self.sha1 = hashlib.md5(usedforsecurity=False), hashlib.sha1(usedforsecurity=False)
+        self.kept = bytearray() if keep else None
+
+    def read(self, size=-1):
+        data = self.reader.read(size)
+        if data:
+            self.consumed += len(data)
+            self.md5.update(data)
+            self.sha1.update(data)
+            self.binary = self.binary or b'\0' in data
+            if self.kept is not None:
+                self.kept.extend(data)
+        return data
+
+
+def _package_owners(databases):
+    """{path: digests} unmodified package files, from dpkg md5sums and apk Q1 SHA-1 lines."""
+    owners = {}
+    for name, raw in databases:
+        if name.endswith(_APK_INSTALLED):
+            folder = member = None
+            for line in raw.decode('utf-8', 'replace').splitlines():
+                if not line:
+                    folder = member = None
+                elif line.startswith('F:'):
+                    folder, member = line[2:].strip('/'), None
+                elif line.startswith('R:'):
+                    member = line[2:]
+                elif line.startswith('Z:Q1') and member:
+                    try:
+                        value = base64.b64decode(line[4:], validate=True)
+                    except ValueError:
+                        continue
+                    if len(value) == 20:
+                        owners.setdefault('/'.join(filter(None, (folder, member))), set()).add(value.hex())
+            continue
+        for line in raw.decode('utf-8', 'replace').splitlines():
+            match = re.fullmatch(r'([0-9a-f]{32}) [ *](.+)', line)
+            if match:
+                path = match[2].lstrip('/')
+                while path.startswith('./'):
+                    path = path[2:]
+                owners.setdefault(path, set()).add(match[1])
+    return owners
+
+
+def _distro_owned(path, digests, owners):
+    """The file's own bytes match what an installed package lists for its path."""
+    if digests is None:
+        return False
+    names = [path]
+    if path.startswith('usr/') and _USR_MERGED.match(path[4:]):
+        names.append(path[4:])
+    elif _USR_MERGED.match(path):
+        names.append('usr/' + path)
+    return any(owners.get(name, set()) & set(digests) for name in names)
+
+
+def third_party_reference(ref, facts, owners):
+    """Whether an image hit lies in unmodified third-party distribution content.
+
+    ``facts`` maps (File, LayerDigest) to ((md5, sha1) | None, binary). The
+    digests are of the exact bytes in that layer, so a modified package file
+    keeps reporting.
+    """
+    path = ref['File']
+    digests, binary = facts.get((path, ref['LayerDigest']), (None, False))
+    return bool(_PACKAGE_METADATA.match(path) or _distro_owned(path, digests, owners)
+                or binary and _VENDORED.search(path)
+                or _UPSTREAM_DOCS.search(path) and _keyword_only(ref))
+
+
+def _keyword_only(ref):
+    """No self-identifying format (private key, AWS key pair) backs this hit."""
+    if _STRUCTURED_CATEGORIES & set(ref['Categories']):
+        return False
+    rules = {str(detector.get('rule', '')).lower() for leak in ref.get('Leaks', [])
+             for detector in leak.get('detectors', [])}
+    return not any(_STRUCTURED_RULE.search(rule) for rule in rules)
+
+
 def _layer(response, arguments, requests, region):
     account, repo = _ecr_arguments(arguments)
     digest = arguments['layerDigest']
@@ -847,6 +958,8 @@ def _image(response, arguments, requests, session, region):
             output_bytes[0] += size
     pending, pending_bytes, failed_files, file_counts = [], 0, set(), {}
     scanned_windows = 0
+    # Per visited (path, layer) member: its digests and whether it was binary.
+    facts, databases, database_bytes = {}, [], [0]
     def flush_pending():
         nonlocal pending, pending_bytes, complete, scanned_windows
         if not pending: return
@@ -924,12 +1037,24 @@ def _image(response, arguments, requests, session, region):
                 nonlocal complete
                 ld = descriptors[layer_index + 1][0]
                 file_key = object()
+                keep = ((_DPKG_MD5SUMS.fullmatch(name) is not None or name in (_APK_INSTALLED, 'usr/' + _APK_INSTALLED))
+                        and size <= PACKAGE_DB_FILE_LIMIT and database_bytes[0] + size <= PACKAGE_DB_LIMIT)
+                reader = _ObservedReader(reader, keep)
                 with source_context(resource_id=identity, scope=account + '/' + region,
                                     image_digest=digest, layer=ld,
                                     check_ids=IMAGE_CHECKS):
                     found, covered = _scan_reader(reader, size, name, requests, remaining,
                         enqueue=lambda payload, path: enqueue_window(payload, path, ld, file_key),
                         causes=causes)
+                while keep and reader.consumed < size:
+                    requests.check_deadline()
+                    if not reader.read(min(SCAN_WINDOW, size - reader.consumed)):
+                        raise ValueError('truncated validated file')
+                if keep:
+                    databases.append((name, bytes(reader.kept)))
+                    database_bytes[0] += size
+                facts[(name, ld)] = ((reader.md5.hexdigest(), reader.sha1.hexdigest())
+                                     if reader.consumed == size else None, reader.binary)
                 add_refs(found, ld)
                 if not covered: complete = False
             suffix = 'amazonaws.com.cn' if _partition(region) == 'aws-cn' else 'amazonaws.com'
@@ -961,6 +1086,10 @@ def _image(response, arguments, requests, session, region):
                 complete = False; causes.add('engine_incomplete')
             if hasattr(state, 'active'): del state.active
     requests.check_deadline()
+    # Decided once every layer is visited: a package database may follow the
+    # files it lists, in the same or a later layer.
+    owners = _package_owners(databases)
+    refs = [ref for ref in refs if not third_party_reference(ref, facts, owners)]
     for ld, _ in descriptors[1:]:
         reuse_image_layer([leak for ref in refs if ref.get('LayerDigest') == ld
                            for leak in ref.get('Leaks', [])],

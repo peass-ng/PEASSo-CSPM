@@ -640,30 +640,40 @@ def test_partial_image_negative_names_its_incomplete_cause():
 
 def _image_layer(monkeypatch, members, detected=False):
     """The synthetic ECR image with one layer holding ``members`` (name, bytes | ('link', target))."""
+    return _image_layers(monkeypatch, [members], detected)
+
+
+def _image_layers(monkeypatch, layers, detected=False):
+    """The synthetic ECR image with one layer per ``layers`` entry, lowest first."""
     requests, session, item, ops, calls, downloads, payloads = sdk(monkeypatch, 'ecr_repository', detected)
-    out = io.BytesIO()
-    with tarfile.open(fileobj=out, mode='w', format=tarfile.PAX_FORMAT) as archive:
-        for name, value in members:
-            info = tarfile.TarInfo(name)
-            if isinstance(value, tuple):
-                info.type, info.linkname = tarfile.SYMTYPE, value[1]
-                archive.addfile(info)
-            else:
-                info.size = len(value)
-                archive.addfile(info, io.BytesIO(value))
-    tar = out.getvalue()
-    layer = gzip.compress(tar)
+    tars = []
+    for members in layers:
+        out = io.BytesIO()
+        with tarfile.open(fileobj=out, mode='w', format=tarfile.PAX_FORMAT) as archive:
+            for name, value in members:
+                info = tarfile.TarInfo(name)
+                if isinstance(value, tuple):
+                    info.type, info.linkname = tarfile.SYMTYPE, value[1]
+                    archive.addfile(info)
+                else:
+                    info.size = len(value)
+                    archive.addfile(info, io.BytesIO(value))
+        tars.append(out.getvalue())
+    blobs = [gzip.compress(tar) for tar in tars]
     config = json.loads(payloads[URL + '-config'])
-    config['rootfs']['diff_ids'] = [digest(tar)]
+    config['rootfs']['diff_ids'] = [digest(tar) for tar in tars]
+    config['history'] = [{'created_by': 'COPY safe'} for _ in tars]
     config_raw = json.dumps(config).encode()
-    payloads.update({URL + '-config': config_raw, URL + '-layer': layer})
+    urls = {digest(config_raw): URL + '-config'}
+    payloads[URL + '-config'] = config_raw
+    for position, blob in enumerate(blobs):
+        urls.setdefault(digest(blob), URL + '-layer' + str(position))
+        payloads[URL + '-layer' + str(position)] = blob
     document = json.loads(ops['batch_get_image']['images'][0]['imageManifest'])
     document['config'].update(size=len(config_raw), digest=digest(config_raw))
-    document['layers'][0].update(size=len(layer), digest=digest(layer))
+    document['layers'] = [dict(document['layers'][0], size=len(blob), digest=digest(blob)) for blob in blobs]
     _replace_manifest(ops, document)
-    ops['get_download_url_for_layer'] = lambda **kw: {
-        'layerDigest': kw['layerDigest'],
-        'downloadUrl': URL + ('-config' if kw['layerDigest'] == digest(config_raw) else '-layer')}
+    ops['get_download_url_for_layer'] = lambda **kw: {'layerDigest': kw['layerDigest'], 'downloadUrl': urls[kw['layerDigest']]}
     result = p.ENRICHERS['ecr_repository'](requests, session, REGION, [item])[0]
     return c.image_layers(result, index('ecr_repository', result))
 
@@ -695,6 +705,90 @@ def test_image_secret_in_file_with_real_world_name_fails_not_malformed(monkeypat
     status, evidence = _image_layer(monkeypatch, [(name, ("PASSWORD='" + SECRET + "'").encode())])
     assert status == 'FAIL' and evidence['source_complete'] is True, evidence
     assert [ref['File'] for ref in evidence['references']] == [name]
+
+
+PEM = b'-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n-----END PRIVATE KEY-----'
+AWS_PAIR = b'AKIAZ7QX3MPL4RTV9KWD aws_secret_access_key="' + b'wJalrXUtnFEMI/K7MDENG/bPxRfiCYzq3Kq9dQ2v' + b'"'
+GNUTLS = 'usr/lib/aarch64-linux-gnu/libgnutls.so.30.34.3'
+
+
+def _md5sums(*files):
+    return ('var/lib/dpkg/info/libgnutls30:arm64.md5sums',
+            b''.join(hashlib.md5(raw).hexdigest().encode() + b'  ' + name.encode() + b'\n' for name, raw in files))
+
+
+@pytest.mark.parametrize('listed', [GNUTLS, 'lib/aarch64-linux-gnu/libgnutls.so.30.34.3'])
+@pytest.mark.parametrize('later', [False, True])
+def test_unmodified_dpkg_file_hit_is_not_reported_and_stays_complete(monkeypatch, listed, later):
+    library = _elf(b'GNUTLS_3_4', PEM)
+    database = _md5sums((listed, library), ('usr/share/doc/libgnutls30/copyright', b'x'))
+    layers = [[(GNUTLS, library)], [database]] if later else [[(GNUTLS, library), database]]
+    status, evidence = _image_layers(monkeypatch, layers)
+    assert status == 'PASS' and evidence['source_complete'] is True, evidence
+    assert evidence['references'] == []
+
+
+def test_modified_dpkg_file_hit_is_reported(monkeypatch):
+    shipped = _elf(b'GNUTLS_3_4', b'no key here at all')
+    status, evidence = _image_layers(monkeypatch, [[(GNUTLS, _elf(b'GNUTLS_3_4', PEM)), _md5sums((GNUTLS, shipped))]])
+    assert status == 'FAIL' and evidence['source_complete'] is True, evidence
+    assert [ref['File'] for ref in evidence['references']] == [GNUTLS]
+
+
+def test_dpkg_file_overwritten_in_later_layer_reports_only_the_changed_bytes(monkeypatch):
+    shipped = _elf(b'GNUTLS_3_4', PEM)
+    status, evidence = _image_layers(monkeypatch, [[(GNUTLS, shipped), _md5sums((GNUTLS, shipped))],
+                                                   [(GNUTLS, _elf(b'patched', PEM, b'x' * 9))]])
+    # Both layers hold the key; only the later, modified copy is reported.
+    assert status == 'FAIL', evidence
+    assert [ref['File'] for ref in evidence['references']] == [GNUTLS]
+
+
+def test_apk_owned_file_hit_is_not_reported(monkeypatch):
+    library = _elf(b'musl', PEM)
+    installed = ('P:libssl3\nF:usr/lib\nR:libssl.so.3\nZ:Q1' + base64.b64encode(hashlib.sha1(library).digest()).decode()
+                 + '\n\n').encode()
+    status, evidence = _image_layers(monkeypatch, [[('usr/lib/libssl.so.3', library)], [('lib/apk/db/installed', installed)]])
+    assert status == 'PASS' and evidence['source_complete'] is True, evidence
+
+
+def test_package_manager_metadata_hit_is_not_reported(monkeypatch):
+    status, evidence = _image_layer(monkeypatch, [('var/lib/dpkg/info/libc6:arm64.md5sums', PEM),
+                                                  ('var/lib/dpkg/status', b"PASSWORD='" + SECRET.encode() + b"'")])
+    assert status == 'PASS' and evidence['source_complete'] is True, evidence
+
+
+def test_vendored_binary_hit_is_not_reported_but_vendored_text_is(monkeypatch):
+    vips = ('app/node_modules/.pnpm/@img+sharp-libvips-linux-arm64@1.3.4/node_modules/'
+            '@img/sharp-libvips-linux-arm64/lib/libvips-cpp.so.8.18.7')
+    status, evidence = _image_layer(monkeypatch, [(vips, _elf(b'vips_init', PEM, AWS_PAIR)),
+                                                  ('app/vendor/github.com/x/y/z.so', _elf(PEM))])
+    assert status == 'PASS' and evidence['source_complete'] is True, evidence
+    status, evidence = _image_layer(monkeypatch, [(vips, _elf(PEM)), ('app/node_modules/pkg/.env', AWS_PAIR)])
+    assert status == 'FAIL' and [ref['File'] for ref in evidence['references']] == ['app/node_modules/pkg/.env']
+
+
+def test_upstream_docs_keep_only_self_identifying_hits(monkeypatch):
+    keyword = b"PASSWORD='" + SECRET.encode() + b"'"
+    status, evidence = _image_layer(monkeypatch, [('opt/yarn-v1.22.22/README.md', keyword),
+                                                  ('usr/share/doc/tool/README', keyword),
+                                                  ('usr/share/man/man1/tool.1', keyword),
+                                                  ('opt/tool/LICENSE', keyword)])
+    assert status == 'PASS' and evidence['source_complete'] is True, evidence
+    status, evidence = _image_layer(monkeypatch, [('opt/yarn-v1.22.22/README.md', PEM), ('app/README.md', keyword)])
+    assert status == 'FAIL'
+    assert sorted(ref['File'] for ref in evidence['references']) == ['app/README.md', 'opt/yarn-v1.22.22/README.md']
+
+
+def test_first_party_build_output_secret_still_fails_beside_suppressed_noise(monkeypatch):
+    chunk = 'app/apps/frontend/.next/static/chunks/0sf186v8dn5t6.js'
+    library = _elf(b'GNUTLS_3_4', PEM)
+    status, evidence = _image_layers(monkeypatch, [
+        [(GNUTLS, library), _md5sums((GNUTLS, library)), ('opt/yarn-v1.22.22/README.md', b"PASSWORD='" + SECRET.encode() + b"'")],
+        [(chunk, b'self.__next_f.push([1,"' + AWS_PAIR.replace(b'"', b"'") + b'"])')]])
+    assert status == 'FAIL' and evidence['source_complete'] is True, evidence
+    assert [ref['File'] for ref in evidence['references']] == [chunk]
+    assert 'cloud_credential' in evidence['references'][0]['Categories']
 
 
 @pytest.mark.parametrize('name', ['/abs', 'a/../b', 'a//b', 'a\\b', 'a\x00b', 'x' * 257])
