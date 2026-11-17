@@ -26397,6 +26397,10 @@ def _aws_config_external_delivery(snapshot, inventory, resource):
         if data.get("ConfigRuleState") in ("DELETING", "DELETING_RESULTS"):
             return None
         if kind == "config_rule_lambda_delivery":
+            created_by, rule_arn = data.get("CreatedBy"), data.get("ConfigRuleArn")
+            if ((isinstance(created_by, str) and created_by.endswith(".amazonaws.com")) or
+                    (isinstance(rule_arn, str) and ":config-rule/aws-service-rule/" in rule_arn)):
+                return None  # Service-linked rule (e.g. Security Hub): the AWS service owns its evaluator Lambda.
             source = data.get("Source")
             if not isinstance(source, dict):
                 a.gap("inventory", "AWS Config rule source is unavailable")
@@ -26438,8 +26442,10 @@ def _aws_config_external_delivery(snapshot, inventory, resource):
         if bucket in owned:
             a.step("s3_delivery", "local", bucket=bucket)
         elif bucket_state in ("collected", "empty"):
-            a.explicit = "FAIL"
+            # The owner of a bucket outside this account is not observable (often the organization's
+            # log-archive account), so this is a review item, not an attributed foreign delivery.
             a.step("s3_delivery", "allow", bucket=bucket, ownership="outside_scanned_account")
+            a.gap("destination", "AWS Config delivery bucket is outside the scanned account and its owner is unresolved")
         else:
             a.gap("destination", "AWS Config delivery bucket ownership is unavailable")
     elif kind == "config_delivery_channel":
@@ -26915,11 +26921,41 @@ def _aws_iot_credentials_endpoint(snapshot, inventory, resource):
     return a
 
 
+_IOT_USAGE_TYPES = ("iot_topic_rule", "iot_role_alias")
+
+
+def _aws_iot_account_usage(inventory, resource):
+    """True/False when collected IoT configuration shows whether the scope uses IoT Core; None if unknown.
+
+    Every account has an AWS-provisioned default data endpoint (iot:Data-ATS). It only accepts
+    authenticated clients, so it is a real entry point only once the account configures IoT:
+    topic rules, role aliases, customer domain configurations or a custom authorizer."""
+    scope = resource.get("scope")
+    for row in inventory.items("iot_data_domain"):
+        data = row.get("data") if isinstance(row.get("data"), dict) else {}
+        if row.get("scope") != scope or data.get("Status") == "DISABLED":
+            continue
+        name = data.get("DomainConfigurationName")
+        if not (isinstance(name, str) and name.startswith("iot:")) or data.get("DefaultAuthorizerName"):
+            return True
+    unknown = False
+    for kind in _IOT_USAGE_TYPES:
+        if any(row.get("scope") == scope for row in inventory.items(kind)):
+            return True
+        if inventory.status.get(kind, {}).get(scope) not in ("collected", "empty"):
+            unknown = True
+    return None if unknown else False
+
+
 def _aws_iot_data_domain(snapshot, inventory, resource):
     """An enabled IoT Core data domain presents a managed public device listener."""
     data = resource["data"]
     if data.get("Status") == "DISABLED":
         return None
+    name = data.get("DomainConfigurationName")
+    if (isinstance(name, str) and name.startswith("iot:") and data.get("DomainType") != "CUSTOMER_MANAGED" and
+            not data.get("DefaultAuthorizerName") and _aws_iot_account_usage(inventory, resource) is False):
+        return None  # AWS default endpoint of an account with no collected IoT configuration.
     a = Assessment(resource, "managed_endpoint")
     account, _, region = str(resource.get("scope", "")).partition("/")
     partition = "aws-cn" if region.startswith("cn-") else "aws-us-gov" if region.startswith("us-gov-") else "aws"
@@ -26949,7 +26985,8 @@ def _aws_iot_data_domain(snapshot, inventory, resource):
         return a
     a.addresses = [domain]
     a.ports = ports
-    a.authenticated = data.get("AuthenticationType") in ("AWS_X509", "AWS_SIGV4", "CUSTOM_AUTH_X509", "CUSTOM_AUTH")
+    # DEFAULT selects X.509 or SigV4 by port/ALPN; every IoT Core data listener authenticates callers.
+    a.authenticated = data.get("AuthenticationType") in ("DEFAULT", "AWS_X509", "AWS_SIGV4", "CUSTOM_AUTH_X509", "CUSTOM_AUTH")
     a.step("listener", "allow", hostname=domain, application_protocol=protocol,
            authentication_type=data.get("AuthenticationType"), domain_type=data.get("DomainType"))
     if data.get("DomainType") == "CUSTOMER_MANAGED":
@@ -27535,9 +27572,10 @@ def _aws_cloudtrail_external_delivery(snapshot, inventory, resource):
             if any(not isinstance(name, str) or not name for name in own_buckets):
                 uncertain = True
             elif bucket_name not in own_buckets:
-                a.explicit = "FAIL"
+                # S3 bucket names do not reveal their owner; an organization trail normally delivers to
+                # the log-archive account. Without an attributable foreign owner this stays unresolved.
                 a.step("s3_delivery", "allow", destination_bucket=bucket_name, recipient="external_bucket_owner")
-                a.gap("delivery", "Trail destination ownership differs from the account; bucket policy, encryption and successful delivery were not observed")
+                a.gap("delivery", "Trail destination bucket is outside the account and its owner is unresolved; bucket policy, encryption and successful delivery were not observed")
     if foreign:
         a.external_ids = sorted({owner for owner, _, _ in foreign})
         a.explicit = "FAIL"
@@ -36579,6 +36617,8 @@ def _title(assessment, status):
             return "Data shared with external principal" if assessment.resource["type"] == "ec2_image" else "Data shared with external account"
         if assessment.data_exposure:
             return "Data publicly accessible from the internet"
+        if assessment.kind in _AWS_DELIVERY_OBSERVED_KINDS and not assessment.ports and not assessment.addresses:
+            return "Records delivered to a destination outside the account"
         ports = describe(assessment.ports or {})
         addresses = sorted(x for x in assessment.addresses if x)
         target = f" at {', '.join(addresses[:2])}" if addresses else ""
@@ -36587,6 +36627,8 @@ def _title(assessment, status):
         return f"Asset reachable from the internet{target}"
     if status == "PASS":
         return "Public endpoint blocked from the internet"
+    if assessment.kind in _AWS_DELIVERY_OBSERVED_KINDS and not assessment.ports and not assessment.addresses:
+        return "Delivery destination outside the account unresolved"
     return "Internet exposure could not be fully resolved"
 
 
