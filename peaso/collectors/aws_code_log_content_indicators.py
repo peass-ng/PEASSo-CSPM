@@ -33,7 +33,9 @@ MAX_LOG_EVENTS = 200000
 MAX_LOG_BYTES = 128 * 1024 * 1024
 MAX_LOG_PAGES = 2000
 MAX_LOG_RECORDS = 200
-SCAN_BATCH_EVENTS = 500
+# Each prepared batch costs one scanner start (~3s in hosted collectors) almost
+# regardless of size, so log pages are scanned in the largest allowed batches.
+SCAN_BATCH_EVENTS = 2048
 CATEGORIES = {'private_key', 'cloud_credential', 'password_assignment', 'secret'}
 _LOG_SCANNER_GATE = ContextVar('aws_log_scanner_gate', default=None)
 
@@ -183,12 +185,13 @@ def project_response(response, service, operation, arguments, *, request_context
                 raise ValueError()
             remaining = request_context['remaining_bytes']
             from peaso.secret_scanning import prepared_content_batch, scan_content
-            pending = []
+            from peaso.secret_scanning_batch import MAX_BATCH_BYTES
+            pending, pending_bytes = [], 0
             def flush():
-                nonlocal pending
+                nonlocal pending, pending_bytes
                 if not pending:
                     return
-                batch, pending = pending, []
+                batch, pending, pending_bytes = pending, [], 0
                 # Preparation stages only already-admitted message bytes in
                 # volatile tmpfs. Each original event still enters the normal
                 # scanner with its own thread-local source context.
@@ -219,7 +222,10 @@ def project_response(response, service, operation, arguments, *, request_context
                 size = len(payload)
                 readable = size <= remaining
                 if readable:
+                    if pending_bytes + size > MAX_BATCH_BYTES:
+                        flush()
                     pending.append((timestamp, message, payload, row))
+                    pending_bytes += size
                     remaining -= size
                     if len(pending) == SCAN_BATCH_EVENTS:
                         flush()

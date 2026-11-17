@@ -64,10 +64,9 @@ def test_same_message_without_exact_exception_type_never_retries():
     assert calls == [1025] and not policy.large_disabled
 
 
-def test_common_api_preserves_512_bound_before_preparation(monkeypatch):
+def test_common_api_preserves_item_bound_before_preparation(monkeypatch):
     monkeypatch.setattr(batch, '_prepare_trufflehog_batch',
                         lambda *args: pytest.fail('oversized common input reached scanner'))
-    assert batch.MAX_BATCH_ITEMS == 512
     with pytest.raises(ValueError, match='content batch bound'):
-        with batch.prepared_content_batch(_items(513)):
+        with batch.prepared_content_batch(_items(batch.MAX_BATCH_ITEMS + 1)):
             pass
