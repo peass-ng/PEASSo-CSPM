@@ -607,9 +607,46 @@ def _ecr_arguments(arguments):
     return account, repo
 
 
+# Bytes ``strings`` treats as printable text: ASCII space through tilde, plus tab.
+_PRINTABLE = bytes([9]) + bytes(range(0x20, 0x7f))
+_PRINTABLE_RUN = re.compile(rb'[\t\x20-\x7e]{8,}')
+
+
+def _printable_strings(data, final):
+    """``strings -n 8`` over one bounded buffer: (newline-joined runs, carried tail).
+
+    A printable run reaching the buffer end may continue in the next read, so
+    up to SCAN_OVERLAP of its bytes is carried instead of being cut in two.
+    """
+    tail = len(data) - len(data.rstrip(_PRINTABLE))
+    if final or not tail:
+        body, carry = data, b''
+    elif tail <= SCAN_OVERLAP:
+        body, carry = data[:-tail], data[-tail:]
+    else:
+        body, carry = data, data[-SCAN_OVERLAP:]
+    return b'\n'.join(_PRINTABLE_RUN.findall(body)), carry
+
+
+def image_member_path(value):
+    """A container image member path as the bounded image reader names it.
+
+    Image files may use any UTF-8 name (``Foo$Bar.class``, ``a:b``, non-ASCII);
+    only the shape the reader guarantees is required: relative, normalized,
+    at most 256 characters, without NUL or backslash.
+    """
+    if (not isinstance(value, str) or not value or len(value) > 256 or '\x00' in value or '\\' in value
+            or value.startswith('/') or any(piece in ('', '.', '..') for piece in value.split('/'))):
+        raise ValueError('unsafe image member path')
+    return value
+
+
 def _scan_reader(reader, size, name, requests, remaining, enqueue=None, causes=None):
     """Scan a regular file in overlapping, bounded windows through private capture.
 
+    Text is scanned as read. From the first window holding a NUL byte the file
+    is treated as binary: its printable strings (``strings -n 8``) are scanned
+    instead, through the same windows, bounds and member path.
     When ``causes`` is a set, the concrete reason a file stays uncovered is added to it.
     """
     causes = set() if causes is None else causes
@@ -619,16 +656,19 @@ def _scan_reader(reader, size, name, requests, remaining, enqueue=None, causes=N
         causes.add('file_size_bound'); return [], False
     if remaining[0] < size:
         causes.add('content_budget_bound'); return [], False
-    refs, overlap, consumed = [], b'', 0
+    refs, overlap, consumed, binary, carry = [], b'', 0, False, b''
     while consumed < size:
         requests.check_deadline()
-        chunk = reader.read(min(SCAN_WINDOW, size - consumed))
+        chunk = reader.read(min(max(1, SCAN_WINDOW - len(carry)), size - consumed))
         if not isinstance(chunk, bytes) or not chunk:
             raise ValueError('truncated validated file')
         consumed += len(chunk)
         remaining[0] -= len(chunk)
-        if b'\0' in chunk:
-            causes.add('binary_member'); return refs, False
+        binary = binary or b'\0' in chunk
+        if binary:
+            chunk, carry = _printable_strings(carry + chunk, consumed >= size)
+            if not chunk:
+                continue
         payload = overlap + chunk
         if enqueue is not None:
             if not enqueue(payload, name):
@@ -897,8 +937,8 @@ def _image(response, arguments, requests, session, region):
             flush_pending()
             if result['expanded_bytes'] > ECR_EXPANDED_LIMIT:
                 complete = False; causes.add('expanded_size_bound')
-            if result.get('links_skipped', 0):
-                complete = False; causes.add('symlink_members')
+            # A symlink has no content of its own: its target is another
+            # member (visited as that file) or absent, so skipping it loses nothing.
             if result.get('partial', False):
                 complete = False; causes.add('archive_partial')
         except PartialArchive as partial:

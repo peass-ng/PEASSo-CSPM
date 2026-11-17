@@ -167,3 +167,31 @@ def test_reader_enqueues_original_overlap_windows_and_preserves_budget(monkeypat
     assert windows == [(b'abcdefgh', 'source.txt'), (b'fghij', 'source.txt')]
 
 
+def test_reader_scans_binary_printable_strings_across_windows(monkeypatch):
+    monkeypatch.setattr(package, 'SCAN_WINDOW', 64)
+    monkeypatch.setattr(package, 'SCAN_OVERLAP', 16)
+    key = b'AKIA' + b'Z7QX3MPL4RTV9KWD'
+    # ELF-like: header, opaque bytes, a short run, then the key straddling a window boundary.
+    payload = b'\x7fELF\x02\x01\x01\x00' + bytes(range(1, 9)) * 6 + b'\x00ab\x00' + key + b'\x00\xff' * 40
+    windows, remaining = [], [4096]
+    refs, covered = package._scan_reader(io.BytesIO(payload), len(payload), 'usr/bin/app',
+        SimpleNamespace(check_deadline=lambda: None), remaining,
+        enqueue=lambda raw, name: windows.append((raw, name)) or True)
+    assert (refs, covered, remaining) == ([], True, [4096 - len(payload)])
+    assert windows and {name for _, name in windows} == {'usr/bin/app'}
+    assert any(key in raw for raw, _ in windows)
+    assert all(b'\x00' not in raw and len(raw) <= 64 + 16 for raw, _ in windows)
+    assert not any(b'ab' in raw.split(b'\n') for raw, _ in windows)
+
+
+def test_reader_binary_strings_keep_reference_bound(monkeypatch):
+    monkeypatch.setattr(package, 'REFERENCE_LIMIT', 1)
+    monkeypatch.setattr(package, '_scan', lambda raw, name, requests: [
+        {'File': name, 'Categories': ['secret'], 'Leaks': []}] * 2)
+    causes = set()
+    payload = b'\x00' + b'printable-run-here'
+    refs, covered = package._scan_reader(io.BytesIO(payload), len(payload), 'lib/x.so',
+        SimpleNamespace(check_deadline=lambda: None), [1024], causes=causes)
+    assert (refs, covered, causes) == ([], False, {'reference_bound'})
+
+

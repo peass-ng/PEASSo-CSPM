@@ -338,10 +338,10 @@ def test_binary_first_does_not_hide_later_supported_file(monkeypatch):
     monkeypatch.setattr(content, '_scan', scan)
     requests = SimpleNamespace(check_deadline=lambda: None)
     budget = [1024]
-    assert content._scan_reader(io.BytesIO(b'\x00opaque'), 7, 'bin.dat', requests, budget) == ([], False)
+    # A binary without printable strings has nothing to scan, yet is covered.
+    assert content._scan_reader(io.BytesIO(b'\x00opaque'), 7, 'bin.dat', requests, budget) == ([], True)
     refs, covered = content._scan_reader(io.BytesIO(b'key=value'), 9, 'app.env', requests, budget)
     assert covered and len(refs) == 1 and calls == ['app.env']
-    assert not all((False, covered))  # clean image with a binary remains incomplete
 
 
 def test_default_off_image_reader_has_zero_io():

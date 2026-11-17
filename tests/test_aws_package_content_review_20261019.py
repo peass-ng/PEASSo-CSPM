@@ -633,9 +633,76 @@ def test_partial_image_negative_names_its_incomplete_cause():
     item, ix = c._fixture('ecr_repository', False)
     marker = item['PackageContentSource']['PackageSecretIndicators']
     marker.update(NativeResponseComplete=False, collection_status='partial',
-                  Reason='image_content_incomplete: binary_member')
+                  Reason='image_content_incomplete: file_size_bound')
     status, evidence = c.image_layers(item, ix)
-    assert status == 'UNKNOWN' and 'binary_member' in evidence['reason']
+    assert status == 'UNKNOWN' and 'file_size_bound' in evidence['reason']
+
+
+def _image_layer(monkeypatch, members, detected=False):
+    """The synthetic ECR image with one layer holding ``members`` (name, bytes | ('link', target))."""
+    requests, session, item, ops, calls, downloads, payloads = sdk(monkeypatch, 'ecr_repository', detected)
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode='w', format=tarfile.PAX_FORMAT) as archive:
+        for name, value in members:
+            info = tarfile.TarInfo(name)
+            if isinstance(value, tuple):
+                info.type, info.linkname = tarfile.SYMTYPE, value[1]
+                archive.addfile(info)
+            else:
+                info.size = len(value)
+                archive.addfile(info, io.BytesIO(value))
+    tar = out.getvalue()
+    layer = gzip.compress(tar)
+    config = json.loads(payloads[URL + '-config'])
+    config['rootfs']['diff_ids'] = [digest(tar)]
+    config_raw = json.dumps(config).encode()
+    payloads.update({URL + '-config': config_raw, URL + '-layer': layer})
+    document = json.loads(ops['batch_get_image']['images'][0]['imageManifest'])
+    document['config'].update(size=len(config_raw), digest=digest(config_raw))
+    document['layers'][0].update(size=len(layer), digest=digest(layer))
+    _replace_manifest(ops, document)
+    ops['get_download_url_for_layer'] = lambda **kw: {
+        'layerDigest': kw['layerDigest'],
+        'downloadUrl': URL + ('-config' if kw['layerDigest'] == digest(config_raw) else '-layer')}
+    result = p.ENRICHERS['ecr_repository'](requests, session, REGION, [item])[0]
+    return c.image_layers(result, index('ecr_repository', result))
+
+
+def _elf(*strings):
+    return b'\x7fELF\x02\x01\x01\x00' + bytes(range(1, 32)) * 4 + b'\x00'.join(strings) + b'\x00\xff' * 64
+
+
+def test_image_binary_strings_are_scanned_and_symlinks_keep_coverage(monkeypatch):
+    status, evidence = _image_layer(monkeypatch, [
+        ('usr/bin/app', _elf(b'GLIBC_2.34', ("PASSWORD='" + SECRET + "'").encode())),
+        ('usr/bin/app-link', ('link', 'app')), ('etc/missing-link', ('link', '/nowhere')),
+        ('etc/app.conf', b'ready=true')])
+    assert status == 'FAIL' and evidence['source_complete'] is True, evidence
+    assert [ref['File'] for ref in evidence['references']] == ['usr/bin/app']
+
+
+def test_clean_image_with_binaries_and_symlinks_passes(monkeypatch):
+    status, evidence = _image_layer(monkeypatch, [
+        ('usr/lib/libz.so.1.3', _elf(b'deflate 1.3 Copyright', b'GLIBC_2.17')),
+        ('usr/lib/libz.so.1', ('link', 'libz.so.1.3')), ('etc/app.conf', b'ready=true\x00stray')])
+    assert status == 'PASS' and evidence['source_complete'] is True, evidence
+
+
+@pytest.mark.parametrize('name', ['opt/app/Config$Inner.class', 'srv/a:b,c=d~e#f.txt',
+                                  'usr/share/ca/NetLock_=Class_Gold=_Főtanúsítvány.crt'])
+def test_image_secret_in_file_with_real_world_name_fails_not_malformed(monkeypatch, name):
+    # Image members keep any UTF-8 name; the ZIP-only path charset must not reject them.
+    status, evidence = _image_layer(monkeypatch, [(name, ("PASSWORD='" + SECRET + "'").encode())])
+    assert status == 'FAIL' and evidence['source_complete'] is True, evidence
+    assert [ref['File'] for ref in evidence['references']] == [name]
+
+
+@pytest.mark.parametrize('name', ['/abs', 'a/../b', 'a//b', 'a\\b', 'a\x00b', 'x' * 257])
+def test_image_reference_with_unsafe_path_is_invalid_evidence(name):
+    item, ix = c._fixture('ecr_repository', True)
+    item['PackageContentSource']['PackageSecretIndicators']['References'][0]['File'] = name
+    status, evidence = c.image_layers(item, ix)
+    assert status == 'UNKNOWN' and evidence['reason'].startswith('package_indicator_evidence_invalid')
 
 
 @pytest.mark.parametrize('detected', [True, False])

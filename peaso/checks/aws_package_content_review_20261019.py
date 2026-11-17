@@ -3,7 +3,7 @@ import re
 from .facts import Unavailable, get
 from .aws_configuration_secret_review_20261019 import _member
 from peaso.collectors.aws_package_content_indicators import (SCHEMA, CATEGORIES, LAMBDA_IMAGE_OPERATION, _arn, _digest, _path,
-                                                             parse_ecr_image_uri)
+                                                             image_member_path, parse_ecr_image_uri)
 
 SURFACES = {
     'lambda_function': ('FunctionArn', 'lambda_function', 'Lambda ZIP code', 'lambda:get_function'),
@@ -98,7 +98,12 @@ def evaluate(kind, item, index):
                     {'File', 'Categories', 'LayerDigest'} if layered else {'File', 'Categories'}):
                 raise Unavailable('invalid reference')
             if 'ChildManifestDigest' in ref and not _digest(ref['ChildManifestDigest']): raise Unavailable('invalid image reference')
-            if _path(get(ref, 'File', str)) != ref['File']: raise Unavailable('unsafe reference path')
+            # Image members keep their real names (``Foo$1.class``, ``a:b``); ZIP members are restricted.
+            try:
+                safe = (image_member_path if layered else _path)(get(ref, 'File', str))
+            except ValueError:
+                raise Unavailable('unsafe reference path') from None
+            if safe != ref['File']: raise Unavailable('unsafe reference path')
             cats = get(ref, 'Categories', list)
             if not cats or any(not isinstance(c, str) or c not in CATEGORIES for c in cats) or len(set(cats)) != len(cats):
                 raise Unavailable('invalid categories')

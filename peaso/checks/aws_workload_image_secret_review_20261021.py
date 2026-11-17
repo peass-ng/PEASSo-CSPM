@@ -4,7 +4,7 @@ from peaso.secret_scanning import merge_leaks
 from peaso import oci_index_20261021 as oci_index
 
 from peaso.aws_image_selection_20261021 import DIGEST, REPO, partition
-from peaso.collectors.aws_package_content_indicators import SCHEMA, CATEGORIES, _path
+from peaso.collectors.aws_package_content_indicators import SCHEMA, CATEGORIES, image_member_path
 from peaso.checks.aws_package_content_review_20261019 import _incomplete
 from peaso.collectors.aws_workload_image_secret_native_20261021 import KIND, OPTION, ENABLE, selected
 
@@ -101,7 +101,7 @@ def evaluate(row):
             if graph is not None:
                 expected.add('ChildManifestDigest')
             if (type(ref) is not dict or set(ref) - {'Leaks'} != expected
-                    or type(ref['File']) is not str or _path(ref['File']) != ref['File']
+                    or type(ref['File']) is not str or image_member_path(ref['File']) != ref['File']
                     or not DIGEST.fullmatch(ref['LayerDigest']) or type(ref['Categories']) is not list
                     or not ref['Categories'] or any(c not in CATEGORIES for c in ref['Categories'])
                     or len(set(ref['Categories'])) != len(ref['Categories'])): raise ValueError()
