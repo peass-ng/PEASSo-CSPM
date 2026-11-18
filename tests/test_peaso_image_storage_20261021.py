@@ -51,3 +51,18 @@ def test_malformed_values_not_persisted_or_reported_clean(tmp_path):
     projected = build_report(payload['observations'], selected=True)
     assert not projected['complete'] and projected['coverage'] == 'UNKNOWN'
     assert projected['rows'] == []
+
+
+def test_stored_rejections_keep_their_reason_for_the_api(tmp_path):
+    foreign = deepcopy(BASE)
+    foreign['scan']['image']['provider'] = 'aws'
+    store = FileArtifacts(tmp_path)
+    manifest = attach_to_manifest({}, store, 'workspace-a', SCAN,
+                                  {'selected': True, 'observations': [BASE, foreign, None]})
+    app = FastAPI()
+    install_routes(app, identity=lambda: SimpleNamespace(tenant_id='workspace-a'),
+                   owned_bundle=lambda tenant, ident: ({}, manifest), artifacts=store)
+    body = TestClient(app).get(f'/api/scans/{SCAN}/image-findings').json()
+    assert body['invalid_reasons'] == {'foreign_image': 1, 'missing_observation': 1}
+    assert body['invalid_observations'] == 2 and body['coverage'] == 'UNKNOWN'
+    assert [row['vulnerability_id'] for row in body['rows']] == ['CVE-2026-12345']

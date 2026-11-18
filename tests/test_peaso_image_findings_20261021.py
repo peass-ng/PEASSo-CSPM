@@ -131,3 +131,52 @@ def test_affected_assets_bound_explicit(monkeypatch):
     assert result['truncated'] and not result['complete']
     assert result['rows'][0]['coverage'] == 'UNKNOWN'
     assert len(result['rows'][0]['affected_assets']) == 1
+
+
+def _aws(repository, digest_char, *, findings=True, complete=True):
+    """Shape emitted by the AWS selected-image collector for an ECR digest."""
+    digest = 'sha256:' + digest_char * 64
+    scope = '244541190879/us-east-1'
+    row = deepcopy(BASE)
+    row.update(provider='aws', scope=scope, asset_kind='ecr_image',
+               asset_id=f'arn:aws:ecr:us-east-1:244541190879:repository/{repository}@{digest}')
+    row['scan']['image'] = {'provider': 'aws', 'scope': scope,
+        'immutable_reference': f'244541190879.dkr.ecr.us-east-1.amazonaws.com/{repository}@{digest}',
+        'manifest_digest': digest, 'config_digest': 'sha256:' + 'c' * 64}
+    row['scan']['findings'] = [dict(row['scan']['findings'][0], image_digest=digest)] if findings else []
+    row['scan'].update(status='FAIL' if findings else 'PASS' if complete else 'UNKNOWN',
+                       complete=complete, scan_complete=complete,
+                       coverage_status='COMPLETE' if complete else 'UNKNOWN')
+    return row
+
+
+def test_incomplete_positive_and_unknown_clean_are_accepted_not_invalid():
+    observations = [_aws('cade/gateway', 'd'), _aws('cade/scheduling-subscribe', 'e', complete=False),
+                    _aws('cade/migrate', 'f', findings=False),
+                    _aws('cade/catalog-subscribe', '1', findings=False, complete=False)]
+    report = build_report(observations, selected=True)
+    assert (report['observations'], report['invalid_observations'], report['invalid_reasons']) == (4, 0, {})
+    assert report['coverage'] == 'UNKNOWN' and not report['complete']
+    assert {row['image_reference'].split('/', 1)[1].split('@')[0]: row['coverage'] for row in report['rows']} == {
+        'cade/gateway': 'COMPLETE', 'cade/scheduling-subscribe': 'UNKNOWN'}
+
+
+def test_rejections_are_counted_by_reason():
+    unknown_with_findings = _aws('cade/a', '2')
+    unknown_with_findings['scan']['status'] = 'UNKNOWN'
+    foreign = _aws('cade/b', '3')
+    foreign['scan']['image']['scope'] = '999999999999/us-east-1'
+    bad_vulnerability = _aws('cade/c', '4')
+    bad_vulnerability['scan']['findings'][0]['severity'] = 'LOW'
+    report = build_report([None, None, 'x', {}, unknown_with_findings, foreign,
+                           {'rejected': 'foreign_image'}, bad_vulnerability], selected=True)
+    assert report['invalid_reasons'] == {'missing_observation': 2, 'invalid_observation': 1,
+        'missing_field': 1, 'contradictory_scan_status': 1, 'foreign_image': 2}
+    assert report['invalid_observations'] == 7
+    assert report['invalid_vulnerability_reasons'] == {'invalid_vulnerability_status': 1}
+    assert report['invalid_vulnerabilities'] == 1 and report['coverage'] == 'UNKNOWN'
+
+
+def test_rejected_marker_never_echoes_untrusted_reason_text():
+    report = build_report([{'rejected': 'Secret Value!'}], selected=True)
+    assert report['invalid_reasons'] == {'invalid_observation': 1}

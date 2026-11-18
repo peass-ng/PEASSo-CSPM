@@ -215,6 +215,30 @@ def test_scan_reuse_still_refuses_tampered_layer(tmp_path):
     assert second['status'] == 'UNKNOWN' and not second['findings']
 
 
+def test_failure_after_parse_yields_well_formed_unknown_observation(tmp_path, monkeypatch):
+    from peaso.image_findings import build_report
+    identity, manifest, config, layers = build(tmp_path)
+    cache = database_dir(tmp_path)
+    cli, _ = stub_trivy(tmp_path, identity, config)
+    selected = archive.identity(identity)
+    real, calls = runner.database_state, []
+    def state(path):
+        calls.append(path)
+        if len(calls) > 1:
+            raise OSError('database revalidation failed')
+        return real(path)
+    monkeypatch.setattr(runner, 'database_state', state)
+    result = runner.scan_image(identity, manifest, config, layers, native_verifier=lambda: selected,
+                               enabled=True, db_cache=cache, cli=cli, scratch_parent=tmp_path)
+    assert result['status'] == 'UNKNOWN' and result['findings'] == [] and result['historical_findings']
+    observation = {'provider': identity['provider'], 'scope': identity['scope'], 'asset_id': 'fixture', 'asset_kind': 'ecr_image',
+                   'scan': {key: result[key] for key in ('image', 'status', 'complete', 'scan_complete',
+                                                         'coverage_status', 'findings')}}
+    observation['scan']['database'] = {'fresh': result['database']['fresh']}
+    report = build_report([observation], selected=True)
+    assert report['invalid_observations'] == 0 and report['coverage'] == 'UNKNOWN'
+
+
 def test_scan_reuse_keyed_by_database_generation(tmp_path):
     identity, manifest, config, layers = build(tmp_path)
     cache = database_dir(tmp_path)

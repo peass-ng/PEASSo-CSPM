@@ -11,6 +11,9 @@ export type ImageFindingsReport = {
   observations: number;
   invalid_observations: number;
   invalid_vulnerabilities: number;
+  /** Count per rejection reason code; `missing_observation` is a scan coverage gap. */
+  invalid_reasons?: Record<string, number>;
+  invalid_vulnerability_reasons?: Record<string, number>;
   total: number;
   offset: number;
   next_offset: number | null;
@@ -29,6 +32,13 @@ function countLabel(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function reasonLabel(reasons: Record<string, number> | undefined): string {
+  const entries = Object.entries(reasons || {})
+    .filter(([reason, count]) => /^[a-z][a-z0-9_]{0,63}$/.test(reason) && Number.isInteger(count) && count > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  return entries.length ? ` (${entries.map(([reason, count]) => `${reason.replace(/_/g, " ")}: ${count}`).join(", ")})` : "";
+}
+
 /** Fail closed when completion metadata is missing or contradictory. */
 export function imageFindingsPresentation(report: ImageFindingsReport): {
   coverage: "NOT_SCANNED" | "UNKNOWN" | "COMPLETE";
@@ -38,8 +48,8 @@ export function imageFindingsPresentation(report: ImageFindingsReport): {
     report.complete === false && report.truncated === false) return { coverage: "NOT_SCANNED" };
   const partial = [
     report.truncated ? "report truncated" : "",
-    report.invalid_observations > 0 ? countLabel(report.invalid_observations, "invalid observation", "invalid observations") : "",
-    report.invalid_vulnerabilities > 0 ? countLabel(report.invalid_vulnerabilities, "invalid vulnerability", "invalid vulnerabilities") : "",
+    report.invalid_observations > 0 ? countLabel(report.invalid_observations, "unusable observation", "unusable observations") + reasonLabel(report.invalid_reasons) : "",
+    report.invalid_vulnerabilities > 0 ? countLabel(report.invalid_vulnerabilities, "invalid vulnerability", "invalid vulnerabilities") + reasonLabel(report.invalid_vulnerability_reasons) : "",
   ].filter(Boolean);
   const complete = report.coverage === "COMPLETE" && report.complete === true && report.observations > 0 &&
     report.truncated === false && report.invalid_observations === 0 &&

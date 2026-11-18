@@ -370,6 +370,12 @@ def scan_image(image_identity, manifest, config, layers, *, native_verifier=None
                    'db_schema_2_required', 'db_timestamps_inconsistent', 'pinned_trivy_version_unavailable'}
         result.update(status='UNKNOWN', complete=False, scan_complete=False, coverage_status='UNKNOWN',
             reason=str(exc) if type(exc) is ValueError and str(exc) in allowed else 'input_or_scan_unavailable')
+        # A failure after parsing cannot re-prove the binding/database, like the
+        # changed-binding branch above. Keep findings historical so the UNKNOWN
+        # result stays a well-formed observation instead of a rejected one.
+        if result.get('findings'):
+            result['historical_findings'] = result['findings']
+            result['findings'] = []
     finally:
         archive.release_staged(image_identity, manifest, config, layers)
         if scratch is not None:
