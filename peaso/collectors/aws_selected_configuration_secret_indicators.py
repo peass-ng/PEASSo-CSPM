@@ -62,6 +62,29 @@ SURFACES = {
 }
 PROJECTION_OPERATIONS = {(s,o) for s,o,_,_ in SURFACES.values()} | {('ssm','describe_document')}
 READ_ACTIONS = PROJECTION_OPERATIONS
+# IAM service prefixes whose action names differ from the SDK client name.
+IAM_PREFIX = {'stepfunctions':'states'}
+DENIAL_CODES = frozenset({'AccessDenied','AccessDeniedException','UnauthorizedOperation','ForbiddenException'})
+EXPIRY_CODES = frozenset({'ExpiredToken','ExpiredTokenException','RequestExpired'})
+# Fixed AWS error codes a selected read can return. They are service-defined
+# identifiers, never request echoes, so evidence may name them verbatim.
+NOT_FOUND_CODES = frozenset({'ClientException','InvalidDocument','InvalidDocumentVersion','EntityNotFoundException',
+    'NotFoundException','ResourceNotFoundException','ResourceNotFound','ValidationError','ValidationException',
+    'StateMachineDoesNotExist','PipelineNotFoundException','PipelineVersionNotFoundException','PipelineDeletedException',
+    'InvalidLaunchTemplateId.NotFound','InvalidLaunchTemplateId.VersionNotFound','InvalidLaunchTemplateName.NotFoundException'})
+THROTTLE_CODES = frozenset({'Throttling','ThrottlingException','TooManyRequestsException','RequestLimitExceeded'})
+SAFE_PROVIDER_CODES = DENIAL_CODES | EXPIRY_CODES | NOT_FOUND_CODES | THROTTLE_CODES
+
+
+def action_name(service,operation):
+    """IAM action for one native read, e.g. ssm:DescribeDocument."""
+    return IAM_PREFIX.get(service,service)+':'+''.join(part.title() for part in operation.split('_'))
+
+
+def _document_name(returned,requested):
+    # SSM echoes the Name the caller passed: the short name, or the full ARN
+    # when the document is addressed by ARN (as every selection is).
+    return isinstance(returned,str) and returned in (requested,requested.split(':document/',1)[1])
 
 
 def enabled(options):
@@ -505,8 +528,7 @@ def extract(response,service,operation,args,info):
         if row.get('LaunchConfigurationName')!=args['LaunchConfigurationNames'][0] or not isinstance(row.get('LaunchConfigurationARN'),str) or row['LaunchConfigurationARN']!=info['expected_arn']:raise ValueError('launch_configuration_identity')
         value=decode(row['UserData'],gzip_ok=True)
     elif surface=='ssm_document':
-        name=args['Name'].split(':document/',1)[1]
-        if response.get('Name')!=name or response.get('DocumentVersion')!=args['DocumentVersion'] or response.get('Status')!='Active':raise ValueError('document_version')
+        if not _document_name(response.get('Name'),args['Name']) or response.get('DocumentVersion')!=args['DocumentVersion'] or response.get('Status')!='Active':raise ValueError('document_version')
         text=response.get('Content');form=response.get('DocumentFormat')
         if not isinstance(text,str) or not text or len(text.encode())>65536:raise ValueError('document_bound')
         if form=='JSON':
@@ -884,8 +906,8 @@ def project_response(response,service,operation,arguments,*,request_context=None
                  'http_status':200,'request_id':'configuration-response:'+_fingerprint(meta['RequestId'])}
         marker['requests']=[receipt];marker['response_bytes']=size
         if info['ownership']:
-            row=response.get('Document');name=arguments['Name'].split(':document/',1)[1]
-            if (not isinstance(row,dict) or row.get('Name')!=name or row.get('Owner')!=info['account'] or row.get('DocumentVersion')!=arguments['DocumentVersion'] or row.get('Status')!='Active'):raise ValueError('owned_document_authority')
+            row=response.get('Document')
+            if (not isinstance(row,dict) or not _document_name(row.get('Name'),arguments['Name']) or row.get('Owner')!=info['account'] or row.get('DocumentVersion')!=arguments['DocumentVersion'] or row.get('Status')!='Active'):raise ValueError('owned_document_authority')
             with requests._lock:requests.configuration_content_owned[info['id']]=deepcopy(receipt)
             marker.update(status='owned_document_metadata',native_complete=True)
         else:
@@ -911,6 +933,7 @@ def project_response(response,service,operation,arguments,*,request_context=None
             # Own ValueError codes are short identifiers; never keep provider text.
             code=str(exc) if type(exc) is ValueError else ''
             marker['reason']=code if re.fullmatch(r'[a-z][a-z_]{2,63}',code) else 'selected_configuration_read_unavailable'
+            marker['operation']=action_name(service,operation)
     return {'id':info['id'],MARKER:marker,'_provenance':{'scope':info['scope'],'capture':marker['capture'],'selection_locator':info['id']}}
 
 
@@ -945,6 +968,37 @@ def _record_read_failure(requests,failure):
     return code if code in expired else None
 
 
+def read_failure_detail(failure,service,operation):
+    """One source's own gap: a fixed reason, the IAM action and a safe AWS code.
+
+    Provider messages are never kept; only service-defined error codes from a
+    fixed list (or this module's own short ValueError codes) are named.
+    """
+    from .aws import ReadFailure
+    detail={'operation':action_name(service,operation)}
+    code=getattr(failure,'code',None) if isinstance(failure,ReadFailure) else None
+    code=str(code) if code is not None else None
+    if code in DENIAL_CODES:
+        detail.update(reason='access_denied',provider_code=code)
+        policy=getattr(getattr(failure,'code',None),'denied_by',None)
+        if isinstance(policy,str) and re.fullmatch(r'[A-Za-z_]{2,40}',policy):detail['denied_by']=policy
+    elif code in EXPIRY_CODES:
+        detail.update(reason='credential_expired',provider_code=code)
+    elif code in NOT_FOUND_CODES:
+        detail.update(reason='source_not_found',provider_code=code)
+    elif code in THROTTLE_CODES:
+        detail.update(reason='source_throttled',provider_code=code)
+    elif code in ('selected_configuration_call_bound','call_limit'):
+        detail['reason']='selected_configuration_call_bound'
+    elif code in ('intentional_scan_deadline','retry_wait_exceeds_deadline') or isinstance(failure,TimeoutError):
+        detail['reason']='selected_configuration_deadline'
+    elif type(failure) is ValueError and re.fullmatch(r'[a-z][a-z_]{2,63}',str(failure)):
+        detail['reason']=str(failure)
+    else:
+        detail['reason']='selected_configuration_read_unavailable'
+    return detail
+
+
 def collect_selected(requests,session,region,caller,options,scopes,*,deferred_window=None):
     from .aws import ReadResult
     targets=selected_targets(options,scopes)
@@ -965,21 +1019,30 @@ def collect_selected(requests,session,region,caller,options,scopes,*,deferred_wi
         info=requests.configuration_content_approved[(service,operation,region,locator)]
         member=info['id']+'.content'
         deferred_token=_DEFERRED_ECS.set(deferred)
+        stage=(service,operation)
         try:
             from peaso.secret_scanning_batch import prepared_content_member
             with prepared_content_member(cohort,member) if cohort is not None else nullcontext():
                 with source_context(**target_source(target, path=surface, location_kind='configuration')):
                     if surface=='ssm_document':
                         own_service,own_operation,own_args=route(target,ownership=True)
+                        stage=(own_service,own_operation)
                         owned=requests.call(session,own_service,region,own_operation,_metadata_profile=PROFILE,**own_args)
-                        if owned[MARKER]['status']!='owned_document_metadata':raise ValueError('document_owner_unresolved')
+                        if owned[MARKER]['status']!='owned_document_metadata':
+                            # Carry the ownership projection's own short code.
+                            reason=owned[MARKER].get('reason')
+                            raise ValueError(reason if isinstance(reason,str) and re.fullmatch(r'[a-z][a-z_]{2,63}',reason)
+                                             else 'document_owner_unresolved')
+                        stage=(service,operation)
                     item=requests.call(session,service,region,operation,_metadata_profile=PROFILE,**args)
         except Exception as exc:
             failure_code=_record_read_failure(requests,exc)
             with requests._lock:read_failures.append(failure_code)
             from .workload_environment_discovery import record_denial
-            record_denial(requests, exc, info['id'], service, operation)
+            record_denial(requests, exc, info['id'], *stage)
             marker=base(info,requests,locator);marker['principal']=principal
+            # This source reports its own gap; it never stands in for the others.
+            marker.update(read_failure_detail(exc,*stage))
             item={'id':info['id'],MARKER:marker,'_provenance':{'scope':info['scope'],'capture':marker['capture'],'selection_locator':info['id']}}
         finally:
             _DEFERRED_ECS.reset(deferred_token)
@@ -1072,12 +1135,18 @@ def collect_selected(requests,session,region,caller,options,scopes,*,deferred_wi
                 deferred.apply(items)
     finally:
         if deferred is not None and deferred_window is None:deferred.close()
+    if not selected:
+        # Nothing was selected in this Region: there is no content to assess,
+        # which is not an inventory gap.
+        return ReadResult([],'empty',{'code':'selected_configuration_none_in_scope'})
     if not items:return ReadResult([],'not_collected',{'code':'selected_configuration_scope_omitted'})
-    if read_failures:
-        error={'code':'selected_configuration_read_incomplete'}
-        expired=sorted({code for code in read_failures if code is not None})
-        if expired:error['additional_errors']=[{'code':code}for code in expired]
-        return ReadResult(items,'partial',error)
+    expired=sorted({code for code in read_failures if code is not None})
+    if expired:
+        # Expired credentials end the whole capture, not only one source.
+        return ReadResult(items,'partial',{'code':'selected_configuration_read_incomplete',
+                                           'additional_errors':[{'code':code}for code in expired]})
+    # Every selected source returned its own item; a failed one carries its
+    # own reason and operation and cannot make the others incomplete.
     return ReadResult(items)
 
 

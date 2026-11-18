@@ -19,9 +19,10 @@ TOKEN='ghp_'+'7mQ2zR9wL4cV8nK1sF6aH3jP5uD0xB2yE9rT'
 
 def target(i):return {'surface':'ecs_environment','scope':S,'resource_id':f'arn:aws:ecs:{R}:{A}:task-definition/fixture-{i}:1'}
 def same(old,new):
-    # The candidate also names why an unreadable row has no assessment; the
-    # retained baseline predates that field.
-    strip=lambda items:[{**i,candidate.MARKER:{k:v for k,v in i[candidate.MARKER].items() if k!='reason'}} for i in items]
+    # The candidate also names why and where an unreadable row has no
+    # assessment; the retained baseline predates those fields.
+    gap={'reason','operation','provider_code','denied_by'}
+    strip=lambda items:[{**i,candidate.MARKER:{k:v for k,v in i[candidate.MARKER].items() if k not in gap}} for i in items]
     return strip(old)==strip(new)
 def clear():
     with scanner._RESULT_LOCK:scanner._RESULTS.clear()

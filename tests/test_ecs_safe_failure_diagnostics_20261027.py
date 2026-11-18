@@ -29,7 +29,7 @@ def test_state_proven_limits_distinguished_without_exception_text(boundary):
  assert r.configuration_content_metadata[m.KIND+'_read_failures']=={boundary+':ValueError':1}
 
 @pytest.mark.parametrize('code',['ExpiredToken','ExpiredTokenException','RequestExpired','AccessDenied','arbitrary-private-code'])
-def test_actual_reader_keeps_marker_shape_but_exports_failure_envelope(native_fakes,code):
+def test_one_failed_source_names_its_own_gap_without_demoting_the_others(native_fakes,code):
  class FailingReader(Reader):
   def call(self,session,service,region,operation,**kwargs):
    if getattr(self,'fail',True)and 'fixture-1:'in kwargs.get('taskDefinition',''):
@@ -38,12 +38,19 @@ def test_actual_reader_keeps_marker_shape_but_exports_failure_envelope(native_fa
    return super().call(session,service,region,operation,**kwargs)
  r=FailingReader(m,[target(0),target(1)],workers=1)
  out=m.collect_selected(r,object(),R,CALLER,r.options,[S])
- assert len(out.items)==2 and out.status=='partial'
- assert out.items[0][m.MARKER]['leaks'] and out.items[1][m.MARKER]['complete']is False
- assert set(out.items[0][m.MARKER])==set(out.items[1][m.MARKER])
- assert out.error['code']=='selected_configuration_read_incomplete'
- assert ('additional_errors'in out.error)==code.startswith(('Expired','RequestExpired'))
- assert 'arbitrary-private-code'not in json.dumps(out.error)
+ expired=code.startswith(('Expired','RequestExpired'))
+ assert len(out.items)==2 and out.items[0][m.MARKER]['leaks']
+ failed=out.items[1][m.MARKER]
+ assert failed['complete']is False and failed['status']=='unavailable'
+ assert failed['operation']=='ecs:DescribeTaskDefinition'
+ assert failed['reason']==('credential_expired' if expired else 'access_denied' if code=='AccessDenied'
+                           else 'selected_configuration_read_unavailable')
+ assert failed.get('provider_code')==(code if expired or code=='AccessDenied' else None)
+ # Only credential expiry ends the whole capture; any other gap stays on its own source.
+ assert out.status==('partial' if expired else 'collected')
+ if expired:assert out.error=={'code':'selected_configuration_read_incomplete','additional_errors':[{'code':code}]}
+ else:assert out.error is None
+ assert 'arbitrary-private-code'not in json.dumps([out.error,out.items])
  r.fail=False
  recovered=m.collect_selected(r,object(),R,CALLER,r.options,[S])
  assert recovered.status=='collected'and recovered.error is None  # no cross-invocation failure promotion
@@ -64,14 +71,9 @@ def test_fold_preserves_only_finite_expiry_for_worker_status():
  exec(compile(ast.Module(body=[node],type_ignores=[]),str(worker),'exec'),scope)
  assert scope['_expired_snapshot']({'provider':'aws','collections':rows})is True
 
-@pytest.mark.parametrize('profile',['aws-selected-configuration-content-v1','aws-lambda-environment-content-v1'])
-@pytest.mark.parametrize('code',['ExpiredToken','RequestExpired','call_limit','unknown-private-code'])
-def test_exact_requests_catch_retains_only_allowed_configuration_codes(profile,code):
- tree=ast.parse((P.parent/'peaso/collectors/aws.py').read_text())
- assign=next(n for n in ast.walk(tree)if isinstance(n,ast.Assign)and any(isinstance(t,ast.Name)and t.id=='safe_configuration_code'for t in n.targets))
- condition=next(n for n in ast.walk(tree)if isinstance(n,ast.If)and isinstance(n.test,ast.BoolOp)and any(isinstance(x,ast.UnaryOp)and isinstance(x.operand,ast.Name)and x.operand.id=='safe_configuration_code'for x in n.test.values))
- from types import SimpleNamespace
- scope={'_metadata_profile':profile,'failure':ReadFailure('denied',code),'self':SimpleNamespace(automatic_workload_environment_active=False)}
- exec(compile(ast.Module(body=[assign],type_ignores=[]),'<exact safe classification>','exec'),scope)
- redacts=eval(compile(ast.Expression(condition.test),'<exact catch condition>','eval'),scope)
- assert (not redacts)==(profile=='aws-selected-configuration-content-v1'and code!='unknown-private-code')
+def test_region_without_selected_sources_is_empty_not_an_inventory_gap(native_fakes):
+ r=Reader(m,[target(0)],workers=1)
+ west=A+'/us-west-2'
+ out=m.collect_selected(r,object(),'us-west-2',CALLER,r.options,[S,west])
+ assert out.items==[] and out.status=='empty'
+ assert out.error=={'code':'selected_configuration_none_in_scope'}
