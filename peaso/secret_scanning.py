@@ -60,12 +60,13 @@ _SLOTS = threading.BoundedSemaphore(_slot_count())
 
 
 def _after_fork():
-    global _KEY, _LOCK, _RESULT_LOCK, _RESULTS, _SLOTS
+    global _KEY, _LOCK, _RESULT_LOCK, _RESULTS, _SLOTS, _VERIFY_LOCK
     _KEY, _LOCK = secrets.token_bytes(32), threading.Lock()
     _RESULT_LOCK, _RESULTS = threading.Lock(), OrderedDict()
     _SLOTS = threading.BoundedSemaphore(_slot_count())
     _kingfisher.cache_clear()
-    _verified_trufflehog.cache_clear()
+    _VERIFY_LOCK = threading.Lock()
+    _VERIFIED.clear()
 
 
 if hasattr(os, 'register_at_fork'):
@@ -187,12 +188,29 @@ def _run_in_slot(argv, payload, timeout, lease):
             process.stdin.close()
 
 
-@lru_cache(maxsize=1)
-@lru_cache(maxsize=8)
+# The first TruffleHog start in a fresh task pages its ~160 MiB binary in
+# while image layers are streaming to disk; on a busy two-vCPU collector that
+# took longer than a few seconds. The check runs once per binary, so a generous
+# bound costs nothing when the start is fast. It is also the longest a content
+# scan may run (scan_content), so a retried scan never meets a shorter check.
+VERSION_CHECK_TIMEOUT = 60
+_VERIFIED = {}
+_VERIFY_LOCK = threading.Lock()
+
+
 def _verified_trufflehog(executable, mtime_ns, size):
-    version = _run([executable, '--version'], b'', 5).decode('utf-8').strip()
-    if version != 'trufflehog ' + TRUFFLEHOG_VERSION:
-        raise RuntimeError('unsupported scanner version')
+    key = (executable, mtime_ns, size)
+    if _VERIFIED.get(key) is not None:
+        return executable
+    # One check at a time: concurrent first scans wait for its result instead
+    # of each starting the cold binary and competing for the same slots.
+    with _VERIFY_LOCK:
+        if _VERIFIED.get(key) is None:
+            version = _run([executable, '--version'], b'', VERSION_CHECK_TIMEOUT).decode('utf-8').strip()
+            if version != 'trufflehog ' + TRUFFLEHOG_VERSION:
+                raise RuntimeError('unsupported scanner version')
+            _VERIFIED.clear()
+            _VERIFIED[key] = executable
     return executable
 
 
@@ -210,7 +228,7 @@ def _trufflehog():
     return _verified_trufflehog(executable, status.st_mtime_ns, status.st_size)
 
 
-_trufflehog.cache_clear = _verified_trufflehog.cache_clear
+_trufflehog.cache_clear = _VERIFIED.clear
 
 
 class _DetectorMatches(list):
