@@ -496,19 +496,19 @@ export function LaunchForm({
       return setError("Choose a time for each rule and at least one weekday for every weekly rule.");
     const aiWorkSelected = aiPrioritiesEnabled ||
       (selected.includes("network") && aiNetworkEnabled);
+    const namedChecks = checks.split(",").map((s) => s.trim()).filter(Boolean);
+    const selectedContentChecks = namedChecks.length
+      ? contentChecks.filter((id) => namedChecks.includes(id)) : contentChecks;
     mutation.mutate({
       connector_id: connector,
       ai_enabled: aiAvailable && aiEnabled && aiWorkSelected,
       ai_priorities_enabled: aiPrioritiesEnabled,
       ai_network_enabled: aiNetworkEnabled,
       categories: selected,
-      content_checks: contentChecks,
+      content_checks: selectedContentChecks,
       leaks_enabled: leaksEnabled && leakChecks.length > 0,
       images_enabled: imagesEnabled && imageChecks.length > 0,
-      checks: checks
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      checks: namedChecks,
       frameworks,
       ...(isSchedule
         ? { rules, timezone: scheduleTimezone, enabled: schedule?.enabled ?? true }

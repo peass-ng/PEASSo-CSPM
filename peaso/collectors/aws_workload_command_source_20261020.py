@@ -350,6 +350,46 @@ def literals(response, target):
     return sources, complete
 
 
+def read_failure_category(error):
+    """Portable diagnostics without exception text, commands or credentials."""
+    from botocore.exceptions import (ClientError, ConnectTimeoutError, ReadTimeoutError,
+                                    EndpointConnectionError, ConnectionClosedError)
+    if isinstance(error, ClientError):
+        code = error.response.get('Error', {}).get('Code')
+        if code in ('AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation'):
+            return 'access_denied'
+        if code in ('Throttling', 'ThrottlingException', 'TooManyRequestsException',
+                    'RequestLimitExceeded', 'RequestThrottled'):
+            return 'throttled'
+        if code in ('ExpiredToken', 'ExpiredTokenException', 'InvalidClientTokenId', 'UnrecognizedClientException'):
+            return 'credentials_expired_or_invalid'
+        status = error.response.get('ResponseMetadata', {}).get('HTTPStatusCode', 0)
+        if isinstance(status, int) and status >= 500:
+            return 'service_unavailable'
+        return 'provider_rejected_read'
+    if isinstance(error, (ConnectTimeoutError, ReadTimeoutError)):
+        return 'timeout'
+    if isinstance(error, (EndpointConnectionError, ConnectionClosedError)):
+        return 'transport_error'
+    if isinstance(error, ValueError):
+        return 'budget_exhausted' if str(error) in ('deadline', 'call_bound', 'response_bound') else 'evidence_binding_or_shape_invalid'
+    return 'read_failed'
+
+
+def resilient_native_call(session, service, region, operation, args, deadline, state):
+    # Each attempt still has exactly one pinned send and uses the original
+    # shared call/byte/deadline budget. A throttled read must not invalidate
+    # an entire selected partition merely because the SDK's retry is disabled.
+    for attempt in range(3):
+        try:
+            return native_call(session, service, region, operation, args, deadline, state)
+        except Exception as error:
+            if attempt == 2 or read_failure_category(error) not in {
+                    'throttled', 'service_unavailable', 'timeout', 'transport_error'}:
+                raise
+            time.sleep(min(.25 * (2 ** attempt), left(deadline)))
+
+
 def collect(plan, session_factory):
     """No auth until the selected, granted, sealed plan is revalidated."""
     binding = reviewed_sources()
@@ -370,12 +410,12 @@ def collect(plan, session_factory):
     principals = {}
     for scope in dict.fromkeys(t['scope'] for t in body['targets']):
         selected = [t for t in body['targets'] if t['scope'] == scope]
-        session, principal, identity_receipt = None, None, None
+        session, principal, identity_receipt, identity_error = None, None, None, None
         try:
             left(deadline)
             session = session_factory(scope)
             account, region, partition, _, _ = parse(selected[0])
-            caller, identity_receipt = native_call(session, 'sts', region, 'GetCallerIdentity', {}, deadline, state)
+            caller, identity_receipt = resilient_native_call(session, 'sts', region, 'GetCallerIdentity', {}, deadline, state)
             if (caller.get('Account') != account or not isinstance(caller.get('UserId'), str) or not caller['UserId']
                     or not isinstance(caller.get('Arn'), str)
                     or not re.fullmatch('arn:' + partition + r':(?:iam|sts)::' + account + r':(?:user|role|assumed-role|federated-user)/[^\s]+|arn:' + partition + ':iam::' + account + ':root', caller['Arn'])):
@@ -384,8 +424,9 @@ def collect(plan, session_factory):
             if account in principals and principals[account] != principal:
                 raise ValueError('principal_changed')
             principals[account] = principal
-        except Exception:
+        except Exception as error:
             session = None
+            identity_error = read_failure_category(error)
         for target in selected:
             row = {'id': locator(target), 'scope': scope, 'service': target['service'], 'binding': binding,
                 'capture': capture, 'principal': None, 'requests': [], 'native_bound': False,
@@ -393,12 +434,13 @@ def collect(plan, session_factory):
                 'verification': 'not_attempted'}
             result['items'].append(row)
             if session is None:
+                row['read_error'] = identity_error or 'read_failed'
                 continue
             response, sources, payload = None, None, None
             try:
                 row['principal'], row['requests'] = principal, [identity_receipt]
                 operation = 'DescribeTaskDefinition' if target['service'] == 'ecs' else 'DescribeJobDefinitions'
-                response, receipt = native_call(session, target['service'], region, operation, request_for(target), deadline, state)
+                response, receipt = resilient_native_call(session, target['service'], region, operation, request_for(target), deadline, state)
                 row['requests'].append(receipt)
                 sources, row['native_complete'] = literals(response, target)
                 row['native_bound'] = True
@@ -429,9 +471,10 @@ def collect(plan, session_factory):
                     left(deadline)
                 row['complete'] = (row['native_complete'] and len(row['scans']) == len(sources)
                     and bool(sources) and all(s['complete'] for s in row['scans']))
-            except Exception:
+            except Exception as error:
                 # Never publish provider exceptions, raw commands or scanner output.
                 row['complete'] = False
+                row['read_error'] = read_failure_category(error)
             finally:
                 response = sources = payload = None
     result.update(calls=state['calls'], response_bytes=state['bytes'], wire_bytes=state['wire_bytes'],

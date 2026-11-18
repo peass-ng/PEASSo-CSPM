@@ -60,3 +60,14 @@ test('editing persisted schedule restores image-only selection and filters',asyn
  await dialog.getByRole('button',{name:'Save schedule',exact:true}).click();await expect.poll(()=>submitted.length).toBe(1);
  expect(submitted[0]).toMatchObject({categories:['hardening'],frameworks:['CIS'],content_checks:[IMAGE],leaks_enabled:false,images_enabled:true,timezone:'UTC'});
 });
+
+for (const [check, content] of [[LEAK, [LEAK]], [IMAGE, [IMAGE]], ['aws.ec2.imdsv2', []]] as const) {
+ test(`explicit check ${check} does not submit unrelated content work`,async({page})=>{
+  const {dialog,submitted}=await setup(page);
+  await dialog.getByLabel('Check IDs (optional, comma separated)').fill(check);
+  await dialog.getByRole('button',{name:'Start scan',exact:true}).click();
+  await expect.poll(()=>submitted.length).toBe(1);
+  expect(submitted[0].checks).toEqual([check]);
+  expect(submitted[0].content_checks).toEqual(content);
+ });
+}

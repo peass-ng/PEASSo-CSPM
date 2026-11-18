@@ -11,6 +11,9 @@ from peaso.secret_scanning import KINGFISHER_VERSION, TRUFFLEHOG_VERSION, merge_
 CHECK = 'aws.review.workload.selected_command_literal_secret_indicators'
 KIND = 'aws_selected_workload_command_literals'
 SCHEMA = 'aws-workload-command-source-20261020-v1'
+READ_ERRORS = frozenset({'access_denied', 'throttled', 'credentials_expired_or_invalid',
+    'service_unavailable', 'provider_rejected_read', 'timeout', 'transport_error',
+    'budget_exhausted', 'evidence_binding_or_shape_invalid', 'read_failed'})
 DECLARATION = {'id': CHECK, 'provider': 'aws', 'category': 'exposure', 'kind': KIND,
     'group': 'Secrets', 'finding_type': 'secrets', 'severity': 'high',
     'title': 'Selected ECS and Batch command literals have no detected secrets',
@@ -25,8 +28,11 @@ def digest(value):
 
 
 def validate_row(row, collection):
-    if (not isinstance(row, dict) or set(row) != {'id', 'scope', 'service', 'binding', 'capture',
-            'principal', 'requests', 'native_bound', 'native_complete', 'complete', 'scans', 'leaks', 'verification'}
+    fields = {'id', 'scope', 'service', 'binding', 'capture',
+              'principal', 'requests', 'native_bound', 'native_complete', 'complete', 'scans', 'leaks', 'verification'}
+    if (not isinstance(row, dict) or set(row) - {'read_error'} != fields
+            or 'read_error' in row and (not isinstance(row['read_error'], str)
+                or row['read_error'] not in READ_ERRORS or row['complete'] is True)
             or row['id'] not in collection['selection'] or row['binding'] != collection['binding']
             or row['capture'] != collection['capture'] or row['verification'] != 'not_attempted'
             or any(type(row[k]) is not bool for k in ('native_bound', 'native_complete', 'complete'))
@@ -153,6 +159,8 @@ def _reason(row, collection):
     """Name what kept one selected definition from being assessed."""
     try:
         if row.get('native_bound') is not True:
+            if isinstance(row.get('read_error'), str) and row['read_error'] in READ_ERRORS:
+                return 'definition_read_failed: ' + row['read_error']
             return 'definition_not_read'
         engines = sorted({e['engine'] for s in row.get('scans') or [] for e in s['engines'] if e['status'] != 'complete'})
         if engines:
@@ -191,7 +199,16 @@ def evaluate_collection(collection):
             'coverage': 'selected_definition_command_literals_only'}
     reasons = sorted({evidence.get('reason') or 'definition_incomplete' for status, evidence in outcomes if status == 'UNKNOWN'}
                      | ({'definition_incomplete'} if any(status != 'UNKNOWN' and evidence.get('complete') is not True for status, evidence in outcomes) else set()))
+    individually_complete = []
+    for row in collection['items']:
+        try:
+            individually_complete.append(validate_row(row, collection))
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError):
+            individually_complete.append(False)
+    unassessed = sum(not complete for complete in individually_complete)
+    if unassessed:
+        reasons = sorted({_reason(row, collection) for row, complete in zip(collection['items'], individually_complete) if not complete})
     return 'UNKNOWN', {'observed': 'Selected command literal coverage was incomplete. Secret absence could not be assessed.',
                        'reason': '%d of %d selected definitions unassessed: %s' % (
-                           sum(status == 'UNKNOWN' or evidence.get('complete') is not True for status, evidence in outcomes),
+                           unassessed or sum(status == 'UNKNOWN' or evidence.get('complete') is not True for status, evidence in outcomes),
                            len(outcomes), ', '.join(reasons))}

@@ -6619,7 +6619,7 @@ def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
         if statement.get("Effect") != "Allow":
             uncertain = True
             continue
-        if _aws_owner_condition(statement, account):
+        if _aws_owner_condition(statement, account, service=parts[2]):
             continue
         derived_not_action = False
         unresolved_not_action = False
@@ -7472,7 +7472,7 @@ def _aws_service_only_statement(statement, partition):
             and all(_aws_service_identity(value, partition) for value in as_list(principal["Service"])))
 
 
-def _aws_owner_condition(statement, account):
+def _aws_owner_condition(statement, account, *, service=None):
     # A required exact owner/account context cannot authorize an anonymous or
     # foreign-origin request; IfExists, negation, wildcards and set operators
     # deliberately do not establish this bound.
@@ -7480,8 +7480,15 @@ def _aws_owner_condition(statement, account):
     if not isinstance(condition, dict):
         return False
     equals = condition.get("StringEquals")
+    owner_keys = {"aws:sourceowner", "aws:sourceaccount", "aws:principalaccount"}
+    if service == "kms":
+        # A mandatory exact CallerAccount condition bounds the requesting
+        # identity even with Principal '*'; other conjunctive conditions can
+        # only narrow it. This service key has no meaning on SNS/S3 policies.
+        # https://docs.aws.amazon.com/kms/latest/developerguide/conditions-kms.html
+        owner_keys.add("kms:calleraccount")
     return isinstance(equals, dict) and any(
-        isinstance(key, str) and key.lower() in {"aws:sourceowner", "aws:sourceaccount", "aws:principalaccount"}
+        isinstance(key, str) and key.lower() in owner_keys
         and as_list(value) and all(v == account for v in as_list(value))
         for key, value in equals.items())
 
@@ -7546,7 +7553,7 @@ def _aws_kms_foreign_decrypt(snapshot, inventory, resource):
         if statement.get("Effect") != "Allow":
             uncertain = True
             continue
-        if _aws_service_only_statement(statement, partition) or _aws_owner_condition(statement, account):
+        if _aws_service_only_statement(statement, partition) or _aws_owner_condition(statement, account, service="kms"):
             continue
         action_match = _aws_policy_required_actions(statement, ("kms:decrypt",))
         if action_match is None:
