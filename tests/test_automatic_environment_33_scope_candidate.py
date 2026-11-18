@@ -221,23 +221,28 @@ def test_dense_preparation_fallback_and_denied_batch_keep_later_evidence(
     assert proof(candidate)[16][1] is False
     assert proof(candidate)[17][1] is True
 
-def test_expired_earlier_native_batch_does_not_poison_later_batch(collect_offline,monkeypatch):
+def test_expired_native_batch_does_not_poison_other_batches(collect_offline,monkeypatch):
     monkeypatch.setattr('peaso.secret_scanning._trufflehog',lambda:'/offline/scanner')
     monkeypatch.setattr(secret_scanning_batch,'_prepare_trufflehog_batch',
         lambda items,timeout:{item:b'' for item in items})
     original=config.collect_selected
-    expired=[]
+    batches=[]
     def settle(requests,session,region,caller,options,scopes,**kwargs):
         result=original(requests,session,region,caller,options,scopes,**kwargs)
-        if kwargs.get('deferred_window') is not None and not expired:
-            requests.configuration_content_state['deadline']=time.monotonic()-1
-            expired.append(True)
+        if kwargs.get('deferred_window') is not None:
+            batches.append(True)
+            if len(batches)==2:
+                # The second batch's own lease ends after its reads. Detection
+                # is bounded by the lease (not the read budget), so that batch
+                # cannot complete; the window owner's earlier and later batches can.
+                requests.deadline=time.monotonic()-1
         return result
     monkeypatch.setattr(config,'collect_selected',settle)
     snapshot,_=collect_offline([(0,33),(0,0)],workers=4,shm_available=True)
     markers=[item[config.MARKER] for item in rows(snapshot,config.KIND,SCOPES[0])['items']]
-    assert expired and all(marker['complete'] is False for marker in markers[:16])
-    assert all(marker['complete'] is True for marker in markers[16:])
+    assert len(batches)==3 and len(markers)==33
+    assert all(marker['complete'] is True for marker in markers[:16]+markers[32:])
+    assert all(marker['complete'] is False for marker in markers[16:32])
 
 def rows(snap,kind,scope):return next(c for c in snap['collections'] if c['type']==kind and c['scope']==scope)
 

@@ -328,6 +328,34 @@ def scan_repository(requests, session, region, item):
         return _failure(scan, exc)
 
 
+def _flow_logs_delivering_to(requests, session, region, name, arn):
+    """IDs of VPC flow logs whose CloudWatch Logs destination is this group.
+
+    The same ec2:DescribeFlowLogs inventory read as the flow_log collection, so
+    the per-scan cache serves it. Any read gap returns [] and the group is
+    scanned as an ordinary log group."""
+    pages = getattr(requests, 'pages', None)
+    if pages is None:
+        return []
+    try:
+        read = pages(session, 'ec2', region, 'describe_flow_logs', 'FlowLogs')
+    except Exception:
+        return []
+    if read.status not in ('collected', 'empty'):
+        return []
+    group_arn = re.sub(r':\*$', '', arn)
+    ids = []
+    for flow in read.items:
+        if not isinstance(flow, dict) or flow.get('LogDestinationType', 'cloud-watch-logs') != 'cloud-watch-logs':
+            continue
+        destination = flow.get('LogDestination')
+        bound = (re.sub(r':\*$', '', destination) == group_arn if isinstance(destination, str) and destination
+                 else flow.get('LogGroupName') == name)
+        if bound and isinstance(flow.get('FlowLogId'), str):
+            ids.append(flow['FlowLogId'])
+    return sorted(set(ids))
+
+
 def scan_logs(requests, session, region, item):
     scan = _base(item, region, 'bounded_log_window')
     if getattr(requests, 'content_secret_scans', False) is not True:
@@ -341,6 +369,12 @@ def scan_logs(requests, session, region, item):
         if 'repositoryId' in item:
             raise ValueError()
         scan.update(identity=arn, group=name, account_id=arn.split(':')[4], start=end-86400000, end=end)
+        flow_logs = _flow_logs_delivering_to(requests, session, region, name, arn)
+        if flow_logs:
+            # VPC flow log records are fixed-format network metadata (addresses,
+            # ports, byte counts), never payloads: nothing to scan for secrets.
+            scan.update(collection_status='collected', flow_log_destination=flow_logs)
+            return scan
         scan.update(events_inspected=0, clean_bytes=0, records_omitted=0, omitted_bytes=0)
         token, seen, needs_review = None, set(), False
         explicit_pages = getattr(requests, 'max_pages', None)

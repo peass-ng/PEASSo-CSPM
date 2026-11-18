@@ -439,3 +439,33 @@ def test_log_page_batches_respect_item_and_byte_bounds(sdk, monkeypatch):
     assert sample['complete'] and sample['events_inspected'] == 5000
     assert sum(n for n, _ in sizes) == 5000
     assert all(n <= batch.MAX_BATCH_ITEMS and size <= 64 * 1024 for n, size in sizes)
+
+
+@pytest.mark.parametrize('destination', ['demo', 'other-group'])
+def test_vpc_flow_log_destination_is_not_applicable_without_reading_events(sdk, monkeypatch, destination):
+    requests, session, stubs, _ = sdk
+    from botocore.stub import Stubber
+    from peaso.collectors import aws
+    ec2 = session.client('ec2', region_name=REGION)
+    stub = Stubber(ec2)
+    stub.activate()
+    stub.add_response('describe_flow_logs', {'FlowLogs': [
+        {'FlowLogId': 'fl-0615ee579f72518eb', 'LogDestinationType': 'cloud-watch-logs', 'LogGroupName': destination,
+         'LogDestination': f'arn:aws:logs:{REGION}:{ACCOUNT}:log-group:{destination}'},
+        {'FlowLogId': 'fl-0aaaaaaaaaaaaaaaa', 'LogDestinationType': 's3', 'LogDestination': 'arn:aws:s3:::flow-bucket'}]}, {})
+    routed = aws.Requests.client
+    monkeypatch.setattr(aws.Requests, 'client', lambda self, s, service, region: ec2 if service == 'ec2' else routed(self, s, service, region))
+    if destination != 'demo':
+        stubs['logs'].add_response('filter_log_events', {'events': []}, log_args(requests))
+    sample = c.scan_logs(requests, session, REGION, GROUP)
+    item, index = fixture('logs')
+    item['ContentSecretIndicators'] = sample
+    status, evidence = checks.logs(item, index)
+    if destination == 'demo':
+        # No FilterLogEvents call: the logs stub has nothing queued.
+        assert status == 'NOT_APPLICABLE' and evidence['flow_logs'] == ['fl-0615ee579f72518eb']
+        assert 'VPC flow log destination' in evidence['reason']
+        assert c.scan_logs(requests, session, REGION, GROUP) == sample  # flow logs read once per scan
+    else:
+        assert status == 'PASS' and sample['complete']
+    stub.assert_no_pending_responses()

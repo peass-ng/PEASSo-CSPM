@@ -623,7 +623,7 @@ _DEFERRED_ECS = ContextVar('selected_ecs_content_phase', default=None)
 
 def _complete_content(requests, info, marker, payload, native, *, timeout=None):
     """Original per-source parser, privacy callback and result bounds."""
-    allowance=min(60,remaining(requests))
+    allowance=_detection_timeout(requests)
     if timeout is not None:allowance=min(allowance,timeout)
     outcome=scan_with_source(scan_content,payload,info['id']+'.content',
         timeout=allowance,
@@ -634,20 +634,42 @@ def _complete_content(requests, info, marker, payload, native, *, timeout=None):
     if len(leaks)>MAX_LEAKS or sum(len(l['locations']) for l in leaks)>MAX_LOCATIONS:
         raise ValueError('findings_bound')
     marker.update(engines=deepcopy(outcome['engines']),leaks=leaks)
-    remaining(requests)
+    _detection_timeout(requests)
     marker['complete']=outcome['complete'] is True
 
 
-def _ecs_phase_remaining(requests):
-    # Convert no new authority and create no fresh deadline. The worker's
-    # inherited lease and any explicit Requests deadline only tighten the
-    # existing selected-reader absolute deadline.
+def _detection_timeout(requests,cap=60):
+    """Per-run detector allowance, never cut from the native-read budget.
+
+    The MAX_SECONDS budget bounds AWS reads only. Detection of already-read
+    bytes queues behind every other content scan sharing the engines, so a
+    countdown from the read budget starved late sources to a near-zero
+    timeout. The scanner's own clock starts once it holds its slot (the
+    Kingfisher lock or a TruffleHog process slot), and the queue wait is
+    bounded by the collection lease there; here the lease only caps the run."""
     from peaso.collection_lease import effective_deadline
-    left=remaining(requests)
+    requests.check_deadline()
     deadline=effective_deadline(requests)
-    if deadline is not None:left=min(left,deadline-time.monotonic())
-    if left<=0:raise TimeoutError('ecs_phase_deadline')
-    return left
+    if deadline is None:return cap
+    left=deadline-time.monotonic()
+    if left<=0:raise TimeoutError('collection lease expired')
+    return min(cap,left)
+
+
+def _cohort_deadline(requests):
+    """Absolute deadline for a shared detector cohort: the collection lease,
+    or without one the scanner slot-queue bound plus one detector run."""
+    from peaso.collection_lease import effective_deadline
+    from peaso.secret_scanning import MAX_SLOT_WAIT
+    deadline=effective_deadline(requests)
+    return deadline if deadline is not None else time.monotonic()+MAX_SLOT_WAIT+60
+
+
+def _ecs_phase_remaining(requests):
+    # Convert no new authority and create no fresh deadline: the detector
+    # phase is bounded by the worker's inherited lease or explicit Requests
+    # deadline, not by the selected-reader native-read budget.
+    return _detection_timeout(requests)
 
 
 class _DeferredEcsContent:
@@ -880,7 +902,7 @@ def _defer_ecs_content(requests,targets,workers,session):
                 or info.get('surface')!='ecs_environment' or info.get('ownership')is not False):return None
     try:
         from peaso.secret_scanning_batch import _volatile_shm_available
-        if not _volatile_shm_available(MAX_TOTAL) or _ecs_phase_remaining(requests)<61:return None
+        if not _volatile_shm_available(MAX_TOTAL) or remaining(requests)<61 or _detection_timeout(requests,61)<61:return None
         from peaso.secret_scanning import _trufflehog
         _trufflehog()
         return _DeferredEcsContent(requests,targets,session)
@@ -1075,7 +1097,7 @@ def collect_selected(requests,session,region,caller,options,scopes,*,deferred_wi
                     _trufflehog()
                     from peaso.secret_scanning_cohort import ContentCohort
                     cohort=ContentCohort([identity(target)+'.content' for target in group],
-                        min(requests.configuration_content_state['deadline'],getattr(requests,'deadline',None) or requests.configuration_content_state['deadline']),
+                        _cohort_deadline(requests),
                         max_bytes=MAX_CONTENT*len(group),cancelled=getattr(requests,'cancel_event',None))
             except Exception:
                 cohort=None

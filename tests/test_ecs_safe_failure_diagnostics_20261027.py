@@ -77,3 +77,26 @@ def test_region_without_selected_sources_is_empty_not_an_inventory_gap(native_fa
  out=m.collect_selected(r,object(),'us-west-2',CALLER,r.options,[S,west])
  assert out.items==[] and out.status=='empty'
  assert out.error=={'code':'selected_configuration_none_in_scope'}
+
+@pytest.mark.parametrize('workers,count',[(1,1),(8,3)])
+def test_spent_read_budget_does_not_starve_detection_of_already_read_sources(native_fakes,monkeypatch,workers,count):
+ # Detectors queue behind other content scans; that wait comes out of the
+ # scan lease, not the native-read budget the reads already used up.
+ from peaso import secret_scanning as scanner
+ from tests.test_ecs_two_phase_20261027 import TOKEN
+ def slow_kingfisher(payload,path,timeout):
+  if timeout<.5:raise TimeoutError('scanner deadline')
+  time.sleep(.3)
+  return [(TOKEN,'synthetic',1)]if TOKEN.encode()in payload else[]
+ monkeypatch.setattr(scanner,'_scan_kingfisher',slow_kingfisher)
+ if workers==1:  # no prepared batch: the subprocess engine also sees the detector timeout
+  monkeypatch.setattr(scanner,'_scan_trufflehog',lambda payload,path,timeout:slow_kingfisher(b'',path,timeout))
+ r=Reader(m,[target(i)for i in range(count)],workers=workers)
+ r.configuration_content_state['deadline']=time.monotonic()+.4
+ out=m.collect_selected(r,object(),R,CALLER,r.options,[S])
+ assert len(out.items)==count
+ for item in out.items:
+  marker=item[m.MARKER]
+  assert marker['complete']is True,json.dumps(marker)
+  assert {e['status']for e in marker['engines']}=={'complete'}
+ assert out.items[0][m.MARKER]['leaks']

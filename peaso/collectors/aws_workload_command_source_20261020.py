@@ -159,6 +159,11 @@ def bounded_response(response, deadline, state):
             raise ValueError('response_bound')
         body = bytearray()
         limit = min(MAX_RESPONSE, MAX_TOTAL - state['wire_bytes'])
+        # A transport that already buffered the body (botocore preloads every
+        # non-streaming response) leaves the raw stream exhausted; apply the
+        # same bounds and framing to the buffered bytes instead.
+        buffered = getattr(response, '_content', None)
+        source = io.BytesIO(buffered) if isinstance(buffered, bytes) else None
         while True:
             left(deadline)
             if declared is not None and len(body) == int(declared):
@@ -169,7 +174,7 @@ def bounded_response(response, deadline, state):
                 # cannot establish EOF and remains UNKNOWN.
                 raise ValueError('response_bound')
             amount = min(65536, remaining, int(declared) - len(body) if declared is not None else remaining)
-            chunk = raw.read(amount, decode_content=False)
+            chunk = source.read(amount) if source is not None else raw.read(amount, decode_content=False)
             if not isinstance(chunk, bytes) or len(chunk) > amount:
                 raise ValueError('response_shape')
             if not chunk:
@@ -256,6 +261,8 @@ def native_call(session, service, region, operation, args, deadline, state):
             sends.append(True)
             if len(sends) != 1:
                 raise ValueError('retry_bound')
+            # Keep the body unread so the bounded reader, not the SDK, consumes it.
+            request.stream_output = True
             return bounded_response(original_send(request), deadline, state)
         transport.send = send
         state['calls'] += 1

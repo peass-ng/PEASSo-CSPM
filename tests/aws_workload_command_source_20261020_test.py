@@ -429,6 +429,32 @@ class CommandProof(unittest.TestCase):
                 self.assertEqual(closed, [True])
                 self.assertEqual(http.send, send)  # Wrapper always restored.
 
+    def test_11b_real_sdk_transport_body_reaches_the_bounded_reader(self):
+        """botocore's own transport, not a fake send: its buffering must not hide the body."""
+        import urllib3
+        t = target()
+        sdk = boto3.Session(aws_access_key_id='offline-key', aws_secret_access_key='offline-secret', region_name=REGION)
+        endpoint = f'https://ecs.{REGION}.amazonaws.com'
+        client = sdk.client('ecs', region_name=REGION, endpoint_url=endpoint)
+        payload = response(t)
+        payload.pop('ResponseMetadata')
+        body = json.dumps(payload).encode()
+        opened = []
+        def urlopen(**kwargs):
+            wire = urllib3.HTTPResponse(body=io.BytesIO(body), status=200, preload_content=False,
+                headers={'Content-Length': str(len(body)), 'x-amzn-requestid': 'local-native-request'})
+            opened.append(wire)
+            return wire
+        conn = SimpleNamespace(urlopen=urlopen, proxy_headers={})
+        manager = SimpleNamespace(connection_from_url=lambda url: conn)
+        self.stack.enter_context(patch.object(client._endpoint.http_session, '_get_connection_manager', lambda *a, **k: manager))
+        session = SimpleNamespace(client=lambda *args, **kwargs: client)
+        native, receipt = source.native_call(session, 'ecs', REGION, 'DescribeTaskDefinition', source.request_for(t),
+            time.monotonic() + 3, {'calls': 0, 'bytes': 0, 'wire_bytes': 0})
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(receipt['http_status'], 200)
+        self.assertEqual(native['taskDefinition']['taskDefinitionArn'], t['definition_arn'])
+
     def test_12_consumer_rejects_malformed_foreign_duplicate_and_forged_completion(self):
         t = target()
         result, _ = self.capture([(t, response(t))])
