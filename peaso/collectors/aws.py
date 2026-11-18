@@ -959,11 +959,15 @@ class Requests:
             failure = _failure(exc)
             if _metadata_profile in ('aws-lambda-environment-content-v1', 'aws-selected-configuration-content-v1'):
                 # Unknown provider error codes can echo a selected name/value.
+                # Service-defined AWS error codes (denial, not found,
+                # throttling) are fixed identifiers, so the selected source
+                # can name its own gap; any other code stays masked.
+                from .aws_selected_configuration_secret_indicators import SAFE_PROVIDER_CODES
                 safe_configuration_code = (
                     _metadata_profile == 'aws-selected-configuration-content-v1'
-                    and failure.code in {'ExpiredToken', 'ExpiredTokenException', 'RequestExpired',
+                    and (failure.code in SAFE_PROVIDER_CODES or failure.code in {
                         'selected_configuration_call_bound', 'call_limit',
-                        'intentional_scan_deadline', 'retry_wait_exceeds_deadline'})
+                        'intentional_scan_deadline', 'retry_wait_exceeds_deadline'}))
                 if (not safe_configuration_code and (
                         getattr(self, 'automatic_workload_environment_active', False) is not True
                         or failure.status != 'denied' or failure.code not in {

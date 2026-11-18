@@ -139,7 +139,7 @@ def request(targets,**options):
       'options':{'content_secret_scans':True,source.OPTION:targets,'retry_attempts':1,**options}},'checks':[source.CHECK]}
 
 
-def capture(monkeypatch,targets,responses,*,real=False,error=False,one_engine=None,opts=None,caller=None,req=None,seed_metadata=False,untrusted_endpoint=False):
+def capture(monkeypatch,targets,responses,*,real=False,error=False,one_engine=None,opts=None,caller=None,req=None,seed_metadata=False,untrusted_endpoint=False,fail_ops=None):
     trace=SimpleNamespace(readers=[],calls=[],scans=[],clients={},progress=[])
     session=boto3.Session(aws_access_key_id='offline-key',aws_secret_access_key='offline-secret',region_name=REGION)
     services={'sts'}|{source.SURFACES[t['surface']][0] for t in targets}
@@ -174,7 +174,7 @@ def capture(monkeypatch,targets,responses,*,real=False,error=False,one_engine=No
                 service,operation,args=source.route(target,ownership=phase)
                 if phase is False and target['surface']=='ssm_document' and responses[source.identity(target)][0]['Document'].get('Owner')!=ACCOUNT:break
                 expected.append((service,operation,args,payload,phase))
-                if error:break
+                if error or (service,operation) in (fail_ops or {}):break
     maximum=req['connector']['options'].get('max_calls')
     if type(maximum) is int:expected=expected[:max(0,maximum-1)]
     if untrusted_endpoint:expected=[]
@@ -215,6 +215,8 @@ def capture(monkeypatch,targets,responses,*,real=False,error=False,one_engine=No
                 stubs[service].add_response(operation,payload,args)
             for service,operation,args,payload,phase in expected:
                 if error:stubs[service].add_client_error(operation,service_error_code='AccessDeniedException',service_message=TOKEN,http_status_code=403,expected_params=args)
+                elif (service,operation) in (fail_ops or {}):
+                    stubs[service].add_client_error(operation,service_error_code=fail_ops[(service,operation)],service_message=TOKEN,http_status_code=400,expected_params=args)
                 else:stubs[service].add_response(operation,payload,args)
             snapshot=engine.collect_snapshot(req)
             for stub in stubs.values():stub.assert_no_pending_responses()
@@ -237,7 +239,9 @@ def test_capture_native_admission_fixtures_with_real_engines(monkeypatch):
     for case in ('pass','fail','unknown'):
         with monkeypatch.context() as local:
             snapshot,_=one(local,'codebuild_environment',case=='fail',real=True,error=case=='unknown')
-            assert {r['status'] for r in findings(snapshot)}=={case.upper() if case!='unknown' else 'UNKNOWN'}
+            # A denied read is reported as DENIED naming the missing action.
+            expected={'pass':'PASS','fail':'FAIL','unknown':'DENIED'}[case]
+            assert {r['status'] for r in findings(snapshot)}=={expected}
             collection=next(c for c in snapshot['collections'] if c['type']==source.KIND)
             item=deepcopy(collection['items'][0]) if collection['items'] else {'id':'unreadable-selected-content'}
             # Losslessly retain only this predicate's dependencies; omit the
@@ -248,7 +252,7 @@ def test_capture_native_admission_fixtures_with_real_engines(monkeypatch):
             for c in snapshot['collections']:
                 if c['type'] in (source.KIND,'aws_account'):
                     index['collections'].setdefault(c['type'],[]).append(deepcopy(c))
-            assert consumer.evaluate(item,index)[0]==case.upper()
+            assert consumer.evaluate(item,index)[0]==expected
             fixtures[case]=item;fixtures[case+'_index']=index
     fixtures['index']=deepcopy(fixtures['pass_index']);fixtures['missing']={};fixtures['malformed']={'id':42}
     serialized=json.dumps({source.CHECK:fixtures},indent=2,sort_keys=True)+'\n'
@@ -282,8 +286,56 @@ def test_native_surface_good_bad_both_engines_and_redaction(monkeypatch,surface,
 @pytest.mark.parametrize('surface',SURFACES)
 def test_native_denied_is_unresolved_without_any_scan(monkeypatch,surface):
     snapshot,trace=one(monkeypatch,surface,error=True)
-    assert {r['status'] for r in findings(snapshot)}=={'UNKNOWN'}
+    rows=findings(snapshot)
+    assert [r['status'] for r in rows]==['DENIED']
+    service,operation=('ssm','describe_document') if surface=='ssm_document' else source.SURFACES[surface][:2]
+    action=source.action_name(service,operation)
+    evidence=rows[0]['evidence']
+    # The finding names the exact API the role is missing and the AWS code.
+    assert evidence['missing_action']==action==evidence['operation']
+    assert evidence['provider_code']=='AccessDeniedException' and action in evidence['observed']
     assert not trace.scans and TOKEN not in json.dumps(snapshot)+retained(trace.readers[0])
+
+
+@pytest.mark.parametrize('positive',[False,True])
+def test_ssm_document_selected_by_arn_is_read_when_aws_echoes_the_arn(monkeypatch,positive):
+    # Hosted scan e20089f1: DescribeDocument/GetDocument addressed by ARN return
+    # that ARN as Name, which the reader rejected as an unowned document.
+    target,responses=native('ssm_document',positive)
+    responses[0]['Document']['Name']=target['resource_id'];responses[1]['Name']=target['resource_id']
+    snapshot,trace=capture(monkeypatch,[target],{source.identity(target):responses})
+    rows=findings(snapshot)
+    assert [r['status'] for r in rows]==['FAIL' if positive else 'PASS'],rows
+    assert TOKEN not in json.dumps([snapshot,rows])+retained(trace.readers[0])
+
+
+def test_document_owned_by_another_account_stays_unknown_with_its_reason(monkeypatch):
+    target,responses=native('ssm_document')
+    responses[0]['Document']['Owner']='999999999999'
+    snapshot,_=capture(monkeypatch,[target],{source.identity(target):responses})
+    rows=findings(snapshot)
+    assert [r['status'] for r in rows]==['UNKNOWN']
+    assert rows[0]['evidence']['reason']=='owned_document_authority'
+    assert rows[0]['evidence']['operation']=='ssm:DescribeDocument'
+
+
+@pytest.mark.parametrize('code,reason,named',[('InvalidDocument','source_not_found',True),
+    ('ThrottlingException','source_throttled',True),('UnmodeledPrivateFault','selected_configuration_read_unavailable',False)])
+def test_one_unreadable_source_reports_its_own_gap_and_the_others_still_pass(monkeypatch,code,reason,named):
+    good,good_responses=native('codebuild_environment')
+    bad,bad_responses=native('ssm_document')
+    snapshot,trace=capture(monkeypatch,[good,bad],{source.identity(good):good_responses,source.identity(bad):bad_responses},
+                           fail_ops={('ssm','describe_document'):code})
+    rows={r['native_resource_id']:r for r in findings(snapshot)}
+    # No collection-wide UNKNOWN: each selected source has its own result.
+    assert set(rows)=={source.identity(good),source.identity(bad)}
+    assert rows[source.identity(good)]['status']=='PASS'
+    failed=rows[source.identity(bad)]
+    assert failed['status']=='UNKNOWN' and failed['evidence']['reason']==reason
+    assert failed['evidence']['operation']=='ssm:DescribeDocument' and failed['evidence']['surface']=='ssm_document'
+    # Only fixed AWS error codes are named; an unknown code is never echoed.
+    assert failed['evidence'].get('provider_code')==(code if named else None)
+    assert 'UnmodeledPrivateFault' not in json.dumps(snapshot) and TOKEN not in json.dumps(snapshot)
 
 
 @pytest.mark.parametrize('surface',SURFACES)

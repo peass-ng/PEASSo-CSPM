@@ -16,6 +16,40 @@ class _Reason(ValueError):
     """An UNKNOWN with a concrete, provider-text-free cause."""
 
 
+_SURFACE_NAMES={'cloudformation_template':'CloudFormation template','codepipeline_configuration':'CodePipeline configuration',
+ 'cloudformation_outputs':'CloudFormation stack outputs','codebuild_environment':'CodeBuild environment',
+ 'rest_stage_variables':'API Gateway stage variables','ecs_environment':'ECS task definition',
+ 'amplify_environment':'Amplify environment','batch_environment':'Batch job definition',
+ 'beanstalk_options':'Elastic Beanstalk options','glue_job_arguments':'Glue job arguments',
+ 'glue_connection_properties':'Glue connection properties','launch_template_userdata':'launch template user data',
+ 'launch_configuration_userdata':'launch configuration user data','ssm_document':'SSM document',
+ 'state_machine_definition':'Step Functions definition','notebook_lifecycle':'SageMaker lifecycle configuration',
+ 'pipeline_definition':'Data Pipeline definition'}
+_CAUSES={'access_denied':'access was denied','credential_expired':'the scan credentials expired',
+ 'source_not_found':'AWS reported the source missing','source_throttled':'AWS throttled the read',
+ 'selected_configuration_call_bound':'the per-scan read budget was spent','selected_configuration_deadline':'the read deadline passed',
+ 'selected_configuration_read_unavailable':'the read failed'}
+
+
+def _unavailable(m):
+    """One unread source's own UNKNOWN or DENIED, naming its API and AWS code."""
+    reason=m.get('reason') if isinstance(m.get('reason'),str) and re.fullmatch(r'[a-z][a-z_]{2,63}',m['reason']) else 'selected_configuration_read_unavailable'
+    operation=m.get('operation') if isinstance(m.get('operation'),str) and re.fullmatch(r'[a-z0-9-]{2,32}:[A-Za-z]{2,64}',m['operation']) else None
+    code=m.get('provider_code') if isinstance(m.get('provider_code'),str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{1,63}',m['provider_code']) else None
+    source=_SURFACE_NAMES.get(m.get('surface'),'selected configuration')
+    cause=_CAUSES.get(reason,'its response was rejected ('+reason+')')
+    observed=('The '+source+' was not read'+(' by '+operation if operation else '')+' because '+cause
+              +(' ('+code+')' if code else '')+'. Secret absence could not be assessed for this source.')
+    evidence={'observed':observed,'reason':reason,'surface':m.get('surface') if m.get('surface') in _SURFACE_NAMES else None,'complete':False}
+    if operation:evidence['operation']=operation
+    if code:evidence['provider_code']=code
+    if reason=='access_denied' and operation:
+        evidence['missing_action']=operation
+        if isinstance(m.get('denied_by'),str):evidence['denied_by']=m['denied_by']
+        return 'DENIED',evidence
+    return 'UNKNOWN',evidence
+
+
 def evaluate(item,index):
     try:
         ctx=index['context'];scope=ctx['scope'];meta=ctx['metadata'];match=SCOPE.fullmatch(scope)
@@ -36,8 +70,7 @@ def evaluate(item,index):
         if len(identities)!=1 or identities[0].get('UserId')!=parent[0]['items'][0].get('UserId'):raise ValueError()
         ident=item['id'];m=item[MARKER];surface=m['surface']
         if m.get('status')=='unavailable' and m.get('complete') is False and m.get('identity')==ident:
-            raise _Reason(m.get('reason') if isinstance(m.get('reason'),str) and re.fullmatch(r'[a-z][a-z_]{2,63}',m['reason'])
-                          else 'selected_configuration_read_unavailable')
+            return _unavailable(m)
         if (set(m)!={'schema','kind','surface','identity','scope','account','region','partition','version','capture','principal',
                 'native_complete','complete','verification','literal_count','bytes','response_bytes','engines','leaks','requests','status','selection_locator'}
                 or m['schema']!=SCHEMA or m['kind']!=KIND or surface not in SURFACES or m['identity']!=ident
@@ -77,14 +110,14 @@ def evaluate(item,index):
                 or sum(len(l['locations']) for l in leaks)>MAX_LOCATIONS
                 or any(location.get('path')!=ident+'.content' for leak in leaks for location in leak['locations'])
                 or any(next(e['status'] for e in engines if e['engine']==d['engine'])!='complete' for leak in leaks for d in leak['detectors'])):raise ValueError()
+        # This source's own bound receipt and both detectors decide its result;
+        # a different selected source's read gap is reported on that source.
         complete=(m['complete'] is True and all(e['status']=='complete' for e in engines)
-                  and meta[KIND+'_redaction_complete'] is True
-                  and own['status']=='collected' and len(rows)==len(selected) and {r['id'] for r in rows}==set(selected))
+                  and meta[KIND+'_redaction_complete'] is True)
         if not leaks and not complete:
             raise _Reason('secret_engine_unavailable' if any(e['status']!='complete' for e in engines) else
                           'selected_configuration_redaction_incomplete' if meta[KIND+'_redaction_complete'] is not True else
-                          'selected_configuration_content_incomplete' if m['complete'] is not True else
-                          'selected_configuration_inventory_partial')
+                          'selected_configuration_content_incomplete')
         observed=('A likely secret was detected in the selected AWS configuration content. Its value is hidden; offline detection did not validate the credential.' if leaks else
                   'Both offline detectors completed without detecting a supported secret in the selected AWS configuration content. Coverage is limited to the returned literal values.')
         return ('FAIL' if leaks else 'PASS'),{'observed':observed,'secret_leaks':deepcopy(leaks),'credential_validation':'not_attempted',
