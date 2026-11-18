@@ -16,7 +16,7 @@ DECLARATION = {'id': CHECK, 'provider': 'aws', 'category': 'exposure', 'kind': K
     'title': 'Selected ECS and Batch command literals have no detected secrets',
     'permissions': ['ecs:DescribeTaskDefinition', 'batch:DescribeJobDefinitions'],
     'allow_incomplete_failure': True,
-    'observed_contract': 'Both offline detectors inspect returned command literals on exact selected active definition revisions. A supported secret produces FAIL even with partial coverage; PASS requires all selected native fields and both detectors to complete, and missing fields or unresolved Batch placeholders produce UNKNOWN. Definition evidence does not establish running adoption or credential validity.',
+    'observed_contract': 'Both offline detectors inspect returned command literals on exact selected active definition revisions. A supported secret produces FAIL even with partial coverage; PASS requires all selected native fields and both detectors to complete, and malformed fields or unresolved Batch placeholders produce UNKNOWN; an entryPoint or command the definition does not set has zero literals. Definition evidence does not establish running adoption or credential validity.',
     'remediation': 'Remove secret literals from the selected definition and rotate exposed credentials. Use an appropriate secret delivery mechanism, then separately verify deployed workloads and overrides.'}
 
 

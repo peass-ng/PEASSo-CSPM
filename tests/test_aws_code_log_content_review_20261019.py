@@ -288,6 +288,32 @@ def test_collection_membership_is_required(mode, state):
     assert getattr(checks, mode)(item, index)[0] == 'UNKNOWN'
 
 
+def test_clean_pages_then_expired_session_names_scanned_events_and_cause(sdk):
+    # Production: the connector's session expired mid-window after thousands
+    # of clean events; the group must say what was scanned and why it stopped.
+    requests, session, stubs, _ = sdk
+    stamp = log_args(requests)['startTime']+1
+    stubs['logs'].add_response('filter_log_events', {'events': [{'timestamp': stamp+i, 'message': f'GET /health {i}'} for i in range(3)], 'nextToken': 'next'}, log_args(requests))
+    stubs['logs'].add_client_error('filter_log_events', service_error_code='ExpiredTokenException', http_status_code=400, expected_params=log_args(requests, 'next'))
+    sample = c.scan_logs(requests, session, REGION, GROUP)
+    assert sample['collection_status'] == 'partial' and sample['events_inspected'] == 3
+    item, index = fixture('logs')
+    item['ContentSecretIndicators'] = sample
+    status, evidence = checks.logs(item, index)
+    assert status == 'UNKNOWN' and evidence['records_inspected'] == 3
+    assert 'after 3 events scanned without findings' in evidence['reason'] and 'ExpiredTokenException' in evidence['reason']
+
+
+def test_expired_session_before_any_event_names_the_cause(sdk):
+    requests, session, stubs, _ = sdk
+    stubs['logs'].add_client_error('filter_log_events', service_error_code='ExpiredTokenException', http_status_code=400, expected_params=log_args(requests))
+    sample = c.scan_logs(requests, session, REGION, GROUP)
+    item, index = fixture('logs')
+    item['ContentSecretIndicators'] = sample
+    status, evidence = checks.logs(item, index)
+    assert status == 'UNKNOWN' and 'ExpiredTokenException' in evidence['reason']
+
+
 def test_positive_then_denied_log_page(sdk):
     requests, session, stubs, _ = sdk
     stamp = log_args(requests)['startTime']+1

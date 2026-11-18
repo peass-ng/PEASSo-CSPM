@@ -290,8 +290,11 @@ def native_call(session, service, region, operation, args, deadline, state):
 def literals(response, target):
     """Bind the immutable native definition before extracting bounded arrays.
 
-    Missing/malformed fields are incomplete. Other valid fields can still yield
-    positive evidence; unsupported Batch Ref:: placeholders are never resolved.
+    ECS and Batch omit an unset entryPoint/command from the definition (the
+    image's own ENTRYPOINT/CMD applies), so an absent key is a complete read
+    with zero literals, exactly like an explicit []. Malformed fields are
+    incomplete. Other valid fields can still yield positive evidence;
+    unsupported Batch Ref:: placeholders are never resolved.
     """
     _, _, _, name, revision = parse(target)
     service = target['service']
@@ -324,7 +327,7 @@ def literals(response, target):
         raise ValueError('native_revision_status')
     sources, complete, total, count = [], True, 0, 0
     for field, container, key in fields:
-        array = container.get(key)
+        array = container.get(key, [])
         if not isinstance(array, list) or len(array) > MAX_LITERALS:
             complete = False
             continue
@@ -341,7 +344,7 @@ def literals(response, target):
                 complete = False
                 break
             data.append(encoded)
-        # Explicit [] is evidence of zero returned literals; omitted is not.
+        # An empty or omitted array is evidence of zero returned literals.
         if not array or data:
             sources.append((field, b'\n'.join(data), len(data)))
     return sources, complete

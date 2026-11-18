@@ -38,6 +38,10 @@ def _evaluate(item, index, mode):
         if not isinstance(sample, dict) or sample.get('profile') != 'aws-code-log-content-indicators-v1' or sample['scope'] != ('bounded_default_commit_files' if mode == 'repository' else 'bounded_log_window'):
             raise Unavailable('content scope differs')
         if sample['collection_status'] not in ('collected', 'partial'):
+            failed = _read_errors(sample)
+            if failed and sample['collection_status'] != 'not_collected':
+                return unknown('content read failed before any record was scanned; ' + failed,
+                               observed='Content could not be read; no secret-absence verdict.')
             raise Unavailable('content scan disabled, denied or unavailable')
         if sample['region'] != region or sample['account_id'] != account:
             raise Unavailable('foreign account or Region')
@@ -118,13 +122,30 @@ def _incomplete_reason(mode, sample, records, inspected_events, event_cap, byte_
     if sample['inspected_bytes'] >= byte_cap:
         return f'scope exceeds the {byte_cap} byte scan bound'
     if sample['errors']:
-        codes = sorted({str(e.get('code') or e.get('error') or 'error') if isinstance(e, dict) else str(e) for e in sample['errors']})
-        return 'read errors: ' + ', '.join(codes[:5])
+        if mode == 'logs' and inspected_events:
+            return f'log window read stopped after {inspected_events} events scanned without findings; ' + _read_errors(sample)
+        return _read_errors(sample)
     if any(not r['readable'] for r in records):
         return f'{sum(not r["readable"] for r in records)} record(s) unreadable or over the per-record size bound'
     if any(r.get('scanner_complete') is not True for r in records):
         return 'secret scanner did not complete for every record'
     return 'incomplete negative scan'
+
+
+def _read_errors(sample):
+    """Bounded provider codes (e.g. ExpiredToken) and statuses of failed reads."""
+    errors = sample.get('errors') if isinstance(sample, dict) else None
+    if not isinstance(errors, list) or not errors:
+        return ''
+    codes = set()
+    for error in errors:
+        if isinstance(error, dict):
+            code = str(error.get('code') or error.get('error') or 'error')
+            status = error.get('status')
+            codes.add(f'{code} ({status})' if isinstance(status, str) and status and status != code else code)
+        else:
+            codes.add(str(error))
+    return 'read errors: ' + ', '.join(sorted(codes)[:5])
 
 
 def repository(item, index):
