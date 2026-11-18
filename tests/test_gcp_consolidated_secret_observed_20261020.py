@@ -44,7 +44,7 @@ def test_malformed_consolidated_facts_cannot_supply_positive_copy(fault):
     elif fault=='linked_unknown':f['linked_check_ids'].append('gcp.review.unreviewed.secret_indicators')
     elif fault=='linked_duplicate':f['linked_check_ids'].append(f['linked_check_ids'][0])
     elif fault=='fingerprint':f['secret_fingerprint']='0'*64
-    elif fault=='raw_value':leak['value']='must-not-be-rendered'
+    elif fault=='raw_value':leak['value']={'not':'a value'}
     elif fault=='empty_locations':leak['locations']=[]
     elif fault=='empty_detectors':leak['detectors']=[]
     elif fault=='unknown_detector':leak['detectors'][0]['engine']='unreviewed'

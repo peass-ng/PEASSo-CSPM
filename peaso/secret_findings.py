@@ -1,7 +1,10 @@
-"""One redacted finding per secret, independent of detector/check/asset."""
+"""One finding per secret, independent of detector/check/asset.
+
+Found values are shown in clear text so the tenant can rotate them.
+"""
 from copy import deepcopy
 import re
-from .secret_scanning import merge_leaks
+from .secret_scanning import FOUND_VALUE_FIELDS, merge_leaks
 
 
 def _secret_location_resource(finding):
@@ -16,7 +19,26 @@ def _secret_location_resource(finding):
     return native
 
 
-def deduplicate_secret_findings(findings):
+def _observed(evidence):
+    leak = evidence['secret_leaks'][0]
+    text = 'The same secret was detected in %d scanned location(s).' % len(leak['locations'])
+    if 'value' in leak:
+        text += ' Its matched value is shown in clear text so it can be rotated'
+        text += ' (first %d characters).' % len(leak['value']) if leak.get('value_truncated') else '.'
+    else:
+        text += ' This scan did not retain its matched value.'
+    if evidence.get('complete') is False:
+        text += ' Coverage is incomplete.'
+    return text
+
+
+def deduplicate_secret_findings(findings, secret_values=None):
+    """Group FAIL findings by found value.
+
+    ``secret_values`` maps a fingerprint to its clear-text ``value`` (and
+    ``value_truncated``/``context``), as the collecting scan published it.
+    """
+    secret_values = secret_values or {}
     output, grouped = [], {}
     for finding in findings:
         evidence = finding.get('evidence', {})
@@ -35,7 +57,9 @@ def deduplicate_secret_findings(findings):
             row = grouped.get(key)
             locations = [dict(loc, resource_id=_secret_location_resource(finding),
                               scope=finding['scope']) for loc in leak['locations']]
-            safe = dict(leak, locations=locations)
+            found = dict(leak, locations=locations)
+            known = secret_values.get(leak['fingerprint']) or {}
+            found.update({field: known[field] for field in FOUND_VALUE_FIELDS if field in known})
             if row is None:
                 row = deepcopy(finding)
                 row.update(id='secret-' + leak['fingerprint'], secret_fingerprint=leak['fingerprint'],
@@ -45,7 +69,7 @@ def deduplicate_secret_findings(findings):
                 row.pop('native_resource_id', None)
                 row['evidence'] = {'secret_leaks': [], 'credential_validation': 'not_attempted'}
                 grouped[key] = row
-            row['evidence']['secret_leaks'] = merge_leaks(row['evidence']['secret_leaks'] + [safe])
+            row['evidence']['secret_leaks'] = merge_leaks(row['evidence']['secret_leaks'] + [found])
             if evidence.get('complete') is False:
                 # A trusted positive is still decisive when another detector
                 # could not finish. Grouping must preserve that coverage limit.
@@ -53,8 +77,6 @@ def deduplicate_secret_findings(findings):
                 row['evidence']['coverage'] = 'incomplete'
             row['frameworks'] = sorted(set(row.get('frameworks', [])) | set(finding.get('frameworks', [])))
             row['linked_check_ids'] = sorted(set(row['linked_check_ids']) | {finding['check_id']})
-            row['evidence']['observed'] = 'The same secret was detected in %d scanned location(s). Its value is hidden.' % len(row['evidence']['secret_leaks'][0]['locations'])
-            if row['evidence'].get('complete') is False:
-                row['evidence']['observed'] += ' Coverage is incomplete.'
+            row['evidence']['observed'] = _observed(row['evidence'])
             row['evidence_summary'] = row['evidence']['observed']
     return output + [grouped[key] for key in sorted(grouped)]

@@ -24,7 +24,7 @@ for (const fault of ["incomplete", "no-detectors", "raw-secret", "unknown-detect
     const row = structuredClone(fixtures[id].find((r: { status: string }) => r.status === "FAIL"));
     if (fault === "incomplete") row.evidence.complete = false;
     else if (fault === "no-detectors") row.evidence.secret_leaks[0].detectors = [];
-    else if (fault === "raw-secret") row.evidence.secret_leaks[0].value = "never-render-this";
+    else if (fault === "raw-secret") row.evidence.secret_leaks[0].value = "";
     else if (fault === "unknown-detector") row.evidence.secret_leaks[0].detectors[0].engine = "unreviewed";
     else if (fault === "missing-location") row.evidence.secret_leaks[0].locations = [{}];
     else if (fault === "negative-line") row.evidence.secret_leaks[0].locations[0].line = -1;

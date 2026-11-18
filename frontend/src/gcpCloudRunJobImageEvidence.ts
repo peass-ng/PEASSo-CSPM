@@ -1,8 +1,9 @@
+import { leakKeys } from "./foundSecretValue";
 import type { Finding } from "./types";
 
 const check = "gcp.review.cloudrun_job.declared_image_secret_indicators";
 export const jobImageUnknown = "Evidence for the selected Cloud Run Job’s declared image is incomplete or unbound. Secret absence and the executed image were not established; credentials were not validated.";
-const limit = "Its value is hidden; credentials and the executed image were not verified.";
+const limit = "Credentials and the executed image were not verified.";
 const project = "[a-z][a-z0-9-]{4,28}[a-z0-9]";
 const label = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
 const suffix = "/locations/[a-z][a-z0-9-]{0,62}/jobs/[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?";
@@ -19,7 +20,7 @@ function leaks(value: unknown, publicFinding: boolean, scope: string): Leak[] | 
   const result: Leak[] = [], seen = new Set<string>();
   let count = 0;
   for (const row of value) {
-    if (!object(row) || Object.keys(row).sort().join() !== "detectors,fingerprint,locations"
+    if (!object(row) || leakKeys(row) !== "detectors,fingerprint,locations"
         || !match(/^[0-9a-f]{64}$/, row.fingerprint) || seen.has(row.fingerprint)
         || !Array.isArray(row.detectors) || !row.detectors.length || row.detectors.length > 128
         || !Array.isArray(row.locations) || !row.locations.length) return;

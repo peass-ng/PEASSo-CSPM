@@ -22,7 +22,7 @@ import { GroupedFindingEvidence, findingGroupPath } from "./GroupedFindingEviden
 import { FindingStatusBadge, findingStatusCounts, findingStatusOptions, matchesFindingStatus } from "./findingStatus";
 import "./FindingInspector.css";
 import { AccessAnalyzerUnusedEvidence } from "./AccessAnalyzerUnusedEvidence";
-import { PrivateSecretEvidence } from "./PrivateSecretEvidence";
+import { FoundSecretValues, PrivateSecretEvidence } from "./PrivateSecretEvidence";
 import findingTypes from "./findingTypes.json";
 const findingTypeLabel = (id?: string) => findingTypes.find(type => type.id === id)?.label || "Unclassified";
 type FindingPage = {
@@ -874,7 +874,9 @@ export function FindingInspector({
             {internetExposure && observed.status === "UNKNOWN" && !!exposure?.reasons.length && <ul>{exposure.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}
           </section>
           {!observed.grouped && <AccessAnalyzerUnusedEvidence key={observed.id} finding={observed} />}
-          {observed.secret_evidence && <PrivateSecretEvidence key={observed.id} finding={observed} scanId={scanId} />}
+          {observed.secret_evidence?.status === "available" ? <PrivateSecretEvidence key={observed.id} finding={observed} scanId={scanId} />
+            : <>{observed.secret_evidence && <PrivateSecretEvidence key={observed.id} finding={observed} scanId={scanId} />}
+              <FoundSecretValues evidence={observed.evidence} /></>}
           <section className="finding-detail-section">
             <h3>What to do</h3>
             <Remediation legacy={exposureAction || observed.remediation} details={remediationDetails} compact />

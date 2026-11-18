@@ -19,7 +19,7 @@ import zipfile
 import zlib
 
 from .aws_content_sdk_logging import private_sdk_logs as _private_sdk_logs
-from peaso.secret_scanning import scan_content, merge_leaks, _fingerprint, redact_matches
+from peaso.secret_scanning import scan_content, merge_leaks, _fingerprint
 
 KIND = 's3_selected_source_content'
 CHECK = 'aws.review.s3.selected_source_secret_indicators'
@@ -731,20 +731,14 @@ def collect_selected(requests, session, region, caller, options, scopes):
 
 
 def finalize(requests, collections, metadata):
-    """Root final handoff: union-scrub metadata, locators and all prior cache aliases."""
-    values = getattr(requests, 's3_source_redactions', set())
+    """Root final handoff of the selected-source metadata.
+
+    Found secret values are not scrubbed: they stay in clear text with their
+    findings so the tenant can rotate them.
+    """
     try:
-        if values:
-            with requests._lock:
-                for future in requests._cache.values():
-                    if not future.done() or future.exception() is not None:
-                        continue
-                    item = future.result(); safe = redact_matches(item, values)
-                    if isinstance(item, dict):item.clear(); item.update(safe)
-                    elif isinstance(item, list):item[:] = safe
-            collections = redact_matches(collections, values); metadata = redact_matches(metadata, values)
         metadata.update(deepcopy(getattr(requests, 's3_source_metadata', {})))
         return collections, metadata
     finally:
-        values.clear()
+        getattr(requests, 's3_source_redactions', set()).clear()
         getattr(requests, 's3_source_heads', {}).clear()

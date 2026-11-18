@@ -57,7 +57,7 @@ def test_actual_public_projection_never_invents_missing_native_parts(fault):
     elif fault == 'layer': leak['locations'][0]['layer'] = 'tag:latest'
     elif fault == 'path': leak['locations'][0]['path'] = 'invented.txt'
     elif fault == 'line': leak['locations'][0]['line'] = -1
-    elif fault == 'raw_value': leak['value'] = 'never-render-this'
+    elif fault == 'raw_value': leak['value'] = {'not': 'a value'}
     elif fault == 'detector': leak['detectors'][0]['engine'] = 'invented'
     elif fault == 'complete': e['complete'] = 'true'
     elif fault == 'coverage': e['coverage'] = 'incomplete'

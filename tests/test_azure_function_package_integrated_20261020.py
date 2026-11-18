@@ -234,7 +234,8 @@ def test_actual_cli_collect_saved_json_and_automatic_fresh_cli_replay(monkeypatc
     output = captured.out
     assert returned in (None, 0), captured.err + captured.out
     snapshot = json.loads(saved.read_text())
-    assert native.SECRET not in output
+    # The found secret is shown in clear text so it can be rotated.
+    assert native.SECRET in json.dumps(snapshot['metadata']['secret_values'])
     # Ordinary CLI evaluate consumes self-contained supplied snapshot assertions.
     # No companion state, custom criteria, native grant, or private API is supplied.
     offline_cli = '''
@@ -253,7 +254,9 @@ raise SystemExit(main(sys.argv[1:]))
     result = json.loads(child.stdout)
     assert len(result['findings']) == 1 and result['findings'][0]['status'] == 'FAIL'
     assert result['findings'][0]['id'].startswith('secret-')
-    for private in (native.SECRET, native.SAS, native.SITE, 'function.zip'):
+    leak, = result['findings'][0]['evidence']['secret_leaks']
+    assert leak['value'] == native.SECRET
+    for private in (native.SAS, native.SITE, 'function.zip'):
         assert private not in child.stdout
     assertion, = result['findings'][0]['evidence']['package_source_assertions']
     assert assertion['context_provenance'] == 'supplied_snapshot_assertions'

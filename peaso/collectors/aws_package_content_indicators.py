@@ -234,6 +234,9 @@ def _scan(raw, name, requests):
                 for reason in UNAVAILABLE_REASONS.get()):
             outcome = scan_content(bytes(raw), name, timeout=RETRY_SCAN_TIMEOUT)
         categories = inspect_text(raw.decode('latin-1'), 'unused')['MatchedCategories']
+    if 'private_key' in categories and not _PEM_BODY.search(raw):
+        # A PEM header without key material (documentation, parsers) is no key.
+        categories = [category for category in categories if category != 'private_key']
     if outcome['leaks']:
         categories = sorted(set(categories) | {'secret'})
     safe_name = outcome['leaks'][0]['locations'][0]['path'] if outcome['leaks'] else name
@@ -706,15 +709,24 @@ PACKAGE_DB_FILE_LIMIT = 8 * 1024 * 1024
 PACKAGE_DB_LIMIT = 64 * 1024 * 1024
 # Package-manager metadata: hashes, file lists and maintainer scripts of packages.
 _PACKAGE_METADATA = re.compile(r'(?:var/lib/dpkg|(?:usr/)?lib/apk/db|var/lib/rpm|usr/lib/sysimage/rpm)/')
-# Vendored dependency trees; only their binaries (scanned as printable strings) are suppressed.
+# Vendored dependency trees: their binaries (scanned as printable strings), and
+# their text hits that no detector matched, are suppressed.
 _VENDORED = re.compile(r'(?:^|/)(?:node_modules|site-packages|dist-packages|vendor|\.cargo/registry)/')
-# Upstream distribution documentation; only keyword-proximity hits are suppressed there.
+# Upstream distribution documentation, including a vendored package's own
+# doc/man trees; only hits without a self-identifying format are suppressed there.
 _UPSTREAM_DOCS = re.compile(r'(?:^|/)share/(?:doc|man|info)/|(?:^|/)(?:LICEN[CS]E|COPYING|CHANGELOG|CHANGES|NOTICE|HISTORY)[^/]*$'
-                            r'|^opt/[^/]+/(?:.+/)?README[^/]*$|(?:^|/)(?:node_modules|site-packages|dist-packages|vendor)/(?:.+/)?README[^/]*$',
+                            r'|^opt/[^/]+/(?:.+/)?README[^/]*$|(?:^|/)(?:node_modules|site-packages|dist-packages|vendor)/(?:.+/)?README[^/]*$'
+                            r'|(?:^|/)(?:node_modules|site-packages|dist-packages|vendor)/(?:.+/)?(?:docs?|man)/',
                             re.IGNORECASE)
-# Self-identifying formats stay reported even in documentation.
-_STRUCTURED_CATEGORIES = {'private_key', 'cloud_credential'}
-_STRUCTURED_RULE = re.compile(r'private.?key|(?:^|[^a-z])aws(?:[^a-z]|$)')
+# Self-identifying detector rules stay reported even in documentation.
+_STRUCTURED_RULE = re.compile(r'priv(?:ate)?.?key|(?:^|[^a-z])aws(?:[^a-z]|$)')
+# A PEM private key header followed by key material. Literal "\n" escapes (a
+# key inside a JSON or JS string) and RFC 1421 header lines may precede it. A
+# header with a placeholder body, like npm's documented
+# key="-----BEGIN PRIVATE KEY-----\nXXXX\nXXXX\n-----END PRIVATE KEY-----",
+# is not a private key.
+_PEM_BODY = re.compile(rb'-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----'
+                       rb'(?:\s|\\+[rn]|[A-Za-z-]+:[^\r\n]{0,200}(?:\r?\n|\\+n))*[A-Za-z0-9+/]{40}')
 # Merged /usr: a package may list lib/x while the image stores usr/lib/x, or the reverse.
 _USR_MERGED = re.compile(r'(?:s?bin|lib[^/]*)/')
 
@@ -796,14 +808,22 @@ def third_party_reference(ref, facts, owners):
     digests, binary = facts.get((path, ref['LayerDigest']), (None, False))
     return bool(_PACKAGE_METADATA.match(path) or _distro_owned(path, digests, owners)
                 or binary and _VENDORED.search(path)
-                or _UPSTREAM_DOCS.search(path) and _keyword_only(ref))
+                or _UPSTREAM_DOCS.search(path) and _keyword_only(ref)
+                # A third-party package's own text (docs, config definitions,
+                # tests) with only a supplemental pattern hit, no detector match.
+                or _VENDORED.search(path) and not ref.get('Leaks') and _keyword_only(ref))
 
 
 def _keyword_only(ref):
-    """No self-identifying format (private key, AWS key pair) backs this hit."""
-    if _STRUCTURED_CATEGORIES & set(ref['Categories']):
+    """No self-identifying format (private key, AWS key pair) backs this hit.
+
+    An AWS key id beside its secret identifies itself. A supplemental PEM
+    private key hit does only when a detector also matched in that file.
+    """
+    categories, leaks = set(ref['Categories']), ref.get('Leaks') or []
+    if 'cloud_credential' in categories or 'private_key' in categories and leaks:
         return False
-    rules = {str(detector.get('rule', '')).lower() for leak in ref.get('Leaks', [])
+    rules = {str(detector.get('rule', '')).lower() for leak in leaks
              for detector in leak.get('detectors', [])}
     return not any(_STRUCTURED_RULE.search(rule) for rule in rules)
 

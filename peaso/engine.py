@@ -1910,7 +1910,8 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
             "reason": scope_coverage.get("reason", "Explicit scope limit or incomplete discovery") if isinstance(scope_coverage, dict) else "Malformed scope coverage metadata"})
     from .secret_findings import deduplicate_secret_findings
     function_secret_pre_dedup = normalize_unknown_reasons(findings)
-    findings = deduplicate_secret_findings(function_secret_pre_dedup)
+    from .secret_evidence import SNAPSHOT_VALUES_KEY, snapshot_secret_values
+    findings = deduplicate_secret_findings(function_secret_pre_dedup, snapshot_secret_values(snapshot))
     from .gcp_function_secret_page_persistence_20261020 import retain_function_secret_pairs
     findings = retain_function_secret_pairs(function_secret_pre_dedup, findings)
     from .azure_function_package_provenance_20261020 import retain_package_source_assertions
@@ -1929,7 +1930,7 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
         "resources": [{key: value for key, value in resource.items() if key != "data"} for resource in inventory],
         "native_data": dict(NATIVE_DATA, snapshot_id=snapshot["snapshot_id"]),
         "findings": sorted(findings, key=lambda f: (f["category"], f["check_id"], f["scope"], f["resource_id"])),
-        "coverage": sorted(coverage, key=lambda row: (row["level"], row.get("check_id", ""), row.get("framework_id", ""), row.get("type", ""), row.get("scope", ""))), "framework_versions": selected_framework_versions, "snapshot_metadata": copy.deepcopy(snapshot.get("metadata", {})), "manual_requirements": selected_manual, "graphs": graphs, "stats": {"resource_count": len(inventory), "finding_count": len(findings),
+        "coverage": sorted(coverage, key=lambda row: (row["level"], row.get("check_id", ""), row.get("framework_id", ""), row.get("type", ""), row.get("scope", ""))), "framework_versions": selected_framework_versions, "snapshot_metadata": copy.deepcopy({key: value for key, value in snapshot.get("metadata", {}).items() if key != SNAPSHOT_VALUES_KEY}), "manual_requirements": selected_manual, "graphs": graphs, "stats": {"resource_count": len(inventory), "finding_count": len(findings),
             "check_count": len(selected) + len(analysis_selected), "manual_requirement_count": len(selected_manual), "by_status": counts, "by_severity": dict(Counter(f["severity"] for f in findings if f["status"] == "FAIL")),
             "coverage_complete": complete, "inventory_complete": inventory_complete, "categories": selected_categories,
             "limitations": ["Framework mappings retain reviewed source provenance; they are not compliance certification.", "Declared IAM relationships are not effective access.",

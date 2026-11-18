@@ -36,6 +36,6 @@ def test_consolidated_copy_needs_actual_bound_leak_shape(fault):
     elif fault == 'status': finding['status'] = 'PASS'
     elif fault == 'fingerprint': finding['secret_fingerprint'] = '0' * 64
     elif fault == 'linked_check': finding['linked_check_ids'].append('unrelated.check')
-    elif fault == 'raw_secret': finding['evidence']['secret_leaks'][0]['value'] = 'never-render'
+    elif fault == 'raw_secret': finding['evidence']['secret_leaks'][0]['value'] = {'not': 'a value'}
     else: finding['evidence']['secret_leaks'][0]['locations'][0][fault] = 'unbound'
     assert observation(finding) is None

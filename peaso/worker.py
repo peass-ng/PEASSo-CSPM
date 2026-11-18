@@ -776,11 +776,19 @@ def _process(role, request, connection):
                     # are durable. Release that cumulative inventory before
                     # redacting and serializing the full native snapshot.
                     del checkpoint_session
-            # Separate encrypted per-scan object; no reference or value enters
-            # the native snapshot, public report, supervisor pipe or AI context.
+            # The private evidence is a separate encrypted per-scan object. Only
+            # the bounded found values below join the snapshot and report.
             from peaso.gc_pause import gc_paused
             with _runtime_span('worker.redact'), gc_paused():
                 snapshot = public_content(snapshot)
+                # Found values reach the analyzer with the snapshot and are
+                # shown in clear text on their findings; the final seal below
+                # addresses the snapshot with them.
+                found_values = secret_capture.secret_values()
+                if found_values:
+                    from peaso.secret_evidence import SNAPSHOT_VALUES_KEY
+                    snapshot["metadata"] = dict(snapshot.get("metadata") or {}, **{SNAPSHOT_VALUES_KEY: found_values})
+                del found_values
             with _runtime_span("worker.private_document"):
                 artifacts.put_secret_evidence(tenant, ident, private_checkpoint.document(secret_capture))
             if request.get("ai_enabled", True) and ai_credentials:

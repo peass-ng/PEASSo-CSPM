@@ -134,7 +134,7 @@ def test_incomplete_metadata_hit_needs_coherent_native_detector_facts(fault):
     elif fault=='wrong_version':part['engines'][0]['version']='unreviewed'
     elif fault=='bad_part_completion':part['complete']=False
     elif fault=='bad_coverage':e['coverage']='all_cluster_metadata'
-    elif fault=='raw_value':e['secret_leaks'][0]['value']='never-display-this'
+    elif fault=='raw_value':e['secret_leaks'][0]['value']={'not':'a value'}
     else:e['secret_leaks'][0]['detectors']=[]
     assert observation(f)is None and evidence_summary(f)is None
 
@@ -173,7 +173,7 @@ def test_workbench_consolidated_hit_rejects_unbound_public_facts(fault):
     elif fault=='status':finding['status']='PASS'
     elif fault=='fingerprint':finding['secret_fingerprint']='0'*64
     elif fault=='linked':finding['linked_check_ids'].append('unrelated')
-    elif fault=='leak':finding['evidence']['secret_leaks'][0]['value']='not-retained'
+    elif fault=='leak':finding['evidence']['secret_leaks'][0]['value']={'not':'a value'}
     elif fault=='flags':finding['evidence'].update(complete=True,coverage='incomplete')
     else:finding['evidence']['secret_leaks'][0]['locations'][0][{'scope':'scope','resource':'resource_id','path':'path'}[fault]]='unbound'
     assert observation(finding)is None

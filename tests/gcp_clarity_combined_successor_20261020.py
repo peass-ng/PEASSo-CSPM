@@ -445,7 +445,7 @@ CURRENT_NATIVE_EXAMPLES = json.loads(r'''
     {
       "branch": "fail",
       "evidence_sha256": "47258001ea85da4ffb4e7d330c5eb69cf470bec956a0359d94b9c4949ef806c0",
-      "expected": "A likely secret was detected in the immutable image declared by the selected Cloud Run Job container. Its value is hidden; credentials and the executed image were not verified.",
+      "expected": "A likely secret was detected in the immutable image declared by the selected Cloud Run Job container. Credentials and the executed image were not verified.",
       "status": "FAIL"
     },
     {

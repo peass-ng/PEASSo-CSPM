@@ -18,6 +18,13 @@ MAX_VALUES = 10000
 MAX_LOCATIONS = 50000
 MAX_BYTES = 64 * 1024 * 1024
 MAX_VALUE_BYTES = 2 * 1024 * 1024
+# Found values published in clear text with the findings, so the tenant can
+# rotate them. Bounded only for size: a longer value keeps its first
+# characters and says so; a scan past the total budget keeps the rest private.
+PUBLIC_VALUE_CHARS = 4096
+PUBLIC_CONTEXT_CHARS = 160
+PUBLIC_VALUES_BYTES = 16 * 1024 * 1024
+SNAPSHOT_VALUES_KEY = 'secret_values'
 SCHEMA = 'private-secret-evidence-v1'
 FIELDS = {'resource_id', 'scope', 'path', 'field', 'layer', 'image_digest', 'source', 'location_kind', 'content_lines'}
 NAMED_CHECKS = {
@@ -160,6 +167,58 @@ def remember_redactions(values):
     return
 
 
+def remember_public(value, fingerprint, context=None):
+    """Keep a found value, and a short surrounding snippet, for its findings."""
+    with _lock:
+        if _active is not None:
+            _active.remember_public(value, fingerprint, context)
+
+
+def match_context(payload, value):
+    """The matched value with up to PUBLIC_CONTEXT_CHARS of its own line around it."""
+    needle = value.encode('utf-8')
+    if len(needle) > PUBLIC_VALUE_CHARS:
+        return None
+    position = payload.find(needle)
+    if position < 0:
+        return None
+    end_of_match = position + len(needle)
+    start = max(0, position - PUBLIC_CONTEXT_CHARS)
+    end = min(len(payload), end_of_match + PUBLIC_CONTEXT_CHARS)
+    newline = payload.rfind(b'\n', start, position)
+    start = newline + 1 if newline != -1 else start
+    newline = payload.find(b'\n', end_of_match, end)
+    end = newline if newline != -1 else end
+    text = bytes(payload[start:end]).decode('utf-8', 'replace')
+    return re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', ' ', text)
+
+
+def secret_values_entry(sink=None):
+    """validate() keyword arguments that publish this scan's found values in a snapshot."""
+    sink = sink if sink is not None else _active
+    # Test doubles and older sinks may keep no found-value table.
+    values = sink.secret_values() if callable(getattr(sink, "secret_values", None)) else None
+    return {'metadata_entry': (SNAPSHOT_VALUES_KEY, values)} if values else {}
+
+
+def snapshot_secret_values(snapshot):
+    """Found values a snapshot published, keyed by their fingerprint."""
+    metadata = snapshot.get('metadata') if hasattr(snapshot, 'get') else None
+    values = metadata.get(SNAPSHOT_VALUES_KEY) if hasattr(metadata, 'get') else None
+    result = {}
+    if hasattr(values, 'items'):
+        for fingerprint, entry in values.items():
+            if (isinstance(fingerprint, str) and re.fullmatch('[0-9a-f]{64}', fingerprint)
+                    and hasattr(entry, 'get') and isinstance(entry.get('value'), str) and entry['value']):
+                row = {'value': entry['value'][:PUBLIC_VALUE_CHARS]}
+                if entry.get('value_truncated') is True or len(entry['value']) > PUBLIC_VALUE_CHARS:
+                    row['value_truncated'] = True
+                if isinstance(entry.get('context'), str) and entry['context']:
+                    row['context'] = entry['context'][:PUBLIC_VALUE_CHARS + 2 * PUBLIC_CONTEXT_CHARS]
+                result[fingerprint] = row
+    return result
+
+
 def batched():
     """Seal each touched private record once for a run of remember() calls.
 
@@ -173,6 +232,7 @@ def remember(value, fingerprint, *, path, line=None, engine, rule, check_ids=(),
     with _lock:
         if _active is None:
             return
+        _active.remember_public(value, fingerprint)
         check_ids = set(check_ids) | set(getattr(_source, 'check_ids', ()))
         if check_ids and _active.selected_checks is not None:
             check_ids &= _active.selected_checks
@@ -260,6 +320,8 @@ class Capture:
         self.redaction_bytes = 0
         self.redaction_incomplete = False
         self.incomplete = False
+        # fingerprint -> bounded clear-text value (and context) for findings.
+        self.public_values, self.public_value_bytes = {}, 0
         self.policy_names = policy_names(options)
         self.selected_checks = frozenset(selected_checks) if selected_checks is not None else None
         # Rows opened by batch(); sealed once when the batch ends.
@@ -293,6 +355,38 @@ class Capture:
     def retain_redaction(self, value, fingerprint):
         """Found secrets are not scrubbed from public output; nothing to retain."""
         return
+
+    def remember_public(self, value, fingerprint, context=None):
+        """Keep the found value for its findings; callers hold the module lock."""
+        if not isinstance(value, str) or not value or not isinstance(fingerprint, str):
+            return
+        entry = self.public_values.get(fingerprint)
+        if entry is None:
+            entry = {'value': value[:PUBLIC_VALUE_CHARS]}
+            if len(value) > PUBLIC_VALUE_CHARS:
+                entry['value_truncated'] = True
+            size = len(fingerprint) + len(entry['value'].encode())
+            if self.public_value_bytes + size > PUBLIC_VALUES_BYTES:
+                return
+            self.public_values[fingerprint] = entry
+            self.public_value_bytes += size
+        if isinstance(context, str) and context and 'context' not in entry:
+            size = len(context.encode())
+            if self.public_value_bytes + size <= PUBLIC_VALUES_BYTES:
+                entry['context'] = context
+                self.public_value_bytes += size
+
+    def secret_values(self):
+        """{fingerprint: {'value', ['value_truncated'], ['context']}} of this scan.
+
+        Includes values restored from a prior attempt's private records.
+        """
+        with _lock:
+            for fingerprint, sealed in list(self.records.items()):
+                if fingerprint not in self.public_values and sealed is not _OPEN:
+                    row = self.load(fingerprint)
+                    self.remember_public(row.get('value'), fingerprint)
+            return deepcopy(self.public_values)
 
     def remember(self, value, fingerprint, location, engine, rule, check_ids):
         size = len(value.encode())
@@ -959,6 +1053,20 @@ def without_private_values(value):
         return {key: without_private_values(child) for key, child in value.items() if key != 'secret_evidence'}
     if isinstance(value, (list, tuple)):
         return [without_private_values(child) for child in value]
+    return value
+
+
+def without_found_secret_values(value):
+    """Keep the found-value table and per-leak copies out of AI agent workspaces.
+
+    Reports, the API and the UI keep them in clear text.
+    """
+    if isinstance(value, dict):
+        leak = {'fingerprint', 'detectors', 'locations'} <= set(value)
+        return {key: without_found_secret_values(child) for key, child in value.items()
+                if not (key == SNAPSHOT_VALUES_KEY or leak and key in ('value', 'value_truncated', 'context'))}
+    if isinstance(value, (list, tuple)):
+        return [without_found_secret_values(child) for child in value]
     return value
 
 

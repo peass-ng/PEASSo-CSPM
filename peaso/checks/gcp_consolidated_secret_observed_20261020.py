@@ -4,6 +4,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 from peaso.secret_scanning import merge_leaks
+from peaso.secret_findings import _observed as _grouped_observed
 
 
 @lru_cache(maxsize=1)
@@ -27,8 +28,10 @@ def observation(finding):
                 or any(d.get('engine')not in ('kingfisher','trufflehog')for d in leaks[0]['detectors'])):return None
         count=len(leaks[0]['locations'])
         if count<1:return None
-        expected=f'The same secret was detected in {count} scanned location(s). Its value is hidden.'+(' Coverage is incomplete.'if partial else'')
-        if e['observed']!=expected:return None
+        # Reports stored before found values were shown say "Its value is hidden.".
+        legacy=(f'The same secret was detected in {count} scanned location(s). Its value is hidden.'
+                +(' Coverage is incomplete.'if partial else''))
+        if e['observed']!=_grouped_observed(e) and ('value' in leaks[0] or e['observed']!=legacy):return None
         if set(linked)<=set(allowed['locators']):
             seen=set()
             for loc in leaks[0]['locations']:
