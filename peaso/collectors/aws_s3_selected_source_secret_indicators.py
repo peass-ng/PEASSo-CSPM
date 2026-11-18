@@ -44,6 +44,28 @@ MAX_SECONDS = 120
 MAX_LEAKS = 128
 MAX_LOCATIONS = 512
 SCOPE = re.compile(r'([0-9]{12})/([a-z]{2}(?:-[a-z0-9]+)+-[0-9]+)\Z')
+PHASES = ('caller', 'location', 'head_before', 'get', 'head_after')
+# Fixed, service-defined AWS error codes a selected read can return. They are
+# never request echoes, so evidence may name them verbatim; any other code
+# stays masked. HEAD replies carry no body, so botocore names them by status.
+DENIAL_CODES = frozenset({'AccessDenied', 'AccessDeniedException', 'Forbidden', '403', 'AllAccessDisabled',
+    'UnauthorizedOperation', 'InvalidAccessKeyId', 'InvalidClientTokenId', 'UnrecognizedClientException'})
+EXPIRY_CODES = frozenset({'ExpiredToken', 'ExpiredTokenException', 'RequestExpired', 'TokenRefreshRequired'})
+NOT_FOUND_CODES = frozenset({'NoSuchKey', 'NoSuchBucket', 'NoSuchVersion', 'NotFound', '404'})
+THROTTLE_CODES = frozenset({'SlowDown', '503', 'Throttling', 'ThrottlingException', 'TooManyRequestsException',
+    'RequestLimitExceeded', 'ServiceUnavailable', 'InternalError', '500'})
+# SSE-KMS objects: S3 answers GetObject with these when the KMS key cannot be used.
+KMS_CODES = frozenset({'KMS.DisabledException', 'KMS.NotFoundException', 'KMS.KMSInvalidStateException',
+    'KMS.InvalidKeyUsageException', 'KMS.AccessDeniedException', 'KMS.KeyUnavailableException',
+    'KMS.ThrottlingException', 'KMS.UnrecognizedClientException'})
+CHANGED_CODES = frozenset({'PreconditionFailed', '412'})
+REGION_CODES = frozenset({'PermanentRedirect', '301', 'AuthorizationHeaderMalformed', 'IllegalLocationConstraintException'})
+SAFE_PROVIDER_CODES = DENIAL_CODES | EXPIRY_CODES | NOT_FOUND_CODES | THROTTLE_CODES | KMS_CODES | CHANGED_CODES | REGION_CODES
+# Network failures before any AWS reply: the SDK class name is the only fact kept.
+TRANSPORT_ERRORS = frozenset({'EndpointConnectionError', 'ConnectTimeoutError', 'ReadTimeoutError',
+    'ConnectionClosedError', 'ProxyConnectionError', 'SSLError', 'HTTPClientError'})
+_KMS_MESSAGE = re.compile(r'\bkms:(?:Decrypt|GenerateDataKey)\b|\bKMS\b|customer master key|ciphertext', re.I)
+_VPC_ENDPOINT_MESSAGE = re.compile(r'\bVPC endpoint\b|aws:sourceVpce?\b', re.I)
 
 
 class Incomplete(ValueError):
@@ -325,7 +347,16 @@ def _profile_call_locked(requests, session, service, region, operation, *, _proj
         'http_status': None, 'request_id': None, 'bound': False, 'bytes': 0}
     ledger.append(receipt); context['marker']['source_requests'].append(receipt['id'])
     try:
-        response = getattr(client, operation)(**args)
+        try:
+            response = getattr(client, operation)(**args)
+        except Exception as exc:
+            # Keep only the native HTTP status; the error message is never kept.
+            meta = getattr(exc, 'response', None)
+            meta = meta.get('ResponseMetadata') if isinstance(meta, dict) else None
+            status = meta.get('HTTPStatusCode') if isinstance(meta, dict) else None
+            if type(status) is int and 100 <= status <= 599:
+                receipt['http_status'] = status
+            raise
         return project_response(response, service, operation, args, request_context=(requests, session, context, receipt), region=region)
     finally:
         close_failed = False
@@ -566,12 +597,100 @@ def project_response(response, service, operation, args, *, request_context, reg
     return {'bound': receipt['bound']}
 
 
+def object_uri(target):
+    return 's3://' + target['bucket'] + '/' + target['key']
+
+
+def phase_action(phase, target):
+    """IAM action one read phase needs. HeadObject is authorized by s3:GetObject."""
+    if phase == 'caller':
+        return 'sts:GetCallerIdentity'
+    if phase == 'location':
+        return 's3:GetBucketLocation'
+    return 's3:GetObjectVersion' if 'version_id' in target else 's3:GetObject'
+
+
+# Delegating readers grant one exact object they resolved from a native reference.
+_DELEGATIONS = (('ecs_envfile_grants', 'ecs_environment_file', 'selected_aws_ecs_environment_files'),
+    ('workload_source_grants', 'workload_reference', 'selected_aws_workload_sources'),
+    ('build_deployment_grants', 'build_deployment_reference', 'selected_aws_build_deployment_sources'))
+
+
+def selection(requests, ident):
+    """How this object was chosen: the connector's own S3 list or a delegating reader."""
+    for attribute, source, option in _DELEGATIONS:
+        if ident in (getattr(requests, attribute, None) or {}):
+            return {'source': source, 'option': option}
+    return {'source': 'explicit_option', 'option': OPTION}
+
+
+def _client_error(failure):
+    response = getattr(failure, 'response', None)
+    error = response.get('Error') if isinstance(response, dict) else None
+    if not isinstance(error, dict):
+        return None, None
+    code = error.get('Code')
+    message = error.get('Message')
+    return (code if isinstance(code, str) else None), (message if isinstance(message, str) and len(message) <= 4096 else '')
+
+
+def read_failure_detail(failure, phase, target):
+    """One object's own gap: a fixed reason, the IAM action and a safe AWS code.
+
+    Provider messages are never kept. They are only matched against fixed
+    patterns (KMS, VPC endpoint, organization policy) to name the denying layer.
+    """
+    from .aws import ReadFailure
+    detail = {'reason': 's3_source_read_failed', 'phase': phase if phase in PHASES else None,
+              'operation': phase_action(phase, target)}
+    code, message = _client_error(failure)
+    if code is None and isinstance(failure, ReadFailure):
+        code = str(failure.code) if failure.code is not None else None
+    if code in KMS_CODES:
+        detail.update(reason='access_denied' if code in ('KMS.AccessDeniedException', 'KMS.UnrecognizedClientException')
+                      else 'source_throttled' if code == 'KMS.ThrottlingException' else 'kms_key_unavailable',
+                      operation='kms:Decrypt', provider_code=code)
+    elif code in DENIAL_CODES:
+        detail.update(reason='access_denied', provider_code=code)
+        if phase == 'get' and message and _KMS_MESSAGE.search(message):
+            # SSE-KMS GetObject: S3 answers AccessDenied when kms:Decrypt is denied.
+            detail['operation'] = 'kms:Decrypt'
+        from peaso.policy_denial import policy_from_message
+        policy = policy_from_message(message) or getattr(getattr(failure, 'code', None), 'denied_by', None)
+        if isinstance(policy, str) and re.fullmatch(r'[a-z_]{2,40}', policy):
+            detail['denied_by'] = policy
+        elif message and _VPC_ENDPOINT_MESSAGE.search(message):
+            detail['denied_by'] = 'vpc_endpoint_policy'
+    elif code in EXPIRY_CODES:
+        detail.update(reason='credential_expired', provider_code=code)
+    elif code in NOT_FOUND_CODES:
+        detail.update(reason='source_not_found', provider_code=code)
+    elif code in THROTTLE_CODES:
+        detail.update(reason='source_throttled', provider_code=code)
+    elif code in CHANGED_CODES:
+        detail.update(reason='s3_object_changed', provider_code=code)
+    elif code in REGION_CODES:
+        detail.update(reason='s3_bucket_region_mismatch', provider_code=code)
+    elif type(failure).__name__ in TRANSPORT_ERRORS:
+        detail.update(reason='s3_source_transport_failed', provider_code=type(failure).__name__)
+    elif isinstance(failure, TimeoutError) or 'timeout' in type(failure).__name__.lower():
+        detail['reason'] = 's3_source_deadline'
+    elif isinstance(failure, (Incomplete, ReadFailure)) or type(failure) is ValueError:
+        own = str(failure.code) if isinstance(failure, ReadFailure) else str(failure)
+        if re.fullmatch(r'[a-z][a-z0-9_]{2,63}', own):
+            detail['reason'] = own
+    if detail['reason'] == 'access_denied':
+        detail['missing_action'] = detail['operation']
+    return detail
+
+
 def collect_selected(requests, session, region, caller, options, scopes):
     """Root selected-kind dispatcher proposal; caller DTO is never source proof."""
     from .aws import ReadResult
     targets = selected_targets(options, scopes)
     if not enabled(options):return ReadResult([], 'not_collected', {'code': 'selected_s3_disabled'})
     rows = []
+    expired = set()
     for target in targets:
         account, own_region = parse(target)
         if own_region != region or not isinstance(caller, dict) or caller.get('Account') != account:
@@ -581,19 +700,34 @@ def collect_selected(requests, session, region, caller, options, scopes):
             'complete': False, 'source_bound': False, 'head_coherent': False, 'content_complete': False,
             'parts': [], 'leaks': [], 'source_requests': [], 'object': None, 'member_count': 0,
             'verification': 'not_attempted'}
+        # The selected object and how it was chosen: the customer's own locator.
+        marker['source'] = {'uri': object_uri(target), 'bucket': target['bucket'], 'key': target['key'],
+            'version_id': target.get('version_id'), 'selection': selection(requests, ident)}
+        phase = PHASES[0]
         try:
-            for phase in ('caller', 'location', 'head_before', 'get', 'head_after'):
+            for phase in PHASES:
                 service, operation, args = arguments(target, phase, requests.s3_source_heads.get(ident))
-                with source_context(**target_source(target, resource_id='s3://' + target['bucket'] + '/' + target['key'], scope=target['scope'])):
+                with source_context(**target_source(target, resource_id=object_uri(target), scope=target['scope'])):
                     requests.call(session, service, region, operation, _metadata_profile=PROFILE,
                         _projection_context={'target': target, 'phase': phase, 'marker': marker}, **args)
             marker['complete'] = marker['content_complete'] and marker['head_coherent'] and bool(marker['parts']) and all(p['complete'] for p in marker['parts'])
-        except Exception:
+        except Exception as exc:
             marker['complete'] = False
+            # This object reports its own gap; it never stands in for the others.
+            marker['failure'] = read_failure_detail(exc, phase, target)
+            if marker['failure']['reason'] == 'credential_expired':
+                expired.add(marker['failure']['provider_code'])
         finally:
             requests.s3_source_heads.pop(ident, None)
-        rows.append({'id': ident, MARKER: marker, '_provenance': {'scope': target['scope'], 'capture': marker['capture']}})
-    return ReadResult(rows) if rows else ReadResult([], 'not_collected', {'code': 'selected_s3_scope_omitted'})
+        rows.append({'id': ident, 'Name': object_uri(target), MARKER: marker,
+                     '_provenance': {'scope': target['scope'], 'capture': marker['capture']}})
+    if not rows:
+        return ReadResult([], 'not_collected', {'code': 'selected_s3_scope_omitted'})
+    if expired:
+        # Expired credentials end the whole capture, not only one object.
+        return ReadResult(rows, 'partial', {'code': 'selected_s3_read_incomplete',
+                                            'additional_errors': [{'code': code} for code in sorted(expired)]})
+    return ReadResult(rows)
 
 
 def finalize(requests, collections, metadata):

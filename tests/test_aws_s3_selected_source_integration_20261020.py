@@ -156,6 +156,11 @@ def collect(monkeypatch,fmt='text',hit=False,*,real=False,fault=None,version=Non
             trace.calls.append({'service':service,'operation':operation,'method':request.method,'host':p.hostname,'path':p.path,'query':q})
             if fault in('denied','absent')and operation=='get':
                 status=403 if fault=='denied'else 404;response=('<Error><Code>AccessDenied</Code><Message>'+TOKEN+'</Message><RequestId>request-11111111</RequestId></Error>').encode();native_headers['content-length']=str(len(response));native_headers['content-type']='application/xml'
+            native_error={'kms_denied':(403,'AccessDenied','User: arn:aws:sts::'+ACCOUNT+':assumed-role/scan/'+TOKEN+' is not authorized to perform: kms:Decrypt on resource: arn:aws:kms:'+REGION+':'+ACCOUNT+':key/k because no identity-based policy allows the kms:Decrypt action'),
+                'no_such_key':(404,'NoSuchKey','The specified key does not exist. '+TOKEN),
+                'expired':(400,'ExpiredToken','The provided token has expired. '+TOKEN)}.get(fault)
+            if native_error and operation=='get':
+                status=native_error[0];response=('<Error><Code>'+native_error[1]+'</Code><Message>'+native_error[2]+'</Message><RequestId>request-11111111</RequestId></Error>').encode();native_headers['content-length']=str(len(response));native_headers['content-type']='application/xml'
             if fault=='truncated'and operation=='get':response=response[:-1]
             if fault=='redirect'and operation=='get':status=301;native_headers['location']='https://foreign.invalid/'+TOKEN
             if fault=='stream_timeout'and operation=='get':
@@ -195,7 +200,7 @@ def test_native_each_format_three_branches(monkeypatch,fmt,branch):
     assert len(trace.calls)==(5 if branch=='denied'else 6)
     assert all(r.closed for r in trace.raw if r.selected_source)
     retained=json.dumps([snapshot,findings,list(scanning._RESULTS.values())])
-    for value in(TOKEN,AUTH,KEY,BUCKET,ETAG,'mode=ready'):assert value not in retained
+    for value in(TOKEN,AUTH,ETAG,'mode=ready'):assert value not in retained
     assert not trace.reader.s3_source_heads and not trace.reader.s3_source_redactions and not any(source.PROFILE in key for key in trace.reader._cache)
     CAPTURES.append({'format':fmt,'branch':branch,'input':trace.inputs[0],'snapshot':snapshot,'findings':findings,'real_engines':False})
 
@@ -355,8 +360,8 @@ def test_native_both_engine_timeouts_never_clean(monkeypatch):
 def test_denied_read_names_the_failed_step(monkeypatch,fmt):
     _,findings,_=collect(monkeypatch,fmt,False,fault='denied')
     assert [f['status']for f in findings]==['UNKNOWN']
-    reason=findings[0]['evidence']['reason']
-    assert reason.startswith('s3_source_') and reason!='unknown_reason_not_supplied',reason
+    evidence=findings[0]['evidence']
+    assert evidence['reason']=='access_denied' and evidence['step'].startswith('s3_source_get'),evidence
 
 
 def test_fixed_native_sdk_ignores_configured_endpoint(monkeypatch):
@@ -512,3 +517,58 @@ def test_write_native_source_receipts():
     root=Path('/tmp/peasso-secret-surface-review-20261020/aws-s3-production');root.mkdir(parents=True,exist_ok=True)
     (root/'native-captures.json').write_text(json.dumps(CAPTURES,indent=2)+'\n')
     assert TOKEN not in(root/'native-captures.json').read_text()
+
+
+def _unread(findings):
+    assert [f['status']for f in findings]==['UNKNOWN'],findings
+    evidence=findings[0]['evidence']
+    assert evidence['object']=='s3://'+BUCKET+'/'+KEY and evidence['phase']=='get'
+    assert evidence['selection']=={'source':'explicit_option','option':source.OPTION}
+    assert BUCKET+'/'+KEY in evidence['observed'] and source.OPTION in evidence['observed']
+    # Provider messages are never kept, only fixed codes.
+    assert TOKEN not in json.dumps(findings)
+    return evidence
+
+
+def test_access_denied_read_names_the_object_and_get_object(monkeypatch):
+    snapshot,findings,_=collect(monkeypatch,fault='denied')
+    evidence=_unread(findings)
+    assert (evidence['reason'],evidence['operation'],evidence['missing_action'],evidence['provider_code'])==(
+        'access_denied','s3:GetObject','s3:GetObject','AccessDenied')
+    assert 's3:GetObject' in evidence['observed'] and findings[0]['resource_name']=='s3://'+BUCKET+'/'+KEY
+    # One denied object is that object's gap, not a partial capture.
+    assert {c['status'] for c in snapshot['collections'] if c['type']==source.KIND}=={'collected'}
+
+
+def test_kms_denial_on_encrypted_object_names_kms_decrypt(monkeypatch):
+    evidence=_unread(collect(monkeypatch,fault='kms_denied')[1])
+    assert (evidence['reason'],evidence['operation'],evidence['missing_action'],evidence['provider_code'])==(
+        'access_denied','kms:Decrypt','kms:Decrypt','AccessDenied')
+    assert 'kms:Decrypt' in evidence['observed']
+
+
+def test_missing_object_is_reported_not_found(monkeypatch):
+    evidence=_unread(collect(monkeypatch,fault='no_such_key')[1])
+    assert (evidence['reason'],evidence['provider_code'])==('source_not_found','NoSuchKey')
+    assert 'missing_action' not in evidence and 'missing' in evidence['observed']
+
+
+def test_versioned_selection_names_the_version(monkeypatch):
+    evidence=_unread(collect(monkeypatch,fault='denied',version='v-selected-1')[1])
+    assert evidence['version_id']=='v-selected-1' and evidence['operation']=='s3:GetObjectVersion'
+
+
+def test_expired_credentials_mark_the_capture_partial(monkeypatch):
+    snapshot,findings,_=collect(monkeypatch,fault='expired')
+    # The partial capture adds its own collection-level UNKNOWN.
+    evidence=_unread([f for f in findings if 'object' in f['evidence']])
+    assert (evidence['reason'],evidence['provider_code'])==('credential_expired','ExpiredToken')
+    assert {c['status'] for c in snapshot['collections'] if c['type']==source.KIND}=={'partial'}
+
+
+def test_readable_object_keeps_its_normal_result_and_names_the_object(monkeypatch):
+    _,findings,_=collect(monkeypatch)
+    assert [f['status']for f in findings]==['PASS']
+    evidence=findings[0]['evidence']
+    assert evidence['complete'] is True and evidence['object']=='s3://'+BUCKET+'/'+KEY
+    assert 'reason' not in evidence and 'missing_action' not in evidence
