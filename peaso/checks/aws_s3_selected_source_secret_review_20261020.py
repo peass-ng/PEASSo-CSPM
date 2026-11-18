@@ -31,7 +31,7 @@ def evaluate(item, index):
         if len(set(ids)) != len(ids) or not set(ids) <= set(selected) or sum(row == item for row in rows) != 1:
             raise ValueError()
         ident = item['id']; m = item[MARKER]
-        if (set(m) != {'schema', 'identity', 'scope', 'format', 'capture', 'principal', 'complete', 'source_bound',
+        if (set(m) - {'source', 'failure'} != {'schema', 'identity', 'scope', 'format', 'capture', 'principal', 'complete', 'source_bound',
                 'head_coherent', 'content_complete', 'parts', 'leaks', 'source_requests', 'object', 'member_count', 'verification'}
                 or m['schema'] != SCHEMA or m['identity'] != ident or m['scope'] != scope or ident not in selected
                 or m['capture'] != capture or m['format'] not in FORMATS or m['source_bound'] is not True
@@ -108,13 +108,93 @@ def evaluate(item, index):
         observed = ('A likely secret was detected in selected S3 source text or archive members. The value is hidden and was not validated.' if leaks else
             'Both offline detectors completed without detecting a supported secret in the selected S3 source text and regular archive members. Coverage is limited to the selected object or version.')
         if not complete:observed += ' Coverage is incomplete.'
-        return ('FAIL' if leaks else 'PASS'), {'observed': observed, 'secret_leaks': deepcopy(leaks),
+        evidence = {'observed': observed, 'secret_leaks': deepcopy(leaks),
             'complete': bool(complete), 'coverage': 'selected_s3_source_text_only' if complete else 'incomplete',
             'credential_validation': 'not_attempted', 'format': m['format'], 'parts': deepcopy(parts),
             'source_requests': list(refs), 'object_bytes': obj['length']}
+        evidence.update(_source_fields(m))
+        if not complete:
+            evidence.update(_failure_fields(m))
+        return ('FAIL' if leaks else 'PASS'), evidence
     except (ValueError, KeyError, TypeError, AttributeError, IndexError):
-        return 'UNKNOWN', {'observed': 'Selected S3 source content was unreadable, unsupported, incomplete or unbound. A clean result cannot be established.',
-            'complete': False, 'coverage': 'incomplete', 'reason': _reason(item, index)}
+        return 'UNKNOWN', _unknown(item, index)
+
+
+_CAUSES = {'access_denied': 'access was denied', 'credential_expired': 'the scan credentials expired',
+    'source_not_found': 'AWS reported the object or bucket missing', 'source_throttled': 'AWS throttled the read',
+    'kms_key_unavailable': 'the object\'s KMS key could not be used', 's3_object_changed': 'the object changed during the read',
+    's3_bucket_region_mismatch': 'the bucket is in a different Region than the selected scope',
+    's3_source_transport_failed': 'the network connection to AWS failed', 's3_source_deadline': 'the read deadline passed',
+    's3_source_read_failed': 'the read failed'}
+_PHASES = {'caller': 'GetCallerIdentity', 'location': 'GetBucketLocation', 'head_before': 'HeadObject',
+    'get': 'GetObject', 'head_after': 'HeadObject (after read)'}
+_SELECTIONS = {'explicit_option': 'it is listed in the connector option selected_aws_s3_sources',
+    'ecs_environment_file': 'an ECS task definition references it as an environment file',
+    'workload_reference': 'a selected workload references it as its source',
+    'build_deployment_reference': 'a selected build or deployment references it as its source'}
+
+
+def _short(value, pattern):
+    return value if isinstance(value, str) and re.fullmatch(pattern, value) else None
+
+
+def _source_fields(m):
+    """The selected object's own locator and how it was chosen."""
+    source = m.get('source') if isinstance(m, dict) else None
+    if not isinstance(source, dict) or not isinstance(source.get('uri'), str) or not source['uri'].startswith('s3://'):
+        return {}
+    fields = {'object': source['uri']}
+    if isinstance(source.get('version_id'), str):
+        fields['version_id'] = source['version_id']
+    chosen = source.get('selection')
+    if isinstance(chosen, dict) and chosen.get('source') in _SELECTIONS:
+        fields['selection'] = {'source': chosen['source'], 'option': _short(chosen.get('option'), r'selected_aws_[a-z0-9_]{1,64}')}
+    return fields
+
+
+def _failure_fields(m):
+    failure = m.get('failure') if isinstance(m, dict) else None
+    if not isinstance(failure, dict):
+        return {}
+    fields = {}
+    for key, pattern in (('reason', r'[a-z][a-z0-9_]{2,63}'), ('phase', r'[a-z_]{3,16}'),
+                         ('operation', r'[a-z0-9-]{2,32}:[A-Za-z]{2,64}'), ('provider_code', r'[A-Za-z0-9][A-Za-z0-9_.]{0,63}'),
+                         ('missing_action', r'[a-z0-9-]{2,32}:[A-Za-z]{2,64}'), ('denied_by', r'[a-z_]{2,40}')):
+        value = _short(failure.get(key), pattern)
+        if value is not None:
+            fields[key] = value
+    return fields
+
+
+def _unknown(item, index):
+    """An unread object's own UNKNOWN, naming the object, the step, the IAM action and the AWS code."""
+    step = _reason(item, index)
+    m = item.get(MARKER) if isinstance(item, dict) else None
+    source = _source_fields(m)
+    failure = _failure_fields(m)
+    if not source and not failure:
+        return {'observed': 'Selected S3 source content was unreadable, unsupported, incomplete or unbound. A clean result cannot be established.',
+            'complete': False, 'coverage': 'incomplete', 'reason': step}
+    name = source.get('object', 'The selected S3 object')
+    if 'version_id' in source:
+        name += ' (version ' + source['version_id'] + ')'
+    reason = failure.get('reason', step)
+    if failure:
+        cause = _CAUSES.get(reason, 'its response was rejected (' + reason + ')')
+        call = _PHASES.get(failure.get('phase'))
+        observed = (name + ' was not read' + (' at ' + call if call else '') + ' because ' + cause
+            + (' (' + failure['provider_code'] + ')' if 'provider_code' in failure else '')
+            + ('; the request needs ' + failure['operation'] if 'operation' in failure else '') + '.')
+    else:
+        observed = name + ' was not fully assessed (' + step + ').'
+    chosen = source.get('selection', {}).get('source')
+    if chosen in _SELECTIONS:
+        observed += ' It was selected because ' + _SELECTIONS[chosen] + '.'
+    observed += ' A clean result cannot be established.'
+    evidence = {'observed': observed, 'complete': False, 'coverage': 'incomplete', 'reason': reason, 'step': step}
+    evidence.update(source)
+    evidence.update({k: v for k, v in failure.items() if k != 'reason'})
+    return evidence
 
 
 def _reason(item, index):
