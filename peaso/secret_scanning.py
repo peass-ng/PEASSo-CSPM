@@ -7,6 +7,7 @@ sink can retain encrypted private matches separately from this public result.
 from copy import deepcopy
 from functools import lru_cache
 from collections import OrderedDict
+from contextlib import contextmanager
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import ContextVar
 import hashlib
@@ -36,12 +37,31 @@ _RESULTS = OrderedDict()
 MAX_INPUT = 64 * 1024 * 1024
 MAX_OUTPUT = 4 * 1024 * 1024
 MAX_FINDINGS = 5000
+# Longest a scanner process may queue for a slot when no collection lease
+# bounds the wait; the run's own deadline only starts once it holds a slot.
+MAX_SLOT_WAIT = 900
+
+
+def _slot_count():
+    try:
+        cpus = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        cpus = os.cpu_count() or 1
+    return max(2, cpus)
+
+
+# Every scanner process of this worker shares these slots. Unbounded, dozens
+# of concurrent image jobs each started TruffleHog at once on a two-vCPU
+# collector, so every wall-clock deadline (and its longer retry) measured the
+# CPU queue instead of the scan, and a tiny payload missed it.
+_SLOTS = threading.BoundedSemaphore(_slot_count())
 
 
 def _after_fork():
-    global _KEY, _LOCK, _RESULT_LOCK, _RESULTS
+    global _KEY, _LOCK, _RESULT_LOCK, _RESULTS, _SLOTS
     _KEY, _LOCK = secrets.token_bytes(32), threading.Lock()
     _RESULT_LOCK, _RESULTS = threading.Lock(), OrderedDict()
+    _SLOTS = threading.BoundedSemaphore(_slot_count())
     _kingfisher.cache_clear()
     _verified_trufflehog.cache_clear()
 
@@ -85,8 +105,35 @@ def _scan_kingfisher(payload, path, timeout):
     return result
 
 
+@contextmanager
+def _scanner_slot():
+    """Hold one scanner process slot; yield the collection lease, if any.
+
+    The wait honors the worker's collection lease (or MAX_SLOT_WAIT without
+    one) and never counts against the scanner's own deadline.
+    """
+    from .collection_lease import effective_deadline
+    lease = effective_deadline(None)
+    limit = time.monotonic() + MAX_SLOT_WAIT if lease is None else lease
+    slots = _SLOTS
+    while not slots.acquire(timeout=max(0, min(.1, limit - time.monotonic()))):
+        if time.monotonic() >= limit:
+            raise TimeoutError('scanner queue deadline' if lease is None else 'collection lease expired')
+    try:
+        yield lease
+    finally:
+        slots.release()
+
+
 def _run(argv, payload, timeout):
     """Bound stdin, output and lifetime; discard tool stderr, including secrets."""
+    with _scanner_slot() as lease:
+        return _run_in_slot(argv, payload, timeout, lease)
+
+
+def _run_in_slot(argv, payload, timeout, lease):
+    if lease is not None and time.monotonic() >= lease:
+        raise TimeoutError('collection lease expired')
     environment = {'PATH': os.defpath, 'HOME': '/nonexistent', 'NO_COLOR': '1',
                    'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull}
     process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -94,6 +141,10 @@ def _run(argv, payload, timeout):
                                start_new_session=True)
     output, offset = bytearray(), 0
     deadline = time.monotonic() + timeout
+    # The lease, not this scan, ended: a longer retry could not help.
+    expired = 'scanner deadline'
+    if lease is not None and lease < deadline:
+        deadline, expired = lease, 'collection lease expired'
     try:
         with selectors.DefaultSelector() as selector:
             for stream in (process.stdin, process.stdout):
@@ -106,7 +157,7 @@ def _run(argv, payload, timeout):
             while selector.get_map():
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise TimeoutError('scanner deadline')
+                    raise TimeoutError(expired)
                 for key, _ in selector.select(min(remaining, .1)):
                     if key.fileobj is process.stdin:
                         offset += os.write(process.stdin.fileno(), payload[offset:offset+65536])

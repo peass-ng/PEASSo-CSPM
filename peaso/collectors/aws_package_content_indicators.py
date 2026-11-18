@@ -42,6 +42,10 @@ CONTENT_LIMIT = 512 * 1024 * 1024
 FILE_LIMIT = 64 * 1024 * 1024
 SCAN_WINDOW = 1024 * 1024
 SCAN_OVERLAP = 4096
+# Seconds one window's engines may run once they hold a scanner slot (queueing
+# for a slot is not counted), and the one longer attempt after a missed deadline.
+SCAN_TIMEOUT = 15
+RETRY_SCAN_TIMEOUT = 60
 REFERENCE_LIMIT = 5000
 OUTPUT_LIMIT = 4 * 1024 * 1024
 MEMBER_LIMIT = 5000
@@ -221,12 +225,14 @@ def _scan(raw, name, requests):
     from peaso.collection_lease import check as check_lease
     check_lease(requests)
     with source_context(path=name):
-        outcome = scan_content(bytes(raw), name)
+        outcome = scan_content(bytes(raw), name, timeout=SCAN_TIMEOUT)
         # A busy task can starve one window past the short default deadline;
-        # give only that window one longer, still bounded, attempt.
+        # give only that window one longer, still bounded, attempt. An expired
+        # lease or scanner queue is not retried: more time cannot exist.
         if not outcome['complete'] and UNAVAILABLE_REASONS.get() and all(
-                'timeouterror' in reason for reason in UNAVAILABLE_REASONS.get()):
-            outcome = scan_content(bytes(raw), name, timeout=60)
+                'timeouterror' in reason and not reason.endswith(('collection_lease_expired', 'scanner_queue_deadline'))
+                for reason in UNAVAILABLE_REASONS.get()):
+            outcome = scan_content(bytes(raw), name, timeout=RETRY_SCAN_TIMEOUT)
         categories = inspect_text(raw.decode('latin-1'), 'unused')['MatchedCategories']
     if outcome['leaks']:
         categories = sorted(set(categories) | {'secret'})
