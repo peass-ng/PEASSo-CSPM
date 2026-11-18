@@ -196,7 +196,8 @@ def match_context(payload, value):
 def secret_values_entry(sink=None):
     """validate() keyword arguments that publish this scan's found values in a snapshot."""
     sink = sink if sink is not None else _active
-    values = sink.secret_values() if sink is not None else None
+    # Test doubles and older sinks may keep no found-value table.
+    values = sink.secret_values() if callable(getattr(sink, "secret_values", None)) else None
     return {'metadata_entry': (SNAPSHOT_VALUES_KEY, values)} if values else {}
 
 
