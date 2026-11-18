@@ -213,6 +213,64 @@ def _ecs_linux_user_scope(item, definition):
     return None
 
 
+# Docker's --user numeric UID range is 0..2147483647. A group does not
+# establish the user UID and is deliberately not assessed by this check.
+_ECS_MAX_UID = 2147483647
+
+
+def _ecs_user_kind(user):
+    """Classify a Docker ``user[:group]`` value: root, numeric, named or malformed."""
+    if not isinstance(user, str) or user.count(":") > 1:
+        return "malformed"
+    identity, separator, group = user.partition(":")
+    if not identity or (separator and not group):
+        return "malformed"
+    if identity == "root" or (identity.isascii() and identity.isdecimal() and not identity.lstrip("0")):
+        return "root"
+    if separator and group.isascii() and group.isdecimal():
+        significant_group = group.lstrip("0")
+        if len(significant_group) > 10 or significant_group and int(significant_group) > _ECS_MAX_UID:
+            return "malformed"
+    elif separator and (group.strip() != group or group.startswith(("+", "-")) or any(ch.isspace() for ch in group)):
+        return "malformed"
+    if identity.isascii() and identity.isdecimal():
+        significant_uid = identity.lstrip("0")
+        if len(significant_uid) > 10 or int(significant_uid) > _ECS_MAX_UID:
+            return "malformed"
+        return "numeric"
+    if identity.strip() != identity or identity.startswith(("+", "-")) or any(ch.isspace() for ch in identity):
+        return "malformed"
+    return "named"
+
+
+def _ecs_image_records(item):
+    found = item.get("ImageUsers") if isinstance(item, dict) else None
+    if not isinstance(found, dict) or found.get("collection_status") != "collected":
+        return {}
+    containers = found.get("containers")
+    return containers if isinstance(containers, dict) else {}
+
+
+def _ecs_image_user(item, row):
+    """Image-config user evidence for a container that declares none, or None.
+
+    Only a collected config of an immutable (digest-pinned) image counts: a
+    mutable tag can point at another image by the time the task starts.
+    """
+    record = _ecs_image_records(item).get(row["name"])
+    if not isinstance(record, dict) or record.get("status") != "collected":
+        return None
+    image, digest, user = record.get("image"), record.get("image_digest"), record.get("user")
+    if (not isinstance(image, str) or image != row.get("image") or not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+            or not image.endswith("@" + digest) or not isinstance(user, str)):
+        return None
+    evidence = {"source": "image_config", "image": image, "user": user}
+    for field in ("config_digest", "config_digests", "manifest_digest", "manifest_digests", "uid", "uid_source", "uid_layer", "uid_unresolved"):
+        if field in record:
+            evidence[field] = record[field]
+    return evidence
+
+
 @install("aws.b.ecs.declared_nonroot_users", "ecs_task_definition", "Linux ECS containers declare a proven non-root numeric UID", {"Definition": {"taskDefinition": {"runtimePlatform": {"operatingSystemFamily": "LINUX"}, "containerDefinitions": [{"name": "app", "user": "1000:1000"}]}}}, {"Definition": {"taskDefinition": {"runtimePlatform": {"operatingSystemFamily": "LINUX"}, "containerDefinitions": [{"name": "app", "user": "0:1000"}]}}}, query="_corrected:ecs_task_definition_no_root_user")
 def nonroot_users(item, index):
     definition, rows = task(item)
@@ -221,54 +279,45 @@ def nonroot_users(item, index):
         return unknown("Linux user UID semantics not established for this ECS task definition",
                        runtime_platform=definition.get("runtimePlatform"), official_reference=_ECS_USER_REFERENCE)
     root, inherited, unresolved_names, malformed, numeric = [], [], [], [], []
-    # Docker's --user numeric UID range is 0..2147483647. A group does not
-    # establish the user UID and is deliberately not assessed by this check.
-    max_uid = 2147483647
+    sources, image_unresolved = {}, {}
     for row in rows:
         name = row["name"]
         user = optional(row, "user", None)
         if user is None or user == "":
-            inherited.append(name)
-            continue
-        if not isinstance(user, str) or user.count(":") > 1:
-            malformed.append(name)
-            continue
-        identity, separator, group = user.partition(":")
-        if not identity or (separator and not group):
-            malformed.append(name)
-            continue
-        if identity == "root" or (identity.isascii() and identity.isdecimal() and not identity.lstrip("0")):
-            root.append(name)
-            continue
-        if separator and group.isascii() and group.isdecimal():
-            significant_group = group.lstrip("0")
-            if len(significant_group) > 10 or significant_group and int(significant_group) > max_uid:
-                malformed.append(name)
+            image = _ecs_image_user(item, row)
+            if image is None:
+                inherited.append(name)
+                record = _ecs_image_records(item).get(name)
+                if isinstance(record, dict):
+                    image_unresolved[name] = record.get("reason", "image_config_unavailable")
                 continue
-        elif separator and (group.strip() != group or group.startswith(("+", "-")) or any(ch.isspace() for ch in group)):
-            malformed.append(name)
+            sources[name] = image
+            # Docker runs an empty image USER as root.
+            kind = "root" if image["user"] == "" else _ecs_user_kind(image["user"])
+            if kind == "named":
+                uid = image.get("uid")
+                if type(uid) is int and not isinstance(uid, bool) and 0 <= uid <= _ECS_MAX_UID:
+                    kind = "numeric" if uid else "root"
+                else:
+                    image_unresolved[name] = image.get("uid_unresolved", "image_user_uid_unresolved")
+            {"root": root, "numeric": numeric, "named": unresolved_names, "malformed": malformed}[kind].append(name)
             continue
-        if identity.isascii() and identity.isdecimal():
-            significant_uid = identity.lstrip("0")
-            if not significant_uid:
-                root.append(name)
-            elif len(significant_uid) > 10 or int(significant_uid) > max_uid:
-                malformed.append(name)
-            else:
-                numeric.append(name)
-        elif identity.strip() != identity or identity.startswith(("+", "-")) or any(ch.isspace() for ch in identity):
-            malformed.append(name)
-        else:
-            unresolved_names.append(name)
+        sources[name] = {"source": "task_definition", "user": user}
+        {"root": root, "numeric": numeric, "named": unresolved_names, "malformed": malformed}[_ecs_user_kind(user)].append(name)
+    detail = {"user_sources": sources} if sources else {}
+    if image_unresolved:
+        detail["image_user_unresolved"] = image_unresolved
     if root:
         return result(True, root_user_containers=root, inherited_image_users=inherited,
-                      unresolved_named_users=unresolved_names, malformed_user_containers=malformed, **os_evidence)
+                      unresolved_named_users=unresolved_names, malformed_user_containers=malformed, **detail, **os_evidence)
     if inherited or unresolved_names or malformed:
-        return unknown("container user UID cannot be proven from task definition alone",
+        return unknown("container user UID cannot be proven from the task definition or an immutable image configuration",
                        inherited_image_users=inherited, unresolved_named_users=unresolved_names,
-                       malformed_user_containers=malformed, proven_numeric_uid_containers=numeric, **os_evidence)
-    return result(False, proven_numeric_uid_containers=numeric, **os_evidence,
-                  semantics="Task definition declares a valid nonzero numeric UID for every container; group identity and runtime process identity are not assessed.")
+                       malformed_user_containers=malformed, proven_numeric_uid_containers=numeric, **detail, **os_evidence)
+    return result(False, proven_numeric_uid_containers=numeric, **detail, **os_evidence,
+                  semantics="Every container runs as a valid nonzero UID: declared in the task definition, or, when it declares none, "
+                            "the User of its digest-pinned image configuration (a named user resolved through that image's /etc/passwd). "
+                            "Group identity and runtime process identity are not assessed.")
 
 
 @install("aws.b.ecs.host_network_nonprivileged", "ecs_task_definition", "Host-network Linux ECS task containers avoid privilege and declare non-root numeric UIDs", {"Definition": {"taskDefinition": {"runtimePlatform": {"operatingSystemFamily": "LINUX"}, "networkMode": "host", "containerDefinitions": [{"name": "app", "privileged": False, "user": "1000"}]}}}, {"Definition": {"taskDefinition": {"runtimePlatform": {"operatingSystemFamily": "LINUX"}, "networkMode": "host", "containerDefinitions": [{"name": "app", "privileged": True, "user": "1000"}]}}}, query="_corrected:ecs_task_definition_user_for_host_mode_check", extra={"not_applicable": {"Definition": {"taskDefinition": {"networkMode": "awsvpc", "containerDefinitions": [{"name": "app"}]}}}})

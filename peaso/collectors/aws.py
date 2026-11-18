@@ -3783,6 +3783,8 @@ EXTENSION_MODULES += ("peaso.collectors.aws_network_inventory",)
 EXTENSION_MODULES += ("peaso.collectors.aws_wellarchitected_shares",)
 EXTENSION_MODULES += ("peaso.collectors.aws_media_legacy_exposure",)
 EXTENSION_MODULES += ("peaso.collectors.aws_quicksight_dashboard_shares",)
+# Image USER for ECS containers without a declared user (ECR content opt-in only).
+EXTENSION_MODULES += ("peaso.collectors.aws_ecs_image_user",)
 for _extension in EXTENSION_MODULES:
     _load_metadata_extension(_extension)
 

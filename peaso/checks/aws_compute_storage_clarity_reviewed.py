@@ -4480,7 +4480,7 @@ ROWS = json.loads(r'''
   "aws.b.ecs.declared_nonroot_users": {
     "batch": "containers-serverless30",
     "description_fields": {
-      "description": "For proven Linux tasks, requires each container to declare a valid nonzero numeric UID."
+      "description": "For proven Linux tasks, requires each container to run as a valid nonzero numeric UID, declared or from its digest-pinned image configuration."
     },
     "remediation_fields": {
       "summary": "Declare a suitable non-root numeric UID and verify that application file permissions support it.",
@@ -4488,7 +4488,7 @@ ROWS = json.loads(r'''
         "Declare a suitable non-root numeric UID and verify that application file permissions support it."
       ],
       "caveats": [
-        "Inherited image users, named users and malformed values remain undetermined; runtime process identity is not measured."
+        "A container without a user is judged by its digest-pinned image configuration User; mutable tags, unresolved named users and malformed values remain undetermined; runtime process identity is not measured."
       ]
     },
     "new_text_only_template": false,
