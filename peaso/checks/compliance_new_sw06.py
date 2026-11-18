@@ -254,7 +254,13 @@ def _securityhub_critical(item, index):
     _inventory(item, index, "securityhub_hub")
     hub_arn = get(item, "HubArn", str)
     findings = get(item, "CriticalFindings", dict)
-    required_regions = set(_strings(get(_params(index), "audited_regions", list), nonempty=True))
+    metadata = get(index, "context.metadata", dict)
+    parameters = metadata.get("parameters", {})
+    configured = parameters.get("audited_regions") if isinstance(parameters, dict) else None
+    if configured is None:
+        account = get(index, "context.scope", str).split("/", 1)[0]
+        configured = get(metadata, "audited_regions_by_account", dict).get(account)
+    required_regions = set(_strings(configured, nonempty=True))
     covered_regions = _strings(get(findings, "covered_regions", list), nonempty=True)
     if (len(covered_regions) != len(set(covered_regions)) or
             set(covered_regions) != required_regions or

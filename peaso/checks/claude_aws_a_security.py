@@ -25,8 +25,10 @@ def collected(item, key):
     """A nested API response recorded on the item; denied/failed reads raise Unavailable."""
     value = get(item, key, dict)
     status = value.get("collection_status", "collected")
-    if status not in ("collected",):
+    if status not in ("collected", "empty"):
         raise Unavailable("%s not collected (%s)" % (key, status))
+    if status == "empty" and value.get("items") not in (None, []):
+        raise Unavailable("%s empty response has retained items" % key)
     return value
 
 

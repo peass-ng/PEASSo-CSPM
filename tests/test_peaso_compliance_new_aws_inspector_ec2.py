@@ -50,14 +50,16 @@ def test_complete_active_ec2_severity_and_coverage():
     status, evidence = verdict(scoped([finding()]))
     assert status == "FAIL" and evidence["active_high_critical_ec2_findings"] == [finding()["findingArn"]]
     assert verdict(scoped([finding(severity="CRITICAL")]))[0] == "FAIL"
-    assert verdict(scoped([], [account(ec2_status="DISABLED")]))[0] == "UNKNOWN"
-    assert verdict(scoped([], [account(account_status="DISABLED")]))[0] == "UNKNOWN"
+    assert verdict(scoped([], [account(ec2_status="DISABLED")]))[0] == "NOT_APPLICABLE"
+    assert verdict(scoped([], [account(account_status="DISABLED")]))[0] == "NOT_APPLICABLE"
 
 
 def test_partial_denied_malformed_and_foreign_facts_are_unknown():
     assert verdict(scoped([], finding_status="partial"))[0] == "UNKNOWN"
     assert verdict(scoped([], finding_status="denied"))[0] == "UNKNOWN"
     assert verdict(scoped([], account_status="denied"))[0] == "UNKNOWN"
+    assert verdict(scoped([], [account(ec2_status="ENABLING")]))[0] == "UNKNOWN"
+    assert verdict(scoped([], [account(ec2_status="FUTURE")]))[0] == "UNKNOWN"
     assert verdict(scoped([], []))[0] == "UNKNOWN"
     assert verdict(scoped([], [account(), account()]))[0] == "UNKNOWN"
     assert verdict(scoped([], [account()], scope="123456789012/eu-west-1"))[0] == "UNKNOWN"

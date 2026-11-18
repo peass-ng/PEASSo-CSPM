@@ -87,6 +87,12 @@ def ec2_no_high_critical_findings(item, index):
         raise Unavailable("Inspector account status differs from assessed scope")
     account_status = get(state, "State.status", str)
     ec2_status = get(state, "ResourceState.ec2.status", str)
+    known = {"ENABLED", "DISABLED", "ENABLING", "DISABLING", "SUSPENDING", "SUSPENDED"}
+    if account_status not in known or ec2_status not in known:
+        return unknown("Unrecognized Inspector coverage status", account_status=account_status, ec2_status=ec2_status)
+    if "DISABLED" in (account_status, ec2_status):
+        return "NOT_APPLICABLE", {"reason": "Inspector EC2 scanning is disabled; absence of findings is not evidence of clean instances",
+                                  "scope": scope, "account_status": account_status, "ec2_status": ec2_status}
     if account_status != "ENABLED" or ec2_status != "ENABLED":
         return unknown("Inspector EC2 coverage is not active; clean findings cannot be established",
                        scope=scope, account_status=account_status, ec2_status=ec2_status)
@@ -116,4 +122,4 @@ _bad = {"findingArn": "arn:aws:inspector2:us-east-1:123456789012:finding/fffffff
         "resources": [{"type": "AWS_EC2_INSTANCE", "id": "i-0123456789abcdef0"}]}
 CASES[CHECK_ID] = {"pass": {}, "pass_index": _fixture([]),
                    "fail": {}, "fail_index": _fixture([_bad]),
-                   "unknown": {}, "unknown_index": _fixture([], state="DISABLED")}
+                   "unknown": {}, "unknown_index": _fixture([], state="ENABLING")}

@@ -280,3 +280,22 @@ def test_stale_access_policy_exclusion_requires_readable_selected_proof(kind, na
         item['ServicesLastAccessedStatus']['_coverage'] = {
             field: {'status': 'collected'} for field in ('collection_status', 'reason', 'namespaces')}
     assert _run(cid, item, idx()) == expected
+
+
+def test_successfully_empty_guardduty_findings_reach_a_clean_engine_verdict():
+    from peaso.engine import evaluate_snapshot
+    from peaso.snapshot import make_snapshot
+    from peaso.checks.claude_aws_a_security import DET
+    checks = ["aws.claude_a.guardduty.detector_no_findings", "aws.claude_a.guardduty.prowler_no_high_severity_findings"]
+    row = copy.deepcopy(DET)
+    row["HighSeverityFindingIds"] = {"collection_status": "empty", "items": []}
+    scope = "123456789012/us-east-1"
+    def assess():
+        snapshot = make_snapshot("aws", [scope], [{"type": "guardduty_detector", "scope": scope,
+            "status": "collected", "items": [row]}])
+        return [f["status"] for f in evaluate_snapshot(snapshot, checks=checks)["findings"]]
+    assert assess() == ["PASS", "PASS"]
+    row["HighSeverityFindingIds"]["items"] = ["finding-1"]
+    assert assess() == ["UNKNOWN", "UNKNOWN"]
+    row["HighSeverityFindingIds"]["collection_status"] = "denied"
+    assert assess() == ["UNKNOWN", "UNKNOWN"]

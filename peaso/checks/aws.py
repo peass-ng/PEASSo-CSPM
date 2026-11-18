@@ -14,7 +14,6 @@ for args in [
     ("aws.cloudtrail.log_validation", "cloudtrail", "LogFileValidationEnabled", True, False, "CloudTrail log file validation is enabled"),
     ("aws.cloudtrail.logging", "cloudtrail", "Status.IsLogging", True, False, "CloudTrail trail is actively logging"),
     ("aws.eks.private_endpoint", "eks_cluster", "Cluster.cluster.resourcesVpcConfig.endpointPrivateAccess", True, False, "EKS cluster provides a private API endpoint"),
-    ("aws.ecr.immutable_tags", "ecr_repository", "imageTagMutability", "IMMUTABLE", "MUTABLE", "ECR repository enforces immutable tags"),
     ("aws.ecr.scan_on_push", "ecr_repository", "imageScanningConfiguration.scanOnPush", True, False, "ECR repository enables scan on push"),
     ("aws.secretsmanager.rotation", "secret", "RotationEnabled", True, False, "Secrets Manager secret rotation is enabled"),
     ("aws.iam.no_root_keys", "iam_account_summary", "SummaryMap.AccountAccessKeysPresent", 0, 1, "Root account has no access keys"),
@@ -274,3 +273,10 @@ def root_mfa(item, index):
         return "NOT_APPLICABLE", {"reason": "Root has no active password or key credentials"}
     return result(flags["mfa_active"] != "true", credential_flags=flags)
 CASES["aws.iam.root_mfa"] = {state: {"user": "<root_account>", "password_enabled": "true", "access_key_1_active": "false", "access_key_2_active": "false", "mfa_active": flag} for state, flag in (("pass", "true"), ("fail", "false"))}
+
+
+@register("aws.ecr.immutable_tags", "aws", "hardening", "ecr_repository", "ECR repository enforces immutable tags", "medium", "CM-6", "Enable immutable release tags and restrict mutable exclusions to signature tags.")
+def ecr_immutable_tags(item, index):
+    from .aws_b_ecr import immutable_tags
+    return immutable_tags(item, index)
+CASES["aws.ecr.immutable_tags"] = {"pass": {"imageTagMutability": "IMMUTABLE"}, "fail": {"imageTagMutability": "MUTABLE"}, "missing": {}, "malformed": {"imageTagMutability": None}}

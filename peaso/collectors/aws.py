@@ -2927,6 +2927,7 @@ def collect(connector, requirements=None):
     from peaso.ai.access import aws as capture_ai_access
     capture_ai_access(contexts)
     requests.audited_regions_by_account = {identity["Account"]: list(regions_for(identity["Account"])) for _, identity in contexts}
+    metadata["audited_regions_by_account"] = copy.deepcopy(requests.audited_regions_by_account)
     progress_total = len(collections) + sum(len(GLOBAL_TYPES) + len(regions_for(identity["Account"])) * (len(set(SPECS) - GLOBAL_TYPES) + len(unsupported)) for context, identity in contexts)
     emit_progress(progress_callback, phase="collecting", provider="aws", scope="", completed=len(collections),
         total=progress_total, resources=total_items, dynamic_total=False)

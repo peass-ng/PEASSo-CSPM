@@ -425,3 +425,20 @@ def test_review_kms_and_security_group_explicit_account_identity():
     row["Metadata"]["KeyMetadata"]["AWSAccountId"] = "999999999999"
     assert run("aws_kms_key_expiry", row) == "UNKNOWN"
     assert run("aws_security_group_ssh_ipv6_all", {"GroupId": "sg-1", "OwnerId": "999999999999", "IpPermissions": []}) == "UNKNOWN"
+
+
+def test_securityhub_collected_region_authority_reaches_engine_without_owner_parameters():
+    from peaso.engine import evaluate_snapshot
+    from peaso.snapshot import make_snapshot
+    check = "aws_securityhub_no_critical_findings"
+    row = {"HubArn": "arn:aws:securityhub:us-east-1:123456789012:hub/default",
+           "CriticalFindings": {"collection_status": "empty", "covered_regions": ["us-east-1"], "items": []}}
+    def assess(authority):
+        snapshot = make_snapshot("aws", [SCOPE], [{"type": "securityhub_hub", "scope": SCOPE,
+            "status": "collected", "items": [row]}],
+            metadata={"audited_regions_by_account": authority})
+        found = evaluate_snapshot(snapshot, checks=[check])["findings"]
+        return next(f["status"] for f in found if f["check_id"] == check)
+    assert assess({"123456789012": ["us-east-1"]}) == "PASS"
+    assert assess({"123456789012": ["us-east-1", "us-west-2"]}) == "UNKNOWN"
+    assert assess({"210987654321": ["us-east-1"]}) == "UNKNOWN"
