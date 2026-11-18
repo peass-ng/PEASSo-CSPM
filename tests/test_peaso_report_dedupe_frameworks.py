@@ -233,14 +233,16 @@ def test_default_plan_skips_bulk_streams_but_keeps_every_dependency():
         from peaso.checks.native_only import automated_inventory_types
         available = set(automated_inventory_types(provider, supported_types(provider)))
         plan = set(plan_collection({"connector": {"provider": provider}}))
-        assert not plan & BULK_STREAM_TYPES[provider]
+        # The bounded native KMS review is a default event consumer; raw audit
+        # streams without such a consumer remain opt-in.
+        consumed_events = {"cloudtrail_event"} if provider == "aws" else set()
+        assert plan & BULK_STREAM_TYPES[provider] == consumed_events
         dependencies = {kind for check in CHECKS if check.provider == provider for kind in check.dependencies}
         dependencies |= {kind for kinds in REQUIRED_TYPES.get(provider, {}).values() for kind in kinds}
-        # Audit predicates remain UNKNOWN until the caller explicitly requests
-        # their event streams; registering them does not widen default collection.
+        # Unconsumed audit streams still require an explicit request.
         assert (dependencies & available) - BULK_STREAM_TYPES[provider] <= plan
         # AWS-owned managed-policy library collection remains explicit opt-in.
-        assert plan == available - BULK_STREAM_TYPES[provider] - ({"iam_managed_policy"} if provider == "aws" else set())
+        assert plan == available - (BULK_STREAM_TYPES[provider] - consumed_events) - ({"iam_managed_policy"} if provider == "aws" else set())
     explicit = plan_collection({"connector": {"provider": "azure", "options": {"inventories": ["activity_log", "directory_audit"]}}})
     assert explicit == ["activity_log", "directory_audit"]
     assert "activity_log" in plan_collection({"connector": {"provider": "azure", "options": {"collect_all": True}}})

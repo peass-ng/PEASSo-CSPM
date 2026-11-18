@@ -130,6 +130,17 @@ def _config(item, index):
         raise Unavailable('Config enabled-Region proof incomplete')
     from .aws_config_recording import _recording_scope, _run_state
     failures, unresolved = [], []
+    global_recording_regions = []
+    unproven_global_regions = []
+    legacy_global_regions = {
+        "us-east-1", "us-east-2", "us-west-1", "us-west-2", "ca-central-1", "sa-east-1",
+        "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "eu-north-1", "eu-south-1",
+        "ap-south-1", "ap-northeast-1", "ap-northeast-2", "ap-northeast-3", "ap-southeast-1", "ap-southeast-2",
+        "ap-east-1", "af-south-1", "me-south-1", "cn-north-1", "cn-northwest-1", "us-gov-west-1", "us-gov-east-1",
+    }
+    # Global IAM resources need recording in one eligible pre-February-2022
+    # Region, not every Region. New global types use their service home Region.
+    # https://docs.aws.amazon.com/config/latest/developerguide/select-resources.html
     for row in rows:
         region = get(row, 'RegionName', str)
         recorders = get(row, 'Recorders', list)
@@ -160,8 +171,19 @@ def _config(item, index):
                              'excluded_types': excluded})
         elif run != 'running':
             unresolved.append({'region': region, 'reason': 'recorder run state unconfirmed'})
-        elif get(group, 'includeGlobalResourceTypes', bool) is not True:
-            unresolved.append({'region': region, 'reason': 'global-resource applicability unproven'})
+        elif region in legacy_global_regions:
+            try:
+                if get(group, 'includeGlobalResourceTypes', bool) is True:
+                    global_recording_regions.append(region)
+            except Unavailable:
+                unproven_global_regions.append(region)
+    if not global_recording_regions and unproven_global_regions:
+        unresolved.append({'reason': 'global IAM recording flag unavailable', 'regions': unproven_global_regions})
+    if not global_recording_regions and not unresolved and not failures:
+        if set(enabled) & legacy_global_regions:
+            failures.append({'reason': 'global IAM resource recording is disabled in every eligible audited Region'})
+        else:
+            unresolved.append({'reason': 'no audited Region supports legacy global IAM recording'})
     if failures:
         return result(True, account_id=account, enabled_regions=enabled, failing_regions=failures,
                       unresolved_regions=unresolved, account_wide=True)

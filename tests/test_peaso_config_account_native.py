@@ -157,7 +157,7 @@ def test_wrong_account_partial_duplicate_conflicting_and_capture_are_unavailable
     assert verdict(A, identity, [], regional)[0] == "UNKNOWN"
 
 
-def test_duplicate_foreign_or_partial_config_and_global_subclaim_unknown():
+def test_duplicate_foreign_or_partial_config_unknown_and_one_global_region_suffices():
     identity, discovery, regional = facts()
     assert verdict(A, identity, discovery, regional + [copy.deepcopy(regional[0])])[0] == "UNKNOWN"
     foreign = copy.deepcopy(regional)
@@ -171,7 +171,7 @@ def test_duplicate_foreign_or_partial_config_and_global_subclaim_unknown():
     assert verdict(A, identity, discovery, incomplete)[0] == "UNKNOWN"
     unknown_global = copy.deepcopy(regional)
     unknown_global[0]["items"][0]["recordingGroup"]["includeGlobalResourceTypes"] = False
-    assert verdict(A, identity, discovery, unknown_global)[0] == "UNKNOWN"
+    assert verdict(A, identity, discovery, unknown_global)[0] == "PASS"
 
 
 def test_accounts_isolate_and_not_opted_in_region_is_not_required():
@@ -210,3 +210,25 @@ def test_scp_denied_region_leaves_the_required_config_regions():
     # An exclusion naming a Region that was never enabled is not trusted.
     discovery[0]["scp_denied_regions"] = ["eu-west-1", "ap-south-1"]
     assert verdict(A, identity, discovery, regional)[0] != "PASS"
+
+
+def test_global_iam_recording_is_once_per_account_and_missing_everywhere_is_a_failure():
+    identity, discovery, regional = facts()
+    for envelope in regional:
+        if envelope['type'] == 'config_recorder':
+            envelope['items'][0]['recordingGroup']['includeGlobalResourceTypes'] = envelope['scope'].endswith('/us-east-1')
+    state, evidence, _ = verdict(A, identity, discovery, regional)
+    assert state == 'PASS'
+    assert evidence['enabled_regions'] == sorted(discovery[0]['regions'])
+    for envelope in regional:
+        if envelope['type'] == 'config_recorder':
+            envelope['items'][0]['recordingGroup']['includeGlobalResourceTypes'] = False
+    assert verdict(A, identity, discovery, regional)[0] == 'FAIL'
+
+def test_ineligible_global_flag_does_not_cover_legacy_global_iam_types():
+    identity, discovery, regional = facts(regions=('ap-south-2', 'us-east-1'))
+    discovery[0]['raw_regions'] = [{'RegionName': name, 'OptInStatus': 'opted-in'} for name in discovery[0]['regions']]
+    for envelope in regional:
+        if envelope['type'] == 'config_recorder':
+            envelope['items'][0]['recordingGroup']['includeGlobalResourceTypes'] = envelope['scope'].endswith('/ap-south-2')
+    assert verdict(A, identity, discovery, regional)[0] == 'FAIL'

@@ -75,7 +75,8 @@ def test_default_scan_plans_full_supported_inventory_and_explicit_filters_remain
     from peaso.engine import plan_collection, get_catalog, BULK_STREAM_TYPES
     catalog = get_catalog()
     for provider in catalog["providers"]:
-        expected = sorted(set(catalog["inventories"][provider]) - BULK_STREAM_TYPES.get(provider, set())
+        consumed = {"cloudtrail_event"} if provider == "aws" else set()
+        expected = sorted(set(catalog["inventories"][provider]) - (BULK_STREAM_TYPES.get(provider, set()) - consumed)
                           - ({"iam_managed_policy"} if provider == "aws" else set()))
         assert plan_collection({"connector": {"provider": provider}}) == expected
         assert plan_collection({"connector": {"provider": provider}, "categories": list(catalog["categories"]), "checks": [], "frameworks": []}) == expected

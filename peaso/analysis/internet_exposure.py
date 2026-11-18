@@ -26484,6 +26484,11 @@ def _aws_config_external_delivery(snapshot, inventory, resource):
             a.gap("destination", "AWS Config delivery bucket ownership is unavailable")
     elif kind == "config_delivery_channel":
         a.gap("destination", "AWS Config delivery bucket is unavailable")
+    if not a.unresolved and not a.external_ids:
+        # All configured destinations are attributable to this account or its
+        # explicit trust boundary. This is a delivery review, with no ports to
+        # populate for Assessment's network-oriented default verdict.
+        a.explicit = "PASS"
     return a
 
 
