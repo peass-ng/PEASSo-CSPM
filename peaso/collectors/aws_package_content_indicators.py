@@ -230,7 +230,8 @@ def _scan(raw, name, requests):
         # give only that window one longer, still bounded, attempt. An expired
         # lease or scanner queue is not retried: more time cannot exist.
         if not outcome['complete'] and UNAVAILABLE_REASONS.get() and all(
-                reason.endswith('timeouterror_scanner_deadline') for reason in UNAVAILABLE_REASONS.get()):
+                'timeouterror' in reason and not reason.endswith(('collection_lease_expired', 'scanner_queue_deadline'))
+                for reason in UNAVAILABLE_REASONS.get()):
             outcome = scan_content(bytes(raw), name, timeout=RETRY_SCAN_TIMEOUT)
         categories = inspect_text(raw.decode('latin-1'), 'unused')['MatchedCategories']
     if outcome['leaks']:
