@@ -39,10 +39,12 @@ def sdk_history(monkeypatch, mode='normal', synchronize=False):
                 barrier.wait(timeout=5)
             if mode == 'empty':
                 return {'Events': []}
-            selected = name == 'Decrypt' and lower <= boundary <= upper
+            inside = lower < boundary < upper if mode == 'exclusive_endpoints' else lower <= boundary <= upper
+            selected = name == 'Decrypt' and inside
+            right_slice = lower + (upper-lower)/2 > boundary
             if not selected and not (mode == 'outside_slice' and name == 'Decrypt' and lower == NOW-timedelta(days=1)):
                 return {'Events': []}
-            if mode == 'denied' and lower == boundary:
+            if mode == 'denied' and right_slice:
                 raise ClientError({'Error': {'Code': 'AccessDeniedException', 'Message': 'synthetic denied'}}, operation)
             if mode != 'sparse' and not arguments.get('NextToken'):
                 return {'Events': [], 'NextToken': 'synthetic-page-two'}
@@ -53,7 +55,7 @@ def sdk_history(monkeypatch, mode='normal', synchronize=False):
                 'attestationDocumentEnclaveImageDigest': '0'*96 if mode == 'debug' else 'ab'*48,
                 'attestationDocumentEnclavePCR1': '0'*96 if mode == 'debug' else 'ab'*48,
                 'attestationDocumentEnclavePCR2': '0'*96 if mode == 'debug' else 'ab'*48})
-            if mode == 'conflicting_boundary' and lower == boundary:
+            if mode == 'conflicting_boundary' and right_slice:
                 payload['additionalEventData']['recipient']['attestationDocumentEnclaveImageDigest'] = 'cd'*48
             value.update(EventTime=boundary, CloudTrailEvent=json.dumps(payload))
             return {'Events': [value, copy.deepcopy(value)] if mode == 'duplicate_in_page' else [value]}
@@ -67,7 +69,7 @@ def sdk_history(monkeypatch, mode='normal', synchronize=False):
     return requests, session, calls, active
 
 
-@pytest.mark.parametrize('mode,expected', [('normal', 'PASS'), ('debug', 'FAIL')])
+@pytest.mark.parametrize('mode,expected', [('normal', 'PASS'), ('debug', 'FAIL'), ('exclusive_endpoints', 'PASS')])
 def test_full_day_parallel_paginated_sdk_history_reaches_frozen_review(monkeypatch, mode, expected):
     requests, session, calls, active = sdk_history(monkeypatch, mode, synchronize=True)
     result = native.events(requests, session, REGION, ACCOUNT)
@@ -83,7 +85,8 @@ def test_full_day_parallel_paginated_sdk_history_reaches_frozen_review(monkeypat
         if operation == 'Decrypt':
             windows = [window for window in windows if window != (NOW-timedelta(days=1), NOW)]
         assert windows[0][0] == NOW-timedelta(days=1) and windows[-1][1] == NOW
-        assert all(left[1] == right[0] for left, right in zip(windows, windows[1:]))
+        assert all(left[1] > right[0] for left, right in zip(windows, windows[1:])), 'no internal boundary gap under exclusive endpoints'
+        assert all(NOW-timedelta(days=1) <= lower < upper <= NOW for lower, upper in windows)
     findings = evaluate_snapshot(snapshot(result), checks=[CHECK])['findings']
     assert len(findings) == 1 and findings[0]['status'] == expected
     assert 'DO_NOT_RETAIN' not in json.dumps(snapshot(result))
