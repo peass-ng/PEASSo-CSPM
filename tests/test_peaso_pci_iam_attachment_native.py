@@ -206,6 +206,7 @@ def test_mixed_principal_and_deny_ambiguity(monkeypatch):
     'settings.replication.dynamodb.amazonaws.com',
     'malware-protection.guardduty.amazonaws.com',
     'runtime-identity.bedrock-agentcore.amazonaws.com',
+    'management.chatbot.amazonaws.com',
 ])
 def test_documented_multilabel_service_principal(monkeypatch, principal):
     row = run(monkeypatch, roles=[role(attached=True, trust=trust('Service', principal, 'sts:AssumeRole'))], count=1)
