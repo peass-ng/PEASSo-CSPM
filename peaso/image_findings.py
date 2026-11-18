@@ -103,15 +103,48 @@ def _vulnerability(value, digest):
     return value
 
 
+_REASON = re.compile(r'[a-z][a-z0-9_]{0,63}\Z')
+
+
+def _reason(exc, default):
+    """Bounded, code-only rejection reason; never echoes input values."""
+    if type(exc) is ValueError and exc.args and type(exc.args[0]) is str and _REASON.fullmatch(exc.args[0]):
+        return exc.args[0]
+    return {KeyError: 'missing_field', TypeError: 'invalid_type'}.get(type(exc), default)
+
+
+def rejected(reason):
+    """Stored placeholder that keeps why an observation was withheld."""
+    return {'rejected': reason if type(reason) is str and _REASON.fullmatch(reason) else 'invalid_observation'}
+
+
+def _observation(observation):
+    if observation is None:
+        raise ValueError('missing_observation')
+    if type(observation) is not dict:
+        raise ValueError('invalid_observation')
+    if set(observation) == {'rejected'}:
+        raise ValueError(rejected(observation['rejected'])['rejected'])
+    return (_asset(observation),) + _scan(observation)
+
+
+def _count(counts, reason):
+    counts[reason] = counts.get(reason, 0) + 1
+
+
 def build_report(observations, *, selected=False):
     """Deduplicate identical image/package/version/advisory across asset references.
 
     Incomplete scans retain independently reported HIGH/CRITICAL positives. Empty
     output proves no selected finding only when every supplied scan is complete.
     This formatter never certifies provenance or that the image is running.
+    ``invalid_reasons`` counts each unusable observation by reason code;
+    ``missing_observation`` is a collector/storage gap (an unscanned target, an
+    incomplete scope, or an observation withheld by an upstream validator).
     """
     report = {'rows': [], 'coverage': 'NOT_SCANNED', 'complete': False,
               'observations': 0, 'invalid_observations': 0, 'invalid_vulnerabilities': 0, 'truncated': False,
+              'invalid_reasons': {}, 'invalid_vulnerability_reasons': {},
               'association': 'declared_or_selected_immutable_image'}
     if selected is not True:
         return report
@@ -125,11 +158,9 @@ def build_report(observations, *, selected=False):
     for observation in observations[:MAX_OBSERVATIONS]:
         report['observations'] += 1
         try:
-            if type(observation) is not dict:
-                raise ValueError('invalid_observation')
-            asset = _asset(observation)
-            provider, scope, image, vulns, complete = _scan(observation)
-        except (KeyError, TypeError, ValueError):
+            asset, provider, scope, image, vulns, complete = _observation(observation)
+        except (KeyError, TypeError, ValueError) as exc:
+            _count(report['invalid_reasons'], _reason(exc, 'invalid_observation'))
             report['invalid_observations'] += 1
             all_complete = False
             continue
@@ -141,7 +172,8 @@ def build_report(observations, *, selected=False):
                 break
             try:
                 v = _vulnerability(raw, image['manifest_digest'])
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError) as exc:
+                _count(report['invalid_vulnerability_reasons'], _reason(exc, 'invalid_vulnerability'))
                 report['invalid_vulnerabilities'] += 1
                 all_complete = False
                 continue

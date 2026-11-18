@@ -2,8 +2,8 @@
 from copy import deepcopy
 import re
 
-from peaso.image_findings import (_asset, _scan, _vulnerability, MAX_OBSERVATIONS,
-                            MAX_TOTAL_VULNERABILITIES)
+from peaso.image_findings import (_observation, _reason, _vulnerability, rejected,
+                            MAX_OBSERVATIONS, MAX_TOTAL_VULNERABILITIES)
 from peaso.image_findings import SCHEMA
 
 
@@ -13,10 +13,11 @@ def safe_observations(observations):
     safe, count = [], 0
     for observation in observations[:MAX_OBSERVATIONS]:
         try:
-            asset = _asset(observation)
-            provider, scope, image, vulnerabilities, _ = _scan(observation)
-        except (KeyError, TypeError, ValueError):
-            safe.append(None)
+            asset, provider, scope, image, vulnerabilities, _ = _observation(observation)
+        except (KeyError, TypeError, ValueError) as exc:
+            # Keep only a bounded reason code so the report can say why.
+            reason = _reason(exc, 'invalid_observation')
+            safe.append(None if reason == 'missing_observation' else rejected(reason))
             continue
         scan = observation['scan']
         row = {'provider': provider, 'scope': scope, 'asset_id': asset['resource_id'],
