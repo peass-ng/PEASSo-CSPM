@@ -87,9 +87,16 @@ def sdk_content(monkeypatch, mode, *, positive=True, denied=False, path='/config
             stub.add_client_error('filter_log_events', service_error_code='AccessDeniedException', expected_params=args)
         else:
             stub.add_response('filter_log_events', {'events': [{'timestamp': end - 1, 'message': text}]}, args)
-    with stub:
+    # A log group first checks whether it is a VPC flow log destination.
+    flows = session.client('ec2', region_name=REGION)
+    requests._clients[(id(session), 'ec2', REGION)] = flows
+    flow_stub = Stubber(flows)
+    if mode == 'logs':
+        flow_stub.add_response('describe_flow_logs', {'FlowLogs': []}, {})
+    with stub, flow_stub:
         sample = getattr(content, 'scan_' + ('repository' if mode == 'repository' else 'logs'))(requests, session, REGION, REPO if mode == 'repository' else GROUP)
         stub.assert_no_pending_responses()
+        flow_stub.assert_no_pending_responses()
     kind = 'codecommit_repository' if mode == 'repository' else 'log_group'
     item = {**(REPO if mode == 'repository' else GROUP), 'ContentSecretIndicators': sample}
     index = {'context': {'provider': 'aws', 'Account': ACCOUNT, 'scope': SCOPE},

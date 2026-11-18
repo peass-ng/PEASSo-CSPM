@@ -52,6 +52,12 @@ def _evaluate(item, index, mode):
             name = item['logGroupName']
             if sample['group'] != name or identity != (item.get('arn') or item.get('logGroupArn')) or re.fullmatch(r'arn:[a-z0-9-]+:logs:' + re.escape(region) + ':' + account + ':log-group:' + re.escape(name) + r'(?::\*)?', identity) is None:
                 raise Unavailable('foreign log group')
+            if 'flow_log_destination' in sample:
+                flows = sample['flow_log_destination']
+                if not isinstance(flows, list) or not flows or any(not isinstance(f, str) or re.fullmatch('fl-[0-9a-f]{8,32}', f) is None for f in flows) or sample['records']:
+                    raise Unavailable('flow log destination malformed')
+                return 'NOT_APPLICABLE', {'identity': identity, 'scope': sample['scope'], 'flow_logs': flows,
+                    'reason': 'VPC flow log destination: flow log records are network metadata (addresses, ports, byte counts) with no payload content to scan for secrets'}
             start, end = sample['start'], sample['end']
             if type(start) is not int or type(end) is not int or not 0 <= start < end or end-start > 86400000:
                 raise Unavailable('log window unbound')
