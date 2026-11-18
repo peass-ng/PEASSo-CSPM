@@ -643,8 +643,11 @@ def _image_layer(monkeypatch, members, detected=False):
     return _image_layers(monkeypatch, [members], detected)
 
 
-def _image_layers(monkeypatch, layers, detected=False):
-    """The synthetic ECR image with one layer per ``layers`` entry, lowest first."""
+def _image_layers(monkeypatch, layers, detected=False, steps=None):
+    """The synthetic ECR image with one layer per ``layers`` entry, lowest first.
+
+    ``steps`` are the build steps recorded in history for each layer.
+    """
     requests, session, item, ops, calls, downloads, payloads = sdk(monkeypatch, 'ecr_repository', detected)
     tars = []
     for members in layers:
@@ -662,7 +665,7 @@ def _image_layers(monkeypatch, layers, detected=False):
     blobs = [gzip.compress(tar) for tar in tars]
     config = json.loads(payloads[URL + '-config'])
     config['rootfs']['diff_ids'] = [digest(tar) for tar in tars]
-    config['history'] = [{'created_by': 'COPY safe'} for _ in tars]
+    config['history'] = [{'created_by': step} for step in steps or ['COPY safe'] * len(tars)]
     config_raw = json.dumps(config).encode()
     urls = {digest(config_raw): URL + '-config'}
     payloads[URL + '-config'] = config_raw
@@ -997,3 +1000,97 @@ def test_image_lambda_private_evidence_binds_function_image_layer_and_path(monke
     assert (location['resource_id'], location['image_digest'], location['layer'], location['path']) == (
         item['FunctionArn'], image_digest, _layer_digest(ops), 'config.py')
     assert location['source'] == f'{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/example@{image_digest}'
+
+
+# The official node image's install step, as its image history records it.
+NODE_STEP = ('RUN /bin/sh -c ARCH= && curl -fsSLO --compressed '
+             '"https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$ARCH.tar.xz" '
+             '&& tar -xJf "node-v$NODE_VERSION-linux-$ARCH.tar.xz" -C /usr/local --strip-components=1')
+
+
+def _big(*strings):
+    """A binary larger than the (test-sized) per-file bound."""
+    return _elf(*strings) + b'\x00\x01' * 4096
+
+
+def test_oversize_node_binary_from_official_install_is_skipped_as_third_party(monkeypatch):
+    monkeypatch.setattr(p, 'FILE_LIMIT', 1024)
+    status, evidence = _image_layers(monkeypatch, [[('usr/local/bin/node', _big(PEM, AWS_PAIR))],
+                                                   [('app/server.js', b'ready=true')]],
+                                     steps=[NODE_STEP, 'COPY /repo/apps/lander/.next/standalone/ ./ # buildkit'])
+    assert status == 'PASS' and evidence['source_complete'] is True, evidence
+    assert [row['File'] for row in evidence['skipped_third_party_files']] == ['usr/local/bin/node']
+    assert 'uncovered_files' not in evidence
+
+
+@pytest.mark.parametrize('name, step', [('usr/local/bin/node', 'COPY node /usr/local/bin/node # buildkit'),
+                                        ('app/bin/server', NODE_STEP)])
+def test_oversize_file_not_installed_from_runtime_archive_is_scanned_in_windows(monkeypatch, name, step):
+    monkeypatch.setattr(p, 'FILE_LIMIT', 1024)
+    monkeypatch.setattr(p, 'SCAN_WINDOW', 512)
+    # The secret sits well past the first window.
+    status, evidence = _image_layers(monkeypatch, [[(name, _big(b'x' * 2000, AWS_PAIR))]], steps=[step])
+    assert status == 'FAIL' and evidence['source_complete'] is True, evidence
+    assert [ref['File'] for ref in evidence['references']] == [name]
+    assert 'skipped_third_party_files' not in evidence
+
+
+def test_first_party_file_beyond_content_budget_is_unknown_and_named(monkeypatch):
+    monkeypatch.setattr(p, 'CONTENT_LIMIT', 4096)
+    status, evidence = _image_layer(monkeypatch, [('app/small.txt', b'ready=true'),
+                                                  ('app/public/video.mp4', b'\x00' * 8192)])
+    assert status == 'UNKNOWN' and 'content_budget_bound' in evidence['reason'], evidence
+    assert evidence['uncovered_files'][0]['File'] == 'app/public/video.mp4'
+    assert evidence['uncovered_files'][0]['Cause'] == 'content_budget_bound'
+    assert 'app/public/video.mp4' in evidence['observed']
+
+
+AMPLITUDE_KEY = 'c66737ad47ec354ced777935b0af822e'
+CHUNK = 'app/apps/frontend/.next/static/chunks/0sf186v8dn5t6.js'
+SDK_INIT = ('e({isProd:!0,amplitudeApiKey:"' + AMPLITUDE_KEY + '",platform:n.web,projectName:"base_account_sdk",'
+            'apiEndpoint:"https://cca-lite.coinbase.com"})').encode()
+
+
+def _amplitude_rule(monkeypatch):
+    """Kingfisher's Amplitude rule matches any 32-hex value near "amplitude"."""
+    from peaso import secret_scanning
+    monkeypatch.setattr(secret_scanning, '_scan_kingfisher', lambda payload, path, timeout:
+                        [(AMPLITUDE_KEY, 'betterleaks.amplitude-secret-key', 1)] if AMPLITUDE_KEY.encode() in payload else [])
+
+
+def test_amplitude_browser_api_key_in_client_chunk_is_not_a_leak(monkeypatch):
+    _amplitude_rule(monkeypatch)
+    status, evidence = _image_layer(monkeypatch, [(CHUNK, SDK_INIT)])
+    assert status == 'PASS' and evidence['references'] == [], evidence
+    identifier, = evidence['public_client_identifiers']
+    assert identifier['File'] == CHUNK and identifier['Value'] == AMPLITUDE_KEY
+    assert identifier['Kind'] == 'amplitude_browser_api_key' and 'public by design' in identifier['Reason']
+
+
+@pytest.mark.parametrize('path, payload', [
+    # A server bundle is not served to browsers.
+    ('app/apps/frontend/.next/server/chunks/42.js', SDK_INIT),
+    ('app/.env.production', b'AMPLITUDE_API_KEY=' + AMPLITUDE_KEY.encode()),
+    # The Amplitude secret key, even inside a client chunk.
+    (CHUNK, b'fetch(u,{headers:{Authorization:btoa(k+":"+"' + AMPLITUDE_KEY.encode() + b'")}})'),
+    (CHUNK, b'const amplitude={apiKey:"0123",secretKey:"' + AMPLITUDE_KEY.encode() + b'"}'),
+    # Also used outside the SDK setting in the same file.
+    (CHUNK, SDK_INIT + b';sendSecret("' + AMPLITUDE_KEY.encode() + b'")'),
+])
+def test_amplitude_value_outside_browser_api_key_setting_still_fails(monkeypatch, path, payload):
+    _amplitude_rule(monkeypatch)
+    status, evidence = _image_layer(monkeypatch, [(path, payload)])
+    assert status == 'FAIL', (path, evidence)
+    assert [ref['File'] for ref in evidence['references']] == [path]
+    assert 'public_client_identifiers' not in evidence
+
+
+def test_amplitude_init_call_in_public_bundle_is_not_a_leak():
+    from peaso.secret_public_identifiers import public_client_identifiers
+    payload = b'amplitude.getInstance().init("' + AMPLITUDE_KEY.encode() + b'", null, {saveEvents: true})'
+    found = public_client_identifiers([('trufflehog', [(AMPLITUDE_KEY, 'Amplitude', None)])], payload,
+                                      'srv/www/public/js/analytics.min.js')
+    assert set(found) == {AMPLITUDE_KEY}
+    # Only a rule that names the vendor qualifies: a generic match is no evidence it is that key.
+    assert public_client_identifiers([('kingfisher', [(AMPLITUDE_KEY, 'generic.api-key', 1)])], payload,
+                                     'srv/www/public/js/analytics.min.js') == {}

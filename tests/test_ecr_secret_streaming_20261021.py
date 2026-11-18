@@ -171,7 +171,7 @@ def test_unsafe_or_unsupported_layer_is_partial_and_temp_clean(monkeypatch, scan
 
 
 def test_content_budget_skips_with_partial_unknown(monkeypatch, scanner):
-    monkeypatch.setattr(p, 'FILE_LIMIT', 4)
+    monkeypatch.setattr(p, 'CONTENT_LIMIT', 4)
     layer = tar_bytes([('file', 'large.txt', b'password=something')])
     result, _ = exercise(monkeypatch, layer)
     assert result['NativeResponseComplete'] is False

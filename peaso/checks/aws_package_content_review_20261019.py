@@ -3,8 +3,8 @@ import re
 from .facts import Unavailable, get
 from peaso import oci_index_20261021 as oci_index
 from .aws_configuration_secret_review_20261019 import _member
-from peaso.collectors.aws_package_content_indicators import (SCHEMA, CATEGORIES, LAMBDA_IMAGE_OPERATION, _arn, _digest, _path,
-                                                             image_member_path, parse_ecr_image_uri)
+from peaso.collectors.aws_package_content_indicators import (SCHEMA, CATEGORIES, COVERAGE_FIELDS, LAMBDA_IMAGE_OPERATION, NOTE_LIMIT,
+                                                             _arn, _digest, _path, image_member_path, parse_ecr_image_uri)
 
 SURFACES = {
     'lambda_function': ('FunctionArn', 'lambda_function', 'Lambda ZIP code', 'lambda:get_function'),
@@ -24,6 +24,40 @@ def _field(item, key, expected):
 
 class _Reason(Unavailable):
     """An UNKNOWN whose concrete cause the collector already named."""
+    def __init__(self, reason, files=None):
+        super().__init__(reason)
+        self.files = files or {}
+
+
+# Marker coverage list -> (evidence key, fields each row carries besides File/LayerDigest/ChildManifestDigest).
+_COVERAGE = {'SkippedFiles': ('skipped_third_party_files', {'Reason': str}),
+             'UncoveredFiles': ('uncovered_files', {'Cause': str}),
+             'PublicClientIdentifiers': ('public_client_identifiers',
+                                         {'Kind': str, 'Reason': str, 'Value': str, 'Detectors': list})}
+
+
+def _coverage(indicator, layered, children):
+    """Evidence lists naming skipped, uncovered and public-identifier files, validated."""
+    files = {}
+    for field in COVERAGE_FIELDS:
+        if field not in indicator:
+            continue
+        rows = _field(indicator, field, list)
+        key, extra = _COVERAGE[field]
+        if not 0 < len(rows) <= NOTE_LIMIT:
+            raise Unavailable('coverage list bound')
+        for row in rows:
+            allowed = {'File', *extra} | ({'LayerDigest'} if layered else set()) | ({'ChildManifestDigest'} if children else set())
+            if (not isinstance(row, dict) or not {'File', *extra} <= set(row) <= allowed
+                    or not isinstance(row['File'], str) or not 0 < len(row['File']) <= 256
+                    or any(type(row[name]) is not kind or not row[name] for name, kind in extra.items())
+                    or 'LayerDigest' in row and not _digest(row['LayerDigest'])
+                    or 'ChildManifestDigest' in row and row['ChildManifestDigest'] not in children):
+                raise Unavailable('invalid coverage entry')
+            if field == 'UncoveredFiles' and not re.fullmatch(r'[a-z_]+', row['Cause']):
+                raise Unavailable('invalid coverage entry')
+        files[key] = rows
+    return files
 
 
 def _safe_code(value):
@@ -101,7 +135,7 @@ def evaluate(kind, item, index):
                     'collection_status', 'References', 'HighConfidenceSecretPresent', 'Reason'}
         # A multi-platform repository image also carries its verified index graph.
         graph = 'IndexGraph' in indicator and kind == 'ecr_repository'
-        if (set(indicator) - ({'IndexGraph'} if graph else set()) != expected or _field(indicator, 'Schema', str) != SCHEMA or _field(indicator, 'ResourceId', str) != identity
+        if (set(indicator) - ({'IndexGraph'} if graph else set()) - set(COVERAGE_FIELDS) != expected or _field(indicator, 'Schema', str) != SCHEMA or _field(indicator, 'ResourceId', str) != identity
                 or _field(indicator, 'AccountId', str) != account or _field(indicator, 'Region', str) != region
                 or _field(indicator, 'SourceOperation', str) != operation): raise Unavailable('projection provenance absent')
         complete = _field(indicator, 'NativeResponseComplete', bool)
@@ -111,6 +145,7 @@ def evaluate(kind, item, index):
                 indicator['Reason'] is None if complete else _incomplete(indicator['Reason'], base)):
             raise Unavailable('contradictory completeness')
         children = _index_children(indicator['IndexGraph'], digest, complete) if graph else None
+        files = _coverage(indicator, layered, children)
         refs = _field(indicator, 'References', list)
         if len(refs) > 5000: raise Unavailable('observation limit')
         for ref in refs:
@@ -131,19 +166,23 @@ def evaluate(kind, item, index):
             if layered and not _digest(ref['LayerDigest']): raise Unavailable('invalid layer reference')
         present = _field(indicator, 'HighConfidenceSecretPresent', bool)
         if present != bool(refs): raise Unavailable('contradictory presence')
-        if not complete and not present: raise _Reason(indicator['Reason'])
+        if not complete and not present: raise _Reason(indicator['Reason'], files)
         evidence = {
             'observed': label + (': selected secret indicators observed.' if present else ': no selected indicators observed in the complete bounded source.'),
             'resource_id': identity, 'references': refs,
             'secret_leaks': [dict(leak, locations=[dict(loc, **({'layer': ref['LayerDigest']} if 'LayerDigest' in ref else {})) for loc in leak['locations']]) for ref in refs for leak in ref.get('Leaks', [])],
             'coverage': 'Offline Kingfisher and TruffleHog plus supplemental patterns; bounded content only, no execution or credential validation.',
-            'source_complete': complete}
+            'source_complete': complete, **files}
         if image is not None:
             evidence.update(image_uri=image['ImageUri'], image_digest=image['ImageDigest'])
         return ('FAIL' if present else 'PASS'), evidence
     except _Reason as reason:
-        return 'UNKNOWN', {'observed': 'Complete, matching optional package indicator evidence is unavailable.',
-                           'reason': str(reason)}
+        uncovered = reason.files.get('uncovered_files', [])
+        observed = 'Complete, matching optional package indicator evidence is unavailable.'
+        if uncovered:
+            observed += ' Not scanned: ' + '; '.join(row['File'] + ' (' + row['Cause'] + ')' for row in uncovered[:10]) + (
+                ' and %d more.' % (len(uncovered) - 10) if len(uncovered) > 10 else '.')
+        return 'UNKNOWN', {'observed': observed, 'reason': str(reason), **reason.files}
     except Unavailable as exc:
         return 'UNKNOWN', {'observed': 'Complete, matching optional package indicator evidence is unavailable.',
                            'reason': 'package_indicator_evidence_invalid: ' + str(exc)[:200]}
@@ -169,7 +208,7 @@ DETAILS = [
   'Publish a reviewed Lambda layer without embedded credentials, replace affected function attachments, and rotate confirmed exposed credentials.'),
  ('ecr_repository', 'image_layers', 'ecr', 'ecr_repository_image_no_secrets',
   '0bf55a8808f33f5a2091c8d685e1fb65395b1d5df49733190a9770910817fe99',
-  'Complete DescribeImages inventory selects one uniquely latest pushed digest. Single-platform OCI/Docker schema-2 manifests and every child of a multi-platform index are supported: inspect config Env/history and every regular tar/gzip layer file, including deleted-file layers. Binary files are scanned through their printable strings (strings -n 8); a symlink has no content of its own, so it never makes coverage incomplete. Every file is scanned, but hits in unmodified files whose bytes match the image dpkg md5sums or apk checksums, in package-manager metadata, in binaries under vendored dependency trees (node_modules, site-packages, dist-packages, vendor, .cargo/registry) and keyword-only hits in upstream documentation and license files are third-party distribution content and are not reported. No platform is sampled; older images are outside scope. Digest integrity is checked transiently. Layers stream through private temporary files under compressed and expanded image size bounds, at most 64 MiB per file and 512 MiB of scanned file content per image; a file beyond a bound leaves coverage incomplete.',
+  'Complete DescribeImages inventory selects one uniquely latest pushed digest. Single-platform OCI/Docker schema-2 manifests and every child of a multi-platform index are supported: inspect config Env/history and every regular tar/gzip layer file, including deleted-file layers. Binary files are scanned through their printable strings (strings -n 8); a symlink has no content of its own, so it never makes coverage incomplete. Every file is scanned, but hits in unmodified files whose bytes match the image dpkg md5sums or apk checksums, in package-manager metadata, in binaries under vendored dependency trees (node_modules, site-packages, dist-packages, vendor, .cargo/registry) and keyword-only hits in upstream documentation and license files are third-party distribution content and are not reported. No platform is sampled; older images are outside scope. Digest integrity is checked transiently. Layers stream through private temporary files under compressed and expanded image size bounds and at most 512 MiB of scanned file content per image; a large file is scanned in bounded windows, and a file beyond a bound leaves coverage incomplete and is named in the evidence. A runtime file over 64 MiB that an official base image installs from its upstream release archive (the node binary from nodejs.org, the Temurin JDK from Adoptium), in the layer whose recorded build step downloads it, is third-party distribution content: it is not read and the evidence lists it as skipped. A public-by-design browser key (an Amplitude browser API key assigned to the SDK apiKey setting in browser-delivered JavaScript) is not reported as a secret; the evidence lists it with the reason.',
   'Rebuild and republish the ECR image without literal credentials in environment, build history or filesystem layers, and rotate confirmed exposed values.'),
 ]
 DECLARATIONS, ADMISSION_DATA = [], {'schema_version': 1, 'checks': []}
