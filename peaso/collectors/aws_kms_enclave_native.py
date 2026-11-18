@@ -70,7 +70,12 @@ def _history_jobs(requests, start, end):
   getattr(requests, name, None) is None for name in ('max_calls', 'max_pages', 'max_items')))
  count = min(24, max(1, (requests.activity_minutes + 59) // 60)) if parallel else 1
  edges = [start + (end - start) * index / count for index in range(count)] + [end]
- return [(name, edges[index], edges[index + 1]) for name in sorted(OPERATIONS) for index in range(count)], parallel
+ # Overlap internal edges so an event on a boundary is covered even when
+ # the provider treats a query endpoint as exclusive. Never widen the user's
+ # requested outer window.
+ overlap = timedelta(seconds=1) if count > 1 else timedelta(0)
+ return [(name, max(start, edges[index] - overlap), min(end, edges[index + 1] + overlap))
+         for name in sorted(OPERATIONS) for index in range(count)], parallel
 
 def events(requests,session,region,account):
  from .aws import ReadResult
@@ -96,7 +101,7 @@ def events(requests,session,region,account):
    else:
     return ReadResult([],read.status,(read.error or {'code':'enclave_history_incomplete'}))
   jobs = [job for job in jobs if job[0] in pending]
- # Independent time slices overlap only at their inclusive boundary. Up to eight
+ # Independent slices overlap at internal query boundaries. Up to eight
  # latency-bound readers share Requests.call's existing account/Region 2 TPS
  # limiter; the requested history window and projected evidence stay unchanged.
  reads = completed + list(zip(jobs, ordered_reads(requests, jobs, read_job, workers=readers))) if parallel else ((job, read_job(job)) for job in jobs)
@@ -114,14 +119,14 @@ def events(requests,session,region,account):
    local_seen.add(ident)
    previous = seen.get(ident)
    if previous is not None:
-    # A native event can occur in both inclusive queries meeting at its exact
-    # timestamp. Conflicting identities or duplicates within one page/read are
+    # The exact same native event can occur in adjacent overlapping queries.
+    # Conflicting identities or duplicates within one page/read are
     # still malformed, rather than silently hidden by deduplication.
-    old_row, old_name, old_upper = previous
-    if parallel and row == old_row and name == old_name and when == lower == old_upper:
+    old_row, old_name, old_lower, old_upper = previous
+    if parallel and row == old_row and name == old_name and old_lower < lower <= when <= old_upper < upper:
      continue
     return ReadResult([],'malformed',{'code':'kms_enclave_scope_or_window_mismatch'})
-   seen[row['EventId']] = (row, name, upper)
+   seen[row['EventId']] = (row, name, lower, upper)
    rows.append({**row,'_provenance':{'source_operation':'cloudtrail:LookupEvents','read_only':True,'reference':REFERENCE,'window_start':start.isoformat(),'window_end':end.isoformat(),'boundary':'Observed Nitro enclave PCR metadata only; no attestation verification, secret read or complete historical-delivery assurance'}})
  return ReadResult(rows,'collected'if rows else'empty')
 FETCHERS={'cloudtrail_event':events}
