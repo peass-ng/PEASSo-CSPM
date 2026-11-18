@@ -14,11 +14,11 @@
   "outside_runtime_provider_scope": 561,
   "runtime_scope_upstream_total": 5846,
   "limitations": "Unported target references remain pending; other providers are explicitly out of scope. Reference tags are not certification.",
-  "active_native_checks": 3553,
+  "active_native_checks": 3554,
   "automation_scope": {
     "mode": "provider_read_only",
     "manual_attestations": false,
-    "excluded_custom_controls": 593,
+    "excluded_custom_controls": 592,
     "excluded_unsupported_controls": 33
   },
   "inventory_coverage": {

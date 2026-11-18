@@ -116,8 +116,8 @@ def test_inherited_scp_read_and_complete_native_path(sdk, mode):
     else:
         assert read.status not in ('collected', 'empty')
     for check_id in ('aws_organizations_restrict_ec2_instance_types', 'aws_organizations_security_service_tamper_scp'):
-        expected = ('PASS' if mode == 'complete' else 'FAIL' if mode == 'empty'
-                    or (mode == 'managed' and check_id == 'aws_organizations_restrict_ec2_instance_types') else 'UNKNOWN')
+        # FullAWSAccess alone denies nothing, so the native tamper check fails it.
+        expected = 'PASS' if mode == 'complete' else 'FAIL' if mode in ('empty', 'managed') else 'UNKNOWN'
         assert decision(read, check_id) == expected
     stub.assert_no_pending_responses()
 

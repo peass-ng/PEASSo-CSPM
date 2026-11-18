@@ -1112,12 +1112,6 @@
       "reason": "customer-approved EC2 instance type list",
       "source": "peaso/checks/compliance_new_sw37.py::org_instance_types@317"
     },
-    "aws_organizations_security_service_tamper_scp": {
-      "mandatory_external_fields": [],
-      "native_alternative": null,
-      "reason": "customer-defined protected security services and SCP baseline",
-      "source": "peaso/checks/compliance_new_sw37.py::org_tamper@347"
-    },
     "aws_partner_role_external_id_present": {
       "mandatory_external_fields": [],
       "native_alternative": null,
