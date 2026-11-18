@@ -49,7 +49,7 @@ def test_config_recorder():
              KIND: [{'type': KIND, 'scope': scope, 'data': rows[0]}]}
     assert evaluate('aws_nist_config_enabled_all_regions', {'scope': scope}, facts) == 'PASS'
     rows[0]['Regions'][0]['Recorders'][0]['recordingGroup']['includeGlobalResourceTypes'] = False
-    assert evaluate('aws_nist_config_enabled_all_regions', {'scope': scope}, facts) == 'UNKNOWN'
+    assert evaluate('aws_nist_config_enabled_all_regions', {'scope': scope}, facts) == 'FAIL'
     assert evaluate('aws_nist_config_enabled_all_regions', {'scope': SCOPE},
                     index({'config_recorder': [rec], 'config_delivery_channel': [{'name': 'default'}]})) == 'UNKNOWN'
 

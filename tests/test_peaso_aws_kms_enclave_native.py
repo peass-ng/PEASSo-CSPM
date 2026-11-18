@@ -82,12 +82,12 @@ def test_actual_collect_live_dispatches_exact_existing_metadata_read(sdk,monkeyp
  captured=collect_live(connector,plan_collection({'connector':connector,'checks':[CHECK]}));findings=evaluate_snapshot(captured,checks=[CHECK])['findings'];assert any(f['status']=='PASS'for f in findings),findings
  assert 'DO_NOT_RETAIN'not in json.dumps(captured);sts.assert_no_pending_responses();logs.assert_no_pending_responses()
 
-def test_no_new_grant_and_default_bulk_policy_preserved():
+def test_native_enclave_consumer_uses_existing_grant_in_default_plan():
  from scripts.peaso_deploy_customer_policy import iam_action,build_policy,split_policy
  assert iam_action('cloudtrail','lookup_events')in{a for d in split_policy(build_policy())for s in d['Statement']for a in([s['Action']]if isinstance(s['Action'],str)else s['Action'])}
  connector={'provider':'aws','scopes':[SCOPE],'options':{}}
  assert KIND in plan_collection({'connector':connector,'checks':[CHECK]})
- assert KIND not in plan_collection({'connector':connector})
+ assert KIND in plan_collection({'connector':connector})
  assert KIND in plan_collection({'connector':{**connector,'options':{'collect_all':True}}})
 
 @pytest.mark.parametrize('attributes',[[{'AttributeKey':'EventSource','AttributeValue':'kms.amazonaws.com'}],[{'AttributeKey':'EventName','AttributeValue':'Decrypt','extra':'bad'}],[{'AttributeKey':'EventName','AttributeValue':'ArbitraryDecrypt'}]])

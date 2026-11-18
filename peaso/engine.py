@@ -912,6 +912,10 @@ def plan_collection(request, *, _runtime_connector=None):
         named = set(named_checks(request))
         explicit_required = {kind for check in checks if check.id in named
             for kind in getattr(check, "dependencies", [check.kind])}
+        # The default enclave-debug review consumes bounded projected KMS
+        # metadata. It is not an unconsumed/raw CloudTrail activity stream.
+        if provider == "aws" and "cloudtrail_event" in required:
+            explicit_required.add("cloudtrail_event")
         return sorted(available - (BULK_STREAM_TYPES.get(provider, frozenset()) - explicit_required)
                       - ({"iam_managed_policy"} if provider == "aws" and "iam_managed_policy" not in required else set()))
     from .collectors.bulk_evidence import declared_types, expand_native_requirements

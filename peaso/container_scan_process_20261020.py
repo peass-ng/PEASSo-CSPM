@@ -21,6 +21,7 @@ MAX_STDERR = 1024 * 1024
 MAX_DISK = 10 * 1024 * 1024 * 1024
 MAX_FILE = 6 * 1024 * 1024 * 1024
 MAX_SCRATCH_FILES = 300000
+POST_EXIT_DRAIN_SECONDS = 1.0
 
 def _scratch_usage(root):
     total, count = 0, 0
@@ -53,6 +54,7 @@ def _execute(argv, env, root, end, cancel):
     process, selector = None, selectors.DefaultSelector()
     outputs = {'stdout': bytearray(), 'stderr': bytearray()}
     code, reason = None, None
+    exit_seen_at = None
     peak = _scratch_usage(root)
     try:
         cancel()
@@ -82,9 +84,11 @@ def _execute(argv, env, root, end, cancel):
                 reason = 'scratch_disk_bound'
                 break
             events = selector.select(timeout=.05)
-            if not events and process.poll() is not None:
-                reason = 'descendant_pipe_open'
-                break
+            # Parent exit can race select(): EOF may have become readable
+            # immediately after select returned no events. Drain through the
+            # next readiness cycles before declaring an inherited pipe stuck.
+            if process.poll() is not None and exit_seen_at is None:
+                exit_seen_at = time.monotonic()
             for key, _ in events:
                 chunk = os.read(key.fd, 65536)
                 if not chunk:
@@ -97,6 +101,10 @@ def _execute(argv, env, root, end, cancel):
                     break
                 target.extend(chunk)
             if reason:
+                break
+            if (exit_seen_at is not None and selector.get_map()
+                    and time.monotonic() - exit_seen_at >= POST_EXIT_DRAIN_SECONDS):
+                reason = 'descendant_pipe_open'
                 break
         if reason is None:
             try:
