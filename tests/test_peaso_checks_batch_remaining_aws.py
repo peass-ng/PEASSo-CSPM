@@ -374,3 +374,30 @@ def test_cloudtrail_logging_foreign_or_denied_bucket_cannot_pass():
     item,scan=copy.deepcopy(CASES[cid][:2])
     scan['collections']['bucket'][0]['status']='denied'
     assert CHECKS_BY_ID[cid].evaluate(item,scan)[0]=='UNKNOWN'
+
+
+def test_organization_trail_native_account_binding_allows_its_collected_configuration():
+    cid = 'aws.nist.cloudtrail_cloudwatch_integration'
+    item, _ = copy.deepcopy(CASES[cid][:2])
+    item['TrailARN'] = item['TrailARN'].replace('111111111111', '222222222222')
+    item.update(IsOrganizationTrail=True, AccountId='111111111111', CloudWatchLogsLogGroupArn='')
+    stamp = '2026-11-18T12:00:00+00:00'
+    item['_account_trail_binding'] = {'caller_account_id': '111111111111', 'identity_operation': 'sts:GetCallerIdentity',
+        'describe_operation': 'cloudtrail:DescribeTrails', 'include_shadow_trails': True,
+        'trail_arn': item['TrailARN'], 'capture_observed_at': stamp}
+    idx = indexed({'cloudtrail': [item], 'log_group': []})
+    idx['context']['created_at'] = stamp
+    assert CHECKS_BY_ID[cid].evaluate(item, idx)[0] == 'FAIL'
+    item['_account_trail_binding']['caller_account_id'] = '999999999999'
+    idx = indexed({'cloudtrail': [item], 'log_group': []}); idx['context']['created_at'] = stamp
+    assert CHECKS_BY_ID[cid].evaluate(item, idx)[0] == 'UNKNOWN'
+
+
+def test_cross_account_trail_bucket_is_an_explicit_review_not_a_guessed_verdict():
+    cid = 'aws.nist.all_cloudtrail_destination_bucket_access_logging'
+    item, _ = copy.deepcopy(CASES[cid][:2])
+    idx = with_global_buckets(indexed({'cloudtrail': [item]}), [])
+    status, evidence = CHECKS_BY_ID[cid].evaluate(item, idx)
+    assert status == 'MANUAL' and evidence['required_actions'] == ['s3:GetBucketLogging']
+    idx['collections']['bucket'][0]['status'] = 'denied'
+    assert CHECKS_BY_ID[cid].evaluate(item, idx)[0] == 'UNKNOWN'

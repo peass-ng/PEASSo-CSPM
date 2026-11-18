@@ -72,7 +72,7 @@ def bucket_mfa(item, index):
         return "NOT_APPLICABLE", {"is_logging": False}
     bucket = trail_bucket(item, index)
     if bucket is None:
-        return unknown("trail bucket is outside verified same-account snapshot scope")
+        return "MANUAL", {"reason": "CloudTrail destination bucket is outside the collected account; review its owner-account evidence", "bucket": get(item, "S3BucketName", str), "required_actions": ["s3:GetBucketLogging", "s3:GetBucketVersioning"]}
     config = get(bucket, "Versioning", dict)
     if "MFADelete" not in config:
         if config.get("collection_status") == "collected":
@@ -96,7 +96,7 @@ def bucket_logging(item, index):
     get(item, "Name", str)
     bucket = trail_bucket(item, index)
     if bucket is None:
-        return unknown("trail bucket is outside verified same-account snapshot scope")
+        return "MANUAL", {"reason": "CloudTrail destination bucket is outside the collected account; review its owner-account evidence", "bucket": get(item, "S3BucketName", str), "required_actions": ["s3:GetBucketLogging", "s3:GetBucketVersioning"]}
     config = get(bucket, "Logging", dict)
     if "LoggingEnabled" not in config:
         if config.get("collection_status") == "collected":

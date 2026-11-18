@@ -223,6 +223,9 @@ def _cloudtrail(item, index, check_id):
         if not trails:
             return "NOT_APPLICABLE", {"reason": "no logging home-region trails"}
         buckets = _buckets(index, account, scope)
+        outside = sorted({get(trail, "S3BucketName", str) for trail in trails} - set(buckets))
+        if outside:
+            return "MANUAL", {"reason": "CloudTrail destination lifecycle is managed in an account outside this snapshot", "buckets": outside, "required_actions": ["s3:GetLifecycleConfiguration", "s3:GetBucketObjectLockConfiguration"]}
         failed, uncertain = [], []
         for trail in trails:
             name, bucket = _bucket(trail, buckets)
@@ -312,6 +315,9 @@ def _cloudtrail(item, index, check_id):
         if not trails:
             return "NOT_APPLICABLE", {"reason": "no organization trail in home Region"}
         failed, uncertain = [], []
+        outside = [get(trail, "S3BucketName", str) for trail in trails if get(trail, "TrailARN", str).split(":")[4] != account]
+        if outside:
+            return "MANUAL", {"reason": "CloudTrail writes to a bucket outside this snapshot; correlate account-specific log-object metadata in the destination account", "buckets": sorted(set(outside)), "required_actions": ["s3:GetBucketLocation", "s3:ListBucket"]}
         for trail in trails:
             arn = get(trail, "TrailARN", str)
             try:

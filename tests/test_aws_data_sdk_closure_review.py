@@ -413,7 +413,7 @@ def test_backup_explicit_exclusion_cannot_certify_selection(pipeline,kind,cid):
         ('backup','list_backup_selections'):{'BackupSelectionsList':[{'SelectionId':'example','BackupPlanId':'example'}]},
         ('backup','get_backup_selection'):{'BackupSelection':{'SelectionName':'example','IamRoleArn':f'arn:aws:iam::{ACCOUNT}:role/backup','Resources':[arn],'NotResources':[arn]}}})
     snapshot,_=pipeline([kind,'backup_plan'],responses)
-    assert verdict(snapshot,cid)=='UNKNOWN'
+    assert verdict(snapshot,cid)==('UNKNOWN' if kind == 'rds_cluster' else 'FAIL')
 
 
 @pytest.mark.parametrize('cid',['aws.b.redshift.kms_key_declared','aws.cb.redshift.kms_key_declared'])
@@ -454,3 +454,16 @@ def test_backup_tag_condition_requires_native_value_match(pipeline,mode,expected
         ('backup','get_backup_selection'):None if mode=='denied' else {'BackupSelection':{'SelectionName':'example','IamRoleArn':f'arn:aws:iam::{ACCOUNT}:role/backup','Resources':[],'ListOfTags':conditions}}})
     snapshot,_=pipeline(['rds_instance','backup_plan'],responses)
     assert verdict(snapshot,'aws.cb.rds.instance_in_backup_selection_or_tag')==expected
+
+
+@pytest.mark.parametrize('value,expected', [('daily', 'PASS'), ('never', 'FAIL')])
+@pytest.mark.parametrize('cid', ['aws.cb.rds.instance_in_backup_plan_selection', 'aws.cb.rds.instance_in_backup_selection_or_tag'])
+def test_native_rds_wildcard_selection_applies_and_tag_conditions(pipeline, value, expected, cid):
+    responses = database_responses('rds_instance', TagList=[{'Key': 'backup', 'Value': value}])
+    responses.update({('backup', 'list_backup_plans'): {'BackupPlansList': [{'BackupPlanId': 'example', 'BackupPlanName': 'example'}]},
+        ('backup', 'get_backup_plan'): {'BackupPlan': {'BackupPlanName': 'example', 'Rules': [{'RuleName': 'daily', 'TargetBackupVaultName': 'example'}]}},
+        ('backup', 'list_backup_selections'): {'BackupSelectionsList': [{'SelectionId': 'example', 'BackupPlanId': 'example'}]},
+        ('backup', 'get_backup_selection'): {'BackupSelection': {'SelectionName': 'example', 'IamRoleArn': f'arn:aws:iam::{ACCOUNT}:role/backup',
+            'Resources': ['arn:aws:rds:*:*:db:*'], 'Conditions': {'StringEquals': [{'ConditionKey': 'aws:ResourceTag/backup', 'ConditionValue': 'daily'}]}}}})
+    snapshot, _ = pipeline(['rds_instance', 'backup_plan'], responses)
+    assert verdict(snapshot, cid) == expected

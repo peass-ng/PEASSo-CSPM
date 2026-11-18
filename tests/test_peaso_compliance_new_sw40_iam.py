@@ -135,3 +135,11 @@ def test_scope_policy_reads_inline_and_aws_managed_defaults():
     aws_policy["Arn"] = "arn:aws:iam::aws:policy/Example"
     facts["iam_policy"] = [{"data": aws_policy}]
     assert status("aws.nist.all_managed_policies_no_service_wildcard", facts["context"], facts) == "FAIL"
+
+
+def test_nonadministrative_allow_with_deny_does_not_require_administrative_mfa():
+    row = policy(action='guardduty:ListMalwareScans', resource='*')
+    row['PolicyVersionList'][0]['Document']['Statement'].append({'Effect': 'Deny', 'Action': 'kms:Decrypt', 'Resource': '*'})
+    assert status('aws.pci.iam.nonconsole_mfa_policy', row) == 'PASS'
+    row['PolicyVersionList'][0]['Document']['Statement'][0]['Action'] = '*'
+    assert status('aws.pci.iam.nonconsole_mfa_policy', row) == 'UNKNOWN'

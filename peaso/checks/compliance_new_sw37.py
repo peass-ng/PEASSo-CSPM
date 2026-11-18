@@ -440,7 +440,7 @@ def _reachability(item,index):
     if len(rows)!=1: raise Unavailable('effective ingress join missing')
     row=rows[0]
     if row.get('proof_model')=='aws-public-config-witness-v1':
-        from peaso.analysis.aws_public_ingress import DEPENDENCIES, witness, prepare
+        from peaso.analysis.aws_public_ingress import DEPENDENCIES, witness, prepare, blocked
         from peaso.snapshot import make_snapshot
         from peaso.checks.facts import memoized
         def build_model():
@@ -451,6 +451,11 @@ def _reachability(item,index):
             snap=make_snapshot('aws',[_scope(index)],collections)
             return snap,prepare(snap,_scope(index))
         snap,model=memoized(index,('public_ingress_native_model',),build_model)
+        block = blocked(snap, _scope(index), instance)
+        if block is not None and row.get('configured_block_witness') == block and row.get('configured_path_witness') is None:
+            natives = [r for r in _rows(index, 'instance') if r.get('InstanceId') == instance]
+            if natives == [item]:
+                return False, {'instance_id': instance, 'configured_block_witness': block, 'public_paths': []}
         if model is None:raise Unavailable('native public-ingress model incomplete or unsupported')
         native_instance=model.find('instance',instance,_scope(index))
         if native_instance is None or native_instance['data']!=item:

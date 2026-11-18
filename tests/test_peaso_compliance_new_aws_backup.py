@@ -13,7 +13,7 @@ from peaso.checks import CHECKS, evaluate_check
 
 CHECK_ID = "aws_backup_cross_region_copy"
 SCOPE = "123456789012/eu-west-1"
-PLAN_ARN = "arn:aws:backup:eu-west-1:123456789012:plan:11111111-1111-1111-1111-111111111111"
+PLAN_ARN = "arn:aws:backup:eu-west-1:123456789012:backup-plan:11111111-1111-1111-1111-111111111111"
 SAME = "arn:aws:backup:eu-west-1:123456789012:backup-vault:local"
 CROSS = "arn:aws:backup:eu-central-1:123456789012:backup-vault:remote"
 CALLER = {"Account": "123456789012",

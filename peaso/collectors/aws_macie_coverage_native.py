@@ -45,6 +45,11 @@ def collect(requests,session,region,account):
             if session.get_partition_for_region(name)!=partition:raise ValueError('Macie Region partition mismatch')
             seen.add(name)
             if state!='not-opted-in':enabled.append(name)
+        excluded = getattr(requests, 'scp_denied_regions_by_account', {}).get(account, [])
+        if (not isinstance(excluded, list) or len(set(excluded)) != len(excluded)
+                or any(name not in enabled for name in excluded)):
+            raise ValueError('Macie SCP Region exclusion evidence invalid')
+        enabled = [name for name in enabled if name not in excluded]
         audited=getattr(requests,'audited_regions_by_account',{}).get(account)
         if not enabled or not isinstance(audited,list)or len(audited)!=len(set(audited))or set(audited)!=set(enabled):
             return _result([], 'not_collected','macie_full_account_region_selection_incomplete')
@@ -130,7 +135,7 @@ def collect(requests,session,region,account):
             regions.append(regional)
         return _result([{'id':'macie-coverage/'+account,'AccountId':account,'AllEnabledRegionsCollected':True,'Regions':regions,
             '_provenance':{'read_only':True,'native_region_universe_complete':True,'observed_at':requests.observed_at.isoformat(),
-                           'operations':sorted(operations)}}])
+                           'scp_denied_regions':sorted(excluded),'operations':sorted(operations)}}])
     except ReadFailure as exc:
         return _result([],exc.status,exc.code)
     except (ValueError,TypeError,KeyError,AttributeError):

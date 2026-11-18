@@ -2,7 +2,7 @@
 import copy
 import pytest
 from peaso.snapshot import make_snapshot
-from peaso.analysis.aws_public_ingress import witness,MODEL,DEPENDENCIES
+from peaso.analysis.aws_public_ingress import witness,MODEL,DEPENDENCIES,blocked
 from peaso.collectors import aws,aws_public_ingress_native as native
 from peaso.collectors import collect_live
 from peaso.engine import evaluate_snapshot
@@ -42,7 +42,7 @@ def snapshot(rows,statuses=None,projection=True,proof_override=None):
     if projection:
         env.extend([{'type':'ec2_instance','scope':SCOPE,'status':'collected','items':rows['instance']},
                     {'type':'ec2_effective_ingress','scope':SCOPE,'status':'collected','items':[{'InstanceId':'i-12345678','proof_model':MODEL,
-                    'joins_complete':False,'configured_path_witness':proof if proof_override is None else proof_override}]}])
+                    'joins_complete':False,'configured_path_witness':proof if proof_override is None else proof_override, 'configured_block_witness': blocked(snap,SCOPE,'i-12345678')}]}])
         snap=make_snapshot('aws',[SCOPE],env)
     return snap
 
@@ -123,7 +123,7 @@ def test_incomplete_or_blocked_supported_path_stays_unknown(mode):
     if mode=='duplicate_subnet':rows['subnet'].append(copy.deepcopy(rows['subnet'][0]))
     if mode=='foreign_account':rows['subnet'][0]['AccountId']='999999999999'
     if mode=='no_eni_declaration':rows['instance'][0]['NetworkInterfaces']=[]
-    assert decisions(snapshot(rows,statuses))==['UNKNOWN','UNKNOWN']
+    assert decisions(snapshot(rows,statuses))==(['PASS','PASS'] if mode == 'sg_closed' else ['UNKNOWN','UNKNOWN'])
 
 
 def test_forged_projection_rejected_against_independent_native_scope():
@@ -277,3 +277,21 @@ def test_native_datetime_projection_preserves_shared_sdk_cache_and_real_witness(
     json.dumps(snap)
     assert rows==before
     ec2.assert_no_pending_responses()
+
+
+@pytest.mark.parametrize('mode', ['closed', 'one_open_group', 'foreign_vpc', 'missing_rules', 'second_unbound_eni', 'denied'])
+def test_empty_security_groups_are_a_complete_ingress_cut_only_with_native_joins(mode):
+    rows = facts(); rows['security_group'][0]['IpPermissions'] = []
+    statuses = {}
+    if mode == 'one_open_group':
+        group = copy.deepcopy(rows['security_group'][0]); group['GroupId'] = 'sg-second'; group['IpPermissions'] = [{'IpProtocol': '-1', 'IpRanges': [{'CidrIp': '0.0.0.0/0'}]}]
+        rows['security_group'].append(group)
+        for eni in [rows['network_interface'][0], rows['instance'][0]['NetworkInterfaces'][0]]:
+            eni['Groups'].append({'GroupId': 'sg-second'})
+    if mode == 'foreign_vpc': rows['security_group'][0]['VpcId'] = 'vpc-foreign'
+    if mode == 'missing_rules': rows['security_group'][0].pop('IpPermissions')
+    if mode == 'second_unbound_eni':
+        extra = copy.deepcopy(rows['network_interface'][0]); extra['NetworkInterfaceId'] = 'eni-undeclared'; rows['network_interface'].append(extra)
+    if mode == 'denied': statuses['security_group'] = 'not_collected'
+    snap = snapshot(rows, statuses)
+    assert decisions(snap) == (['PASS', 'PASS'] if mode == 'closed' else ['FAIL', 'FAIL'] if mode == 'one_open_group' else ['UNKNOWN', 'UNKNOWN'])

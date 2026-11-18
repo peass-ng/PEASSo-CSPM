@@ -2,6 +2,7 @@
 from __future__ import annotations
 import copy
 
+import pytest
 import boto3
 from botocore.stub import Stubber
 from peaso.checks import evaluate_check
@@ -170,3 +171,26 @@ def test_listed_service_requires_response_or_explicit_missing_failure():
     deleted = collect(missing=True)
     assert deleted.status == 'empty' and deleted.items == []
     assert verdict(deleted) == 'PASS'
+
+
+@pytest.mark.parametrize("encrypted,expected", [(True, "PASS"), (False, "FAIL"), (None, "UNKNOWN")])
+def test_current_service_revision_native_volume_binding(encrypted, expected):
+    from types import SimpleNamespace
+    from peaso.snapshot import freeze
+    revision = f'arn:aws:ecs:{REGION}:{ACCOUNT}:service-revision/c/s/123'
+    class NativeRequests:
+        def pages(self, session, service, region, operation, expression, **kwargs):
+            return ReadResult([CLUSTER] if operation == 'list_clusters' else [SERVICE], 'collected')
+        def call(self, session, service, region, operation, **kwargs):
+            if operation == 'describe_services':
+                return {'services': [{'serviceArn': SERVICE, 'clusterArn': CLUSTER, 'taskDefinition': TASK,
+                    'currentServiceRevisions': [{'arn': revision, 'requestedTaskCount': 1, 'runningTaskCount': 1, 'pendingTaskCount': 0}]}], 'failures': []}
+            assert operation == 'describe_service_revisions' and kwargs == {'serviceRevisionArns': [revision]}
+            if encrypted is None:
+                raise PermissionError('native detail unavailable')
+            return {'serviceRevisions': [{'serviceRevisionArn': revision, 'serviceArn': SERVICE, 'clusterArn': CLUSTER,
+                'taskDefinition': TASK, 'volumeConfigurations': [{'name': 'data', 'managedEBSVolume': {'encrypted': encrypted}}]}], 'failures': []}
+    session = SimpleNamespace(get_partition_for_region=lambda _: 'aws')
+    captured = _ecs_service(NativeRequests(), session, REGION, ACCOUNT)
+    captured.items = freeze(captured.items)
+    assert verdict(captured, volumes=[{'name': 'data', 'configuredAtLaunch': True}]) == expected

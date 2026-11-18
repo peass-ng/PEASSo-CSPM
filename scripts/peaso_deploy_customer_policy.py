@@ -262,6 +262,10 @@ BEDROCK_REASONING_METADATA_REFERENCES = {
     'bedrock:GetAutomatedReasoningPolicy': 'https://docs.aws.amazon.com/service-authorization/latest/reference/list_bedrock.html',
 }
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(BEDROCK_REASONING_METADATA_REFERENCES)
+# Native current ECS service-revision metadata (read-only).
+ECS_REVISION_METADATA_REFERENCE = ('ecs:DescribeServiceRevisions',
+    'https://docs.aws.amazon.com/service-authorization/latest/reference/list_ecs.html')
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | {ECS_REVISION_METADATA_REFERENCE[0]}
 # Exact native incident-history read; no workflow mutation permission.
 SECURITYHUB_HISTORY_METADATA_REFERENCE = (
     'securityhub:GetFindingHistory',

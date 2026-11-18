@@ -9,7 +9,7 @@ from .fixtures import CASES
 
 
 CHECK_ID = "aws_backup_cross_region_copy"
-_PLAN_ARN = re.compile(r"^arn:(aws|aws-cn|aws-us-gov):backup:([a-z0-9-]+):([0-9]{12}):plan:[^:]+$")
+_PLAN_ARN = re.compile(r"^arn:(aws|aws-cn|aws-us-gov):backup:([a-z0-9-]+):([0-9]{12}):(?:backup-plan|plan):[^:/]+$")
 _VAULT_ARN = re.compile(r"^arn:(aws|aws-cn|aws-us-gov):backup:([a-z0-9-]+):([0-9]{12}):backup-vault:[^:]+$")
 _REGIONAL_SCOPE = re.compile(r"^([0-9]{12})/([a-z0-9-]+)$")
 _CALLER_ARN = re.compile(r"^arn:(aws|aws-cn|aws-us-gov):[^:]+:[^:]*:([0-9]{12}):.+$")

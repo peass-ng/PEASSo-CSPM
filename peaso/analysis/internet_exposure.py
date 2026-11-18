@@ -3984,7 +3984,7 @@ def _aws_backup_plan_foreign_copy(snapshot, inventory, resource):
     if data.get("DeletionDate") is not None:
         return None
     if (not isinstance(plan_id, str) or not plan_id or
-            arn != f"arn:{partition}:backup:{region}:{account}:plan:{plan_id}"):
+            arn not in {f"arn:{partition}:backup:{region}:{account}:{prefix}:{plan_id}" for prefix in ("backup-plan", "plan")}):
         a.gap("inventory", "Backup plan identity is not attributable to the scoped account")
         return a
     read = data.get("Plan")
@@ -6619,6 +6619,8 @@ def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
         if statement.get("Effect") != "Allow":
             uncertain = True
             continue
+        if _aws_owner_condition(statement, account):
+            continue
         derived_not_action = False
         unresolved_not_action = False
         if "NotAction" in statement:
@@ -6673,7 +6675,7 @@ def _aws_generic_resource_policy_grant(snapshot, inventory, resource):
             if isinstance(equals, dict) and len(equals) == 1:
                 key, raw_values = next(iter(equals.items()))
                 values = as_list(raw_values)
-                if operator == "StringEquals" and key == "aws:PrincipalAccount" and values and all(
+                if operator == "StringEquals" and str(key).lower() == "aws:principalaccount" and values and all(
                         isinstance(item, str) and re.fullmatch(r"[0-9]{12}", item) for item in values):
                     account_condition = set(values)
                 if operator in {"ArnEquals", "StringEquals"} and key == "aws:PrincipalArn" and values:
@@ -7458,6 +7460,32 @@ def _aws_cluster_snapshot_share(snapshot, inventory, resource):
 
 
 
+def _aws_service_identity(value, partition):
+    suffix = r"\.amazonaws\.com\.cn" if partition == "aws-cn" else r"\.amazonaws\.com"
+    return isinstance(value, str) and re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*" + suffix, value) is not None
+
+
+def _aws_service_only_statement(statement, partition):
+    principal = statement.get("Principal")
+    return ("NotPrincipal" not in statement and isinstance(principal, dict) and set(principal) == {"Service"}
+            and bool(as_list(principal["Service"]))
+            and all(_aws_service_identity(value, partition) for value in as_list(principal["Service"])))
+
+
+def _aws_owner_condition(statement, account):
+    # A required exact owner/account context cannot authorize an anonymous or
+    # foreign-origin request; IfExists, negation, wildcards and set operators
+    # deliberately do not establish this bound.
+    condition = statement.get("Condition")
+    if not isinstance(condition, dict):
+        return False
+    equals = condition.get("StringEquals")
+    return isinstance(equals, dict) and any(
+        isinstance(key, str) and key.lower() in {"aws:sourceowner", "aws:sourceaccount", "aws:principalaccount"}
+        and as_list(value) and all(v == account for v in as_list(value))
+        for key, value in equals.items())
+
+
 def _aws_kms_foreign_decrypt(snapshot, inventory, resource):
     """A key policy permitting foreign use of an enabled decrypt-capable key."""
     from .trust import trusted_scopes
@@ -7517,6 +7545,8 @@ def _aws_kms_foreign_decrypt(snapshot, inventory, resource):
             continue
         if statement.get("Effect") != "Allow":
             uncertain = True
+            continue
+        if _aws_service_only_statement(statement, partition) or _aws_owner_condition(statement, account):
             continue
         action_match = _aws_policy_required_actions(statement, ("kms:decrypt",))
         if action_match is None:
@@ -7581,6 +7611,8 @@ def _aws_kms_foreign_grant(snapshot, inventory, resource):
     if "Decrypt" not in operations:
         return None
     grantee = data.get("GranteePrincipal")
+    if _aws_service_identity(grantee, partition):
+        return None  # AWS service grants are not foreign AWS-account grantees.
     match = re.fullmatch(r"arn:" + re.escape(partition) + r":(?:iam|sts)::([0-9]{12}):(?:root|(?:role|user)/.+|assumed-role/.+)", grantee) if isinstance(grantee, str) else None
     owner = grantee if isinstance(grantee, str) and re.fullmatch(r"[0-9]{12}", grantee) else match.group(1) if match else None
     if owner is None:
@@ -7779,6 +7811,8 @@ def _aws_sns_subscribe_grant(snapshot, inventory, resource):
             continue
         if statement.get("Effect") != "Allow":
             uncertain = True
+            continue
+        if _aws_service_only_statement(statement, partition) or _aws_owner_condition(statement, account):
             continue
         action_match = _aws_policy_required_actions(statement, ("sns:subscribe",))
         if action_match is None:
@@ -26716,8 +26750,10 @@ def _aws_athena_workgroup_export(snapshot, inventory, resource):
                 a.gap("enforcement", "Clients may override the workgroup result destination")
         else:
             a.gap("inventory", "Athena workgroup result location is malformed")
-    elif not isinstance(config.get("ManagedQueryResultsConfiguration"), dict) or config["ManagedQueryResultsConfiguration"].get("Enabled") is not True:
-        a.gap("destination", "Athena workgroup result destination may be set per query")
+    elif results is not None and (not isinstance(results, dict) or "OutputLocation" in results):
+        a.gap("inventory", "Athena workgroup result location is malformed")
+    # A workgroup without a configured result location declares no delivery
+    # path. Per-query exports are assessed on the query-export inventory.
     monitoring = config.get("MonitoringConfiguration")
     logging = monitoring.get("S3LoggingConfiguration") if isinstance(monitoring, dict) else None
     if isinstance(logging, dict) and logging.get("Enabled") is True:

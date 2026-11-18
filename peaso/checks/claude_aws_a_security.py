@@ -588,7 +588,7 @@ def _deny_regions(policies, account_id):
                 if targets:
                     indirect = True
     if indirect or unproven:
-        raise Unavailable("effective broad SCP region restriction not proven")
+        return "MANUAL", {"reason": "Region-deny policies are collected, but inheritance or additional conditions require effective-SCP review", "indirect_targets": indirect, "additional_conditions_or_scope": unproven, "policies": len(policies)}
     return result(True, policies=len(policies), direct_region_deny_match=False)
 
 

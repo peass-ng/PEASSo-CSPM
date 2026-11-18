@@ -70,3 +70,17 @@ def test_nonrunning_instance_never_reads_metric():
     before = deepcopy(items)
     assert clock.enrich(Requests(), object(), 'us-east-1', items) == before
     assert items == before
+
+
+def test_native_empty_day_is_a_monitoring_failure_without_fabricating_an_offset():
+    now = datetime.now(timezone.utc)
+    empty = clock._sample({'collection_status': 'collected', 'Label': 'time_offset', 'Datapoints': []}, INSTANCE, now-timedelta(days=1), now)
+    def assess(sample):
+        snapshot = make_snapshot('aws', [SCOPE], [{'type': 'instance', 'scope': SCOPE, 'status': 'collected',
+            'items': [{'InstanceId': INSTANCE, 'State': {'Name': 'running'}, 'TimeOffset': sample}]}], created_at=now.isoformat())
+        return evaluate_snapshot(snapshot, checks=[CHECK])['findings'][0]
+    finding = assess(empty)
+    assert finding['status'] == 'FAIL' and finding['evidence']['monitored'] is False
+    assert 'ValueMilliseconds' not in empty
+    empty['InstanceId'] = 'i-fffffffffffffffff'
+    assert assess(empty)['status'] == 'UNKNOWN'

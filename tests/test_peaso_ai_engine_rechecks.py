@@ -279,3 +279,22 @@ def test_targeted_dlq_collection_includes_lambda_function_destinations():
     native = deepcopy(CASES[cid]['fail'])
     arn = native['Attributes']['Attributes']['QueueArn']
     assert run(cid, native, {'lambda_function': [{'data': {'DeadLetterConfig': {'TargetArn': arn}}}]})[0] == 'NOT_APPLICABLE'
+
+
+def test_native_elastic_ip_allocation_can_be_joined_to_shield_protection():
+    cid = 'aws.pci.shield.protection_all_internet_resources'
+    scope = '123456789012/us-east-1'
+    address = {'AllocationId': 'eipalloc-0123456789abcdef0'}
+    resource = 'arn:aws:ec2:us-east-1:123456789012:eip-allocation/' + address['AllocationId']
+    def assess(protected):
+        groups = {'elastic_ip': [address], 'shield_protection': protected, 'load_balancer': [],
+                  'classic_load_balancer': [], 'cloudfront_distribution': []}
+        index = {'context': {'provider': 'aws', 'scope': scope, 'metadata': {'regions': ['us-east-1']}}, 'collections': {}}
+        for kind, rows in groups.items():
+            native_scope = '123456789012/global' if kind in {'shield_protection', 'cloudfront_distribution'} else scope
+            index['collections'][kind] = [{'type': kind, 'scope': native_scope, 'status': 'collected' if rows else 'empty', 'items': rows}]
+            index[kind] = [{'type': kind, 'scope': native_scope, 'data': row} for row in rows]
+        return REGISTRY[cid].evaluate({}, index)
+    status, evidence = assess([])
+    assert status == 'FAIL' and evidence['unprotected_resource_arns'] == [resource], evidence
+    assert assess([{'ResourceArn': resource}])[0] == 'PASS'

@@ -448,6 +448,13 @@ def bucket_backup_plan(item, index):
             continue
         resources = _strings(get(selection, "Resources", list))
         excludes = _strings(get(selection, "NotResources", list))
+        from .aws_backup_selection import arn_matches
+        # A complete RDS-only wildcard cannot select an S3 bucket, regardless
+        # of its additional AND tag restrictions.
+        if resources and not get(selection, "ListOfTags", list) and not any(arn_matches(value, arn) for value in resources):
+            continue
+        if any(arn_matches(value, arn) for value in excludes):
+            continue
         if any("*" in value for value in resources | excludes):
             uncertain = True
             continue

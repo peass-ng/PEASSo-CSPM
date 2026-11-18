@@ -263,3 +263,23 @@ def test_cloudtrail_failed_operation_is_not_a_flag():
     event["CloudTrailEvent"]["errorCode"] = "AccessDenied"
     index["collections"]["aws_cloudtrail_activity"][0]["items"][0]["CloudTrailEvent"]["errorCode"] = "AccessDenied"
     assert evaluate(cid, subject, index) == "PASS"
+
+
+@pytest.mark.parametrize("enabled,duration,expected", [("false", "1800", "PASS"), ("true", "1800", "PASS"), ("true", "1801", "FAIL")])
+def test_native_alb_target_group_attributes_reach_frozen_engine(enabled, duration, expected):
+    from peaso.collectors.aws_facts_compute_edge import _target_group_attributes
+    from peaso.engine import evaluate_snapshot
+    from peaso.snapshot import make_snapshot
+    class Native:
+        def detail(self, session, service, region, operation, **kwargs):
+            assert operation == "describe_target_group_attributes" and kwargs == {"TargetGroupArn": TG_ARN}
+            return {"collection_status": "collected", "Attributes": [
+                {"Key": "stickiness.enabled", "Value": enabled}, {"Key": "stickiness.type", "Value": "lb_cookie"},
+                {"Key": "stickiness.lb_cookie.duration_seconds", "Value": duration}]}
+    group = _target_group_attributes(Native(), None, REGION, [{"TargetGroupArn": TG_ARN, "LoadBalancerArns": [LB_ARN], "Protocol": "HTTP", "TargetType": "ip"}])[0]
+    snapshot = make_snapshot("aws", [SCOPE], [
+        {"type": "load_balancer", "scope": SCOPE, "status": "collected", "items": [lb()]},
+        {"type": "target_group", "scope": SCOPE, "status": "collected", "items": [group]}])
+    cid = "aws_elbv2_stickiness_duration_30_minutes"
+    found, = evaluate_snapshot(snapshot, checks=[cid])["findings"]
+    assert found["status"] == expected

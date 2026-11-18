@@ -86,4 +86,7 @@ def test_outposts_excluded_and_unreadable_placement_unknown():
     assert evaluate(item, [capability()]) == "NOT_APPLICABLE"
     assert evaluate({**item, "IAMDatabaseAuthenticationEnabled": True}, []) == "NOT_APPLICABLE"
     item["DBSubnetGroup"] = {"Subnets": [{"SubnetIdentifier": "subnet-1", "SubnetOutpost": {}}]}
+    assert evaluate(item, [capability()]) == "FAIL"
+    assert evaluate({**item, "IAMDatabaseAuthenticationEnabled": True}, []) == "PASS"
+    item["DBSubnetGroup"]["Subnets"][0]["SubnetOutpost"] = {"Arn": None}
     assert evaluate(item, [capability()]) == "UNKNOWN"

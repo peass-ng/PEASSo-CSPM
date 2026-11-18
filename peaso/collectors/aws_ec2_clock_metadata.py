@@ -14,7 +14,10 @@ def _sample(response, instance, start, end):
         return {'collection_status': 'malformed', 'error': {'code': 'clock_metric_response_invalid'}}
     samples = response['Datapoints']
     if not samples:
-        return {'collection_status': 'empty', 'error': {'code': 'no_exact_clock_metric_datapoints'}}
+        return {'collection_status': 'empty', 'InstanceId': instance, 'Namespace': 'CWAgent', 'MetricName': 'time_offset',
+                'WindowStart': start.isoformat(), 'WindowEnd': end.isoformat(),
+                'error': {'code': 'no_exact_clock_metric_datapoints'},
+                '_provenance': {'source_operation': 'cloudwatch:GetMetricStatistics', 'dimensions': [{'Name': 'InstanceId', 'Value': instance}], 'unit': 'Milliseconds', 'period_seconds': 300}}
     if len(samples) > 1440:
         return {'collection_status': 'partial', 'error': {'code': 'clock_metric_datapoint_limit'}}
     values = []
