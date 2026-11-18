@@ -5,8 +5,8 @@ new-check proposal, so this overlay makes no signed-spec claim.
 """
 from copy import deepcopy
 
-VERSION = "ecs-uid-description-overlay-v2"
-SOURCE_RELATIONSHIP = "corrected, stronger Linux declaration predicate; partial mapping to pinned SQL; no effective process UID proof"
+VERSION = "ecs-uid-description-overlay-v3"
+SOURCE_RELATIONSHIP = "corrected, stronger Linux declaration predicate with immutable image-config user; partial mapping to pinned SQL; no runtime process UID measurement"
 OFFICIAL_REFERENCES = [
     "https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_ContainerDefinition.html",
     "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters_ec2.html",
@@ -18,7 +18,17 @@ ROWS = {'aws.b.ecs.declared_nonroot_users': {'base_row_sha256': 'a0d77731dfd8c81
                                                                 'PASS only when every container '
                                                                 'declares a valid nonzero numeric '
                                                                 "UID in Docker's supported range. "
-                                                                'Named, omitted, malformed, and '
+                                                                'When a container declares no '
+                                                                'user, the User of its '
+                                                                'digest-pinned private ECR image '
+                                                                'configuration decides (read only '
+                                                                'when ECR image content reads are '
+                                                                'enabled): empty or root FAILs, a '
+                                                                'nonzero numeric UID PASSes, and a '
+                                                                'named user is resolved through '
+                                                                "the image's /etc/passwd. Named "
+                                                                'users without that resolution, '
+                                                                'mutable tag images, malformed and '
                                                                 'out-of-range users are UNKNOWN '
                                                                 'without UID proof. Windows or '
                                                                 'unknown OS family is UNKNOWN '
@@ -33,12 +43,18 @@ ROWS = {'aws.b.ecs.declared_nonroot_users': {'base_row_sha256': 'a0d77731dfd8c81
                                                                 'privileges.',
                                                  'evaluated': ['Definition.taskDefinition.runtimePlatform.operatingSystemFamily',
                                                                'Definition.taskDefinition.containerDefinitions[].user',
+                                                               'ImageUsers.containers (image '
+                                                               'config User and /etc/passwd UID '
+                                                               'of digest-pinned images)',
                                                                'Definition.collection_status and '
                                                                'matching taskDefinitionArn for '
                                                                'documented LINUX default'],
                                                  'fail_when': 'FAIL for a proved Linux task when '
                                                               'any container declares literal root '
-                                                              'or numeric UID 0.',
+                                                              'or numeric UID 0, or declares no '
+                                                              'user and its digest-pinned image '
+                                                              'runs as root (empty User, root, '
+                                                              'UID 0).',
                                                  'not_applicable_when': None,
                                                  'pass_when': 'PASS for an explicit LINUX task, or '
                                                               'an ARN-bound successful '
@@ -46,8 +62,11 @@ ROWS = {'aws.b.ecs.declared_nonroot_users': {'base_row_sha256': 'a0d77731dfd8c81
                                                               'documented LINUX default, when '
                                                               'every container declares a valid '
                                                               'nonzero numeric UID (1 through '
-                                                              '2147483647). A group suffix does '
-                                                              'not establish the user UID.'}},
+                                                              '2147483647), or declares no user '
+                                                              'and its digest-pinned image config '
+                                                              'User is proven to be such a UID. '
+                                                              'A group suffix does not establish '
+                                                              'the user UID.'}},
  'aws.b.ecs.host_network_nonprivileged': {'base_row_sha256': 'f0ba8b192f4c7ef7f15a00f936989b7964ed80375fec199ef3447d2caeafa209',
                                           'fields': {'description': 'For host-network Linux ECS '
                                                                     'task definitions, FAIL if any '

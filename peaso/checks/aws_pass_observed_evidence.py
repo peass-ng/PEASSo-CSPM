@@ -62,7 +62,7 @@ REVIEWED_FIELDS = {'aws.s3.versioning': {'field': 'versioning_status', 'label': 
  'aws.b.ecs.all_readonly_roots': {'field': 'writable_root_containers',
                                   'label': 'Containers declaring writable root filesystems'},
  'aws.b.ecs.declared_nonroot_users': {'field': 'proven_numeric_uid_containers',
-                                      'label': 'Containers declaring valid nonzero numeric user IDs'},
+                                      'label': 'Containers proven to run as a valid nonzero user ID'},
  'aws.b.ecs.host_network_nonprivileged': {'field': 'privileged_containers',
                                           'label': 'Containers declaring privileged mode'},
  'aws.a.cloudtrail.bucket_mfa_delete': {'field': 'mfa_delete', 'label': 'Bucket MFA Delete setting'},
