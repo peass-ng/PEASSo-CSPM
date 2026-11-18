@@ -83,7 +83,7 @@ def certificate(directory):
 def aws_stub(tmp_path, monkeypatch):
     """A local TLS endpoint for sts/ecs.<region>.amazonaws.com; nothing leaves the host."""
     cert_path, key_path = certificate(tmp_path)
-    state = {'framing': 'length', 'definitions': {}, 'hosts': []}
+    state = {'framing': 'length', 'definitions': {}, 'hosts': [], 'failures': {}}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
@@ -95,12 +95,19 @@ def aws_stub(tmp_path, monkeypatch):
             body = self.rfile.read(int(self.headers['Content-Length']))
             host = self.headers['Host'].split(':')[0]
             state['hosts'].append(host)
+            status = 200
             if host.startswith('sts.'):
                 payload, kind = STS_BODY, 'text/xml'
             else:
                 arn = json.loads(body)['taskDefinition']
-                payload, kind = json.dumps(state['definitions'][arn]).encode(), 'application/x-amz-json-1.1'
-            self.send_response(200)
+                failures = state['failures'].get(arn, [])
+                if failures:
+                    status, code = failures.pop(0)
+                    payload = json.dumps({'__type': code, 'message': TOKEN}).encode()
+                else:
+                    payload = json.dumps(state['definitions'][arn]).encode()
+                kind = 'application/x-amz-json-1.1'
+            self.send_response(status)
             self.send_header('Content-Type', kind)
             self.send_header('x-amzn-RequestId', '22222222-2222-4222-8222-222222222222')
             if state['framing'] == 'chunked':
