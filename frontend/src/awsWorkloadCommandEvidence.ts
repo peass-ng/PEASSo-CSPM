@@ -1,3 +1,4 @@
+import { leakKeys } from "./foundSecretValue";
 import type { Finding } from "./types";
 const CHECK = "aws.review.workload.selected_command_literal_secret_indicators";
 const unknown = new Set([
@@ -17,7 +18,7 @@ export function awsWorkloadCommandObservation(f: Finding): string | undefined {
     return "Both offline detectors found no supported secret in the selected ECS or Batch command literals.";
   const leak = e.secret_leaks[0];
   if (f.status !== "FAIL" || e.secret_leaks.length !== 1 || !object(leak)
-      || Object.keys(leak).sort().join(",") !== "detectors,fingerprint,locations"
+      || leakKeys(leak) !== "detectors,fingerprint,locations"
       || typeof leak.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(leak.fingerprint)
       || f.secret_fingerprint !== leak.fingerprint || f.linked_check_ids?.length !== 1 || f.linked_check_ids[0] !== CHECK
       || !Array.isArray(leak.detectors) || !leak.detectors.length || !leak.detectors.every(d => object(d)
@@ -30,6 +31,6 @@ export function awsWorkloadCommandObservation(f: Finding): string | undefined {
         && typeof l.scope === "string" && /^[0-9]{12}\/[a-z0-9-]+$/.test(l.scope)
         && (l.line === undefined || typeof l.line === "number" && Number.isInteger(l.line) && l.line > 0))) return;
   if (e.complete === false && e.coverage !== "incomplete") return;
-  return "A likely secret was detected in selected ECS or Batch command literals. Its value is hidden and was not validated"
+  return "A likely secret was detected in selected ECS or Batch command literals. It was not validated"
     + (e.complete === false ? "; inspection is incomplete." : ".");
 }

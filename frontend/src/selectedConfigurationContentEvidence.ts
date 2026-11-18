@@ -1,3 +1,4 @@
+import { leakKeys } from "./foundSecretValue";
 import { awsWorkloadCommandObservation } from "./awsWorkloadCommandEvidence";
 import { gcpConsolidatedSecretObservation } from "./gcpConsolidatedSecretEvidence";
 import { azureConfiguredPackageObservation } from "./azureConfiguredPackageEvidence";
@@ -29,7 +30,7 @@ const rules: Record<string, readonly [string, string, string]> = {
 };
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const validLeak = (leak: unknown): boolean => {
-  if (!object(leak) || Object.keys(leak).sort().join(",") !== "detectors,fingerprint,locations"
+  if (!object(leak) || leakKeys(leak) !== "detectors,fingerprint,locations"
       || typeof leak.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(leak.fingerprint)
       || !Array.isArray(leak.detectors) || !leak.detectors.length || !Array.isArray(leak.locations) || !leak.locations.length) return false;
   if (!leak.detectors.every(d => object(d) && Object.keys(d).sort().join(",") === "engine,rule"
@@ -60,7 +61,7 @@ export function selectedConfigurationContentObservation(finding: Finding): strin
     if (finding.secret_fingerprint !== leak.fingerprint || !(leak.locations as Record<string, unknown>[]).every(loc =>
         typeof loc.resource_id === "string" && /^codebuild_selected_inline_buildspec:[0-9a-f]{64}$/.test(loc.resource_id)
         && loc.path === loc.resource_id + ".source.buildspec" && typeof loc.scope === "string" && /^[0-9]{12}\/[a-z0-9-]+$/.test(loc.scope))) return;
-    return "A likely secret was detected in the selected inline CodeBuild buildspec. Its value is hidden and was not validated"
+    return "A likely secret was detected in the selected inline CodeBuild buildspec. It was not validated"
       + (mergedPartial ? "; inspection is incomplete." : ".");
   }
   if (finding.provider === "k8s" && finding.check_id === "k8s.review.selected_metadata.secret_indicators" && finding.status === "FAIL"
@@ -71,7 +72,7 @@ export function selectedConfigurationContentObservation(finding: Finding): strin
     if (finding.secret_fingerprint !== leak.fingerprint || !(leak.locations as Record<string, unknown>[]).every(loc =>
         typeof loc.resource_id === "string" && /^k8s_selected_metadata:[0-9a-f]{64}$/.test(loc.resource_id)
         && loc.path === loc.resource_id + ".literals")) return;
-    return "A likely secret was detected in the selected object labels or annotations. Its value is hidden and was not validated"
+    return "A likely secret was detected in the selected object labels or annotations. It was not validated"
       + (mergedPartial ? "; inspection is incomplete." : ".");
   }
   const partial = finding.check_id === "k8s.review.selected_metadata.secret_indicators" && finding.status === "FAIL"
@@ -101,8 +102,8 @@ export function selectedConfigurationContentObservation(finding: Finding): strin
   if (partial) {
     if (e.secret_leaks.some(leak => !object(leak) || !Array.isArray(leak.detectors)
         || leak.detectors.some(d => !object(d) || !completed.has(String(d.engine))))) return;
-    return `A likely secret was detected in ${rule[2]}. Its value is hidden and was not validated; inspection is incomplete.`;
+    return `A likely secret was detected in ${rule[2]}. It was not validated; inspection is incomplete.`;
   }
-  return e.secret_leaks.length ? `A likely secret was detected in ${rule[2]}. Its value is hidden and was not validated.`
+  return e.secret_leaks.length ? `A likely secret was detected in ${rule[2]}. It was not validated.`
     : `Both offline detectors found no supported secret in ${rule[2]}.`;
 }

@@ -496,7 +496,7 @@ def test_config_and_byte_faithful_selected_detector_sources(monkeypatch, surface
     config = {'config': {'Env': []}, 'history': []}
     if surface == 'env': config['config']['Env'] = ['DB_PASSWORD=' + SECRET]
     elif surface == 'history': config['history'] = [{'created_by': "RUN password='" + SECRET + "'"}]
-    elif surface == 'private_key': config['history'] = [{'created_by': '-----BEGIN PRIVATE KEY-----'}]
+    elif surface == 'private_key': config['history'] = [{'created_by': '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7'}]
     else: config['history'] = [{'created_by': 'AWS_ACCESS_KEY_ID=AKIA' + 'A' * 16 + '\naws_secret_access_key=' + 'z' * 40}]
     raw = json.dumps(config).encode(); payloads[URL + '-config'] = raw
     document = json.loads(ops['batch_get_image']['images'][0]['imageManifest'])
@@ -775,9 +775,62 @@ def test_upstream_docs_keep_only_self_identifying_hits(monkeypatch):
                                                   ('usr/share/man/man1/tool.1', keyword),
                                                   ('opt/tool/LICENSE', keyword)])
     assert status == 'PASS' and evidence['source_complete'] is True, evidence
-    status, evidence = _image_layer(monkeypatch, [('opt/yarn-v1.22.22/README.md', PEM), ('app/README.md', keyword)])
+    status, evidence = _image_layer(monkeypatch, [('opt/yarn-v1.22.22/README.md', AWS_PAIR), ('app/README.md', keyword)])
     assert status == 'FAIL'
     assert sorted(ref['File'] for ref in evidence['references']) == ['app/README.md', 'opt/yarn-v1.22.22/README.md']
+
+
+# npm's own documentation and config definitions, as shipped in the official Node.js image.
+NPM_KEY_DOC = (b'#### `key`\n* Default: null\nA client key to pass when accessing the registry. Values should be in PEM\n'
+               b'format with newlines replaced by the string "\\n". For example:\n\n'
+               b'```ini\nkey="-----BEGIN PRIVATE KEY-----\\nXXXX\\nXXXX\\n-----END PRIVATE KEY-----"\n```\n')
+NPM = 'usr/local/lib/node_modules/npm/'
+
+
+def _detected_pem(monkeypatch):
+    """Let the fake engines match a real PEM block, as Kingfisher/TruffleHog would."""
+    from peaso import secret_scanning
+    body = PEM.decode()
+    monkeypatch.setattr(secret_scanning, '_scan_kingfisher',
+                        lambda payload, path, timeout: [(body, 'kingfisher.privkey.1', 1)] if PEM in payload else [])
+
+
+def test_npm_bundled_docs_with_placeholder_key_pass(monkeypatch):
+    status, evidence = _image_layer(monkeypatch, [
+        (NPM + 'docs/content/using-npm/config.md', NPM_KEY_DOC),
+        (NPM + 'docs/output/using-npm/config.html', b'<pre>' + NPM_KEY_DOC + b'</pre>'),
+        (NPM + 'man/man7/config.7', b'.TH "CONFIG" "7"\n' + NPM_KEY_DOC),
+        (NPM + 'node_modules/@npmcli/config/lib/definitions/definitions.js',
+         b"define('key', { description: `" + NPM_KEY_DOC + b"` })\n")])
+    assert status == 'PASS' and evidence['source_complete'] is True, evidence
+    assert evidence['references'] == [] and evidence['secret_leaks'] == []
+
+
+def test_vendored_package_text_without_detector_match_passes(monkeypatch):
+    keyword = b"PASSWORD='" + SECRET.encode() + b"'"
+    status, evidence = _image_layer(monkeypatch, [
+        ('app/node_modules/pkg/docs/setup.md', keyword), ('app/node_modules/pkg/lib/defaults.js', keyword),
+        ('usr/lib/python3/dist-packages/tool/man/tool.1', PEM)])
+    assert status == 'PASS' and evidence['references'] == [], evidence
+
+
+def test_real_private_key_still_fails_in_vendored_tree_and_docs(monkeypatch):
+    _detected_pem(monkeypatch)
+    for name in ('app/node_modules/pkg/lib/key.js', NPM + 'docs/content/key.md', 'usr/share/doc/tool/README'):
+        status, evidence = _image_layer(monkeypatch, [(name, PEM)])
+        assert status == 'FAIL', (name, evidence)
+        assert [ref['File'] for ref in evidence['references']] == [name]
+        assert evidence['secret_leaks'], evidence
+
+
+def test_first_party_pem_key_fails_but_header_without_key_does_not(monkeypatch):
+    status, evidence = _image_layer(monkeypatch, [('app/config/server.key', PEM)])
+    assert status == 'FAIL' and evidence['references'][0]['Categories'] == ['private_key'], evidence
+    escaped = b'{"private_key": "' + PEM.replace(b'\n', b'\\n') + b'"}'
+    status, evidence = _image_layer(monkeypatch, [('app/config/service-account.json', escaped)])
+    assert status == 'FAIL', evidence
+    status, evidence = _image_layer(monkeypatch, [('app/src/pem.js', b'if (line === "-----BEGIN PRIVATE KEY-----") parse()')])
+    assert status == 'PASS', evidence
 
 
 def test_first_party_build_output_secret_still_fails_beside_suppressed_noise(monkeypatch):

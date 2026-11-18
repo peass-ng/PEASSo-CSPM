@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { request } from './api';
 import { findingGroupPath } from './GroupedFindingEvidence';
 import type { Finding } from './types';
+import { foundSecretValues } from './foundSecretValue';
 
 export function PrivateSecretEvidence({ finding, scanId }: { finding: Finding; scanId: string }) {
   const [data, setData] = useState(finding.secret_evidence);
@@ -50,5 +51,20 @@ export function PrivateSecretEvidence({ finding, scanId }: { finding: Finding; s
     {data.complete === false && <p>Private evidence capture was incomplete; some locations or values may be unavailable.</p>}
     {data.next_offset != null && <button disabled={loading} onClick={more}>{loading ? 'Loading…' : 'Show more matched values and locations'}</button>}
     {error && <p role="alert">Private matched values could not be loaded. Try again.</p>}
+  </section>;
+}
+
+/** Found values carried on the finding itself, shown in clear text so they can be rotated. */
+export function FoundSecretValues({ evidence }: { evidence: unknown }) {
+  const values = foundSecretValues(evidence);
+  if (!values.length) return null;
+  return <section className="finding-detail-section" aria-label="Found secret values">
+    <h3>Found secret values</h3>
+    <p>Rotate these credentials; they were found in scanned content and were not validated.</p>
+    {values.map(found => <div key={found.fingerprint}>
+      <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{found.value}</pre>
+      {found.value_truncated && <p>Only the first {found.value.length} characters were retained.</p>}
+      {found.context && <><p>Matched in:</p><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{found.context}</pre></>}
+    </div>)}
   </section>;
 }

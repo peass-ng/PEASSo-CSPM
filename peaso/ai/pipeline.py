@@ -44,8 +44,8 @@ def _priorities_have_evidence(report, reviews, network_input):
 def private_json(path, value):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w') as stream:
-        from peaso.secret_evidence import without_private_values
-        json.dump(without_private_values(value), stream, default=str)
+        from peaso.secret_evidence import without_found_secret_values, without_private_values
+        json.dump(without_found_secret_values(without_private_values(value)), stream, default=str)
 
 
 def kill_tree(process):
@@ -148,9 +148,15 @@ def _invoke(stage, platform, entries, token, findings, reviews, timeout, *, canc
             files['codex-auth'] = auth_document(token)
         def prepare_workspace():
             prepared_platform = platform() if callable(platform) else platform
+            # Found secret values are shown to the tenant, not to AI agents.
+            from peaso.secret_evidence import without_found_secret_values
+            if isinstance(prepared_platform, dict):
+                prepared_platform = dict(prepared_platform, **{
+                    key: without_found_secret_values(prepared_platform[key])
+                    for key in ('report', 'source_report', 'snapshot_context') if key in prepared_platform})
             if stage == 'priorities':
                 from .briefing import build
-                build(root, prepared_platform, findings, reviews, private_json)
+                build(root, prepared_platform, without_found_secret_values(findings), reviews, private_json)
             elif stage == 'network':
                 from .network import build
                 build(root, prepared_platform, reviews, private_json)

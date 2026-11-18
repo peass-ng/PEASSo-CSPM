@@ -372,6 +372,20 @@ def test_fixed_native_sdk_ignores_configured_endpoint(monkeypatch):
     assert all(c['host'].endswith('.amazonaws.com')for c in trace.calls)
 
 
+def test_selected_s3_hit_shows_found_value_in_clear_text_on_its_finding(monkeypatch):
+    from peaso import secret_evidence as private
+    from peaso.snapshot import validate
+    collect_snapshot=engine.collect_snapshot
+    # As a scan does: the collected snapshot publishes the found-value table.
+    monkeypatch.setattr(engine,'collect_snapshot',lambda request:validate(collect_snapshot(request),**private.secret_values_entry()))
+    with private.capture(private.EphemeralCipher()):
+        snapshot,findings,_=collect(monkeypatch,'text',True)
+    finding,=findings
+    leak,=finding['evidence']['secret_leaks']
+    assert finding['status']=='FAIL' and leak['value']==TOKEN and TOKEN in leak['context']
+    assert 'clear text' in finding['evidence']['observed']
+
+
 def test_finalizer_union_scrubs_existing_metadata_and_future_aliases():
     from concurrent.futures import Future
     options={'content_secret_scans':True,'_content_secret_scan_kinds':[source.KIND],source.OPTION:[target()]}

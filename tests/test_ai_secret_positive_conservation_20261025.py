@@ -46,7 +46,7 @@ def test_incomplete_or_fabricated_detector_proof_does_not_block_ai_correction(mu
   for loc in leak['locations']:loc['scope']='projects/foreign'
  elif mutation=='bad-engine':leak['detectors'][0]['engine']='arbitrary-pattern-check'
  elif mutation=='bad-rule':leak['detectors'][0]['rule']={}
- elif mutation=='extra-secret-value':leak['value']='must-never-be-used-as-proof'
+ elif mutation=='extra-secret-value':leak['value_truncated']='malformed'
  else:e['credential_validation']='verified'
  review={'finding_id':f['id'],'verdict':'PASS','reason':'Affirmative corrected native setting'}
  assert apply_review(f,review_index({'reviews':{'hardening':[review]}}))['status']=='PASS'

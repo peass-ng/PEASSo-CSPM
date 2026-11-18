@@ -1,3 +1,4 @@
+import { leakKeys } from "./foundSecretValue";
 import type { Finding } from "./types";
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 const keys = (v: Record<string, unknown>, names: string) => Object.keys(v).sort().join(",") === names;
@@ -8,7 +9,7 @@ function normalizedLeaks(value: unknown): Leak[] | undefined {
   if (!Array.isArray(value) || value.length > 128) return;
   const result: Leak[] = [];
   for (const row of value) {
-    if (!object(row) || !keys(row, "detectors,fingerprint,locations") || typeof row.fingerprint !== "string"
+    if (!object(row) || leakKeys(row) !== "detectors,fingerprint,locations" || typeof row.fingerprint !== "string"
         || !Array.isArray(row.detectors) || row.detectors.length > 256 || !Array.isArray(row.locations) || row.locations.length > 512) return;
     const detectors: Leak["detectors"] = [], locations: Leak["locations"] = [];
     for (const d of row.detectors) {
@@ -55,7 +56,7 @@ export function azureConfiguredPackageObservation(finding: Finding): string | un
     if (part.complete !== (completed.size === 2) || (e.complete && !part.complete)) return;
     let previous = "";
     for (const leak of part.leaks) {
-      if (!object(leak) || !keys(leak, "detectors,fingerprint,locations") || typeof leak.fingerprint !== "string"
+      if (!object(leak) || leakKeys(leak) !== "detectors,fingerprint,locations" || typeof leak.fingerprint !== "string"
           || !/^[0-9a-f]{64}$/.test(leak.fingerprint) || leak.fingerprint <= previous || !Array.isArray(leak.detectors)
           || !leak.detectors.length || leak.detectors.length > 128 || !Array.isArray(leak.locations)
           || JSON.stringify(leak.locations) !== JSON.stringify([{ path: part.path }])) return;
@@ -78,7 +79,7 @@ export function azureConfiguredPackageObservation(finding: Finding): string | un
   if (bytes > 8388608 || expected.length > 128 || expected.reduce((sum,l) => sum + l.locations.length,0) > 512
       || JSON.stringify(expected) !== JSON.stringify(normalizedLeaks(e.secret_leaks))
       || (finding.status === "FAIL") !== Boolean(expected.length) || (!e.complete && finding.status !== "FAIL")) return;
-  return expected.length ? "A likely secret was detected in the selected stored deployment package. Its value is hidden and was not validated"
+  return expected.length ? "A likely secret was detected in the selected stored deployment package. It was not validated"
     + (e.complete ? "." : "; inspection is incomplete.")
     : "Both offline detectors found no supported secret in the selected stored deployment package.";
 }

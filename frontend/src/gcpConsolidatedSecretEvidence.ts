@@ -1,3 +1,4 @@
+import { leakKeys } from "./foundSecretValue";
 import type { Finding } from "./types";
 import profile from "../../peaso/checks/gcp_consolidated_secret_profiles_20261020.json" with { type: "json" };
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -11,7 +12,7 @@ export function gcpConsolidatedSecretObservation(finding: Finding): string | und
   if (Object.keys(e).sort().join(",") !== (partial ? "complete,coverage,credential_validation,observed,secret_leaks" : "credential_validation,observed,secret_leaks")
       || e.credential_validation !== "not_attempted" || !Array.isArray(e.secret_leaks) || e.secret_leaks.length !== 1) return;
   const leak = e.secret_leaks[0];
-  if (!object(leak) || Object.keys(leak).sort().join(",") !== "detectors,fingerprint,locations"
+  if (!object(leak) || leakKeys(leak) !== "detectors,fingerprint,locations"
       || typeof leak.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(leak.fingerprint) || finding.secret_fingerprint !== leak.fingerprint
       || !Array.isArray(leak.detectors) || !leak.detectors.length || !Array.isArray(leak.locations) || !leak.locations.length) return;
   if (!leak.detectors.every(d => object(d) && Object.keys(d).sort().join(",") === "engine,rule"
@@ -24,7 +25,13 @@ export function gcpConsolidatedSecretObservation(finding: Finding): string | und
           : typeof value === "string" && value.length > 0 && value.length <= 4096)))
       || new Set(leak.locations.map(loc => JSON.stringify(fields.map(key => loc[key])))).size !== leak.locations.length) return;
   const count = leak.locations.length;
-  if (e.observed !== `The same secret was detected in ${count} scanned location(s). Its value is hidden.${partial ? " Coverage is incomplete." : ""}`) return;
+  const retained = typeof leak.value === "string"
+    ? ` Its matched value is shown in clear text so it can be rotated${leak.value_truncated === true ? ` (first ${leak.value.length} characters).` : "."}`
+    : " This scan did not retain its matched value.";
+  // Reports stored before found values were shown say "Its value is hidden.".
+  const legacy = typeof leak.value === "string" ? [] : [" Its value is hidden."];
+  if (![retained, ...legacy].some(text =>
+    e.observed === `The same secret was detected in ${count} scanned location(s).${text}${partial ? " Coverage is incomplete." : ""}`)) return;
   const locators: Record<string, {kind: string; prefix: string; part: boolean}> = profile.locators;
   if (linked.every(id => id in locators)) {
     const seen = new Set<string>();
@@ -44,5 +51,5 @@ export function gcpConsolidatedSecretObservation(finding: Finding): string | und
   const subject = linked.length === 1 && subjects[linked[0]] ? subjects[linked[0]]
     : linked.every(id => id in subjects) ? `selected ${[...new Set(linked.map(id => subjects[id].split(" ")[2]))].sort().join(" and ")} sources`
       : `${count} selected source ${count === 1 ? "location" : "locations"}`;
-  return `A likely secret was detected in ${subject}. Its value is hidden and was not validated${partial ? "; inspection is incomplete." : "."}`;
+  return `A likely secret was detected in ${subject}. It was not validated${partial ? "; inspection is incomplete." : "."}`;
 }

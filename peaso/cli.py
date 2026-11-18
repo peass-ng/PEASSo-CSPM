@@ -185,6 +185,12 @@ def _execute(args, selectors):
         with capture(EphemeralCipher(), options=effective_options(request), selected_checks=capture_checks(request)) as secret_capture:
             snapshot = collect_snapshot(request)
         snapshot = secret_capture.public_snapshot(snapshot)
+        from .secret_evidence import secret_values_entry
+        found_values = secret_values_entry(secret_capture)
+        if found_values:
+            # Found values are shown in clear text on their findings.
+            from .snapshot import validate
+            snapshot = validate(snapshot, **found_values)
         if args.command == 'scan':
             timings = {}
             value = evaluate_snapshot(snapshot, **effective_selectors, timings=timings,

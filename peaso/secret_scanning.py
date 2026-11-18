@@ -37,6 +37,8 @@ _RESULTS = OrderedDict()
 MAX_INPUT = 64 * 1024 * 1024
 MAX_OUTPUT = 4 * 1024 * 1024
 MAX_FINDINGS = 5000
+# Optional clear-text fields of a secret observation (see merge_leaks).
+FOUND_VALUE_FIELDS = ('value', 'value_truncated', 'context')
 # Longest a scanner process may queue for a slot when no collection lease
 # bounds the wait; the run's own deadline only starts once it holds a slot.
 MAX_SLOT_WAIT = 900
@@ -280,15 +282,27 @@ def _scan_trufflehog(payload, path, timeout):
 
 
 def merge_leaks(rows):
-    """Merge already-redacted observations, including different files/layers."""
+    """Merge observations of one value, including different files/layers.
+
+    A row may carry the found value in clear text (``value``, with
+    ``value_truncated`` when bounded, and a ``context`` snippet); one
+    fingerprint is one value, so the first supplied copy is kept.
+    """
     merged, seen = {}, {}
     for row in rows:
-        if not isinstance(row, dict) or set(row) != {'fingerprint', 'detectors', 'locations'}:
+        if (not isinstance(row, dict) or not {'fingerprint', 'detectors', 'locations'} <= set(row)
+                or set(row) - {'fingerprint', 'detectors', 'locations', *FOUND_VALUE_FIELDS}):
             raise ValueError('invalid secret observation')
         ident = row['fingerprint']
         if not isinstance(ident, str) or re.fullmatch('[0-9a-f]{64}', ident) is None:
             raise ValueError('invalid secret fingerprint')
+        if (any(not isinstance(row[field], str) or not row[field] for field in ('value', 'context') if field in row)
+                or row.get('value_truncated', True) is not True):
+            raise ValueError('invalid secret value')
         item = merged.setdefault(ident, {'fingerprint': ident, 'detectors': [], 'locations': []})
+        for field in FOUND_VALUE_FIELDS:
+            if field in row and field not in item:
+                item[field] = row[field]
         unique = seen.setdefault(ident, {'detectors': set(), 'locations': set()})
         if not isinstance(row['detectors'], list) or not row['detectors'] or not isinstance(row['locations'], list) or not row['locations']:
             raise ValueError('missing detector or location')
@@ -371,7 +385,7 @@ def scan_content(payload, path='content', *, timeout=15, _redact_values=None):
                  hmac.new(_KEY, path.encode('utf-8'), hashlib.sha256).digest())
     with _RESULT_LOCK:
         cached = _RESULTS.get(cache_key)
-    from .secret_evidence import batched, enabled as private_capture, remember
+    from .secret_evidence import batched, enabled as private_capture, remember, remember_public, match_context
     # Only clean outcomes are cached. A clean scan has no private side effect,
     # so reuse is exact with or without private evidence capture.
     if cached is not None:
@@ -429,6 +443,10 @@ def scan_content(payload, path='content', *, timeout=15, _redact_values=None):
                 # Retain the actual match/value/line association with its canonical witness.
                 if capture and value not in observed:
                     observed[value] = value.encode('utf-8') in payload
+                    # The found value is published in clear text with its
+                    # finding, with a short snippet of where it sits.
+                    remember_public(value, fingerprints[value],
+                                    match_context(payload, value) if observed[value] else None)
                 remember(value, fingerprints[value], path=path, public_path=path, line=line, engine=name, rule=_label(rule),
                          observed_bytes=not capture or observed[value])
                 observations.append({'fingerprint': fingerprints[value],

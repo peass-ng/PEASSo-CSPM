@@ -600,9 +600,10 @@ class CheckpointSession:
                 collections = dict(self.collections)
             cpu_started = time.thread_time()
             raw = self._snapshot(list(collections.values()), sequence=sequence, sections=sections)
-            from .secret_evidence import _lock as private_evidence_lock
+            from .secret_evidence import _lock as private_evidence_lock, secret_values_entry
             with private_evidence_lock, gc_paused():
-                snapshot = validate(self.public_snapshot(raw), owned=True)
+                # Progressive reports show found values like the final one.
+                snapshot = validate(self.public_snapshot(raw), owned=True, **secret_values_entry())
             if superseded is not None:
                 superseded()
             from .engine import evaluate_snapshot

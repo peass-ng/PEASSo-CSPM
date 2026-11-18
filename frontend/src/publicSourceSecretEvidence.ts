@@ -1,3 +1,4 @@
+import { leakKeys } from "./foundSecretValue";
 import type { Finding } from "./types";
 const profiles: Record<string, readonly [string,string,string]> = {
   "azure.review.function.selected_package_source_secret_indicators": ["azure","package_source_assertions","the selected stored deployment package"],
@@ -13,7 +14,7 @@ function validatedLeaks(value:unknown): Leak[] | undefined {
   if (!Array.isArray(value) || value.length > 1024) return;
   const result:Leak[]=[];
   for (const row of value) {
-    if (!object(row) || Object.keys(row).sort().join() !== "detectors,fingerprint,locations" || typeof row.fingerprint !== "string"
+    if (!object(row) || leakKeys(row) !== "detectors,fingerprint,locations" || typeof row.fingerprint !== "string"
         || !/^[0-9a-f]{64}$/.test(row.fingerprint) || !Array.isArray(row.detectors) || !row.detectors.length || row.detectors.length>128
         || !Array.isArray(row.locations) || !row.locations.length || row.locations.length>4096) return;
     const detectors:Detector[]=[], locations:Location[]=[];
@@ -110,6 +111,6 @@ export function publicSourceSecretObservation(f:Finding): string | undefined {
     }
   }
   if (canonical(leaks)!==canonical(global) || (e.complete===true && incomplete)) return;
-  return `A likely secret was detected in ${profile[2]}. Its value is hidden and was not validated`
+  return `A likely secret was detected in ${profile[2]}. It was not validated`
     +(incomplete ? "; inspection is incomplete." : ".");
 }
