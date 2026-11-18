@@ -330,7 +330,7 @@ _MULTILABEL_SERVICE_PREFIXES = {
     "email.cognito-idp", "ops.emr-serverless", "malware-protection.guardduty",
     "runtime-identity.bedrock-agentcore", "member.org.stacksets.cloudformation",
     "vpcorigin.cloudfront", "replication.dynamodb", "settings.replication.dynamodb",
-    "delivery.logs", "systemtables.cloudwatch",
+    "delivery.logs", "systemtables.cloudwatch", "management.chatbot",
 }
 _BUILTIN_OIDC = {"cognito-identity.amazonaws.com", "www.amazon.com", "graph.facebook.com", "accounts.google.com"}
 
