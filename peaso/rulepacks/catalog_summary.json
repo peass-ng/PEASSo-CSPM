@@ -1,5 +1,5 @@
 {
-  "native_checks": 4179,
+  "native_checks": 4180,
   "upstream_total": 6407,
   "upstream": {
     "ported": 3487,
@@ -14,7 +14,7 @@
   "outside_runtime_provider_scope": 561,
   "runtime_scope_upstream_total": 5846,
   "limitations": "Unported target references remain pending; other providers are explicitly out of scope. Reference tags are not certification.",
-  "active_native_checks": 3554,
+  "active_native_checks": 3555,
   "automation_scope": {
     "mode": "provider_read_only",
     "manual_attestations": false,
@@ -311,6 +311,7 @@
         "elasticache_serverless_cache",
         "elasticache_subnet_group",
         "elbv2_listener",
+        "elbv2_mtls_listener",
         "emr_block_public_access_configuration",
         "emr_cluster",
         "emr_container_endpoint",

@@ -1636,3 +1636,7 @@ _aws_ecs_revision_selection.install()
 # Security-service tamper SCPs are judged natively, without customer account or principal lists.
 from . import aws_organizations_tamper_scp as _aws_organizations_tamper_scp
 _aws_organizations_tamper_scp.install()
+
+# ALB mTLS trust stores that trust a CDN's shared origin-pull CA.
+from . import aws_elbv2_mtls_shared_ca as _aws_elbv2_mtls_shared_ca
+_aws_elbv2_mtls_shared_ca.install()

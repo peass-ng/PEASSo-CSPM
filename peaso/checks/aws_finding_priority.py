@@ -8,6 +8,9 @@ def contextual_severity(finding, default=None):
     if finding.get('provider')!='aws' or finding.get('status')!='FAIL':return baseline
     cid=finding.get('check_id');e=finding.get('evidence')
     if not isinstance(e,dict):return baseline
+    if cid=='aws.htbp.elbv2.mtls_no_shared_cdn_origin_ca':
+        # A shared CDN CA on an internal ALB is only reachable from inside the network.
+        return 'low' if e.get('internet_facing') is False else baseline
     ranges=[]
     if cid=='aws.ec2.restrict_internet_ingress':
         entries=e.get('internet_ingress')

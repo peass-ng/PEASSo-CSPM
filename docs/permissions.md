@@ -32,6 +32,12 @@ A few actions in those policies are not strictly reads but are needed to produce
 `iam:SimulatePrincipalPolicy` (all of which only compute data about IAM), and `apigateway:GET`.
 The template does not grant secret-value APIs such as `secretsmanager:GetSecretValue`.
 
+`elasticloadbalancing:GetTrustStoreCaCertificatesBundle` reads the CA certificates in an ALB mTLS
+trust store, which the shared CDN origin-pull CA check needs. The API returns a short-lived
+presigned S3 URL to an AWS-owned object. The scanner downloads it with a plain HTTPS GET, which
+needs no further IAM permission. Roles created from an older template need this action added.
+Without it, that check reports `UNKNOWN` and names the missing action.
+
 The hosted deployment serves this template from its own domain, and the web app generates the
 External ID for you.
 

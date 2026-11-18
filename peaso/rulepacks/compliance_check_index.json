@@ -1196,6 +1196,7 @@
 "aws.htbp.ecs.no_sensitive_host_mounts",
 "aws.htbp.eks.access_entries_authentication",
 "aws.htbp.eks.access_entry_principal_trust_boundary",
+"aws.htbp.elbv2.mtls_no_shared_cdn_origin_ca",
 "aws.htbp.glue.dev_endpoint_not_public",
 "aws.htbp.kms.grant_grantee_trust_boundary",
 "aws.htbp.lambda.env_var_names_not_credentials",

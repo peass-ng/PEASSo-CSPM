@@ -73,6 +73,14 @@ def _specific_observation(finding):
         if services:
             return (f'{len(unprotected)} member accounts can disable security services their SCPs do not protect: '
                     + ', '.join(services) + '.')
+    if cid == 'aws.htbp.elbv2.mtls_no_shared_cdn_origin_ca' and isinstance(e.get('shared_cdn_cas'), list):
+        providers = sorted({m.get('provider') for m in e['shared_cdn_cas'] if isinstance(m, dict) and isinstance(m.get('provider'), str)})
+        store = 'Trust store ' + e['trust_store_name'] if isinstance(e.get('trust_store_name'), str) else 'The trust store'
+        if not e['shared_cdn_cas']:
+            return f'{store} trusts no known shared CDN origin-pull CA.'
+        if providers:
+            return (f'{store} trusts the {", ".join(providers)} origin-pull CA shared by all its customers, so any of them '
+                    'can pass this listener\'s client-certificate check.')
     if cid == 'aws.review.cognito.app_client_refresh_token_rotation' and e.get('refresh_token_rotation') in ('ENABLED', 'DISABLED'):
         return 'Refresh token rotation is '+('enabled.' if e['refresh_token_rotation'] == 'ENABLED' else 'disabled.')
     if cid.startswith('aws.review.') and 'secret_indicators' in cid:

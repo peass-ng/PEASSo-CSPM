@@ -3789,6 +3789,8 @@ EXTENSION_MODULES += ("peaso.collectors.aws_media_legacy_exposure",)
 EXTENSION_MODULES += ("peaso.collectors.aws_quicksight_dashboard_shares",)
 # Image USER for ECS containers without a declared user (ECR content opt-in only).
 EXTENSION_MODULES += ("peaso.collectors.aws_ecs_image_user",)
+# CA identities trusted by ALB HTTPS listeners in mTLS verify mode.
+EXTENSION_MODULES += ("peaso.collectors.aws_elbv2_mtls_trust_store",)
 for _extension in EXTENSION_MODULES:
     _load_metadata_extension(_extension)
 

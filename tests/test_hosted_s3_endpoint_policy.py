@@ -57,3 +57,9 @@ def test_endpoint_allows_every_s3_read_the_collector_issues():
 def test_selected_object_versions_are_readable_through_the_endpoint():
     # Selected leak sources may pin a VersionId, which S3 authorizes separately.
     assert "s3:GetObjectVersion" in _customer_actions()
+
+
+def test_presigned_trust_store_bundle_downloads_pass_the_endpoint():
+    # GetTrustStoreCaCertificatesBundle returns a presigned URL to an AWS-owned
+    # bucket; the collector's plain GET of it is s3:GetObject on that object.
+    assert "s3:GetObject" in _customer_actions()
