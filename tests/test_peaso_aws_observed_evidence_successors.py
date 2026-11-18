@@ -675,9 +675,8 @@ def test_actual_evaluator_keeps_verdict_and_records_decisive_setting(cid):
         if state == 'pass':
             positive_fields = AWS_FIELDS[cid] | {'matched', 'active_attachment', 'policy'}
             if cid == 'aws.pci.shield.protection_all_internet_resources':
-                # Its unchanged PASS path records assessed resource counts;
-                # global_cloudfront_scope is an additive FAIL-path witness.
-                assert evidence['assessed'] == 0
+                # The positive fixture contains a native resource with matching protection.
+                assert evidence['assessed'] == 1
                 assert evidence['unprotected_resource_arns'] == []
                 positive_fields |= {'assessed', 'unprotected_resource_arns'}
             assert set(evidence) & positive_fields, (cid, state, evidence)

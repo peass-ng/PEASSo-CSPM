@@ -749,9 +749,6 @@ benign_write_medium_action_regex:
 - ^aps:PutAnomalyDetector$
 - ^[^:]+:PutAlarm$
 low_exact:
-# Registry search returns record metadata; it cannot invoke an agent or modify records.
-# https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_SearchRegistryRecords.html
-- bedrock-agentcore:SearchRegistryRecords
 - amplifybackend:GetToken
 - aoss:BatchGetCollection
 - aoss:BatchGetLifecyclePolicy
@@ -3149,6 +3146,7 @@ permission_categories:
   - bedrock-agentcore:ListSessions
   - bedrock-agentcore:ListTagsForResource
   - bedrock-agentcore:ListWorkloadIdentities
+  - bedrock-agentcore:SearchRegistryRecords
   - bedrock-mantle:GetInference
   - bedrock-mantle:GetModel
   - bedrock-mantle:ListModels

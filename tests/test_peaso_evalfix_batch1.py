@@ -160,13 +160,13 @@ def test_region_scp_must_attach_to_account():
     assert status(check_id, {}, index) == "PASS"
     policy["Targets"] = [{"TargetId": "r-example"}]
     index = idx(aws_account_configuration=[config], organization_policy=[policy])
-    assert status(check_id, {}, index) == "UNKNOWN"
+    assert status(check_id, {}, index) == "MANUAL"
     policy["Targets"] = []
     index = idx(aws_account_configuration=[config], organization_policy=[policy])
     assert status(check_id, {}, index) == "FAIL"
 
 
-def test_region_scp_extra_condition_and_narrow_resource_are_unknown():
+def test_region_scp_extra_condition_and_narrow_resource_need_manual_effective_review():
     statement = {"Effect": "Deny", "NotAction": "iam:*", "Resource": "*",
                  "Condition": {"StringNotEquals": {"aws:RequestedRegion": "us-east-1"}}}
     policy = {"Id": "p1", "Type": "SERVICE_CONTROL_POLICY", "Targets": [{"TargetId": ACCOUNT}],
@@ -176,22 +176,22 @@ def test_region_scp_extra_condition_and_narrow_resource_are_unknown():
     index = idx(aws_account_configuration=[config], organization_policy=[policy])
     assert status(check_id, {}, index) == "PASS"
     statement["Condition"]["StringEquals"] = {"aws:PrincipalTag/Env": "prod"}
-    assert status(check_id, {}, index) == "UNKNOWN"
+    assert status(check_id, {}, index) == "MANUAL"
     statement["Condition"].pop("StringEquals")
     statement["Condition"]["StringNotEquals"]["aws:PrincipalTag/Env"] = "prod"
-    assert status(check_id, {}, index) == "UNKNOWN"
+    assert status(check_id, {}, index) == "MANUAL"
     statement["Condition"]["StringNotEquals"].pop("aws:PrincipalTag/Env")
     statement["Resource"] = "arn:aws:s3:::one-bucket"
-    assert status(check_id, {}, index) == "UNKNOWN"
+    assert status(check_id, {}, index) == "MANUAL"
 
 
 @pytest.mark.parametrize("exclusions,expected", [
     (["cloudfront:*", "iam:*", "organizations:*", "route53:*", "support:*"], "PASS"),
     (["iam:*", "budgets:*", "waf:*"], "PASS"),
-    ("ec2:*", "UNKNOWN"),
-    (["iam:*", "ec2:*"], "UNKNOWN"),
-    ("*:*", "UNKNOWN"),
-    ("*", "UNKNOWN"),
+    ("ec2:*", "MANUAL"),
+    (["iam:*", "ec2:*"], "MANUAL"),
+    ("*:*", "MANUAL"),
+    ("*", "MANUAL"),
     ("iam:", "UNKNOWN"),
     ([], "UNKNOWN"),
 ])

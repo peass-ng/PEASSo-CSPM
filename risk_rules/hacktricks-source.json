@@ -3,7 +3,7 @@
   "revision": "cfaea7fce524b2ebfe99d91f55821069d171d0a1",
   "path": "src/permission-categorizations",
   "sha256": {
-    "aws.yaml": "f3bea801767054871788899659a60366952b445abfc55b0bf78c39e939f19615",
+    "aws.yaml": "7b4fcc45ff67f573283720c1240d9c127b619de44bed829c152b4a311eadb566",
     "gcp.yaml": "902dd791a2e1405a8d3fa81df91c42841145c33761a6ff11be2d11683d01354b",
     "azure.yaml": "6bbfc1e1982014a840b6c45acb4d6ef90f1fb15ab45753197e5d0be793c1205c",
     "k8s.yaml": "249e26b173c83bac64d718037042dc55df49b21165d9194c73ff8e24c6ffaa18"
@@ -17,9 +17,9 @@
   },
   "supplement": {
     "path": "risk_rules/reviewed-permission-supplement.json",
-    "sha256": "83c65edfcd042220ecdc8f3f4e1077fa1c3c526c1a5e3a8a86642e7dd933734e",
+    "sha256": "6aa61685c81f8b9d4f9e35e6729da8c43a31770f46de8b898b401c12b7def8e3",
     "review": {
-      "description": "Supervisor-reviewed additive catalog delta against the accepted rev2 source archive; 398 GCP ratings, 6 AWS ratings, and one AWS non-permission marker, authorized for durable sync in the rev3 review.",
+      "description": "Supervisor-reviewed additive catalog delta against the accepted rev2 source archive; 398 GCP ratings, 6 AWS ratings, and one AWS non-permission marker, authorized for durable sync in the rev3 review. Additional 2026-11-18 review: bedrock-agentcore:SearchRegistryRecords is low-risk registry metadata retrieval, per https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_SearchRegistryRecords.html; the original archive remains the historical baseline.",
       "baseline_archive": {
         "name": "peaso-source-668949d199b8df15bb8b481e4c426df8e2175ad00d95bb68b322866ceac137a9.zip",
         "sha256": "6c185cc66d8a86fab8251715e69ef794032c1d101d98022e584e1be964582d32"
@@ -27,7 +27,7 @@
       "provider_sha256": {
         "aws": {
           "baseline": "ac4c18437bae33a6e7a884ff5464a2f88c819a1b8a82994e202e7f6d3db95236",
-          "reviewed": "e1e220717a58fc45209a27e8936a8a0699af409adb62df9709d44e54d45f67e8"
+          "reviewed": "7b4fcc45ff67f573283720c1240d9c127b619de44bed829c152b4a311eadb566"
         },
         "gcp": {
           "baseline": "4ca95cbb6403cb296749a1c9da082c755d57714c85ae967187dfd9c4f6d4000e",
@@ -42,6 +42,7 @@
       "aws": {
         "low": [
           "acm:SearchCertificates",
+          "bedrock-agentcore:SearchRegistryRecords",
           "datazone:QueryGraph"
         ],
         "medium": [
