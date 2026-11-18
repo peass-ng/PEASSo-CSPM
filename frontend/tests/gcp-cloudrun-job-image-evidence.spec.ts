@@ -30,7 +30,7 @@ for (const fault of ["fingerprint", "linked_check", "resource", "scope", "layer"
     else if (fault === "layer") leak.locations[0].layer = "tag:latest";
     else if (fault === "path") leak.locations[0].path = "invented.txt";
     else if (fault === "line") leak.locations[0].line = -1;
-    else if (fault === "raw_value") leak.value = "never-render-this";
+    else if (fault === "raw_value") leak.value = "";
     else if (fault === "detector") leak.detectors[0].engine = "invented";
     else if (fault === "complete") e.complete = "true";
     else if (fault === "coverage") e.coverage = "incomplete";

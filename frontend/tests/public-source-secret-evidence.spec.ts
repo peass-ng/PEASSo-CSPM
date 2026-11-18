@@ -31,7 +31,7 @@ for (const provider of ["azure","gcp"]) for (const fault of ["provider","status"
     else if (fault==="engine") (section.engines as {status:string}[])[0].status="unavailable";
     else {
       const leak=(section[provider==="azure"?"leaks":"secret_leaks"] as Record<string,unknown>[])[0];
-      if (fault==="raw") leak.value="never-render";else leak.fingerprint="0".repeat(64);
+      if (fault==="raw") leak.value="";else leak.fingerprint="0".repeat(64);
     }
     expect(publicSourceSecretObservation(f)).toBeUndefined();
   });
