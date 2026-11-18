@@ -915,6 +915,14 @@ EXACT_COLLECTOR_READ_REFERENCES = {
 }
 VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(EXACT_COLLECTOR_READ_REFERENCES)
 
+# ALB mTLS trust store CA bundle (Read). It returns a presigned URL to an
+# AWS-owned S3 object; the GET needs no customer IAM permission.
+ELBV2_TRUST_STORE_BUNDLE_REFERENCE = {
+    'elasticloadbalancing:GetTrustStoreCaCertificatesBundle':
+        'https://docs.aws.amazon.com/service-authorization/latest/reference/list_awselasticloadbalancingv2.html',
+}
+VERIFIED_ACTIONS = VERIFIED_ACTIONS | frozenset(ELBV2_TRUST_STORE_BUNDLE_REFERENCE)
+
 
 def build_policy(read_actions=None, *, include_credential_report_generation=None,
                  include_waf_association_companions=True):

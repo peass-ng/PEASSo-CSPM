@@ -286,7 +286,8 @@
     "workload_referenced_source_content": "account",
     "build_deployment_referenced_source_content": "account",
     "aws_selected_workload_image_secrets": "ecr",
-    "ecr_public_selected_image_content": "ecr-public"
+    "ecr_public_selected_image_content": "ecr-public",
+    "elbv2_mtls_listener": "elasticloadbalancing"
   },
   "azure": {
     "access_review_definition": "Microsoft.Graph",

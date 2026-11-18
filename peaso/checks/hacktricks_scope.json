@@ -16825,6 +16825,10 @@
     "analysis.exposed_privileged_workload": {
       "decision": "include",
       "group": "security_configuration"
+    },
+    "aws.htbp.elbv2.mtls_no_shared_cdn_origin_ca": {
+      "decision": "include",
+      "group": "access_control"
     }
   }
 }

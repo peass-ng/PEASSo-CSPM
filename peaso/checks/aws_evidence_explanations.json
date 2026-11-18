@@ -30494,5 +30494,48 @@
   "aws.review.workload.selected_command_literal_secret_indicators": {
     "purpose": "Only selected definition command literals are covered; image defaults and runtime overrides are not assessed.",
     "missing_observation": "The selected ECS or Batch command literals could not be completely read and scanned."
+  },
+  "aws.htbp.elbv2.mtls_no_shared_cdn_origin_ca": {
+    "purpose": "A CDN origin-pull CA shared by all its customers lets any other customer of that CDN pass the listener's client-certificate check and bypass the owner's CDN WAF and access rules.",
+    "label": "ALB mTLS trust store does not trust a CDN shared origin-pull CA",
+    "review_status": "source_reviewed_and_native_replayed",
+    "fields": [
+      {
+        "key": "shared_cdn_cas",
+        "label": "Shared CDN CAs in the trust store",
+        "types": [
+          "list"
+        ]
+      },
+      {
+        "key": "trust_store_name",
+        "label": "Trust store",
+        "types": [
+          "text"
+        ]
+      },
+      {
+        "key": "load_balancer_dns_name",
+        "label": "Load balancer DNS name",
+        "types": [
+          "text"
+        ]
+      },
+      {
+        "key": "internet_facing",
+        "label": "Internet-facing load balancer",
+        "types": [
+          "boolean"
+        ]
+      },
+      {
+        "key": "mtls_mode",
+        "label": "mTLS mode",
+        "types": [
+          "text"
+        ]
+      }
+    ],
+    "missing_observation": "The saved result omits the deciding evidence for “ALB mTLS trust store does not trust a CDN shared origin-pull CA”."
   }
 }
