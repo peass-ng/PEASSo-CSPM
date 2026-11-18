@@ -31,11 +31,12 @@ def test_full_scan_retains_explicit_named_bulk_dependency(provider,check,kind,mo
  assert kind in engine.plan_collection(request)
 
 @pytest.mark.parametrize('provider', ['aws','azure','gcp','k8s'])
-def test_implicit_default_streams_are_unchanged(provider):
+def test_implicit_default_leaves_unconsumed_streams_opt_in(provider):
  from peaso.collectors import supported_types
  from peaso.checks.native_only import automated_inventory_types
  available=set(automated_inventory_types(provider,supported_types(provider)))
- expected=available-engine.BULK_STREAM_TYPES[provider]-({'iam_managed_policy'} if provider=='aws' else set())
+ consumed={'cloudtrail_event'} if provider=='aws' else set()
+ expected=available-(engine.BULK_STREAM_TYPES[provider]-consumed)-({'iam_managed_policy'} if provider=='aws' else set())
  assert set(engine.plan_collection({'connector':{'provider':provider}}))==expected
  assert set(engine.plan_collection({'connector':{'provider':provider},'categories':list(engine.CATEGORIES),'checks':[]}))==expected
 
