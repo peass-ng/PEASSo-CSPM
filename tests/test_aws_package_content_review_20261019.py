@@ -643,7 +643,7 @@ def _image_layer(monkeypatch, members, detected=False):
     return _image_layers(monkeypatch, [members], detected)
 
 
-def _image_layers(monkeypatch, layers, detected=False, steps=None):
+def _enriched_image(monkeypatch, layers, detected=False, steps=None):
     """The synthetic ECR image with one layer per ``layers`` entry, lowest first.
 
     ``steps`` are the build steps recorded in history for each layer.
@@ -677,7 +677,13 @@ def _image_layers(monkeypatch, layers, detected=False, steps=None):
     document['layers'] = [dict(document['layers'][0], size=len(blob), digest=digest(blob)) for blob in blobs]
     _replace_manifest(ops, document)
     ops['get_download_url_for_layer'] = lambda **kw: {'layerDigest': kw['layerDigest'], 'downloadUrl': urls[kw['layerDigest']]}
-    result = p.ENRICHERS['ecr_repository'](requests, session, REGION, [item])[0]
+    return p.ENRICHERS['ecr_repository'](requests, session, REGION, [item])[0]
+
+
+def _image_layers(monkeypatch, layers, detected=False, steps=None):
+    """The check's verdict on the synthetic image, read as the engine reads it: a sealed, read-only item."""
+    from peaso.snapshot import freeze
+    result = freeze(_enriched_image(monkeypatch, layers, detected, steps))
     return c.image_layers(result, index('ecr_repository', result))
 
 
@@ -1059,12 +1065,23 @@ def _amplitude_rule(monkeypatch):
 
 
 def test_amplitude_browser_api_key_in_client_chunk_is_not_a_leak(monkeypatch):
+    """Collector to report: the image passes and names the public key in clear text."""
+    from peaso import engine
+    from peaso.snapshot import make_snapshot
     _amplitude_rule(monkeypatch)
-    status, evidence = _image_layer(monkeypatch, [(CHUNK, SDK_INIT)])
-    assert status == 'PASS' and evidence['references'] == [], evidence
+    enriched = _enriched_image(monkeypatch, [[('app/server.js', b'listen(3000)'), (CHUNK, SDK_INIT)]])
+    check = next(d['id'] for d in c.DECLARATIONS if d['kind'] == 'ecr_repository')
+    report = engine.evaluate_snapshot(make_snapshot('aws', [ACCOUNT + '/' + REGION], [
+        {'type': 'ecr_repository', 'scope': ACCOUNT + '/' + REGION, 'status': 'collected', 'items': [enriched]}]),
+        checks=[check])
+    finding, = [f for f in report['findings'] if check in [f['check_id'], *f.get('linked_check_ids', [])]]
+    evidence = finding['evidence']
+    assert finding['status'] == 'PASS' and evidence['references'] == [] and evidence['secret_leaks'] == [], evidence
     identifier, = evidence['public_client_identifiers']
     assert identifier['File'] == CHUNK and identifier['Value'] == AMPLITUDE_KEY
     assert identifier['Kind'] == 'amplitude_browser_api_key' and 'public by design' in identifier['Reason']
+    assert identifier['LayerDigest'].startswith('sha256:')
+    assert [d['rule'] for d in identifier['Detectors']] == ['betterleaks.amplitude-secret-key']
 
 
 @pytest.mark.parametrize('path, payload', [

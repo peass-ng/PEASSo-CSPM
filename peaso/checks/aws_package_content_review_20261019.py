@@ -36,6 +36,11 @@ _COVERAGE = {'SkippedFiles': ('skipped_third_party_files', {'Reason': str}),
                                          {'Kind': str, 'Reason': str, 'Value': str, 'Detectors': list})}
 
 
+def _typed(value, kind):
+    # Evaluation reads sealed snapshots, whose lists are read-only list views.
+    return isinstance(value, list) if kind is list else type(value) is kind
+
+
 def _coverage(indicator, layered, children):
     """Evidence lists naming skipped, uncovered and public-identifier files, validated."""
     files = {}
@@ -50,7 +55,7 @@ def _coverage(indicator, layered, children):
             allowed = {'File', *extra} | ({'LayerDigest'} if layered else set()) | ({'ChildManifestDigest'} if children else set())
             if (not isinstance(row, dict) or not {'File', *extra} <= set(row) <= allowed
                     or not isinstance(row['File'], str) or not 0 < len(row['File']) <= 256
-                    or any(type(row[name]) is not kind or not row[name] for name, kind in extra.items())
+                    or any(not _typed(row[name], kind) or not row[name] for name, kind in extra.items())
                     or 'LayerDigest' in row and not _digest(row['LayerDigest'])
                     or 'ChildManifestDigest' in row and row['ChildManifestDigest'] not in children):
                 raise Unavailable('invalid coverage entry')
