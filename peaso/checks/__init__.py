@@ -1632,3 +1632,7 @@ _unused_iam_azure.install(__import__(__name__, fromlist=['CHECKS']))
 # Configuration checks judge in-use and latest ECS task-definition revisions only.
 from . import aws_ecs_revision_selection as _aws_ecs_revision_selection
 _aws_ecs_revision_selection.install()
+
+# Security-service tamper SCPs are judged natively, without customer account or principal lists.
+from . import aws_organizations_tamper_scp as _aws_organizations_tamper_scp
+_aws_organizations_tamper_scp.install()

@@ -29068,8 +29068,8 @@
     "missing_observation": "The saved result omits the deciding evidence for “Organizations approved EC2 instance-type SCP”."
   },
   "aws_organizations_security_service_tamper_scp": {
-    "purpose": "Tamper-denial SCPs can protect security services; break-glass exceptions and complete effective policy paths need review.",
-    "label": "Organizations security-service tamper restrictions",
+    "purpose": "SCPs that deny disabling GuardDuty, Config, Security Hub and CloudTrail stop a member-account administrator from blinding monitoring; exempted principals still need review.",
+    "label": "Organizations security-service tamper SCPs",
     "review_status": "source_reviewed_and_native_replayed",
     "fields": [
       {
@@ -29078,9 +29078,58 @@
         "types": [
           "list"
         ]
+      },
+      {
+        "key": "unprotected_services",
+        "label": "Unprotected services per account",
+        "types": [
+          "object"
+        ]
+      },
+      {
+        "key": "missing_actions",
+        "label": "Tamper actions not denied per account",
+        "types": [
+          "object"
+        ]
+      },
+      {
+        "key": "assessed_accounts",
+        "label": "Assessed member accounts",
+        "types": [
+          "list"
+        ]
+      },
+      {
+        "key": "scp_exempt_accounts",
+        "label": "SCP-exempt management account",
+        "types": [
+          "list"
+        ]
+      },
+      {
+        "key": "exempted_principals",
+        "label": "Principals exempted from the deny",
+        "types": [
+          "object"
+        ]
+      },
+      {
+        "key": "conditionally_denied_actions",
+        "label": "Actions denied only under other conditions",
+        "types": [
+          "object"
+        ]
+      },
+      {
+        "key": "access_analyzer_delete_not_denied_accounts",
+        "label": "Accounts that can delete Access Analyzer analyzers",
+        "types": [
+          "list"
+        ]
       }
     ],
-    "missing_observation": "The saved result omits the deciding evidence for “Organizations security-service tamper restrictions”."
+    "missing_observation": "The saved result omits the deciding evidence for “Organizations security-service tamper SCPs”."
   },
   "aws_partner_role_external_id_present": {
     "purpose": "A partner ExternalId condition reduces confused-deputy risk; presence alone does not prove uniqueness or secure partner handling.",

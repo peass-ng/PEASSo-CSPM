@@ -132,6 +132,9 @@ def _base_description_for(check_id):
     if check_id == 'aws_g6_ecr_public_repositories_absent':
         from .aws_ecr_source_correction import description
         return description()
+    if check_id == 'aws_organizations_security_service_tamper_scp':
+        from .aws_organizations_tamper_scp import description
+        return description()
     from .aws_policy_source_correction import CORRECTIONS, description as aws_policy_description
     if check_id in CORRECTIONS:
         return aws_policy_description(check_id)

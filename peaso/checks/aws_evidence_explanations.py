@@ -64,6 +64,15 @@ def _value(value, allowed):
 def _specific_observation(finding):
     """Decisive native shapes that cannot be summarized as generic field counts."""
     cid, e = finding['check_id'], finding['evidence']
+    if cid == 'aws_organizations_security_service_tamper_scp' and isinstance(e.get('unprotected_services'), dict):
+        unprotected = e['unprotected_services']
+        names = {'guardduty': 'GuardDuty', 'config': 'AWS Config', 'securityhub': 'Security Hub', 'cloudtrail': 'CloudTrail'}
+        services = sorted({names[s] for gaps in unprotected.values() if isinstance(gaps, list) for s in gaps if s in names})
+        if not unprotected:
+            return 'Every member account inherits SCPs denying GuardDuty, Config, Security Hub and CloudTrail tampering.'
+        if services:
+            return (f'{len(unprotected)} member accounts can disable security services their SCPs do not protect: '
+                    + ', '.join(services) + '.')
     if cid == 'aws.review.cognito.app_client_refresh_token_rotation' and e.get('refresh_token_rotation') in ('ENABLED', 'DISABLED'):
         return 'Refresh token rotation is '+('enabled.' if e['refresh_token_rotation'] == 'ENABLED' else 'disabled.')
     if cid.startswith('aws.review.') and 'secret_indicators' in cid:

@@ -229,6 +229,7 @@
         "aws_guardduty_high_finding_alert",
         "aws_identity_center_sso_configured",
         "aws_inspector_critical_image_findings_alert",
+        "aws_organizations_security_service_tamper_scp",
         "aws_route53resolver_blocked_query_alert",
         "aws_securityhub_critical_findings_alert",
         "aws_securityhub_medium_findings_alert",
@@ -239,7 +240,7 @@
         "aws_vpc_uses_amazonprovided_dns",
         "aws_wafv2_rate_rule_alarm"
       ],
-      "supported_native_checks": 57,
+      "supported_native_checks": 58,
       "source_checks": 49,
       "pending_source_checks": 0,
       "manual_requirements": 2,
@@ -254,7 +255,7 @@
       },
       "pending_automatable_requirements": 0,
       "requirement_counts_scope": "reviewed_source_reference",
-      "excluded_custom_checks": 24
+      "excluded_custom_checks": 23
     },
     {
       "id": "aws_ai_security_framework_aws",
