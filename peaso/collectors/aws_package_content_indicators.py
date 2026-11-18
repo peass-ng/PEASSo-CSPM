@@ -1132,7 +1132,16 @@ def _image(response, arguments, requests, session, region):
                                 image_digest=digest, layer=descriptors[0][0], native=document,
                                 location_kind='configuration', path='image-config',
                                 check_ids=IMAGE_CHECKS):
-                add_refs(scan_noting('\n'.join(texts).encode(), 'image-config', descriptors[0][0]), descriptors[0][0])
+                # An unscanned config is named and the layers are still
+                # scanned: one engine miss never leaves the whole image unread.
+                try:
+                    add_refs(scan_noting('\n'.join(texts).encode(), 'image-config', descriptors[0][0]), descriptors[0][0])
+                except PartialArchive as partial:
+                    add_refs(partial.refs, descriptors[0][0])
+                    complete = False
+                    causes.update(('engine_incomplete',) + partial.causes)
+                    name_file(uncovered, {'File': 'image-config', 'LayerDigest': descriptors[0][0],
+                                          'Cause': 'engine_incomplete'})
             remaining = [CONTENT_LIMIT]
             steps = layer_build_steps(history, len(descriptors) - 1)
             def observe(name, reader, size, layer_index):
