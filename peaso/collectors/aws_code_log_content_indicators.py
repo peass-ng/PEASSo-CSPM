@@ -262,10 +262,16 @@ def _base(item, region, scope):
 def _failure(scan, exc):
     from .aws import _failure as failure
     info = failure(exc)
-    # Never retain arbitrary exception messages, request IDs or SDK response data.
+    # Never retain arbitrary exception messages, request IDs or SDK response
+    # data; the provider error code is already reduced to a bounded token.
     status = 'malformed' if isinstance(exc, (ValueError, TypeError, KeyError)) else info.status
-    scan['errors'].append({'status': status, 'code': 'content_read_incomplete'})
-    scan['collection_status'] = 'partial' if scan['records'] else status
+    code = '' if isinstance(exc, (ValueError, TypeError, KeyError)) else str(info.code)
+    scan['errors'].append({'status': status, 'code': code if re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', code)
+                           else 'content_read_incomplete'})
+    # Clean log events fold into counters instead of records: a window read
+    # that stopped after scanning some events is partial, not unread.
+    scanned = scan['records'] or scan.get('events_inspected', 0) > 0
+    scan['collection_status'] = 'partial' if scanned else status
     return scan
 
 

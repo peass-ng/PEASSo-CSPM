@@ -214,24 +214,33 @@ class CommandProof(unittest.TestCase):
         self.assertTrue(all(len(scan['engines']) == 2 for r in result['items'] for scan in r['scans']))
         self.assertEqual(consumer.evaluate_collection(result)[0], 'PASS')
 
-    def test_03_missing_fields_remain_unknown_and_valid_partial_positive_survives(self):
-        for missing in ('entryPoint', 'command'):
+    def test_03_unset_fields_are_zero_literals_malformed_fields_unknown(self):
+        # ECS/Batch omit an entryPoint or command the definition does not set;
+        # most real task definitions set neither and must still be assessed.
+        for unset in (('entryPoint',), ('command',), ('entryPoint', 'command')):
             t = target()
             payload = response(t)
-            payload['taskDefinition']['containerDefinitions'][0].pop(missing)
+            for key in unset:
+                payload['taskDefinition']['containerDefinitions'][0].pop(key)
             result, _ = self.capture([(t, payload)])
-            self.assertEqual(self.statuses(result), ['UNKNOWN'])
+            self.assertEqual(self.statuses(result), ['PASS'])
+            self.assertEqual(consumer.evaluate_collection(result)[0], 'PASS')
+        t = target('batch')
+        payload = response(t)
+        payload['jobDefinitions'][0]['containerProperties'].pop('command')
+        result, _ = self.capture([(t, payload)])
+        self.assertEqual(self.statuses(result), ['PASS'])
         t = target()
         payload = response(t, [TOKEN])
         payload['taskDefinition']['containerDefinitions'][0].pop('entryPoint')
         result, _ = self.capture([(t, payload)])
         self.assertEqual(self.statuses(result), ['FAIL'])
-        self.assertFalse(consumer.evaluate(result['items'][0], result)[1]['complete'])
-        t = target('batch')
-        payload = response(t)
-        payload['jobDefinitions'][0]['containerProperties'].pop('command')
-        result, _ = self.capture([(t, payload)])
+        def malformed(parsed, **kwargs):
+            parsed['taskDefinition']['containerDefinitions'][0]['command'] = 'echo ready'
+        t = target()
+        result, _ = self.capture([(t, response(t))], after=malformed)
         self.assertEqual(self.statuses(result), ['UNKNOWN'])
+        self.assertIn('definition_read_incomplete', consumer.evaluate_collection(result)[1]['reason'])
 
     def test_04_exact_native_identity_revision_active_status_and_uniqueness(self):
         for service in ('ecs', 'batch'):

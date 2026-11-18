@@ -154,15 +154,25 @@ def test_native_clean_and_explicit_empty_complete(monkeypatch, empty):
     assert [f['status'] for f in findings(snapshot)] == ['PASS']
 
 
-def test_missing_command_is_unknown_and_partial_positive_survives(monkeypatch):
+def test_unset_entrypoint_keeps_positive_with_a_denied_definition(monkeypatch):
     ecs, batch = target(), target('batch')
     payload = response(ecs, [TOKEN]); del payload['taskDefinition']['containerDefinitions'][0]['entryPoint']
     snapshot, _ = capture(monkeypatch, [(ecs, payload), (batch, None)])
     failed, = [f for f in findings(snapshot) if f['status'] == 'FAIL']
     assert failed['evidence']['complete'] is False
-    payload = response(ecs); del payload['taskDefinition']['containerDefinitions'][0]['command']
-    snapshot, _ = capture(monkeypatch, [(ecs, payload)])
-    assert all(f['status'] == 'UNKNOWN' for f in findings(snapshot))
+
+
+@pytest.mark.parametrize('unset', [('command',), ('entryPoint',), ('entryPoint', 'command')])
+def test_definition_without_entrypoint_or_command_is_assessed(monkeypatch, unset):
+    # ECS omits an unset entryPoint/command (the image's ENTRYPOINT/CMD runs):
+    # most real task definitions set neither, and that read is complete.
+    ecs, batch = target(), target('batch')
+    payload = response(ecs)
+    for key in unset:
+        del payload['taskDefinition']['containerDefinitions'][0][key]
+    job = response(batch); del job['jobDefinitions'][0]['containerProperties']['command']
+    snapshot, _ = capture(monkeypatch, [(ecs, payload), (batch, job)])
+    assert [f['status'] for f in findings(snapshot)] == ['PASS']
 
 
 @pytest.mark.parametrize('mutation', ['denied', 'revision', 'foreign', 'eks', 'placeholder'])
