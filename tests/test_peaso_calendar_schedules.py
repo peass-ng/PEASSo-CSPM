@@ -82,6 +82,12 @@ def store(request, tmp_path):
             yield instance
 
 
+def pin_clock(store, now):
+    # Jobs carry a retention TTL; read them at the fixture's date, not the wall clock.
+    if hasattr(store, 'clock'):
+        store.clock = lambda: now
+
+
 def new_schedule(store):
     connector = store.add_connector('alice', {'provider': 'aws', 'name': 'Calendar'}, 'ciphertext')
     data = {'connector_id': connector['id'], 'ai_enabled': False, 'timezone': 'UTC', 'rules': [
@@ -93,6 +99,7 @@ def new_schedule(store):
 def test_both_storage_adapters_dispatch_and_advance_to_next_calendar_rule(store):
     item, data = new_schedule(store)
     now = stamp('2026-10-19T09:00:35Z')
+    pin_clock(store, now)
     due = store.due_schedules(now)[0]
     job = store.trigger_schedule(due, limit=10, now=now)
     assert job['connector_id'] == data['connector_id']
@@ -172,6 +179,7 @@ def test_hosted_scheduler_handler_dispatches_calendar_occurrence(store, tmp_path
     item, data = new_schedule(store)
     now = stamp('2026-10-19T09:00:20Z')
     monkeypatch.setattr('time.time', lambda: now)
+    pin_clock(store, now)
     worker = Worker('collector', Settings(state_dir=tmp_path/'worker-state', identity_dir=tmp_path/'identity'),
         store=store, artifacts=SimpleNamespace(), authenticator=SimpleNamespace(is_paid=lambda tenant: True))
     # The scheduler now checks actual saved credentials before dispatch. Keep
