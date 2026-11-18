@@ -435,11 +435,21 @@ def scan_content(payload, path='content', *, timeout=15, _redact_values=None):
     if _redact_values is not None:
         _redact_values(frozenset())
     fingerprints = {value: _fingerprint(value) for value in known_values}
+    # Public-by-design browser keys are not leaks; each is recorded with why.
+    from .secret_public_identifiers import public_client_identifiers
+    public = public_client_identifiers(matches_by_engine, payload, path)
     capture = private_capture()
-    observed = {}
+    observed, identifiers = {}, {}
     with batched():
         for name, matches in matches_by_engine:
             for value, rule, line in matches:
+                if value in public:
+                    row = identifiers.setdefault(value, {'value': value, 'kind': public[value]['id'],
+                        'reason': public[value]['reason'], 'path': path, 'detectors': []})
+                    detector = {'engine': name, 'rule': _label(rule)}
+                    if detector not in row['detectors']:
+                        row['detectors'].append(detector)
+                    continue
                 # Retain the actual match/value/line association with its canonical witness.
                 if capture and value not in observed:
                     observed[value] = value.encode('utf-8') in payload
@@ -454,6 +464,8 @@ def scan_content(payload, path='content', *, timeout=15, _redact_values=None):
                     'locations': [{'path': path, **({'line': line} if type(line) is int and line > 0 else {})}]})
     outcome = {'leaks': merge_leaks(observations), 'engines': engines,
                'complete': all(row['status'] == 'complete' for row in engines)}
+    if identifiers:
+        outcome['public_identifiers'] = [identifiers[value] for value in sorted(identifiers)]
     # Repeated logs/layers reuse only a complete, clean outcome. It holds no
     # raw content, path, secret or failed result.
     if outcome['complete'] and not outcome['leaks']:

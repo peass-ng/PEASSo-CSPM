@@ -72,6 +72,11 @@ _ECR_IMAGE_URI = re.compile(
 # A Lambda function may run an image in another account's registry. Only the
 # function path authorizes that exact foreign repository, for this call chain.
 _FOREIGN_IMAGE = ContextVar('peaso_lambda_foreign_image', default=None)
+# Public client identifiers (secret_public_identifiers) that the scans of the
+# current package or image matched but did not report, with their reason.
+_PUBLIC_NOTES = ContextVar('peaso_package_public_identifiers', default=None)
+# Most files named per coverage list (skipped, uncovered, public identifiers).
+NOTE_LIMIT = 100
 
 
 def _failure(code='package_content_unavailable'):
@@ -234,6 +239,13 @@ def _scan(raw, name, requests):
                 for reason in UNAVAILABLE_REASONS.get()):
             outcome = scan_content(bytes(raw), name, timeout=RETRY_SCAN_TIMEOUT)
         categories = inspect_text(raw.decode('latin-1'), 'unused')['MatchedCategories']
+    notes = _PUBLIC_NOTES.get()
+    if notes is not None:
+        for row in outcome.get('public_identifiers', ()):
+            note = {'File': name, 'Kind': row['kind'], 'Reason': row['reason'], 'Value': row['value'],
+                    'Detectors': row['detectors']}
+            if len(notes) < NOTE_LIMIT and note not in notes:
+                notes.append(note)
     if 'private_key' in categories and not _PEM_BODY.search(raw):
         # A PEM header without key material (documentation, parsers) is no key.
         categories = [category for category in categories if category != 'private_key']
@@ -514,11 +526,21 @@ def scan_tar(raw, media_type, requests, budget=None):
     return refs, expanded, count
 
 
-def marker(identity, account, region, operation, refs, *, complete=True, code=None):
-    return {'Schema': SCHEMA, 'ResourceId': identity, 'AccountId': account, 'Region': region,
-            'SourceOperation': operation, 'NativeResponseComplete': complete,
-            'collection_status': 'collected' if complete else 'partial', 'References': refs,
-            'HighConfidenceSecretPresent': bool(refs), 'Reason': code}
+# Optional marker lists naming files: third-party files not read, files left
+# uncovered (with the cause) and public client identifiers not reported.
+COVERAGE_FIELDS = ('SkippedFiles', 'UncoveredFiles', 'PublicClientIdentifiers')
+
+
+def marker(identity, account, region, operation, refs, *, complete=True, code=None, coverage=None):
+    result = {'Schema': SCHEMA, 'ResourceId': identity, 'AccountId': account, 'Region': region,
+              'SourceOperation': operation, 'NativeResponseComplete': complete,
+              'collection_status': 'collected' if complete else 'partial', 'References': refs,
+              'HighConfidenceSecretPresent': bool(refs), 'Reason': code}
+    for field in COVERAGE_FIELDS:
+        rows = (coverage or {}).get(field)
+        if rows:
+            result[field] = rows[:NOTE_LIMIT]
+    return result
 
 
 def parse_ecr_image_uri(uri):
@@ -601,15 +623,19 @@ def _lambda(response, operation, arguments, requests, region):
     if len(expected_digest) != 32: raise ValueError('package hash malformed')
     raw = download(requests, code['Location'], region, ZIP_LIMIT, size)
     if hashlib.sha256(raw).digest() != expected_digest: raise ValueError('package hash mismatch')
-    complete = True
+    complete, notes = True, []
+    token = _PUBLIC_NOTES.set(notes)
     try:
         with source_context(resource_id=identity, scope=account + '/' + region, source='lambda:' + operation + ':' + str(version),
                             check_ids={'aws.review.' + ('lambda_function' if operation == 'get_function' else 'lambda_layer_version') + '.package_content_secret_indicators'}):
             refs, _, _ = scan_zip(raw, requests)
     except PartialArchive as partial:
         refs, complete = partial.refs, False
+    finally:
+        _PUBLIC_NOTES.reset(token)
     return {'PackageSecretIndicators': marker(identity, account, region, 'lambda:' + operation, refs, complete=complete,
-            code=None if complete else incomplete_reason('package_content_incomplete', {'engine_incomplete'})),
+            code=None if complete else incomplete_reason('package_content_incomplete', {'engine_incomplete'}),
+            coverage={'PublicClientIdentifiers': notes}),
             'SourceVersion': version}
 
 
@@ -660,14 +686,13 @@ def _scan_reader(reader, size, name, requests, remaining, enqueue=None, causes=N
 
     Text is scanned as read. From the first window holding a NUL byte the file
     is treated as binary: its printable strings (``strings -n 8``) are scanned
-    instead, through the same windows, bounds and member path.
+    instead, through the same windows, bounds and member path. A file of any
+    size is scanned this way; only the image's content budget bounds it.
     When ``causes`` is a set, the concrete reason a file stays uncovered is added to it.
     """
     causes = set() if causes is None else causes
     if not isinstance(name, str) or len(name) > 256:
         causes.add('path_bound'); return [], False
-    if size > FILE_LIMIT:
-        causes.add('file_size_bound'); return [], False
     if remaining[0] < size:
         causes.add('content_budget_bound'); return [], False
     refs, overlap, consumed, binary, carry = [], b'', 0, False, b''
@@ -683,7 +708,8 @@ def _scan_reader(reader, size, name, requests, remaining, enqueue=None, causes=N
             chunk, carry = _printable_strings(carry + chunk, consumed >= size)
             if not chunk:
                 continue
-        payload = overlap + chunk
+        # Printable strings of separate windows are separate strings, as within one.
+        payload = overlap + (b'\n' if binary and overlap else b'') + chunk
         if enqueue is not None:
             if not enqueue(payload, name):
                 causes.add('engine_incomplete'); return refs, False
@@ -729,6 +755,35 @@ _PEM_BODY = re.compile(rb'-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVA
                        rb'(?:\s|\\+[rn]|[A-Za-z-]+:[^\r\n]{0,200}(?:\r?\n|\\+n))*[A-Za-z0-9+/]{40}')
 # Merged /usr: a package may list lib/x while the image stores usr/lib/x, or the reverse.
 _USR_MERGED = re.compile(r'(?:s?bin|lib[^/]*)/')
+# Language runtimes that official base images install from the upstream
+# release archive, not through a package manager: (the upstream release host
+# that build step downloads from, the large files that archive installs).
+# A file beyond FILE_LIMIT at such a path, in the layer whose recorded build
+# step downloads from that host, is third-party distribution content: it is
+# not read, and the evidence names it as skipped. Anywhere else, or produced
+# by any other step (a COPY, a customer build), it is scanned like any file.
+RUNTIME_DISTRIBUTIONS = (
+    # node:<version> images: nodejs.org/dist (unofficial-builds.nodejs.org on Alpine).
+    (re.compile(r'https://(?:[a-z-]+\.)?nodejs\.org/'), re.compile(r'usr/local/bin/node')),
+    # eclipse-temurin images: github.com/adoptium release binaries.
+    (re.compile(r'https://github\.com/adoptium/'),
+     re.compile(r'opt/java/openjdk/(?:lib/modules|lib/server/libjvm\.so|jmods/[^/]+\.jmod)')),
+)
+
+
+def layer_build_steps(history, layer_count):
+    """Each layer's recorded build step (``created_by``), or None when history does not map 1:1."""
+    if not isinstance(history, list):
+        return None
+    steps = [entry.get('created_by') for entry in history
+             if isinstance(entry, dict) and entry.get('empty_layer') is not True]
+    return steps if len(steps) == layer_count and all(isinstance(step, str) for step in steps) else None
+
+
+def runtime_distribution(path, step):
+    """Whether ``path`` is a runtime file installed from its upstream archive by build ``step``."""
+    return isinstance(step, str) and any(
+        host.search(step) and files.fullmatch(path) for host, files in RUNTIME_DISTRIBUTIONS)
 
 
 class _ObservedReader:
@@ -880,6 +935,7 @@ def _image(response, arguments, requests, session, region):
         graph = {'parent_digest': digest, 'media_type': manifest['mediaType'],
                  'children': [], 'complete': False, 'parent_binding_stable': False}
         refs, total_compressed, output_bytes, stable = [], 0, 0, False
+        coverage = {field: [] for field in COVERAGE_FIELDS}
         def fetch(child_digest, size, media_type):
             child_raw, child_doc = reader.manifest(repo, child_digest)
             _require_index(len(child_raw) == size and child_doc['mediaType'] == media_type)
@@ -928,6 +984,11 @@ def _image(response, arguments, requests, session, region):
                     if ref.get('Leaks'):
                         reuse_image_layer(ref['Leaks'], resource_id=identity, scope=account + '/' + region,
                             image_digest=digest, source=child_digest, layer=ref['LayerDigest'])
+                for field in COVERAGE_FIELDS:
+                    rows = selected.get(field, [])
+                    _require_index(type(rows) is list)
+                    coverage[field].extend({**row, 'ChildManifestDigest': child_digest} for row in rows
+                                           if type(row) is dict)
                 _require_index(selected['NativeResponseComplete'] is True)
             graph['complete'] = True
             rebind(); stable = True
@@ -944,7 +1005,7 @@ def _image(response, arguments, requests, session, region):
         graph['parent_binding_stable'] = stable
         complete = bool(graph['complete'] and stable)
         result = marker(identity, account, region, 'ecr:batch_get_image', refs,
-            complete=complete, code=None if complete else 'image_content_incomplete')
+            complete=complete, code=None if complete else 'image_content_incomplete', coverage=coverage)
         result['IndexGraph'] = graph
         return {'PackageSecretIndicators': result, 'ImageDigest': digest}
     layers, config = manifest.get('layers'), manifest.get('config')
@@ -971,6 +1032,17 @@ def _image(response, arguments, requests, session, region):
     state = requests._package_scan_local
     state.budget = [ECR_IMAGE_LIMIT]
     refs, complete, paths, output_bytes, causes = [], True, [], [0], set()
+    skipped, uncovered, notes = [], [], []
+    def name_file(rows, row):
+        if len(rows) < NOTE_LIMIT and row not in rows:
+            rows.append(row)
+    def scan_noting(payload, name, ld):
+        start = len(notes)
+        try:
+            return _scan(payload, name, requests)
+        finally:
+            for note in notes[start:]:
+                note.setdefault('LayerDigest', ld)
     def add_refs(found, ld):
         nonlocal complete
         for ref in found:
@@ -1000,18 +1072,20 @@ def _image(response, arguments, requests, session, region):
                                         image_digest=digest, layer=ld,
                                         check_ids=IMAGE_CHECKS):
                         try:
-                            found = _scan(payload, name, requests)
+                            found = scan_noting(payload, name, ld)
                         except PartialArchive as partial:
                             add_refs(partial.refs, ld)
                             failed_files.add(file_key)
                             complete = False
                             causes.update(('engine_incomplete',) + partial.causes)
+                            name_file(uncovered, {'File': name, 'LayerDigest': ld, 'Cause': 'engine_incomplete'})
                             continue
                     count = file_counts.get(file_key, 0) + len(found)
                     if count > REFERENCE_LIMIT:
                         failed_files.add(file_key)
                         complete = False
                         causes.add('reference_bound')
+                        name_file(uncovered, {'File': name, 'LayerDigest': ld, 'Cause': 'reference_bound'})
                         continue
                     file_counts[file_key] = count
                     add_refs(found, ld)
@@ -1030,6 +1104,7 @@ def _image(response, arguments, requests, session, region):
     from .aws_image_capture_20261022 import owned_scratch
     with owned_scratch('peaso-ecr-secret-') as directory:
         root = Path(directory)
+        token = _PUBLIC_NOTES.set(notes)
         try:
             paths = _download_image_layers(requests, session, region, account, repo,
                 digest, identity, descriptors, root, state)
@@ -1057,21 +1132,29 @@ def _image(response, arguments, requests, session, region):
                                 image_digest=digest, layer=descriptors[0][0], native=document,
                                 location_kind='configuration', path='image-config',
                                 check_ids=IMAGE_CHECKS):
-                add_refs(_scan('\n'.join(texts).encode(), 'image-config', requests), descriptors[0][0])
+                add_refs(scan_noting('\n'.join(texts).encode(), 'image-config', descriptors[0][0]), descriptors[0][0])
             remaining = [CONTENT_LIMIT]
+            steps = layer_build_steps(history, len(descriptors) - 1)
             def observe(name, reader, size, layer_index):
                 nonlocal complete
                 ld = descriptors[layer_index + 1][0]
+                if size > FILE_LIMIT and steps is not None and runtime_distribution(name, steps[layer_index]):
+                    name_file(skipped, {'File': name, 'LayerDigest': ld, 'Reason': 'runtime_distribution'})
+                    return
                 file_key = object()
                 keep = ((_DPKG_MD5SUMS.fullmatch(name) is not None or name in (_APK_INSTALLED, 'usr/' + _APK_INSTALLED))
                         and size <= PACKAGE_DB_FILE_LIMIT and database_bytes[0] + size <= PACKAGE_DB_LIMIT)
                 reader = _ObservedReader(reader, keep)
+                file_causes = set()
                 with source_context(resource_id=identity, scope=account + '/' + region,
                                     image_digest=digest, layer=ld,
                                     check_ids=IMAGE_CHECKS):
                     found, covered = _scan_reader(reader, size, name, requests, remaining,
                         enqueue=lambda payload, path: enqueue_window(payload, path, ld, file_key),
-                        causes=causes)
+                        causes=file_causes)
+                causes.update(file_causes)
+                for cause in sorted(file_causes):
+                    name_file(uncovered, {'File': str(name)[:256], 'LayerDigest': ld, 'Cause': cause})
                 while keep and reader.consumed < size:
                     requests.check_deadline()
                     if not reader.read(min(SCAN_WINDOW, size - reader.consumed)):
@@ -1111,6 +1194,7 @@ def _image(response, arguments, requests, session, region):
             except Exception:
                 complete = False; causes.add('engine_incomplete')
             if hasattr(state, 'active'): del state.active
+            _PUBLIC_NOTES.reset(token)
     requests.check_deadline()
     # Decided once every layer is visited: a package database may follow the
     # files it lists, in the same or a later layer.
@@ -1122,7 +1206,8 @@ def _image(response, arguments, requests, session, region):
                           resource_id=identity, scope=account + '/' + region,
                           image_digest=digest, layer=ld)
     return {'PackageSecretIndicators': marker(identity, account, region, 'ecr:batch_get_image', refs,
-            complete=complete, code=None if complete else incomplete_reason('image_content_incomplete', causes)),
+            complete=complete, code=None if complete else incomplete_reason('image_content_incomplete', causes),
+            coverage={'SkippedFiles': skipped, 'UncoveredFiles': uncovered, 'PublicClientIdentifiers': notes}),
             'ImageDigest': digest}
 
 def project_response(response, service, operation, arguments, *, request_context=None, region=None):
