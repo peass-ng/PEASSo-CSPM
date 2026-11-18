@@ -77,6 +77,7 @@ def events(requests,session,region,account):
  from .aws_request_pool import ordered_reads
  end=requests.observed_at;start=end-timedelta(minutes=requests.activity_minutes);rows=[];seen={}
  jobs, parallel = _history_jobs(requests, start, end)
+ readers = min(8, getattr(requests, 'workers', 1))
  def read_job(job):
   name, lower, upper = job
   return requests.pages(session,'cloudtrail',region,'lookup_events','Events',LookupAttributes=[{'AttributeKey':'EventName','AttributeValue':name}],StartTime=lower,EndTime=upper)
@@ -85,7 +86,7 @@ def events(requests,session,region,account):
  completed = []
  if parallel:
   names = sorted(OPERATIONS)
-  probes = ordered_reads(requests, names, lambda name: requests.pages(session,'cloudtrail',region,'lookup_events','Events',_page_limit=1,LookupAttributes=[{'AttributeKey':'EventName','AttributeValue':name}],StartTime=start,EndTime=end))
+  probes = ordered_reads(requests, names, lambda name: requests.pages(session,'cloudtrail',region,'lookup_events','Events',_page_limit=1,LookupAttributes=[{'AttributeKey':'EventName','AttributeValue':name}],StartTime=start,EndTime=end), workers=readers)
   pending = set()
   for name, read in zip(names, probes):
    if (read.error or {}).get('code') == 'page_limit':
@@ -95,10 +96,10 @@ def events(requests,session,region,account):
    else:
     return ReadResult([],read.status,(read.error or {'code':'enclave_history_incomplete'}))
   jobs = [job for job in jobs if job[0] in pending]
- # Independent time slices overlap only at their inclusive boundary. Four
+ # Independent time slices overlap only at their inclusive boundary. Up to eight
  # latency-bound readers share Requests.call's existing account/Region 2 TPS
  # limiter; the requested history window and projected evidence stay unchanged.
- reads = completed + list(zip(jobs, ordered_reads(requests, jobs, read_job))) if parallel else ((job, read_job(job)) for job in jobs)
+ reads = completed + list(zip(jobs, ordered_reads(requests, jobs, read_job, workers=readers))) if parallel else ((job, read_job(job)) for job in jobs)
  for (name, lower, upper), read in reads:
   if read.status not in('collected','empty'):return ReadResult([],read.status,(read.error or{'code':'enclave_history_incomplete'}))
   local_seen = set()
