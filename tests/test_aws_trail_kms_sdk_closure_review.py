@@ -423,9 +423,9 @@ def test_native_destination_bucket_identity(pipeline,cid):
     responses=trail_responses()
     responses['s3','list_buckets']={'Buckets':[{'Name':'other-owned-review'}]}
     snapshot,_=pipeline(TRAIL_KINDS,responses)
-    expected={'aws.a.cloudtrail.bucket_access_logging':'UNKNOWN','aws.a.cloudtrail.home_bucket_mfa_join':'FAIL',
+    expected={'aws.a.cloudtrail.bucket_access_logging':'MANUAL','aws.a.cloudtrail.home_bucket_mfa_join':'FAIL',
         'aws.claude2_a.cloudtrail.trail_bucket_mfa_delete':'MANUAL',
-        'aws.nist.all_cloudtrail_destination_bucket_access_logging':'UNKNOWN'}[cid]
+        'aws.nist.all_cloudtrail_destination_bucket_access_logging':'MANUAL'}[cid]
     assert verdict(snapshot,cid)==expected
 
 

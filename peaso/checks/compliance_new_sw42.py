@@ -12,7 +12,7 @@ import json
 import re
 
 from . import CHECKS, register, result, unknown
-from .facts import Unavailable, complete_items, get, list_of_objects
+from .facts import Unavailable, complete_items, get, list_of_objects, optional
 
 
 # id: resource kind, severity, signed category, signed title, spec_digest(entry)
@@ -482,9 +482,9 @@ def elbv2_stickiness(item, index):
             for action in list_of_objects(get(rule, "Actions", list)):
                 if get(action, "Type", str) != "forward":
                     continue
-                forward = get(action, "ForwardConfig", dict)
-                stickiness = get(forward, "TargetGroupStickinessConfig", dict)
-                enabled = get(stickiness, "Enabled", bool)
+                forward = optional(action, "ForwardConfig", {}, dict)
+                stickiness = optional(forward, "TargetGroupStickinessConfig", {}, dict)
+                enabled = optional(stickiness, "Enabled", False, bool)
                 if enabled:
                     duration = get(stickiness, "DurationSeconds", int)
                     if duration <= 0:

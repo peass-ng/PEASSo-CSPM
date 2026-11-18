@@ -32,7 +32,7 @@ def facts(account=A, *, regions=("eu-west-1", "us-east-1")):
     for region in regions:
         recorder = {"name": "default", "Status": {"collection_status": "collected",
                     "ConfigurationRecordersStatus": [{"name": "default", "recording": True,
-                                                      "lastStatus": "Success"}]},
+                                                      "lastStatus": "SUCCESS"}]},
                     "recordingGroup": {"allSupported": True, "includeGlobalResourceTypes": True}}
         for kind, rows in (("config_recorder", [recorder]),
                            ("config_delivery_channel", [{"name": "default"}])):
@@ -108,7 +108,7 @@ def test_full_collector_stubbed_sdk_pass_and_denied():
                 "recordingGroup": {"allSupported": True, "includeGlobalResourceTypes": True}}]}, {})
             config_stub.add_response("describe_configuration_recorder_status", {
                 "ConfigurationRecordersStatus": [{"name": "default", "recording": True,
-                                                  "lastStatus": "Success"}]},
+                                                  "lastStatus": "SUCCESS"}]},
                 {"ConfigurationRecorderNames": ["default"]})
             clients = {("sts", "us-east-1"): sts, ("ec2", "us-east-1"): ec2,
                        ("config", "us-east-1"): config}

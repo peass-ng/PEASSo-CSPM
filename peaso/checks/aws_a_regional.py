@@ -4,6 +4,7 @@ from __future__ import annotations
 from . import register, result, unknown
 from .facts import get, list_of_objects
 from .fixtures import CASES
+from .aws_config_recording import canonical_recorder_status
 from .aws_a_facts import complete_items, scope_subject, scope_fixture
 
 NATIVE_IDS = []
@@ -45,7 +46,7 @@ def config_region(item, index):
         if len(matching) != 1:
             return unknown("recorder status missing or ambiguous")
         recording = get(matching[0], "recording", bool)
-        state = get(matching[0], "lastStatus", str)
+        state = canonical_recorder_status(get(matching[0], "lastStatus", str))
         if state not in {"Pending", "Success", "Failure", "NotApplicable"}:
             return unknown("unrecognized native Config recorder state")
         states.append({"name": name, "recording": recording, "last_status": state})

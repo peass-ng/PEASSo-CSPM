@@ -35,6 +35,11 @@ STRATEGIES = {"ALL_SUPPORTED_RESOURCE_TYPES", "INCLUSION_BY_RESOURCE_TYPES", "EX
 SERVICE_LINKED_PREFIX = "AWSConfigurationRecorderFor"
 
 
+def canonical_recorder_status(value):
+    """AWS documents title-case enums but also returns uppercase wire values."""
+    return {state.upper(): state for state in RECORDER_STATES}.get(value, value)
+
+
 def _type_list(parent, label):
     """Documented omission is an empty list; explicit non-collected coverage stays unresolved."""
     values = optional(parent, "resourceTypes", [], list)
@@ -100,7 +105,8 @@ def _run_state(row, name):
     if not recording:
         # A stopped recorder is explicit; a never-started recorder may omit lastStatus.
         return "stopped", status.get("lastStatus") if isinstance(status.get("lastStatus"), str) else None
-    last = get(status, "lastStatus", str)
+    raw_last = get(status, "lastStatus", str)
+    last = canonical_recorder_status(raw_last)
     if last not in RECORDER_STATES:
         raise Unavailable("unrecognized native Config recorder state")
     return {"Success": "running", "Failure": "failed"}.get(last, "unconfirmed"), last

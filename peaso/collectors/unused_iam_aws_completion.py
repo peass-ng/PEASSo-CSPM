@@ -78,6 +78,9 @@ def collect(requests, session, region):
                 or instance.get("Status") != "ACTIVE"
                 or instance.get("OwnerAccountId") not in accounts):
             return {"status": "malformed", "reason": "identity_center_instance_invalid", "items": rows}
+        from .aws_identity_center_regions import remember
+        # The organization consumer is collected in the audited owner account.
+        remember(requests, instance["OwnerAccountId"], region)
         seen_instances.add(arn)
         listed = requests.pages(session, "sso-admin", region, "list_permission_sets", "PermissionSets", InstanceArn=arn)
         if listed.status not in GOOD:

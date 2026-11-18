@@ -762,8 +762,8 @@ def _cloudtrail_bucket_logging(item,index,strict_target=False,logging_only=False
     trail_arn=_member(item,index,'cloudtrail')
     account,region=_scope(index)[1].split('/')
     home=get(item,'HomeRegion',str)
-    if not trail_arn.startswith(f'arn:aws:cloudtrail:{home}:{account}:trail/'):
-        raise Unavailable('CloudTrail ARN foreign to account or home Region')
+    from .aws_cloudtrail_identity import owner as trail_owner
+    owner = trail_owner(item, index, trail_arn, account, home)
     if home!=region:
         return 'NOT_APPLICABLE',{'trail_arn':trail_arn,'reason':'shadow trail; assess home Region'}
     if logging_only:
@@ -775,7 +775,8 @@ def _cloudtrail_bucket_logging(item,index,strict_target=False,logging_only=False
     name=get(item,'S3BucketName',str)
     if not name:raise Unavailable('CloudTrail destination bucket missing')
     buckets=memoized(index,('batch_aws_member','bucket'),lambda:{get(row,'Name',str):row for row in _rows(index,'bucket')})
-    if name not in buckets:raise Unavailable('CloudTrail destination bucket owner/join unresolved')
+    if name not in buckets:
+        return 'MANUAL', {'trail_arn': trail_arn, 'destination_bucket': name, 'reason': 'CloudTrail destination bucket is outside the collected account; review its owner-account evidence', 'required_actions': ['s3:GetBucketLogging']}
     bucket=buckets[name]
     logging=get(bucket,'Logging',dict)
     if get(logging,'collection_status',str)!='collected':
@@ -945,8 +946,8 @@ def _cloudtrail_logs(item,index,require_logging=False,require_role=False):
     trail_arn=_member(item,index,'cloudtrail')
     account,region=_scope(index)[1].split('/')
     home=get(item,'HomeRegion',str)
-    if not trail_arn.startswith(f'arn:aws:cloudtrail:{home}:{account}:trail/'):
-        raise Unavailable('foreign CloudTrail ARN')
+    from .aws_cloudtrail_identity import owner as trail_owner
+    owner = trail_owner(item, index, trail_arn, account, home)
     if home!=region:
         return 'NOT_APPLICABLE',{'trail_arn':trail_arn,'reason':'shadow trail; assess home Region'}
     if require_logging:
@@ -959,10 +960,12 @@ def _cloudtrail_logs(item,index,require_logging=False,require_role=False):
     destination=get(item,'CloudWatchLogsLogGroupArn',str)
     role=optional(item,'CloudWatchLogsRoleArn','',str) if require_role else None
     groups=_log_group_map(index)
-    if destination and not destination.startswith(f'arn:aws:logs:{region}:{account}:log-group:'):
+    if destination and not destination.startswith(f'arn:aws:logs:{region}:{owner}:log-group:'):
         raise Unavailable('foreign CloudWatch destination ARN')
-    if role and not role.startswith(f'arn:aws:iam::{account}:role/'):
+    if role and not role.startswith(f'arn:aws:iam::{owner}:role/'):
         raise Unavailable('foreign CloudTrail delivery role ARN')
+    if destination and owner != account and destination.removesuffix(':*') not in groups:
+        return 'MANUAL', {'trail_arn': trail_arn, 'destination': destination, 'reason': 'Organization trail CloudWatch destination belongs to its owner account; collect its log-group evidence there', 'required_actions': ['logs:DescribeLogGroups']}
     resolved=bool(destination and destination.removesuffix(':*') in groups)
     failed=(logging is False if require_logging else False) or not resolved or (require_role and not role)
     return result(bool(failed),trail_arn=trail_arn,cloudwatch_log_group_arn=destination,
@@ -1076,8 +1079,8 @@ def _cloudtrail_kms(item,index,active_only=False):
     trail_arn=_member(item,index,'cloudtrail')
     account,region=_scope(index)[1].split('/')
     home=get(item,'HomeRegion',str)
-    if not trail_arn.startswith(f'arn:aws:cloudtrail:{home}:{account}:trail/'):
-        raise Unavailable('foreign CloudTrail ARN')
+    from .aws_cloudtrail_identity import owner as trail_owner
+    owner = trail_owner(item, index, trail_arn, account, home)
     if home!=region:
         return 'NOT_APPLICABLE',{'trail_arn':trail_arn,'reason':'shadow trail; assess home Region'}
     if active_only:
@@ -1095,6 +1098,10 @@ def _cloudtrail_kms(item,index,active_only=False):
             by_arn[arn]=key;by_id[key_id]=key
         return by_arn,by_id
     by_arn,by_id=memoized(index,('batch_aws_kms_maps',),key_maps)
+    reference = optional(item, 'KmsKeyId', '', str)
+    remote = re.fullmatch(r'arn:(aws|aws-us-gov|aws-cn):kms:([a-z0-9-]+):([0-9]{12}):key/[^/]+', reference)
+    if remote and remote[3] != account and reference not in by_arn:
+        return 'MANUAL', {'trail_arn': trail_arn, 'key_arn': reference, 'reason': 'CloudTrail uses a cross-account KMS key; its owner-account metadata is needed to establish enabled customer management', 'required_actions': ['kms:DescribeKey']}
     def key_state(reference):
         if not reference:return False
         if reference.startswith('arn:aws:kms:'):

@@ -7,6 +7,7 @@ configuration, Security Hub hubs, organization policies) are read from documente
 kinds; when absent the predicate is UNKNOWN (see COLLECTOR FACTS NEEDED in the coverage doc).
 """
 from __future__ import annotations
+import re
 
 from . import result
 from .facts import Unavailable, get, list_of_objects
@@ -25,8 +26,10 @@ def collected(item, key):
     """A nested API response recorded on the item; denied/failed reads raise Unavailable."""
     value = get(item, key, dict)
     status = value.get("collection_status", "collected")
-    if status not in ("collected",):
+    if status not in ("collected", "empty"):
         raise Unavailable("%s not collected (%s)" % (key, status))
+    if status == "empty" and value.get("items") not in (None, []):
+        raise Unavailable("%s empty response has retained items" % key)
     return value
 
 
@@ -566,6 +569,8 @@ def _deny_regions(policies, account_id):
                 actions = s.get("Action")
                 exclusions = s.get("NotAction")
                 excluded_actions = exclusions if isinstance(exclusions, (list, tuple)) else [exclusions]
+                if "NotAction" in s and (not exclusions or any(not isinstance(a, str) or re.fullmatch(r"(?:[A-Za-z0-9*-]+:[A-Za-z0-9*?]+|\*)", a) is None for a in excluded_actions)):
+                    raise Unavailable("malformed SCP NotAction exclusions")
                 # NotAction may exempt only documented single-endpoint global services
                 # (IAM user guide deny-requested-region example); ec2:*, *:* etc. stay unproven.
                 broad_action = ((actions == "*" or actions == ["*"]) and "NotAction" not in s) or (
@@ -586,7 +591,7 @@ def _deny_regions(policies, account_id):
                 if targets:
                     indirect = True
     if indirect or unproven:
-        raise Unavailable("effective broad SCP region restriction not proven")
+        return "MANUAL", {"reason": "Region-deny policies are collected, but inheritance or additional conditions require effective-SCP review", "indirect_targets": indirect, "additional_conditions_or_scope": unproven, "policies": len(policies)}
     return result(True, policies=len(policies), direct_region_deny_match=False)
 
 

@@ -220,6 +220,30 @@ def cluster_selected(item, index):
     return result(not hit, resource_arn=arn, backup_selection_match=hit)
 
 
+def _instance_backup_selection(item, index, arn):
+    from .aws_backup_selection import matches
+    tags = None
+    if "TagList" in item or "TagList" in item.get("_coverage", {}):
+        tags = {}
+        for tag in list_of_objects(get(item, "TagList", list)):
+            key, value = get(tag, "Key", str), get(tag, "Value", str)
+            if key in tags:
+                raise Unavailable("ambiguous duplicate RDS resource tag")
+            tags[key] = value
+    found, uncertain = False, False
+    for plan in complete_items(index, "backup_plan"):
+        selections = get(plan, "Selections", dict)
+        if selections.get("collection_status") not in ("collected", "empty"):
+            raise Unavailable("backup selections unavailable")
+        for selection in list_of_objects(get(selections, "items", list)):
+            selected = matches(get(selection, "Selection.BackupSelection", dict), arn, tags)
+            found |= selected is True
+            uncertain |= selected is None
+    if not found and uncertain:
+        raise Unavailable("Backup tag selection needs complete resource tags or service opt-in evidence")
+    return found
+
+
 @install("aws.cb.rds.instance_in_backup_plan_selection", "rds_instance", "Non-Aurora RDS instance is selected by an AWS Backup plan",
     {"DBInstanceArn": INST_ARN, "Engine": "postgres"}, {"DBInstanceArn": INST_ARN, "Engine": "postgres"},
     rows=[P + "rds_instance_protected_by_backup_plan"], severity="high", control="CP-9",
@@ -233,8 +257,7 @@ def instance_selected(item, index):
         return "NOT_APPLICABLE", {"engine": engine}
     arn = get(item, "DBInstanceArn", str)
     partition = arn.split(":")[1] if arn.count(":") > 2 else "aws"
-    resources = selection_resources(index)
-    hit = arn in resources or ("arn:%s:rds:*:*:instance:*" % partition) in resources or "*" in resources
+    hit = _instance_backup_selection(item, index, arn)
     return result(not hit, resource_arn=arn, backup_selection_match=hit)
 
 
@@ -294,15 +317,13 @@ def instance_in_plan(item, index):
             raise Unavailable("backup selections unavailable")
         for selection in list_of_objects(selections.get("items", [])):
             body = get(selection, "Selection.BackupSelection", dict)
-            if optional(body, "NotResources", [], list) or optional(body, "Conditions", {}, dict):
-                raise Unavailable("backup selection exclusions or conditions require separate matching proof")
             resources += strings(optional(body, "Resources", [], list))
             for condition in list_of_objects(optional(body, "ListOfTags", [], list)):
                 if get(condition, "ConditionType", str) != "STRINGEQUALS":
                     raise Unavailable("unsupported backup ListOfTags condition")
                 selected_tags.append((get(condition, "ConditionKey", str), get(condition, "ConditionValue", str)))
     matched = sorted({key for key, value in selected_tags if key in tags and tags[key] == value})
-    hit = arn in resources or bool(matched)
+    hit = _instance_backup_selection(item, index, arn)
     return result(not hit, resource_arn=arn, selection_or_tag_key_match=hit, matched_tag_keys=matched)
 
 
@@ -588,7 +609,7 @@ def instance_iam_all(item, index):
         for subnet in subnets:
             if "SubnetOutpost" in subnet:
                 outpost = get(subnet, "SubnetOutpost", dict)
-                if get(outpost, "Arn", str):
+                if outpost and get(outpost, "Arn", str):
                     return "NOT_APPLICABLE", {"engine": engine, "reason": "IAM DB auth unsupported on RDS on Outposts"}
     value = get(item, "IAMDatabaseAuthenticationEnabled", bool)
     if value:

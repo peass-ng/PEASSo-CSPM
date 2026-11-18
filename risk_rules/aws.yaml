@@ -3146,6 +3146,7 @@ permission_categories:
   - bedrock-agentcore:ListSessions
   - bedrock-agentcore:ListTagsForResource
   - bedrock-agentcore:ListWorkloadIdentities
+  - bedrock-agentcore:SearchRegistryRecords
   - bedrock-mantle:GetInference
   - bedrock-mantle:GetModel
   - bedrock-mantle:ListModels

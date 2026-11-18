@@ -55,6 +55,8 @@ def identity_center(requests, session, region, account):
         expected_store_arn=f'arn:{partition}:identitystore::{owner}:identitystore/{store}'
         if native.get('IdentityStoreArn',expected_store_arn)!=expected_store_arn:
             return _result([], 'malformed', 'identity_center_store_owner_mismatch')
+        from .aws_identity_center_regions import remember
+        remember(requests, account, region)
         seen_instances.add(arn);instance_id=arn.rsplit('/',1)[-1]
         sets=requests.pages(session,'sso-admin',region,'list_permission_sets','PermissionSets',InstanceArn=arn)
         if sets.status not in _OK:return _failure(sets,'identity_center_permission_sets_incomplete')

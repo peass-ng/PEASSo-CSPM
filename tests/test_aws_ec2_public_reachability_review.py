@@ -73,7 +73,7 @@ def test_absent_configuration_counterexample_never_proves_old_contract_pass(mode
     # facts. No fabricated guest flag is added to make this distinction.
     assert old_evaluate(rows)[0] == 'UNKNOWN'
     report = evaluate_snapshot(snapshot(rows), checks=ALTERNATIVES)
-    expected = 'FAIL' if mode == 'listenerless_same_config' else 'UNKNOWN'
+    expected = 'FAIL' if mode == 'listenerless_same_config' else 'PASS' if mode == 'sg_closed' else 'UNKNOWN'
     assert [f['status'] for f in report['findings']] == [expected, expected]
 
 

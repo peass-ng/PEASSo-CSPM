@@ -170,3 +170,67 @@ def witness(snapshot,scope,instance_id,budget=128,prepared=None):
                     'semantics':'configured direct IPv4 allowance; application listening and packet delivery unknown',
                     'application_listening':'unknown','network_probes':False,'all_paths_evaluated':False}
     return None
+
+
+def blocked(snapshot, scope, instance_id):
+    """Prove the common ingress cut: every attached ENI has only empty SGs.
+
+    This does not infer a block from failure to find a route. Empty ingress
+    rules block new inbound connections on both IP families, including traffic
+    forwarded by a load balancer; stateful replies to outbound traffic differ.
+    """
+    model = _Model(snapshot, {})
+    kinds = ('instance', 'network_interface', 'security_group')
+    if any(not model.complete(kind, scope) for kind in kinds):
+        return None
+    for kind, key in [('instance', 'InstanceId'), ('network_interface', 'NetworkInterfaceId'), ('security_group', 'GroupId')]:
+        rows = model.collections[(kind, scope)][0]['items']
+        ids = [row.get(key) for row in rows]
+        if (any(not isinstance(value, str) or not value for value in ids) or len(ids) != len(set(ids))
+                or any(row.get('AccountId', scope.split('/')[0]) != scope.split('/')[0]
+                       or row.get('Region', scope.split('/')[1]) != scope.split('/')[1] for row in rows)):
+            return None
+    instance = model.find('instance', instance_id, scope)
+    if not instance:
+        return None
+    native = instance['data']
+    if native.get('State', {}).get('Name') != 'running' or native.get('SecondaryInterfaces', []):
+        return None
+    declarations = native.get('NetworkInterfaces')
+    if not isinstance(declarations, list) or not declarations:
+        return None
+    account = scope.split('/')[0]
+    declared = [row.get('NetworkInterfaceId') for row in declarations if isinstance(row, dict)]
+    attached = [r['data'].get('NetworkInterfaceId') for r in model.kinds['network_interface']
+                if r['scope'] == scope and r['data'].get('Attachment', {}).get('InstanceId') == instance_id]
+    if len(declared) != len(declarations) or len(set(declared)) != len(declared) or sorted(declared) != sorted(attached):
+        return None
+    group_ids = set()
+    for declaration in declarations:
+        eni = model.find('network_interface', declaration.get('NetworkInterfaceId'), scope)
+        if eni is None:
+            return None
+        data = eni['data']
+        if (data.get('Status') != 'in-use' or data.get('InterfaceType') != 'interface'
+                or data.get('RequesterManaged') is not False or data.get('OwnerId', account) != account
+                or data.get('Attachment', {}).get('Status') != 'attached'
+                or declaration.get('Attachment', {}).get('Status') != 'attached'
+                or not data.get('Attachment', {}).get('AttachmentId')
+                or declaration.get('Attachment', {}).get('AttachmentId') != data['Attachment']['AttachmentId']
+                or any(data.get(k) != declaration.get(k) for k in ('SubnetId', 'VpcId', 'Groups'))):
+            return None
+        groups = data.get('Groups')
+        if not isinstance(groups, list) or not groups:
+            return None
+        for reference in groups:
+            if not isinstance(reference, dict) or not isinstance(reference.get('GroupId'), str):
+                return None
+            group = model.find('security_group', reference['GroupId'], scope)
+            if (group is None or group['data'].get('OwnerId', account) != account
+                    or group['data'].get('VpcId') != data.get('VpcId') or group['data'].get('IpPermissions') != []):
+                return None
+            group_ids.add(reference['GroupId'])
+    return {'model': 'aws-empty-ingress-security-groups-v1', 'instance_id': instance_id,
+            'network_interface_ids': sorted(declared), 'security_group_ids': sorted(group_ids),
+            'reason': 'Every attached network interface has only security groups with zero ingress rules',
+            'semantics': 'New inbound IPv4/IPv6 network connections are blocked; stateful outbound replies are excluded'}

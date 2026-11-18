@@ -103,6 +103,8 @@ def _override(check, original, item, index):
             (check.kind in {'rds_cluster', 'rds_instance'} and engine in {'docdb', 'neptune'})):
         return 'NOT_APPLICABLE', {'engine': engine, 'expected_engine': expected,
                                   'reason': 'The shared database API returned a different database engine.'}
+    if check.id == 'aws.pci.shield.protection_all_internet_resources':
+        return _shield_scope(item, index, original)
     status, evidence = original(item, index)
     if status != 'FAIL':
         return status, evidence
@@ -157,8 +159,6 @@ def _override(check, original, item, index):
             violations, uncertain = review_document(normalized, minimum_ipv6_prefix=1)
             if not violations and not uncertain:
                 return result(False, public_statements=0, source_boundary='covering_explicit_deny_outside_ip_allowlist')
-    if cid == 'aws.pci.shield.protection_all_internet_resources':
-        return _shield_scope(item, index, original)
     if cid == 'aws.b.rds.engine_log_exports' and engine == 'aurora-postgresql':
         logs = get(item, 'EnabledCloudwatchLogsExports', list)
         return result('postgresql' not in logs, engine=engine, exported_categories=logs,
@@ -199,6 +199,23 @@ def _override(check, original, item, index):
 
 
 
+def _shield_native_arn(row, scope, kind):
+    """DescribeAddresses/Classic DescribeLoadBalancers omit resource ARNs."""
+    from .facts import Unavailable, get
+    if "ShieldResourceArn" in row or "ShieldResourceArn" in row.get("_coverage", {}):
+        return get(row, "ShieldResourceArn", str)
+    account, region = scope.split("/")
+    if kind == "elastic_ip":
+        allocation = get(row, "AllocationId", str)
+        if re.fullmatch(r"eipalloc-[0-9a-f]{8,17}", allocation) is None:
+            raise Unavailable("Shield EIP allocation identity unavailable")
+        return f"arn:aws:ec2:{region}:{account}:eip-allocation/{allocation}"
+    name = get(row, "LoadBalancerName", str)
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,31}", name) is None:
+        raise Unavailable("Shield Classic ELB identity unavailable")
+    return f"arn:aws:elasticloadbalancing:{region}:{account}:loadbalancer/{name}"
+
+
 def _shield_scope(item, index, original):
     from . import result
     # The source is loaded into an admission namespace. Importing its module
@@ -226,9 +243,9 @@ def _shield_scope(item, index, original):
                     public.append(_account_arn(get(row, 'LoadBalancerArn', str), index, 'elasticloadbalancing'))
             elif kind == 'classic_load_balancer':
                 if get(row, 'Scheme', str) == 'internet-facing':
-                    public.append(_account_arn(get(row, 'ShieldResourceArn', str), index, 'elasticloadbalancing'))
+                    public.append(_account_arn(_shield_native_arn(row, scope, kind), index, 'elasticloadbalancing'))
             else:
-                public.append(_account_arn(get(row, 'ShieldResourceArn', str), index, 'ec2'))
+                public.append(_account_arn(_shield_native_arn(row, scope, kind), index, 'ec2'))
     if not public:
         return 'NOT_APPLICABLE', {'reason': 'No regional supported internet resource; global CloudFront is assessed once.', 'global_cloudfront_scope': canonical}
     return result(bool(set(public)-protected), unprotected_resource_arns=sorted(set(public)-protected),

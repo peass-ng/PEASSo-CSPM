@@ -128,7 +128,7 @@ def elbv2_tls_listeners(item, index):
     rows = list_of_objects(get(listeners, "items", list))
     if not rows:
         raise Unavailable("no listeners to assess")
-    bad, unresolved, seen = [], [], set()
+    bad, unresolved, redirect_review, seen = [], [], [], set()
     for listener in rows:
         listener_arn = get(listener, "ListenerArn", str)
         if listener_arn in seen or not listener_arn.startswith(arn.replace("loadbalancer/", "listener/") + "/"):
@@ -141,8 +141,16 @@ def elbv2_tls_listeners(item, index):
             bad.append(listener_arn)
         elif (kind, protocol) == ("application", "HTTP"):
             actions = list_of_objects(get(listener, "DefaultActions", list))
-            if any(get(action, "Type", str) == "redirect" for action in actions):
-                unresolved.append(listener_arn)  # approval policy is not sealed in current producer
+            redirects = [action for action in actions if get(action, "Type", str) == "redirect"]
+            if redirects:
+                config = get(redirects[-1], "RedirectConfig", dict)
+                target = get(config, "Protocol", str)
+                if target == "HTTPS":
+                    redirect_review.append(listener_arn)
+                elif target in {"HTTP", "#{protocol}"}:
+                    bad.append(listener_arn)
+                else:
+                    unresolved.append(listener_arn)
             else:
                 bad.append(listener_arn)
         else:
@@ -152,7 +160,10 @@ def elbv2_tls_listeners(item, index):
     if bad:
         return result(True, **evidence)
     if unresolved:
-        return unknown("redirect approval or listener protocol unresolved", **evidence)
+        return unknown("listener protocol or redirect target is unrecognized", **evidence)
+    if redirect_review:
+        return "MANUAL", dict(evidence, redirect_listener_arns=redirect_review,
+                              reason="HTTP listeners redirect to HTTPS; owner approval of a plaintext redirect endpoint is required by this control")
     return result(False, **evidence)
 
 

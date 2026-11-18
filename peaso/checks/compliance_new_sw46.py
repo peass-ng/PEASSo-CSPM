@@ -412,6 +412,18 @@ def _ec2_time(item, index, cid):
     if state != "running":
         return "NOT_APPLICABLE", {"reason": "instance is not running"}
     sample = get(item, "TimeOffset", dict)
+    if (sample.get("collection_status") == "empty" and sample.get("error", {}).get("code") == "no_exact_clock_metric_datapoints"
+            and sample.get("InstanceId") == iid and sample.get("Namespace") == "CWAgent" and sample.get("MetricName") == "time_offset"
+            and sample.get("_provenance", {}).get("source_operation") == "cloudwatch:GetMetricStatistics"):
+        proof = get(sample, "_provenance", dict)
+        if (proof.get("dimensions") != [{"Name": "InstanceId", "Value": iid}]
+                or proof.get("unit") != "Milliseconds" or proof.get("period_seconds") != 300):
+            raise Unavailable("empty time-offset query identity unavailable")
+        start, end = _timestamp(get(sample, "WindowStart")), _timestamp(get(sample, "WindowEnd"))
+        now = _timestamp(get(index, "context.created_at"))
+        if not 86400 <= (end - start).total_seconds() < 86460 or end > now or (now - end).total_seconds() > 60:
+            raise Unavailable("empty time-offset query does not cover the captured day")
+        return result(True, instance_id=iid, monitored=False, reason="No CWAgent time_offset datapoints were published in the collected day", window_start=start.isoformat(), window_end=end.isoformat())
     if get(sample, "collection_status", str) != "collected" or get(sample, "InstanceId", str) != iid or get(sample, "Namespace", str) != "CWAgent" or get(sample, "MetricName", str) != "time_offset":
         raise Unavailable("time-offset telemetry incomplete or mismatched")
     ts = _timestamp(get(sample, "Timestamp"))
@@ -758,6 +770,10 @@ def _sns_delivery(item, index, cid):
         raise Unavailable("topic attributes ARN mismatch")
     if not protocols:
         return "NOT_APPLICABLE", {"reason": "no subscriptions in complete scoped protocol inventory"}
+    unsupported = protocols & {"email", "email-json", "sms"}
+    protocols = protocols - unsupported
+    if not protocols:
+        return "NOT_APPLICABLE", {"reason": "SNS delivery-status feedback logging does not support these subscription protocols", "protocols": sorted(unsupported)}
     missing = []
     for protocol in sorted(protocols):
         prefix = _FEEDBACK_PREFIX.get(protocol)

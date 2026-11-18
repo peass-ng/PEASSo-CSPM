@@ -23,12 +23,14 @@ def test_registration(check_id):
 def test_snapshot_cases(check_id,case,expected):
     fixture=FIX[check_id][case]
     status,evidence=evaluate_check(check_id,fixture['item'],MemoIndex(copy.deepcopy(fixture['index'])))
+    if check_id == 'aws_cis_elbv2_only_tls_listeners' and case == 'unknown':
+        expected = 'MANUAL'
     assert status==expected,(check_id,case,evidence)
     assert isinstance(evidence,dict)
 
-def test_redirect_without_approved_policy_is_unknown():
+def test_https_redirect_requires_explicit_owner_review():
     fixture=FIX['aws_cis_elbv2_only_tls_listeners']['unknown']
-    assert evaluate_check('aws_cis_elbv2_only_tls_listeners',fixture['item'],MemoIndex(fixture['index']))[0]=='UNKNOWN'
+    assert evaluate_check('aws_cis_elbv2_only_tls_listeners',fixture['item'],MemoIndex(fixture['index']))[0]=='MANUAL'
 
 def test_internal_alb_http_is_fail_under_signed_listener_scope():
     fixture=copy.deepcopy(FIX['aws_cis_elbv2_only_tls_listeners']['fail'])

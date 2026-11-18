@@ -301,12 +301,16 @@ def _native_policy_attachment(item, index, arn):
         return result(False, policy_arn=arn, attachment_kind="populated_iam_group",
                       criterion="declared attachment; usage unassessed")
     unresolved_role = None
+    conditional_roles = []
     for kind, principal_arn in attached:
         if kind != "iam_role":
             continue
         try:
             trusted = _declared_role_trust(principals[kind][principal_arn], partition, account)
         except Unavailable as exc:
+            if str(exc) == "conditional role trust requires effective-access review":
+                conditional_roles.append(principal_arn)
+                continue
             if unresolved_role is None:
                 unresolved_role = exc
             continue
@@ -315,6 +319,10 @@ def _native_policy_attachment(item, index, arn):
                           criterion="declared attachment; usage unassessed")
     if unresolved_role is not None:
         raise unresolved_role
+    if conditional_roles:
+        return "MANUAL", {"policy_arn": arn, "conditional_role_attachments": sorted(conditional_roles),
+                          "reason": "Policy attachment is collected; deciding whether its conditional role trust is usable requires caller context",
+                          "criterion": "declared attachment; effective access and usage unassessed"}
     return result(True, policy_arn=arn, attachment_count=expected_count,
                   criterion="declared attachment; usage unassessed")
 
@@ -480,13 +488,14 @@ def _nonconsole_mfa(item, index):
     administrative = []
     missing_mfa = []
     uncertain = False
+    allow_uncertain = False
     for n, raw in enumerate(statements):
         effect, ak, actions, rk, resources, condition = _statement(raw)
         if effect == "Deny":
             uncertain = True
             continue
         if ak == "NotAction" or rk == "NotResource":
-            uncertain = True
+            uncertain = allow_uncertain = True
             continue
         if not any(a in {"*", "*:*"} or a.lower() in {"iam:*", "kms:*", "organizations:*"} for a in actions):
             continue
@@ -494,7 +503,7 @@ def _nonconsole_mfa(item, index):
         bool_conditions = condition.get("Bool") if isinstance(condition, dict) else None
         if not isinstance(bool_conditions, dict) or bool_conditions.get("aws:MultiFactorAuthPresent") not in {"true", True}:
             missing_mfa.append(n)
-    if uncertain:
+    if uncertain and (administrative or allow_uncertain):
         return unknown("administrative deny or NotAction semantics cannot be resolved")
     return result(bool(missing_mfa), administrative_statement_indexes=administrative,
                   missing_mfa_statement_indexes=missing_mfa)

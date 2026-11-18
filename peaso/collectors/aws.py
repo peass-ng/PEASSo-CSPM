@@ -1019,6 +1019,8 @@ class Requests:
                     reservations = response.get("Reservations")
                     if not isinstance(reservations, list) or any(not isinstance(r, dict) or not isinstance(r.get("Instances"), list) for r in reservations):
                         raise ReadFailure("malformed", "malformed_response")
+                if (service, operation, expression) == ("budgets", "describe_budgets", "Budgets") and "Budgets" not in response:
+                    response = {**response, "Budgets": []}
                 batch = jmespath.search(expression, response)
                 if not isinstance(batch, list):
                     raise ReadFailure("malformed", "malformed_response")
@@ -2927,6 +2929,8 @@ def collect(connector, requirements=None):
     from peaso.ai.access import aws as capture_ai_access
     capture_ai_access(contexts)
     requests.audited_regions_by_account = {identity["Account"]: list(regions_for(identity["Account"])) for _, identity in contexts}
+    metadata["audited_regions_by_account"] = copy.deepcopy(requests.audited_regions_by_account)
+    requests.scp_denied_regions_by_account = copy.deepcopy(metadata.get("scp_denied_regions", {}))
     progress_total = len(collections) + sum(len(GLOBAL_TYPES) + len(regions_for(identity["Account"])) * (len(set(SPECS) - GLOBAL_TYPES) + len(unsupported)) for context, identity in contexts)
     emit_progress(progress_callback, phase="collecting", provider="aws", scope="", completed=len(collections),
         total=progress_total, resources=total_items, dynamic_total=False)
@@ -3179,6 +3183,10 @@ def collect(connector, requirements=None):
                         _documented_omission(item, "CloudWatchLogsLogGroupArn", "", "cloudtrail:DescribeTrails")
                         _documented_omission(item, "CloudWatchLogsRoleArn", "", "cloudtrail:DescribeTrails")
                         _documented_omission(item, "S3KeyPrefix", "", "cloudtrail:DescribeTrails")
+                        item["_account_trail_binding"] = {
+                            "caller_account_id": identity["Account"], "identity_operation": "sts:GetCallerIdentity",
+                            "describe_operation": "cloudtrail:DescribeTrails", "include_shadow_trails": True,
+                            "trail_arn": item.get("TrailARN"), "capture_observed_at": requests.observed_at.isoformat()}
                 if kind == "instance":
                     for item in read.items:
                         item["_provenance"] = {"operation": "ec2:DescribeInstances", "native_response_complete": True}
@@ -3635,6 +3643,8 @@ def collect(connector, requirements=None):
                 content_tail_callback(False)
     if usage_overlap:
         join_account_usage(collections)
+    from .aws_identity_center_regions import finalize as identity_center_regions
+    identity_center_regions(requests, collections, metadata)
     collections.sort(key=lambda c: (c["scope"], c["type"]))
     from peaso.collectors.aws_lambda_role_usage import summarize_lambda_role_usage
     metadata["lambda_execution_role_usage"] = summarize_lambda_role_usage(
@@ -3703,7 +3713,7 @@ def collect(connector, requirements=None):
 # detail operations (READ_ACTIONS) and add ENRICHERS. Enrichers for the same
 # kind from several modules are chained (never replaced), so independent
 # fact owners can extend one existing inventory.
-EXTENSION_MODULES = ("peaso.collectors.aws_b_services", "peaso.collectors.aws_privesc_facts",
+EXTENSION_MODULES = ("peaso.collectors.aws_kms_enclave_native", "peaso.collectors.aws_b_services", "peaso.collectors.aws_privesc_facts",
     "peaso.collectors.aws_facts_compute_edge", "peaso.collectors.aws_facts_data_identity", "peaso.collectors.aws_facts_cb_ca",
     "peaso.collectors.aws_facts_gap", "peaso.collectors.aws_facts_swc", "peaso.collectors.aws_facts_ext",
     "peaso.collectors.aws_facts_v4_holds", "peaso.collectors.aws_bulk_inventory", "peaso.collectors.aws_operational_groups_native", "peaso.collectors.aws_macie_coverage_native", "peaso.collectors.aws_budget_stop_native", "peaso.collectors.aws_budget_notification_exposure", "peaso.collectors.aws_codestar_notification_exposure", "peaso.collectors.aws_ecr_artifacts_native", "peaso.collectors.aws_resolver_firewall_native", "peaso.collectors.aws_sagemaker_clarify_native", "peaso.collectors.aws_codecommit_review_native", "peaso.collectors.aws_cloudtrail_delivery_native", "peaso.collectors.aws_controltower_native", "peaso.collectors.aws_region_data_native", "peaso.collectors.aws_lightsail_iam_native", "peaso.collectors.aws_eks_admission_native", "peaso.collectors.aws_resource_tag_compliance_native", "peaso.collectors.aws_effective_tag_policy_native", "peaso.collectors.aws_bedrock_reasoning_native", "peaso.collectors.aws_fms_rule_metadata_native", "peaso.collectors.aws_wave_semantics_native")

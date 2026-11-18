@@ -264,3 +264,11 @@ def test_scope_only_not_applicable_contexts():
     regional_index = {"context": regional_target, "collections": {}}
     for cid in ("aws.nist.waf_classic_regional_acl_logging", "aws_nist_waf_web_acl_logging_enabled"):
         assert evaluate_check(cid, regional_target, regional_index)[0] == "NOT_APPLICABLE"
+
+
+def test_rds_only_backup_selection_cannot_cover_s3_bucket():
+    cid = 'aws.pci.s3.bucket_backup_plan'
+    row, snapshot = case(cid, bad=True)
+    selection = snapshot['s3_backup_plan_coverage'][0]['data']['Selections'][0]
+    selection.update(Resources=['arn:aws:rds:*:*:db:*'], Conditions={'StringEquals': [{'ConditionKey': 'aws:ResourceTag/backup', 'ConditionValue': 'true'}]})
+    assert evaluate_check(cid, row, snapshot)[0] == 'FAIL'

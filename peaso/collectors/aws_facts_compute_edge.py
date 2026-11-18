@@ -50,6 +50,7 @@ NATIVE_IDS = {
 GLOBAL_TYPES = {"waf_web_acl", "waf_rule", "waf_rule_group"}
 READ_ACTIONS = {(service, operation) for service, operation, expression in SPECS.values()}
 READ_ACTIONS.update({
+    ("ecs", "describe_service_revisions"),
     ("ecs", "list_clusters"), ("ecs", "list_services"), ("ecs", "describe_task_definition"), ("ecs", "describe_tasks"),
     ("appstream", "list_associated_stacks"),
     ("appstream", "describe_image_permissions"),
@@ -187,6 +188,58 @@ def _ecs_services(requests, session, region):
     return services, failed
 
 
+def _current_revision_volumes(requests, session, region, account, service, row):
+    """New DescribeServices layouts provide revision summaries instead of deployments."""
+    if ("deployments" in service or "currentServiceRevisions" not in service
+            or "_coverage" in service or "volumeConfigurations" in service):
+        return
+    summaries = service["currentServiceRevisions"]
+    if not isinstance(summaries, list) or not summaries:
+        return
+    prefix = f"arn:{session.get_partition_for_region(region)}:ecs:{region}:{account}:service-revision/"
+    service_arn, cluster_arn = row.get("serviceArn"), row.get("clusterArn")
+    if (not isinstance(service_arn, str) or not isinstance(cluster_arn, str)
+            or not service_arn.startswith(prefix.replace("service-revision/", "service/"))):
+        return
+    suffix = service_arn.split(":service/", 1)[-1]
+    active, seen = [], set()
+    for summary in summaries:
+        arn = summary.get("arn") if isinstance(summary, dict) else None
+        if (not isinstance(arn, str) or not arn.startswith(prefix + suffix + "/") or arn in seen
+                or any(type(summary.get(key)) is not int or summary[key] < 0
+                       for key in ("requestedTaskCount", "runningTaskCount", "pendingTaskCount"))):
+            return
+        seen.add(arn)
+        if any(summary[key] for key in ("requestedTaskCount", "runningTaskCount", "pendingTaskCount")):
+            active.append(arn)
+    if len(active) != 1:
+        return  # Do not conflate different active revisions during a rollout.
+    try:
+        response = requests.call(session, "ecs", region, "describe_service_revisions", serviceRevisionArns=active)
+        revisions = response.get("serviceRevisions")
+        if response.get("failures", []) or not isinstance(revisions, list) or len(revisions) != 1:
+            return
+        revision = revisions[0]
+        if (not isinstance(revision, dict) or revision.get("serviceRevisionArn") != active[0]
+                or revision.get("serviceArn") != service_arn or revision.get("clusterArn") != cluster_arn
+                or revision.get("taskDefinition") != row.get("taskDefinition") or "_coverage" in revision):
+            return
+        configs = revision.get("volumeConfigurations", [])
+        if not isinstance(configs, list) or any(not isinstance(v, dict) for v in configs):
+            return
+        row["volumeConfigurations"] = configs
+        row["VolumeConfigurationServiceRevisionArn"] = active[0]
+        row.setdefault("_coverage", {})["volumeConfigurations"] = {
+            "status": "collected" if "volumeConfigurations" in revision else "empty",
+            "source_operation": "ecs:DescribeServiceRevisions", "native_member_present": "volumeConfigurations" in revision,
+            "account_id": account, "region": region, "service_arn": service_arn, "cluster_arn": cluster_arn,
+            "task_definition_arn": row["taskDefinition"], "service_revision_arn": active[0], "deployment_status": "CURRENT"}
+    except Exception as exc:
+        failure = _failure(exc)
+        row.setdefault("_coverage", {})["volumeConfigurations"] = {
+            "status": failure.status, "error": {"code": failure.code}, "source_operation": "ecs:DescribeServiceRevisions"}
+
+
 def _ecs_service(requests, session, region, account):
     services, failed = _ecs_services(requests, session, region)
     rows = []
@@ -223,6 +276,8 @@ def _ecs_service(requests, session, region, account):
                 "region": region, "service_arn": service_arn,
                 "cluster_arn": cluster_arn, "task_definition_arn": row["taskDefinition"],
                 "deployment_status": "PRIMARY"}
+        if not failed:
+            _current_revision_volumes(requests, session, region, account, service, row)
         rows.append(_metadata(row))
     if failed:
         return _fail(failed, rows)
@@ -730,10 +785,11 @@ def _target_group_attributes(requests, session, region, items):
             current["SourceAttributes"] = {"collection_status": "malformed"}
             output.append(current)
             continue
+        read = requests.detail(session, "elbv2", region, "describe_target_group_attributes", TargetGroupArn=arn)
+        current["Attributes"] = copy.deepcopy(read)
         if current.get("Protocol") not in ("TCP", "TLS") or current.get("TargetType") != "ip":
             output.append(current)
             continue
-        read = requests.detail(session, "elbv2", region, "describe_target_group_attributes", TargetGroupArn=arn)
         status = read.get("collection_status", "not_collected")
         attributes = read.get("Attributes")
         if status == "collected" and isinstance(attributes, list) and all(isinstance(x, dict) for x in attributes):

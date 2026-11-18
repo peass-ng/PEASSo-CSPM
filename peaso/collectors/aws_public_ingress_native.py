@@ -1,5 +1,5 @@
 """Read-only projection of bounded, positive direct IPv4 configuration proofs."""
-from peaso.analysis.aws_public_ingress import DEPENDENCIES, MODEL, witness, prepare
+from peaso.analysis.aws_public_ingress import DEPENDENCIES, MODEL, witness, prepare, blocked
 
 SPECS={'ec2_effective_ingress':('ec2','describe_instances','Reservations[].Instances[]')}
 NATIVE_IDS={'ec2_effective_ingress':'InstanceId'}
@@ -29,7 +29,7 @@ def effective_ingress(requests,session,region,account):
         if not isinstance(ident,str):return ReadResult([],'malformed',{'code':'public_ingress_instance_identity_missing'})
         proof=witness(snapshot,scope,ident,prepared=prepared)if prepared is not None else None
         rows.append({'InstanceId':ident,'proof_model':MODEL,'joins_complete':False,'direct_public_paths':[],
-            'public_listener_target_paths':[],'configured_path_witness':proof,
+            'public_listener_target_paths':[],'configured_path_witness':proof, 'configured_block_witness':blocked(snapshot,scope,ident),
             '_provenance':{'native_dependencies':sorted(DEPENDENCIES),'read_only':True,'network_probes':False,
                            'all_paths_evaluated':False,'absence_semantics':'unknown'}})
     return ReadResult(rows,'collected'if rows else'empty')

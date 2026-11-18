@@ -40,11 +40,11 @@ def test_delivery_missing_known_omission_denial_and_clock_are_distinct():
 
 
 @pytest.mark.parametrize("cid", ["aws.a.cloudtrail.bucket_mfa_delete", "aws.a.cloudtrail.bucket_access_logging"])
-def test_out_of_scope_bucket_is_unknown_after_complete_same_account_inventory(cid):
+def test_out_of_scope_bucket_requires_owner_account_review(cid):
     check = REGISTRY[cid]
     item = {"Name": "audit", "Status": {"IsLogging": True}, "S3BucketName": "external-bucket"}
     context = {"context": {"scope": "123456789012/us-east-1"}}
-    assert check.evaluate(item, {**scope_fixture("bucket", []), **context})[0] == "UNKNOWN"
+    assert check.evaluate(item, {**scope_fixture("bucket", []), **context})[0] == "MANUAL"
     assert check.evaluate(item, {**scope_fixture("bucket", [], status="denied"), **context})[0] == "UNKNOWN"
     index = copy.deepcopy(CASES[cid]["index"])
     envelope = index["collections"]["bucket"][0]

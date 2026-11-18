@@ -137,7 +137,7 @@ def test_native_field_guards_and_legacy_shape_cannot_bypass(monkeypatch):
 def test_conditional_trust_is_not_asserted_as_effective_access(monkeypatch):
     conditional = json.dumps({"Statement": [{"Effect": "Allow", "Action": "sts:AssumeRole",
         "Principal": {"AWS": "*"}, "Condition": {"StringEquals": {"aws:PrincipalOrgID": "o-example"}}}]})
-    assert run(monkeypatch, roles=[role(attached=True, trust=conditional)], count=1)["status"] == "UNKNOWN"
+    assert run(monkeypatch, roles=[role(attached=True, trust=conditional)], count=1)["status"] == "MANUAL"
 
 
 def trust(key, principal, action):

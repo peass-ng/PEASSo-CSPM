@@ -38,8 +38,8 @@ def test_detector_config_status_and_denied_detail_are_not_inferred(status, expec
     assert check.evaluate(SUBJECT, scope_fixture("guardduty_detector", [{"Configuration": {"Status": status, "collection_status": "denied"}}]))[0] == "UNKNOWN"
 
 
-@pytest.mark.parametrize("recording,last_status,expected", [(True, "Success", "PASS"), (True, "Pending", "PASS"), (True, "Failure", "FAIL"), (False, "Success", "FAIL"), (True, "SUCCESS", "UNKNOWN")])
-def test_config_preserves_native_case_and_pinned_nonfailure_predicate(recording, last_status, expected):
+@pytest.mark.parametrize("recording,last_status,expected", [(True, "Success", "PASS"), (True, "Pending", "PASS"), (True, "Failure", "FAIL"), (False, "Success", "FAIL"), (True, "SUCCESS", "PASS"), (True, "FAILURE", "FAIL"), (True, "FUTURE", "UNKNOWN")])
+def test_config_accepts_documented_uppercase_wire_values(recording, last_status, expected):
     row = {"name": "default", "Status": {"ConfigurationRecordersStatus": [{"name": "default", "recording": recording, "lastStatus": last_status}]}}
     assert REGISTRY["aws.a.config.region_recorder_enabled"].evaluate(SUBJECT, scope_fixture("config_recorder", [row]))[0] == expected
 

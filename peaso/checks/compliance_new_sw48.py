@@ -6,7 +6,7 @@ import json
 import re
 
 from . import CHECKS, register, result, unknown
-from .facts import Unavailable, complete_items, get, guard, optional
+from .facts import Unavailable, complete_items, get, guard, optional, list_of_objects
 
 # (kind, category, severity, title, signed digest, remediation)
 SPECS = {
@@ -640,16 +640,29 @@ def _ecs(item, index):
         if service_match is None:
             raise Unavailable('ECS service identity unavailable')
         if (coverage.get('status') not in {'empty', 'collected'} or
-                coverage.get('source_operation') != 'ecs:DescribeServices' or
+                (coverage.get('source_operation'), coverage.get('deployment_status')) not in {('ecs:DescribeServices', 'PRIMARY'), ('ecs:DescribeServiceRevisions', 'CURRENT')} or
                 coverage.get('native_member_present') is not (coverage['status'] == 'collected') or
                 (coverage['status'] == 'empty' and configurations != []) or
                 coverage.get('account_id') != scope.split('/')[0] or
                 coverage.get('region') != scope.split('/')[1] or
                 coverage.get('service_arn') != get(service,'serviceArn',str) or
                 coverage.get('cluster_arn') != cluster or
-                coverage.get('task_definition_arn') != get(service,'taskDefinition',str) or
-                coverage.get('deployment_status') != 'PRIMARY'):
+                coverage.get('task_definition_arn') != get(service,'taskDefinition',str)):
             raise Unavailable('service deployment volume provenance unavailable')
+        if coverage.get('source_operation') == 'ecs:DescribeServiceRevisions':
+            revision_arn = get(service, 'VolumeConfigurationServiceRevisionArn', str)
+            summaries = list_of_objects(get(service, 'currentServiceRevisions', list))
+            active = []
+            for summary in summaries:
+                counts = [get(summary, key, int) for key in ('requestedTaskCount', 'runningTaskCount', 'pendingTaskCount')]
+                if any(value < 0 for value in counts):
+                    raise Unavailable('negative service revision task counts')
+                if any(counts):
+                    active.append(get(summary, 'arn', str))
+            prefix = f'arn:{partition}:ecs:{region}:{account}:service-revision/' + service_arn.split(':service/', 1)[-1] + '/'
+            if (active != [revision_arn] or coverage.get('service_revision_arn') != revision_arn
+                    or not revision_arn.startswith(prefix)):
+                raise Unavailable('service revision volume binding unavailable')
         arn = get(service,'taskDefinition',str)
         if not re.fullmatch(r'arn:' + partition + r':ecs:' + re.escape(region) +
                             r':' + re.escape(account) + r':task-definition/[^:]+:[0-9]+', arn):
