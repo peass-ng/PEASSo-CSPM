@@ -99,6 +99,16 @@ def _trusted_scopes(snapshot):
             add(item.get("Account"), "aws_account")
         for item in _items(snapshot, "organization_account"):
             add(item.get("Id"), "organization_account")
+        # DescribeOrganization (callable from any member) proves the own
+        # organization's management account. Other member accounts are only
+        # trusted when ListAccounts proved them above; a member account cannot
+        # list or describe its peers, so unproven ids stay external.
+        for item in _items(snapshot, "aws_account_configuration"):
+            org = item.get("Organization")
+            if (isinstance(org, dict) and org.get("collection_status") == "collected"
+                    and re.fullmatch(r"o-[a-z0-9]{10,32}", str(org.get("OrganizationId", "")))
+                    and ACCOUNT.match(str(org.get("MasterAccountId", "")))):
+                add(org["MasterAccountId"], "organization_management_account")
     elif provider == "gcp":
         for scope in snapshot.get("scopes", []):
             if scope.startswith("projects/"):

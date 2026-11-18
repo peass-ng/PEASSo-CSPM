@@ -897,3 +897,62 @@ def test_gcp_private_storage_acl_domain_hint_detects_foreign_principals_without_
         return principal(snap)
     assert project_team_result("999")["status"] == "FAIL"
     assert project_team_result("123") is None
+
+
+MANAGEMENT, PEER, FOREIGN = "437843574433", "285347065767", "999988887777"
+
+
+def _org_config(status="collected"):
+    organization = ({"collection_status": "collected", "OrganizationId": "o-abcdefghij", "MasterAccountId": MANAGEMENT}
+                    if status == "collected" else {"collection_status": status})
+    return coll("aws_account_configuration", [{"id": "account-configuration", "Partition": "aws",
+                "SecurityContact": {"collection_status": "empty"}, "Organization": organization}],
+                service="account", scope=f"{ACCOUNT}/global")
+
+
+def _org_accounts(*accounts, status=None):
+    return coll("organization_account", [{"Id": a, "State": "ACTIVE"} for a in accounts], status=status,
+                service="organizations", scope=f"{ACCOUNT}/global")
+
+
+def _ecr_shared_to(*accounts):
+    arn = f"arn:aws:ecr:us-east-1:{ACCOUNT}:repository/team/app"
+    statement = {"Sid": "EnvironmentAccountsPull", "Effect": "Allow",
+                 "Principal": {"AWS": [f"arn:aws:iam::{a}:root" for a in accounts]},
+                 "Action": ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]}
+    repo = {"repositoryArn": arn, "repositoryName": "team/app", "registryId": ACCOUNT,
+            "Policy": {"collection_status": "collected", "registryId": ACCOUNT, "repositoryName": "team/app",
+                       "policyText": {"Version": "2012-10-17", "Statement": [statement]}}}
+    return coll("ecr_repository", [repo], service="ecr")
+
+
+def _external_findings(snapshot):
+    return [f for f in analyze(snapshot)["findings"]
+            if f["check_id"] in ("analysis.internet_exposure", "analysis.principal_exposure")
+            and f["status"] == "FAIL"]
+
+
+def test_org_management_account_from_describe_organization_is_inside_the_trust_boundary():
+    org_access = coll("iam_role", [role([trust({"AWS": f"arn:aws:iam::{MANAGEMENT}:root"})],
+                                        name="OrganizationAccountAccessRole")])
+    assert trusted_scopes(aws(_org_config()))["sources"][MANAGEMENT] == "organization_management_account"
+    assert _external_findings(aws(_org_config(), org_access, _ecr_shared_to(MANAGEMENT))) == []
+    # Without DescribeOrganization evidence the management account stays foreign.
+    unproven = _external_findings(aws(_org_config("denied"), org_access, _ecr_shared_to(MANAGEMENT)))
+    assert {f["check_id"] for f in unproven} == {"analysis.internet_exposure", "analysis.principal_exposure"}
+    assert len([f for f in unproven if f["check_id"] == "analysis.principal_exposure"]) == 2
+
+
+def test_peer_member_share_is_internal_only_when_list_accounts_proves_membership():
+    assert _external_findings(aws(_org_config(), _org_accounts(MANAGEMENT, ACCOUNT, PEER), _ecr_shared_to(PEER))) == []
+    # A member account cannot ListAccounts: an unproven peer keeps today's external report.
+    found = _external_findings(aws(_org_config(), _org_accounts(status="denied"), _ecr_shared_to(PEER)))
+    assert {f["check_id"] for f in found} == {"analysis.internet_exposure", "analysis.principal_exposure"}
+    assert all(f["evidence"]["external_scope_ids"] == [PEER] for f in found)
+
+
+def test_genuinely_foreign_account_beside_org_accounts_is_still_reported():
+    found = _external_findings(aws(_org_config(), _org_accounts(MANAGEMENT, ACCOUNT, PEER),
+                                   _ecr_shared_to(MANAGEMENT, PEER, FOREIGN)))
+    assert {f["check_id"] for f in found} == {"analysis.internet_exposure", "analysis.principal_exposure"}
+    assert all(f["evidence"]["external_scope_ids"] == [FOREIGN] for f in found)
