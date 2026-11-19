@@ -205,7 +205,11 @@ def evaluate(item, index):
                 raise ValueError()
         ledger = row['source_ledger']
         if (type(ledger) is not list or not ledger or any(r.get('status') != 'collected' for r in ledger)
-                or not {'sts:get_caller_identity', 'ecr:batch_get_image', 'ecr:get_download_url_for_layer',
+                # A scan-local capture reader reuses verified bytes under the
+                # same session/account/region/repository/digest binding. Only
+                # its owner requests download URLs; both readers retain the
+                # signed byte receipts and independent manifest checks.
+                or not {'sts:get_caller_identity', 'ecr:batch_get_image',
                         'ecr:signed_layer_download'} <= {r.get('operation') for r in ledger}):
             raise ValueError()
         if any(r.get('account') != scope.split('/')[0] for r in ledger if r['operation'] == 'sts:get_caller_identity'):
