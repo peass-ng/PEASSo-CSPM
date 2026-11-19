@@ -7,7 +7,7 @@ from datetime import datetime,timedelta,timezone
 import json,re
 SPECS={'cloudtrail_event':('cloudtrail','lookup_events','Events')}
 NATIVE_IDS={'cloudtrail_event':'EventId'}
-READ_ACTIONS=set()  # Existing exact cloudtrail:LookupEvents grant and shared pacing.
+READ_ACTIONS={('ec2', 'describe_instances')}  # Existing exact inventory grant; history uses shared pacing.
 OPERATIONS={'Decrypt','DeriveSharedSecret','GenerateDataKey','GenerateDataKeyPair','GenerateRandom'}
 REFERENCE='https://docs.aws.amazon.com/kms/latest/developerguide/ct-nitro-enclave.html'
 
@@ -129,4 +129,61 @@ def events(requests,session,region,account):
    seen[row['EventId']] = (row, name, lower, upper)
    rows.append({**row,'_provenance':{'source_operation':'cloudtrail:LookupEvents','read_only':True,'reference':REFERENCE,'window_start':start.isoformat(),'window_end':end.isoformat(),'boundary':'Observed Nitro enclave PCR metadata only; no attestation verification, secret read or complete historical-delivery assurance'}})
  return ReadResult(rows,'collected'if rows else'empty')
-FETCHERS={'cloudtrail_event':events}
+def discover_region(requests, session, region, account):
+ """Current local enclave-capable parents, not proof of historical/global non-use."""
+ from .aws import ReadResult
+ read = requests.pages(session, 'ec2', region, 'describe_instances', 'Reservations',
+                       Filters=[{'Name':'enclave-options.enabled','Values':['true']}])
+ if read.status not in ('collected', 'empty'):
+  return ReadResult([], read.status, {**(read.error or {}), 'phase':'enclave_discovery',
+                                      'iam_action':'ec2:DescribeInstances'})
+ ids = set()
+ for reservation in read.items:
+  if (not isinstance(reservation, dict) or reservation.get('OwnerId') != account
+      or not isinstance(reservation.get('Instances'), list) or not reservation['Instances']):
+   return ReadResult([], 'malformed', {'code':'enclave_parent_identity_invalid'})
+  for instance in reservation['Instances']:
+   ident = instance.get('InstanceId') if isinstance(instance, dict) else None
+   if (not isinstance(ident, str) or not re.fullmatch(r'i-(?:[0-9a-f]{8}|[0-9a-f]{17})', ident)
+       or ident in ids or not isinstance(instance.get('EnclaveOptions'), dict)
+       or instance['EnclaveOptions'].get('Enabled') is not True):
+    return ReadResult([], 'malformed', {'code':'enclave_parent_identity_invalid'})
+   ids.add(ident)
+ proof = {'code':'enclave_parents_discovered' if ids else 'no_current_enclave_enabled_instances',
+          'source_operation':'ec2:DescribeInstances', 'scope':account+'/'+region,
+          'complete':True, 'instance_ids':sorted(ids), 'observed_at':requests.observed_at.isoformat(),
+          'boundary':'Current local EC2 configuration only; historical and cross-account enclave use is not excluded.'}
+ return ReadResult([{'InstanceId':ident} for ident in sorted(ids)], 'collected' if ids else 'empty', proof)
+
+
+def discover_accounts(requests, contexts, regions_by_account):
+ """Finish cheap discovery across the selected Regions before history is scheduled."""
+ from .aws_request_pool import ordered_reads
+ pairs = [(session, identity['Account'], region) for session, identity in contexts
+          for region in regions_by_account.get(identity['Account'], [])]
+ def discover(pair):
+  session, account, region = pair
+  return discover_region(requests, session, region, account)
+ reads = ordered_reads(requests, pairs, discover, workers=min(8, max(1, len(pairs))))
+ requests.enclave_region_discovery = {(account, region):read
+     for (_, account, region), read in zip(pairs, reads)}
+ return [{'account':account, 'region':region, 'status':read.status,
+          'candidate':bool(read.items), 'evidence':read.error}
+         for (_, account, region), read in zip(pairs, reads)]
+
+
+def applicable_events(requests, session, region, account):
+ from .aws import ReadResult
+ if getattr(requests, 'enclave_history_mode', 'auto') == 'all':
+  return events(requests, session, region, account)
+ discovery = getattr(requests, 'enclave_region_discovery', {}).get((account, region))
+ if discovery is None:
+  discovery = discover_region(requests, session, region, account)
+ if discovery.status not in ('collected', 'empty'):
+  return discovery
+ if not discovery.items:
+  return ReadResult([], 'empty', discovery.error)
+ return events(requests, session, region, account)
+
+
+FETCHERS={'cloudtrail_event':applicable_events}

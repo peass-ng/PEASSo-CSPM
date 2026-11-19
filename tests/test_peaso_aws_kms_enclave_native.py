@@ -73,7 +73,7 @@ def test_owner_policy_absent_or_mismatched_is_not_automatically_trusted(sdk,gold
  result,_=read(sdk);findings=evaluate_snapshot(snapshot(result,golden),checks=[CHECK])['findings'];assert findings[0]['status']==('FAIL'if golden=={'PCR0':['cd'*48]}else'UNKNOWN')
 
 def test_actual_collect_live_dispatches_exact_existing_metadata_read(sdk,monkeypatch):
- session,add=sdk;sts=add('sts');logs=add('cloudtrail');sts.add_response('get_caller_identity',{'Account':ACCOUNT,'Arn':f'arn:aws:iam::{ACCOUNT}:user/fixture','UserId':'fixture'},{});logs.add_response('lookup_events',{'Events':[event()]},{'LookupAttributes':[{'AttributeKey':'EventName','AttributeValue':'Decrypt'}],'StartTime':NOW-timedelta(minutes=1440),'EndTime':NOW})
+ session,add=sdk;ec2=add('ec2');ec2.add_response('describe_instances',{'Reservations':[{'OwnerId':ACCOUNT,'Instances':[{'InstanceId':'i-0123456789abcdef0','EnclaveOptions':{'Enabled':True}}]}]},{'Filters':[{'Name':'enclave-options.enabled','Values':['true']}]});sts=add('sts');logs=add('cloudtrail');sts.add_response('get_caller_identity',{'Account':ACCOUNT,'Arn':f'arn:aws:iam::{ACCOUNT}:user/fixture','UserId':'fixture'},{});logs.add_response('lookup_events',{'Events':[event()]},{'LookupAttributes':[{'AttributeKey':'EventName','AttributeValue':'Decrypt'}],'StartTime':NOW-timedelta(minutes=1440),'EndTime':NOW})
  original=aws.Requests.__init__
  for operation in sorted(native.OPERATIONS-{'Decrypt'}):logs.add_response('lookup_events',{'Events':[]},{'LookupAttributes':[{'AttributeKey':'EventName','AttributeValue':operation}],'StartTime':NOW-timedelta(minutes=1440),'EndTime':NOW})
  def initialized(self,*a,**kw):kw['sleep']=lambda _:None;original(self,*a,**kw);self.observed_at=NOW
