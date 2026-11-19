@@ -635,7 +635,7 @@ def _make_s3():
 
     FORMATS = ('text', 'zip', 'tar', 'tar.gz')
 
-    MAX_TARGETS = 4
+    MAX_TARGETS = 8
 
     MAX_SELECTED_SCOPES = 8
 
@@ -785,7 +785,7 @@ def _make_aws_config():
 
     OPTION = 'selected_aws_configuration_content'
 
-    MAX_TARGETS = 16
+    MAX_TARGETS = 32
 
     MAX_SELECTED_SCOPES = 8
 
