@@ -271,14 +271,14 @@ def validate_connector(provider, auth, options, settings, *, server_external_id=
                 raise ValueError('AWS-only S3 source selection')
             pure_selection.s3.selected_targets(options, scopes or [])
         except Exception:
-            raise HTTPException(422, 'Selected S3 sources require 1–4 exact bucket, key, format and optional existing version targets in matching account/Region scopes') from None
+            raise HTTPException(422, 'Selected S3 sources require 1–8 exact bucket, key, format and optional existing version targets in matching account/Region scopes') from None
     if 'selected_aws_configuration_content' in options:
         try:
             if provider != 'aws':
                 raise ValueError('AWS-only content selection')
             pure_selection.aws_config.selected_targets(options, scopes or [])
         except Exception:
-            raise HTTPException(422, 'Selected AWS configuration requires 1–16 exact surface, scope and resource_id targets in matching account/Region scopes; SSM documents and launch templates require numeric versions') from None
+            raise HTTPException(422, 'Selected AWS configuration requires 1–32 exact surface, scope and resource_id targets in matching account/Region scopes; SSM documents and launch templates require numeric versions') from None
     if 'selected_aws_ecs_environment_files' in options:
         try:
             if provider != 'aws':

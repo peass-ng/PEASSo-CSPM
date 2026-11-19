@@ -209,7 +209,7 @@ def test_hosted_selector_boundary_before_auth(fault):
     t=selection();targets=[t];scopes=[SCOPE];provider='aws';options={'content_secret_scans':True}
     if fault=='empty':targets=[]
     if fault=='scalar':targets=t
-    if fault=='many':targets=[{**t,'key':str(i)}for i in range(5)]
+    if fault=='many':targets=[{**t,'key':str(i)}for i in range(100)]
     if fault=='duplicate':targets=[t,t]
     if fault=='foreign':t['scope']='999999999999/'+REGION
     if fault=='directory':t['bucket']='directory--az1--x-s3'
