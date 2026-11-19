@@ -87,3 +87,14 @@ requests that try to set them are rejected.
 - Limit who can open finding details, because they show secret values in clear text.
 - Rotate any credential found by a scan, even if the resource looks unused.
 - Do not use `--include-secret-values` in shared pipelines; store such files with strict permissions and delete them after use.
+
+## Consolidated AWS assessment selections
+
+One AWS assessment can select up to 32 configuration sources, 8 S3 sources and
+32 immutable images. This allows one account report to include selections that
+previously needed separate scans. Images remain sequential, with unchanged
+per-image SDK, byte, scratch-space and workload-selection limits. More than eight
+images receives up to four bounded image batch time windows; the hosted scan deadline
+still applies. Configuration and S3 read-call budgets scale to the larger
+selection, while their existing content-byte and expansion ceilings remain fixed.
+Incomplete reads or exhausted budgets remain explicit coverage gaps.

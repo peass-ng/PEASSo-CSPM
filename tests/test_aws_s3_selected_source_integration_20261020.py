@@ -586,3 +586,11 @@ def test_readable_object_keeps_its_normal_result_and_names_the_object(monkeypatc
     evidence=findings[0]['evidence']
     assert evidence['complete'] is True and evidence['object']=='s3://'+BUCKET+'/'+KEY
     assert 'reason' not in evidence and 'missing_action' not in evidence
+
+
+def test_one_account_assessment_reads_five_selected_state_sources(monkeypatch):
+    targets=[target(version='account-state-'+str(number))for number in range(5)]
+    snapshot,findings,trace=collect(monkeypatch,targets=targets)
+    assert len(next(c for c in snapshot['collections']if c['type']==source.KIND)['items'])==5
+    assert findings and all(f['status']=='PASS'for f in findings),findings
+    assert len(trace.calls)==26

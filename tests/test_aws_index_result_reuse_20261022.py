@@ -71,6 +71,8 @@ def _reader(monkeypatch, image, parents, *, changed_binding=False, denied=False,
     images = {item.digest: item for item in (image, other) if item is not None}
     payloads = {archive.sha(raw): raw for item in images.values() for raw in (item.config, item.layer)}
     class Reader:
+        def start_target(self):
+            self.target_calls = 0
         counts = {'caller': 0, 'binding': 0, 'parent': 0, 'child': 0}
         def __init__(self, requests, session, account, region, *, target_count=1):
             assert (account, region, target_count) in ((ACCOUNT, REGION, 2), (ACCOUNT, REGION, 4))

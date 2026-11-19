@@ -6,7 +6,8 @@ ENABLE = 'image_vulnerability_scans'
 OPTION = 'selected_aws_image_vulnerabilities'
 CHECK = 'aws.review.ecr.selected_image_vulnerabilities'
 KIND = 'ecr_selected_image_vulnerabilities'
-MAX_TARGETS = 8
+MAX_TARGETS = 32
+MAX_SELECTED_SCOPES = 8
 SCOPE = re.compile(r'([0-9]{12})/([a-z]{2}(?:-[a-z0-9]+)+-[0-9]+)\Z')
 REPO = re.compile(r'[a-z0-9]+(?:(?:\.|_|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:\.|_|__|-+)[a-z0-9]+)*)*\Z')
 DIGEST = re.compile(r'sha256:[0-9a-f]{64}\Z')
@@ -31,7 +32,7 @@ def selections(options, scopes):
         return []
     targets = options.get(OPTION)
     # The connector can inventory many Regions. Only the content targets, not
-    # the metadata allowlist, are limited to eight selected image scopes.
+    # the metadata allowlist, are limited to eight selected image scopes. A scan can select thirty-two images.
     if (not scopes
             or any(type(s) is not str or not SCOPE.fullmatch(s) for s in scopes)
             or len(set(scopes)) != len(scopes)
@@ -97,7 +98,7 @@ def selections(options, scopes):
         if key in seen:
             raise ValueError('duplicate_aws_image_target')
         seen.add(key)
-    if len({row['scope'] for row in targets}) > MAX_TARGETS:
+    if len({row['scope'] for row in targets}) > MAX_SELECTED_SCOPES:
         raise ValueError('selected_aws_image_scope_bound')
     if workload_count > MAX_WORKLOAD_TARGETS:
         raise ValueError('selected_aws_workload_image_bound')

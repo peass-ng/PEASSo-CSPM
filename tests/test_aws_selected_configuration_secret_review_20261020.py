@@ -486,7 +486,7 @@ def test_public_selection_rejects_before_authentication(monkeypatch,case):
     if case=='missing':targets=None
     elif case=='empty':targets=[]
     elif case=='duplicate':targets*=2
-    elif case=='too_many':targets=[{**target,'resource_id':target['resource_id']+str(i)} for i in range(17)]
+    elif case=='too_many':targets=[{**target,'resource_id':target['resource_id']+str(i)} for i in range(100)]
     elif case=='foreign_scope':target['scope']='000000000000/'+REGION
     elif case=='foreign_arn':target['resource_id']=target['resource_id'].replace(ACCOUNT,'000000000000')
     elif case=='qualified_version':target['version']=3
@@ -628,3 +628,14 @@ def test_real_multiline_private_key_literals_are_not_json_escape_blinded(monkeyp
     assert {r['status'] for r in findings(snapshot)}=={'FAIL'}
     assert private not in json.dumps(snapshot)+retained(trace.readers[0])
     assert '-----BEGIN PRIVATE KEY-----' not in retained(trace.readers[0])
+
+
+def test_one_account_assessment_reads_all_twenty_two_selected_documents(monkeypatch):
+    targets=[];responses={}
+    for number in range(22):
+        selected,native_responses=native('ssm_document',name='AccountAudit'+str(number))
+        targets.append(selected);responses[source.identity(selected)]=native_responses
+    snapshot,trace=capture(monkeypatch,targets,responses)
+    rows=findings(snapshot)
+    assert len(rows)==22 and all(row['status']=='PASS'for row in rows),rows
+    assert len(trace.calls)==44
