@@ -404,7 +404,7 @@ def test_ecr_complete_latest_digest_selection_required(monkeypatch, mode):
         def denied(**kw): raise aws.ReadFailure('access_denied', 'denied')
         ops['describe_images'] = denied
     result = p.ENRICHERS['ecr_repository'](requests, session, REGION, [item])[0]
-    assert c.image_layers(result, index('ecr_repository', result))[0] == 'UNKNOWN'
+    assert c.image_layers(result, index('ecr_repository', result))[0] == ('EMPTY' if mode == 'empty' else 'UNKNOWN')
     assert not any(op == 'batch_get_image' for _, op, _ in calls)
     assert not downloads
 
@@ -1111,3 +1111,57 @@ def test_amplitude_init_call_in_public_bundle_is_not_a_leak():
     # Only a rule that names the vendor qualifies: a generic match is no evidence it is that key.
     assert public_client_identifiers([('kingfisher', [(AMPLITUDE_KEY, 'generic.api-key', 1)])], payload,
                                      'srv/www/public/js/analytics.min.js') == {}
+
+
+def test_complete_empty_ecr_sdk_inventory_is_empty_in_sealed_report(monkeypatch):
+    from peaso import engine
+    from peaso.snapshot import make_snapshot
+    requests, session, item, operations, calls, downloads, _ = sdk(monkeypatch, 'ecr_repository')
+    operations['describe_images'] = {'imageDetails': []}
+    enriched = p.enrich('ecr_repository', requests, session, REGION, [item])[0]
+    assert enriched['PackageContentSource']['EmptyImageInventory']['ImageCount'] == 0
+    report = engine.evaluate_snapshot(make_snapshot('aws', [ACCOUNT + '/' + REGION], [
+        {'type': 'ecr_repository', 'scope': ACCOUNT + '/' + REGION,
+         'status': 'collected', 'items': [enriched]}]),
+        checks=['aws.review.ecr_repository.package_content_secret_indicators'])
+    assert report['stats']['by_status'] == {'EMPTY': 1}
+    assert not downloads and not any(operation == 'batch_get_image' for _, operation, _ in calls)
+
+
+@pytest.mark.parametrize('response,reason', [
+    ({}, 'ecr_describe_images_malformed_response'),
+    ({'imageDetails': [], 'nextToken': 'more'}, 'ecr_describe_images_unhandled_pagination_token'),
+])
+def test_incomplete_or_malformed_empty_ecr_inventory_stays_unknown(monkeypatch, response, reason):
+    requests, session, item, operations, calls, downloads, _ = sdk(monkeypatch, 'ecr_repository')
+    operations['describe_images'] = response
+    enriched = p.enrich('ecr_repository', requests, session, REGION, [item])[0]
+    status, evidence = c.image_layers(enriched, index('ecr_repository', enriched))
+    assert status == 'UNKNOWN' and evidence['reason'] == reason
+    assert not downloads
+
+
+def test_denied_ecr_inventory_cannot_become_empty(monkeypatch):
+    requests, session, item, operations, calls, downloads, _ = sdk(monkeypatch, 'ecr_repository')
+    def denied(**kwargs):
+        raise aws.ReadFailure('denied', 'AccessDeniedException')
+    operations['describe_images'] = denied
+    enriched = p.enrich('ecr_repository', requests, session, REGION, [item])[0]
+    status, evidence = c.image_layers(enriched, index('ecr_repository', enriched))
+    assert status == 'UNKNOWN' and evidence['reason'] == 'ecr_describe_images_access_denied_exception'
+    assert not downloads
+
+
+@pytest.mark.parametrize('field,value', [
+    ('AccountId', '999999999999'), ('Region', 'us-west-2'),
+    ('RepositoryName', 'foreign'), ('ResourceId', arn('ecr', 'repository/foreign')),
+    ('SourceOperation', 'ecr:batch_get_image'), ('NativeResponseComplete', False),
+    ('ImageCount', 1), ('ImageCount', False),
+])
+def test_empty_ecr_proof_requires_complete_matching_native_identity(monkeypatch, field, value):
+    from peaso.snapshot import freeze
+    requests, session, item, operations, calls, downloads, _ = sdk(monkeypatch, 'ecr_repository')
+    operations['describe_images'] = {'imageDetails': []}
+    enriched = p.enrich('ecr_repository', requests, session, REGION, [item])[0]
+    enriched['PackageContentSource']['EmptyImageInventory'][field] = value
+    assert c.image_layers(freeze(enriched), freeze(index('ecr_repository', enriched)))[0] == 'UNKNOWN'
