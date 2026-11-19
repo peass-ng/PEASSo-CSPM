@@ -44,7 +44,7 @@ RECIPES = [
     recipe("s3-directory-access-points", "s3control", "list_access_points_for_directory_buckets", "AccessPointList", "get_access_point_policy", "Name", "$Name", resource="$AccessPointArn", parameters={"AccountId": "{account}"}, absent=("NoSuchAccessPointPolicy",)),
     recipe("s3-object-lambda-access-points", "s3control", "list_access_points_for_object_lambda", "ObjectLambdaAccessPointList", "get_access_point_policy_for_object_lambda", "Name", "$Name", resource="$ObjectLambdaAccessPointArn", parameters={"AccountId": "{account}"}, absent=("NoSuchAccessPointPolicy",)),
     recipe("s3-multi-region-access-points", "s3control", "list_multi_region_access_points", "AccessPoints", "get_multi_region_access_point_policy", "Name", "$Name", "Policy.Established.Document", "arn:{partition}:s3::{account}:accesspoint/{Alias}", parameters={"AccountId": "{account}"}, region="us-west-2", absent=("NoSuchMultiRegionAccessPointPolicy",)),
-    recipe("s3-outposts-buckets", "s3control", "list_regional_buckets", "RegionalBucketList", "get_bucket_policy", "Bucket", "$BucketArn", resource="$BucketArn", parameters={"AccountId": "{account}"}, absent=("NoSuchBucketPolicy",)),
+    recipe("s3-outposts-buckets", "s3control", "list_regional_buckets", "RegionalBucketList", "get_bucket_policy", "Bucket", "$BucketArn", resource="$BucketArn", parameters={"AccountId": "{account}", "OutpostId": "$OutpostId"}, absent=("NoSuchBucketPolicy",)),
     recipe("s3-access-grants", "s3control", "list_access_grants_instances", "AccessGrantsInstancesList", "get_access_grants_instance_resource_policy", None, None, resource="$AccessGrantsInstanceArn", parameters={"AccountId": "{account}"}, absent=("NoSuchAccessGrantsInstancePolicy",)),
     recipe("s3-tables", "s3tables", "list_table_buckets", "tableBuckets", "get_table_bucket_policy", "tableBucketARN", "$arn", "resourcePolicy", "$arn", absent=("NotFoundException",)),
     recipe("s3-vectors", "s3vectors", "list_vector_buckets", "vectorBuckets", "get_vector_bucket_policy", "vectorBucketArn", "$vectorBucketArn", "policy", "$vectorBucketArn", absent=("NotFoundException",)),
@@ -56,7 +56,7 @@ RECIPES = [
     recipe("private-ca", "acm-pca", "list_certificate_authorities", "CertificateAuthorities", "get_policy", "ResourceArn", "$Arn", resource="$Arn", absent=("ResourceNotFoundException",)),
     recipe("kinesis-streams", "kinesis", "list_streams", "StreamSummaries", "get_resource_policy", "ResourceARN", "$StreamARN", resource="$StreamARN", absent=("ResourceNotFoundException",)),
     recipe("eventbridge-buses", "events", "list_event_buses", "EventBuses", "describe_event_bus", "Name", "$Name", resource="$Arn"),
-    recipe("eventbridge-schemas", "schemas", "list_registries", "Registries", "get_resource_policy", "RegistryName", "$RegistryName", resource="$RegistryArn", absent=("NotFoundException",)),
+    recipe("eventbridge-schemas", "schemas", "list_registries", "Registries", "get_resource_policy", "RegistryName", "$RegistryName", resource="$RegistryArn", parameters={"Scope": "LOCAL"}, absent=("NotFoundException",)),
     recipe("codeartifact-domains", "codeartifact", "list_domains", "domains", "get_domain_permissions_policy", "domain", "$name", "policy.document", "$arn", absent=("ResourceNotFoundException",)),
     recipe("codeartifact-repositories", "codeartifact", "list_repositories", "repositories", "get_repository_permissions_policy", "repository", "$name", "policy.document", "$arn", absent=("ResourceNotFoundException",)),
     recipe("codebuild-projects", "codebuild", "list_projects", "projects", "get_resource_policy", "resourceArn", "arn:{partition}:codebuild:{region}:{account}:project/{value}", "policy", "arn:{partition}:codebuild:{region}:{account}:project/{value}", absent=("ResourceNotFoundException",)),
@@ -209,7 +209,7 @@ RECIPES += [
     recipe("lookout-datasets", "lookoutequipment", "list_datasets", "DatasetSummaries", "describe_resource_policy", "ResourceArn", "$DatasetArn", "ResourcePolicy", "$DatasetArn", absent=("ResourceNotFoundException",)),
     Recipe("lookout-model-versions", "lookoutequipment", (step("list_models", "ModelSummaries"), step("list_model_versions", "ModelVersionSummaries", ModelName="$ModelName")), "describe_resource_policy", {"ResourceArn": "$ModelVersionArn"}, "ResourcePolicy", "$ModelVersionArn", absent=("ResourceNotFoundException",)),
     Recipe("ssm-opsitem-groups", "ssm", (), "get_resource_policies", {"ResourceArn": "arn:{partition}:ssm:{region}:{account}:opsitemgroup/default"}, "Policies[].Policy", "arn:{partition}:ssm:{region}:{account}:opsitemgroup/default"),
-    Recipe("s3-outposts-access-points", "s3control", (step("list_regional_buckets", "RegionalBucketList", AccountId="{account}"), step("list_access_points", "AccessPointList", AccountId="{account}", Bucket="$BucketArn")), "get_access_point_policy", {"Name": "$AccessPointArn", "AccountId": "{account}"}, "Policy", "$AccessPointArn", absent=("NoSuchAccessPointPolicy",)),
+    Recipe("s3-outposts-access-points", "s3control", (step("list_regional_buckets", "RegionalBucketList", AccountId="{account}", OutpostId="$OutpostId"), step("list_access_points", "AccessPointList", AccountId="{account}", Bucket="$BucketArn")), "get_access_point_policy", {"Name": "$AccessPointArn", "AccountId": "{account}"}, "Policy", "$AccessPointArn", absent=("NoSuchAccessPointPolicy",)),
 ]
 RECIPES = [Recipe(r.id, r.service, r.steps, r.operation,
     {**r.parameters, "Deployed": True} if r.id == "cloudsearch-domains" else r.parameters,
@@ -258,6 +258,9 @@ UNSUPPORTED_RECIPES = _unsupported_recipes(RECIPES, recipe_operations, unsupport
 DECLARED_READ_ACTIONS = READ_ACTIONS
 READ_ACTIONS = {(r.service, operation) for r in RECIPES
                 if r.id not in UNSUPPORTED_RECIPES for operation in recipe_operations(r)}
+# Outposts listing establishes whether either S3-on-Outposts family applies.
+READ_ACTIONS.add(("outposts", "list_outposts"))
+DECLARED_READ_ACTIONS.add(("outposts", "list_outposts"))
 del _capability_session
 
 
@@ -320,8 +323,14 @@ def collect(requests, session, region, account, recipes=None):
         # documents are recorded locally and merged below in recipe order.
         failures, documents = [], []
 
-        def failure(r, status, code):
-            failures.append({"family": r.id, "status": status, "code": code})
+        def failure(r, status, code, operation=None, service=None):
+            row = {"family": r.id, "status": status, "code": code, "service": service or r.service}
+            if operation is not None:
+                row["operation"] = operation
+            from peaso.policy_denial import POLICY_TYPES
+            if getattr(code, "denied_by", None) in POLICY_TYPES:
+                row["denied_by"] = code.denied_by
+            failures.append(row)
         family_body(r, failure, documents)
         return failures, documents
 
@@ -339,12 +348,25 @@ def collect(requests, session, region, account, recipes=None):
         context = {"partition": partition, "region": api_region, "account": account}
         contexts = [context]
         try:
+            if r.id in {"s3-outposts-buckets", "s3-outposts-access-points"}:
+                read = requests.pages(session, "outposts", api_region, "list_outposts", "Outposts")
+                if read.status not in {"collected", "empty"}:
+                    failure(r, read.status, (read.error or {}).get("code", "policy_listing_incomplete"), "list_outposts", "outposts")
+                contexts = []
+                for item in read.items:
+                    if (not isinstance(item, dict) or not isinstance(item.get("OutpostId"), str)
+                            or not item["OutpostId"].startswith("op-")
+                            or item.get("OwnerId") != account
+                            or item.get("OutpostArn") != f"arn:{partition}:outposts:{api_region}:{account}:outpost/{item['OutpostId']}"):
+                        failure(r, "malformed", "policy_outpost_identity_invalid", "list_outposts", "outposts")
+                        continue
+                    contexts.append({**context, **item})
             for operation, path, bindings in r.steps:
                 next_contexts = []
                 for parent in contexts:
                     read = requests.pages(session, r.service, api_region, operation, path, **{key: resolve(value, parent) for key, value in bindings.items()})
                     if read.status not in {"collected", "empty"}:
-                        failure(r, read.status, (read.error or {}).get("code", "policy_listing_incomplete"))
+                        failure(r, read.status, (read.error or {}).get("code", "policy_listing_incomplete"), operation)
                     for item in read.items:
                         if not isinstance(item, (dict, str)):
                             failure(r, "malformed", "policy_resource_identity_invalid")
@@ -368,6 +390,18 @@ def collect(requests, session, region, account, recipes=None):
                     if len(parts) != 6 or parts[1] != partition or parts[4] not in (account, "") or parts[3] not in (api_region, ""):
                         failure(r, "malformed", "policy_resource_outside_account_or_region")
                         continue
+                    # AWS-managed Resolver rules and service-linked CloudTrail
+                    # channels do not support customer resource policies. Match
+                    # their reserved identity, never a name prefix alone.
+                    if (r.id == "resolver-rules" and parts[2] == "route53resolver"
+                            and parts[3] == api_region and parts[4] == "" and parts[5].startswith("autodefined-rule/")
+                            and current.get("OwnerId") == "Route 53 Resolver"):
+                        continue
+                    if (r.id == "cloudtrail-channels" and parts[2] == "cloudtrail"
+                            and parts[3] == api_region and parts[4] == account and parts[5].startswith("channel/aws-service-channel/")
+                            and isinstance(current.get("Name"), str)
+                            and current["Name"].startswith("aws-service-channel/")):
+                        continue
                     if r.operation:
                         arguments = {key: resolve(value, current) for key, value in r.parameters.items()}
                         detail_region = api_region
@@ -382,7 +416,7 @@ def collect(requests, session, region, account, recipes=None):
                         if "[]" in r.document or r.normalizer == "ssm_document":
                             read = requests.pages(session, r.service, api_region, r.operation, r.document, **arguments)
                             if read.status not in {"collected", "empty"}:
-                                failure(r, read.status, (read.error or {}).get("code", "policy_detail_incomplete"))
+                                failure(r, read.status, (read.error or {}).get("code", "policy_detail_incomplete"), r.operation)
                             response = {"collection_status": "collected", "documents": read.items}
                             raw = read.items
                         else:
@@ -393,7 +427,7 @@ def collect(requests, session, region, account, recipes=None):
                         if status == "empty" and response.get("absent") is True:
                             continue
                         if status != "collected":
-                            failure(r, status or "unknown", (response.get("error") or {}).get("code", "policy_detail_incomplete"))
+                            failure(r, status or "unknown", (response.get("error") or {}).get("code", "policy_detail_incomplete"), r.operation)
                             continue
                     else:
                         raw = current if r.normalizer else current.get(r.document[1:])

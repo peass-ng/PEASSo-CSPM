@@ -162,6 +162,8 @@ def _failure(exc):
         policy = policy_from_message(error.get("Message") if isinstance(error, dict) else None)
         if policy is not None:
             code = PolicyDenialCode(code, policy)
+    elif type(exc).__name__ == "EndpointConnectionError":
+        status, code = "unknown", "endpoint_unreachable"
     elif "timeout" in type(exc).__name__.lower() or isinstance(exc, TimeoutError):
         status = "timeout"
     elif isinstance(exc, (ValueError, TypeError, KeyError)):
@@ -1019,6 +1021,8 @@ class Requests:
                     reservations = response.get("Reservations")
                     if not isinstance(reservations, list) or any(not isinstance(r, dict) or not isinstance(r.get("Instances"), list) for r in reservations):
                         raise ReadFailure("malformed", "malformed_response")
+                if (service, operation, expression) == ("omics", "list_sequence_stores", "sequenceStores") and "sequenceStores" not in response:
+                    response = {**response, "sequenceStores": []}
                 if (service, operation, expression) == ("budgets", "describe_budgets", "Budgets") and "Budgets" not in response:
                     response = {**response, "Budgets": []}
                 batch = jmespath.search(expression, response)

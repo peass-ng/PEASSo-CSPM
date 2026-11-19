@@ -30,7 +30,7 @@ def test_recorded_answer_applies_to_the_pinned_sdk_and_equals_loading_every_mode
     assert families.UNSUPPORTED_RECIPES == _live(botocore.session.get_session())
     expected = {(r.service, operation) for r in families.RECIPES if r.id not in families.UNSUPPORTED_RECIPES
                 for operation in families.recipe_operations(r)}
-    assert families.READ_ACTIONS == expected
+    assert families.READ_ACTIONS == expected | {('outposts', 'list_outposts')}
 
 
 def test_any_model_override_falls_back_to_loading_models(monkeypatch, tmp_path):
