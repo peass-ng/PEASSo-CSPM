@@ -69,6 +69,9 @@ class Requests:
     def pages(self, session, service, region, operation, path, **parameters):
         self.validate(service, region, operation, parameters)
         response = sample(self.operation(service, operation).output_shape, region=region)
+        if service == 'outposts' and operation == 'list_outposts':
+            response = {'Outposts': [{'OutpostId': 'op-0123456789abcdef0', 'OwnerId': ACCOUNT,
+                'OutpostArn': f'arn:aws:outposts:{region}:{ACCOUNT}:outpost/op-0123456789abcdef0'}]}
         items = jmespath.search(path, response)
         assert isinstance(items, list), (service, operation, path, items)
         return aws.ReadResult(items, 'collected' if items else 'empty')
@@ -151,7 +154,7 @@ def test_known_public_policy_survives_denied_other_family():
     read = families.collect(Partial(), SESSION, REGION, ACCOUNT, selected)
     assert read.status == 'partial' and len(read.items) == 1
     assert review_document(read.items[0]['Policy'])[0]
-    assert read.error['families'] == [{'family': 'kms-keys', 'status': 'denied', 'code': 'AccessDeniedException'}]
+    assert read.error['families'] == [{'family': 'kms-keys', 'status': 'denied', 'code': 'AccessDeniedException', 'service': 'kms', 'operation': 'list_keys'}]
 
 
 def test_every_discovery_call_has_an_exact_reviewed_iam_mapping():
@@ -307,7 +310,7 @@ def test_missing_policy_operation_disables_whole_recipe_read_advertisement():
             return Model()
     assert families.unsupported_operations(recipe, OlderSDK()) == ['get_resource_policy']
     assert families.READ_ACTIONS == {(r.service, op) for r in families.RECIPES
-        if not families.unsupported_operations(r, SESSION) for op in families.recipe_operations(r)}
+        if not families.unsupported_operations(r, SESSION) for op in families.recipe_operations(r)} | {('outposts', 'list_outposts')}
 
 
 def test_cloudtrail_collects_both_regular_and_delegated_admin_policies():

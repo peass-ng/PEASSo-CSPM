@@ -1161,6 +1161,30 @@ def _unsupported_aws_region(snapshot, collection):
         and collection["error"].get("code") == "unsupported_region_service")
 
 
+def _resource_policy_coverage_evidence(collection):
+    """Expose typed failed reads, never provider messages or request payloads."""
+    if collection.get("type") != "aws_resource_policy":
+        return {}
+    import re
+    rows = []
+    def visit(value, depth=0):
+        if depth > 8 or len(rows) >= 512 or not isinstance(value, dict):
+            return
+        if "family" in value:
+            row = {key: text for key in ("family", "status", "code", "service", "operation", "denied_by")
+                   if isinstance((text := value.get(key)), str)
+                   and re.fullmatch(r"[A-Za-z0-9_.:,/-]{1,256}", text)}
+            if row:
+                rows.append(row)
+        for key in ("details", "families"):
+            children = value.get(key, [])
+            if isinstance(children, (list, tuple)):
+                for child in children:
+                    visit(child, depth + 1)
+    visit(collection.get("error", {}))
+    return {"failed_policy_reads": rows} if rows else {}
+
+
 def _unsupported_aws_region_evidence(collection):
     return {"reason": "service is unavailable in this AWS Region",
         "region": collection["scope"].rsplit("/", 1)[-1],
@@ -1797,7 +1821,8 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
                     status = "UNKNOWN" if retirement and retirement[0] == "unknown" else "NOT_APPLICABLE" if retirement or psp_absence or unsupported_region or management_only or policy_denial else "DENIED" if collection_status == "denied" else "EMPTY" if collection_status == "empty" else "UNKNOWN"
                     scope_findings.append(emit_finding(scope, "inventory:" + check.kind, collection.get("service", check.kind), status,
                         retirement[1] if retirement else psp_absence if psp_absence else _unsupported_aws_region_evidence(collection) if unsupported_region else management_only if management_only else _org_policy_evidence(policy_denial) if policy_denial else {"collection_status": collection_status, "reason": collection.get("error", {}).get("code", "no collected resources"),
-                         "semantics": "Inventory coverage, not a resource security pass."}))
+                         "semantics": "Inventory coverage, not a resource security pass.",
+                         **_resource_policy_coverage_evidence(collection)}))
                 check_findings.extend(scope_findings)
                 counts = dict(Counter(f["status"] for f in scope_findings))
                 check_status = "not_applicable" if management_only or unsupported_region else "blocked_by_policy" if policy_denial and not retirement else "partial" if unavailable and collection_status == "partial" else "denied" if collection_status == "denied" else "unknown" if unavailable or counts.get("UNKNOWN") or counts.get("DENIED") else "empty" if collection_status == "empty" else "manual" if counts.get("MANUAL") else "evaluated"

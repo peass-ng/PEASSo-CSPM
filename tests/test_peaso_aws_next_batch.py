@@ -37,7 +37,7 @@ class _FailureClient:
     (ConnectTimeoutError, ["us-east-1"], "not_collected", "unsupported_region_service"),
     (ConnectTimeoutError, ["us-west-1"], "timeout", "read_failed"),
     (EndpointConnectionError, ["us-east-1"], "not_collected", "unsupported_region_service"),
-    (EndpointConnectionError, ["us-west-1"], "unknown", "read_failed"),
+    (EndpointConnectionError, ["us-west-1"], "unknown", "endpoint_unreachable"),
     (ConnectTimeoutError, [], "timeout", "read_failed"),
 ])
 def test_appstream_transport_classification(monkeypatch, error_type, supported, status, code):
