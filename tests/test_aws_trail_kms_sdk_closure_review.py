@@ -327,7 +327,8 @@ def test_native_enclave_event_projection(pipeline,mode,expected):
         if arguments['LookupAttributes'][0]['AttributeValue']!='Decrypt':return {'Events':[]}
         return {'Events':[{'EventId':event_id,'EventName':'Decrypt','EventSource':'kms.amazonaws.com',
             'EventTime':STAMP,'CloudTrailEvent':json.dumps(payload)}]}
-    snapshot,calls=pipeline('cloudtrail_event',{('cloudtrail','lookup_events'):events})
+    snapshot,calls=pipeline('cloudtrail_event',{('cloudtrail','lookup_events'):events,
+        ('ec2','describe_instances'):{'Reservations':[{'OwnerId':ACCOUNT,'Instances':[{'InstanceId':'i-0123456789abcdef0','EnclaveOptions':{'Enabled':True}}]}]}})
     assert verdict(snapshot,'aws.review.kms.enclave_debug_measurements')==expected
     # The projection must discard raw event JSON before the public snapshot.
     assert 'CloudTrailEvent' not in json.dumps(snapshot)

@@ -52,6 +52,30 @@ def evaluate(item, index):
         return "UNKNOWN", {"reason": str(error)}
 
 
+def evaluate_empty_inventory(context, collection):
+    proof = collection.get("error", {})
+    if proof.get("code") != "no_current_enclave_enabled_instances":
+        return None
+    scope = context.get("scope")
+    if (context.get("provider") != "aws" or not isinstance(scope, str)
+            or not re.fullmatch(r"[0-9]{12}/[a-z]{2}(?:-[a-z0-9]+)+-[0-9]+", scope)
+            or collection.get("scope") != scope
+            or proof.get("scope") != scope or proof.get("complete") is not True
+            or proof.get("source_operation") != "ec2:DescribeInstances"
+            or proof.get("instance_ids") != [] or collection.get("status") != "empty"
+            or collection.get("items") != [] or collection.get("type") != "cloudtrail_event"):
+        return "UNKNOWN", {"reason":"Enclave applicability discovery is incomplete or unbound."}
+    _time(proof.get("observed_at"))
+    return "NOT_APPLICABLE", {
+        "observed":"No current enclave-enabled EC2 instances were discovered in this account and Region; enclave history collection was skipped.",
+        "source_operation":"ec2:DescribeInstances", "scope":scope,
+        "history_collected":False,
+        "boundary":"Current local EC2 configuration only; historical and cross-account enclave use is not excluded."}
+
+
+evaluate.evaluate_empty_inventory = evaluate_empty_inventory
+
+
 def fixture(debug):
     value = "0" * 96 if debug else "ab" * 48
     item = {"AccountId": "123456789012", "Region": "us-east-1", "EventSource": "kms.amazonaws.com",

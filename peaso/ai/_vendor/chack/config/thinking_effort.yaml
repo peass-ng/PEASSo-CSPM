@@ -53,6 +53,7 @@ models:
   gemini-4-argon: [low, medium, high]
   gemini-4-carbon: [low, medium, high]
   gemini-4-hydrogen: [low, medium, high, xhigh]
+  gemini-4-neon: [low, medium, high, xhigh]
   gemini-flash-latest: [low, medium, high, xhigh]
   gemini-nano-banana-2-1: [none, minimal, high]
   gemini-omni-1-1-flash: [low, high]

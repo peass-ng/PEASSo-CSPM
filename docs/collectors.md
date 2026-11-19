@@ -69,6 +69,7 @@ app connector form. Common ones:
 | `concurrency`, `service_concurrency`, `scope_concurrency`, `region_concurrency` | Parallelism |
 | `retries`, `page_size` | Retry count and page size |
 | `activity_days`, `log_entry_minutes` | How far back to read activity and log data |
+| `enclave_history_mode` | AWS: `auto` (default) discovers enclave-enabled EC2 parents before reading KMS attestation history; `all` reads selected history regardless of current EC2 configuration |
 | `inventories` | Explicit inventory selection |
 | `trusted_scope_ids`, `trusted_domains` | Extra trusted scopes/domains for trust analysis (see [network-and-exposure.md](network-and-exposure.md)) |
 | `content_secret_scans`, `image_vulnerability_scans`, `selected_*` | Optional content and image scans (see [secrets-and-images.md](secrets-and-images.md)) |
@@ -80,6 +81,21 @@ caps parallelism and windows: `concurrency` ≤ 4, `service_concurrency` ≤ 32,
 
 The AWS collector retries throttling errors with capped exponential backoff and uses a single
 attempt for other errors so that denied reads fail fast.
+
+### AWS enclave applicability
+
+In `auto` mode, PEASO discovers enabled Regions for account-only scopes, or respects
+explicit account/Region selections. It completes a filtered `ec2:DescribeInstances`
+read in each selected Region before scheduling enclave history. Regions with
+current enclave-enabled EC2 parents run the attestation check on dedicated regional
+workers in parallel, under each account/Region's existing CloudTrail rate limiter.
+A complete empty discovery produces a scoped NOT_APPLICABLE result with no history
+read; denied, truncated or malformed discovery remains unresolved.
+
+Enclave-enabled EC2 configuration does not prove an enclave is running. The skip
+is limited to current local parent configuration; it does not rule out historical
+or cross-account enclave use. Select `enclave_history_mode: "all"` when that broader
+history review is required. Normal KMS key-configuration checks are unaffected.
 
 ## Per-scan caches
 

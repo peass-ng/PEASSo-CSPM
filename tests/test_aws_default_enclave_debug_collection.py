@@ -12,10 +12,11 @@ CHECK = 'aws.review.kms.enclave_debug_measurements'
 KIND = 'cloudtrail_event'
 SCOPE = ACCOUNT + '/' + REGION
 
-@pytest.mark.parametrize('mode,expected', [('debug','FAIL'), ('normal','PASS'), ('empty','EMPTY')])
+@pytest.mark.parametrize('mode,expected', [('debug','FAIL'), ('normal','PASS'), ('empty','EMPTY'), ('not_configured','NOT_APPLICABLE')])
 def test_default_request_reaches_current_public_review_without_named_checks(sdk, monkeypatch, mode, expected):
     session, add = sdk
-    sts, trail = add('sts'), add('cloudtrail')
+    sts, trail, ec2 = add('sts'), add('cloudtrail'), add('ec2')
+    ec2.add_response('describe_instances', {'Reservations': [] if mode == 'not_configured' else [{'OwnerId':ACCOUNT, 'Instances':[{'InstanceId':'i-0123456789abcdef0','EnclaveOptions':{'Enabled':True}}]}]}, {'Filters':[{'Name':'enclave-options.enabled','Values':['true']}]})
     sts.add_response('get_caller_identity', {'Account': ACCOUNT, 'Arn': f'arn:aws:iam::{ACCOUNT}:user/fixture', 'UserId': 'fixture'}, {})
     value = event()
     payload = json.loads(value['CloudTrailEvent'])
@@ -25,7 +26,7 @@ def test_default_request_reaches_current_public_review_without_named_checks(sdk,
     recipient['attestationDocumentEnclavePCR1'] = pcr
     recipient['attestationDocumentEnclavePCR2'] = pcr
     value['CloudTrailEvent'] = json.dumps(payload)
-    for operation in sorted(native.OPERATIONS):
+    for operation in ([] if mode == 'not_configured' else sorted(native.OPERATIONS)):
         trail.add_response('lookup_events', {'Events': [value] if operation == 'Decrypt' and mode != 'empty' else []},
             {'LookupAttributes': [{'AttributeKey':'EventName','AttributeValue':operation}], 'StartTime': NOW-timedelta(minutes=1440), 'EndTime': NOW})
     original = aws.Requests.__init__
@@ -45,4 +46,4 @@ def test_default_request_reaches_current_public_review_without_named_checks(sdk,
     rows = evaluate_snapshot(captured,checks=[CHECK])['findings']
     assert len(rows) == 1 and rows[0]['status'] == expected, rows
     assert 'DO_NOT_RETAIN' not in json.dumps(captured)
-    sts.assert_no_pending_responses();trail.assert_no_pending_responses()
+    sts.assert_no_pending_responses();trail.assert_no_pending_responses();ec2.assert_no_pending_responses()

@@ -467,6 +467,9 @@ class Requests:
         self._activity_next_read = {}
         self.observed_at = datetime.now(timezone.utc)
         self.activity_minutes = _bound(options, "activity_minutes", 1440, maximum=129600)
+        self.enclave_history_mode = options.get("enclave_history_mode", "auto")
+        if self.enclave_history_mode not in ("auto", "all"):
+            raise ValueError("enclave_history_mode must be auto or all")
 
     def check_deadline(self):
         if self.cancel_event is not None and self.cancel_event.is_set():
@@ -2935,6 +2938,11 @@ def collect(connector, requirements=None):
     requests.audited_regions_by_account = {identity["Account"]: list(regions_for(identity["Account"])) for _, identity in contexts}
     metadata["audited_regions_by_account"] = copy.deepcopy(requests.audited_regions_by_account)
     requests.scp_denied_regions_by_account = copy.deepcopy(metadata.get("scp_denied_regions", {}))
+    if "cloudtrail_event" in wanted and requests.enclave_history_mode == "auto":
+        from .aws_kms_enclave_native import discover_accounts
+        metadata["enclave_region_discovery"] = discover_accounts(requests,
+            [(session, identity) for session, identity in contexts
+             if identity["Account"] not in region_discovery_errors], requests.audited_regions_by_account)
     progress_total = len(collections) + sum(len(GLOBAL_TYPES) + len(regions_for(identity["Account"])) * (len(set(SPECS) - GLOBAL_TYPES) + len(unsupported)) for context, identity in contexts)
     emit_progress(progress_callback, phase="collecting", provider="aws", scope="", completed=len(collections),
         total=progress_total, resources=total_items, dynamic_total=False)
@@ -3463,6 +3471,8 @@ def collect(connector, requirements=None):
                                 future.set_result(ReadResult([], failure.status, {"code": failure.code, "reason": "default_region_discovery_incomplete"}))
                             elif kind == "aws_cloudtrail_activity":
                                 future = activity_jobs[(id(identity), region)]
+                            elif kind == "cloudtrail_event":
+                                future = activity_pool.submit(regional_job, session, identity, region, kind)
                             elif kind == "access_analyzer" and defer_analyzer_preparation:
                                 # Preparation can make slow SDK calls in every
                                 # Region. Queue ordinary reads first so they

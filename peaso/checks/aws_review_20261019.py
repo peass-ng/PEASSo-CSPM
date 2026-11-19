@@ -58,6 +58,9 @@ def _forward(function, check_id):
             evidence = {**evidence, "observed": text}
         return status, evidence
     reviewed_predicate.reviewed_target = function
+    empty = getattr(function, "evaluate_empty_inventory", None)
+    if callable(empty):
+        reviewed_predicate.evaluate_empty_inventory = empty
     return reviewed_predicate
 
 

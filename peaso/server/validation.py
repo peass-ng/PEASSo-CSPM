@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from . import content_selection_preflight_20261021 as pure_selection
 
 OPTIONS = {
+    "enclave_history_mode",
     "content_secret_scans",
     "image_vulnerability_scans",
     "selected_gcs_objects",
@@ -88,6 +89,8 @@ LEGACY_EXTERNAL_ID_PREFIX = "peaso-"
 
 
 def validate_connector(provider, auth, options, settings, *, server_external_id=False, scopes=None):
+    if 'enclave_history_mode' in options and (provider != 'aws' or options['enclave_history_mode'] not in ('auto', 'all')):
+        raise HTTPException(422, 'AWS enclave_history_mode must be auto or all')
     if 'selected_gke_pod_images' in options or provider == 'gcp' and any(k in auth for k in ('gke_image_kubernetes', 'registry_auth')):
         try:
             if provider != 'gcp':
