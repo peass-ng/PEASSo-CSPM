@@ -105,7 +105,8 @@ def evaluate(kind, item, index):
         if own != account: raise Unavailable('foreign account')
         _member(item, index, kind, field, scope)
         source = item.get('PackageContentSource')
-        if kind == 'ecr_repository' and isinstance(source, dict) and source.get('collection_status') == 'empty':
+        if (kind == 'ecr_repository' and isinstance(source, dict) and source.get('collection_status') == 'empty'
+                and 'EmptyImageInventory' in source):
             proof = _field(source, 'EmptyImageInventory', dict)
             if (set(source) != {'collection_status', 'EmptyImageInventory'}
                     or set(proof) != {'Schema', 'ResourceId', 'AccountId', 'Region', 'RepositoryName',

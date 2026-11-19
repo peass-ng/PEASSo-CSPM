@@ -1165,3 +1165,29 @@ def test_empty_ecr_proof_requires_complete_matching_native_identity(monkeypatch,
     enriched = p.enrich('ecr_repository', requests, session, REGION, [item])[0]
     enriched['PackageContentSource']['EmptyImageInventory'][field] = value
     assert c.image_layers(freeze(enriched), freeze(index('ecr_repository', enriched)))[0] == 'UNKNOWN'
+
+
+@pytest.mark.parametrize('fault', ['partial_repository_inventory', 'duplicate_repository', 'contradictory_source'])
+def test_empty_ecr_proof_does_not_override_incomplete_or_conflicting_evidence(monkeypatch, fault):
+    from peaso.snapshot import freeze
+    requests, session, item, operations, calls, downloads, _ = sdk(monkeypatch, 'ecr_repository')
+    operations['describe_images'] = {'imageDetails': []}
+    enriched = p.enrich('ecr_repository', requests, session, REGION, [item])[0]
+    context = index('ecr_repository', enriched)
+    if fault == 'partial_repository_inventory':
+        context['collections']['ecr_repository'][0]['status'] = 'partial'
+    elif fault == 'duplicate_repository':
+        context['collections']['ecr_repository'][0]['items'].append(deepcopy(enriched))
+    else:
+        enriched['PackageContentSource']['PackageSecretIndicators'] = {'HighConfidenceSecretPresent': True}
+    assert c.image_layers(freeze(enriched), freeze(context))[0] == 'UNKNOWN'
+
+
+def test_provider_empty_service_error_does_not_prove_empty_ecr_repository(monkeypatch):
+    requests, session, item, operations, calls, downloads, _ = sdk(monkeypatch, 'ecr_repository')
+    monkeypatch.setattr(requests, 'pages', lambda *a, **kw:
+        aws.ReadResult([], 'empty', {'code': 'sdk_service_unavailable'}))
+    enriched = p.enrich('ecr_repository', requests, session, REGION, [item])[0]
+    status, evidence = c.image_layers(enriched, index('ecr_repository', enriched))
+    assert status == 'UNKNOWN' and evidence['reason'] == 'ecr_describe_images_sdk_service_unavailable'
+    assert not downloads

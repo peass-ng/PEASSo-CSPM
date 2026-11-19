@@ -165,7 +165,8 @@ def test_lanes_rows_order_and_api_reads_match_serial(monkeypatch, delay):
     assert len(requests.private_evidence) == 3
     assert requests.private_evidence == first.private_evidence
     assert [row['repositoryName'] for row in parallel] == [item['repositoryName'] for item in items]
-    assert _statuses(parallel) == ['FAIL', 'PASS', 'FAIL', 'UNKNOWN', 'PASS', 'FAIL', 'PASS', 'UNKNOWN']
+    # The last repository has a complete empty image inventory, in either lane mode.
+    assert _statuses(parallel) == ['FAIL', 'PASS', 'FAIL', 'UNKNOWN', 'PASS', 'FAIL', 'PASS', 'EMPTY']
     assert Counter(calls) == Counter(serial_calls)
     assert Counter(url for url, _ in downloads) == Counter(url for url, _ in serial_downloads)
     # Clear-text values stay with the owner's private evidence, never in cache.
