@@ -168,7 +168,7 @@ def test_configuration_preparation_crosses_native_batches_without_changing_sourc
         return {item:b'' for item in items}
     monkeypatch.setattr(secret_scanning_batch,'_prepare_trufflehog_batch',prepare)
     after,_=collect_offline([(0,33),(0,0)],workers=4,shm_available=True)
-    assert max(len(paths)for paths,_ in prepared)>config.MAX_TARGETS
+    assert max(len(paths)for paths,_ in prepared)>config.MAX_BATCH_TARGETS
     assert max(len(paths)for paths,_ in prepared)<=2048
     assert all(size<=16*1024*1024 for _,size in prepared)
     def digest(snapshot):
@@ -213,7 +213,7 @@ def test_dense_preparation_fallback_and_denied_batch_keep_later_evidence(
     monkeypatch.setattr(secret_scanning_batch,'_prepare_trufflehog_batch',dense)
     candidate,_=collect_offline([(0,33),(0,0)],workers=4,
         shm_available=True,denied_selected=True)
-    assert max(calls)>config.MAX_TARGETS
+    assert max(calls)>config.MAX_BATCH_TARGETS
     def proof(snapshot):
         return [(item['id'],item[config.MARKER]['complete'],item[config.MARKER]['leaks'])
             for item in rows(snapshot,config.KIND,SCOPES[0])['items']]
@@ -255,7 +255,8 @@ def test_populated_scopes_keep_every_bounded_native_read(collect_offline):
             assert len(collection['items'])==source.MAX_TARGETS+1
             assert all(item[source.MARKER]['complete'] is True for item in collection['items'])
             batches=[b for b in snap['metadata']['automatic_workload_environment_batches'][source.KIND] if b['scope']==scope]
-            assert [len(b['ids']) for b in batches]==[source.MAX_TARGETS,1]
+            assert sum(len(b['ids'])for b in batches)==source.MAX_TARGETS+1
+            assert all(0<len(b['ids'])<=getattr(source,'MAX_BATCH_TARGETS',source.MAX_TARGETS)for b in batches)
     selected=[c for c in state['calls'] if c[2] in {'get_function_configuration','batch_get_projects'}]
     assert len(selected)==2*(lam.MAX_TARGETS+config.MAX_TARGETS+2)
 

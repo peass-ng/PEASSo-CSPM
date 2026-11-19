@@ -3336,7 +3336,7 @@ def collect(connector, requirements=None):
             staged = []
             deferred = None
             try:
-                for batch in environment_discovery.batches(window, producer.MAX_TARGETS):
+                for batch in environment_discovery.batches(window, getattr(producer,'MAX_BATCH_TARGETS',producer.MAX_TARGETS)):
                     # Shared cache, clients and limiter; isolated content state,
                     # denial issues, capture metadata and redaction descriptors.
                     local = copy.copy(requests)
@@ -3577,7 +3577,7 @@ def collect(connector, requirements=None):
                     account = identity.get('Account')
                     for region in regions_for(account):
                         scope = account + '/' + region
-                        batches = environment_discovery.batches(by_scope.get(scope, ()), producer.MAX_TARGETS)
+                        batches = environment_discovery.batches(by_scope.get(scope, ()), getattr(producer,'MAX_BATCH_TARGETS',producer.MAX_TARGETS))
                         pending = automatic_futures.get((kind, scope))
                         prepared = None
                         if pending is not None:

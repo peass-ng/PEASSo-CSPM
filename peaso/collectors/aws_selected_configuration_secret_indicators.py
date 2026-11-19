@@ -24,6 +24,7 @@ PROFILE = 'aws-selected-configuration-content-v1'
 MARKER = 'SelectedConfigurationSecretIndicators'
 SCHEMA = 'aws-selected-configuration-content-v1'
 MAX_TARGETS = 32
+MAX_BATCH_TARGETS = 16
 MAX_SELECTED_SCOPES = 8
 MAX_RESPONSE = 2 * 1024 * 1024
 MAX_TOTAL = 8 * 1024 * 1024
@@ -32,7 +33,7 @@ MAX_PAIRS = 256
 MAX_LEAKS = 128
 MAX_LOCATIONS = 512
 MAX_SECONDS = 120
-MAX_CALLS = 64
+MAX_CALLS = 32
 MAX_REDACTION_WINDOWS = 1000000
 MAX_REDACTION_DESCRIPTORS = 512
 MAX_REDACTION_VALUE = 65536
@@ -161,6 +162,7 @@ def route(target,*,ownership=False):
 
 def initialize(requests,options,scopes):
     targets=selected_targets(options,scopes)
+    requests.configuration_content_call_limit=MAX_CALLS*max(1,(len(targets)+MAX_BATCH_TARGETS-1)//MAX_BATCH_TARGETS)
     requests.configuration_content_metadata={KIND+'_authorized':enabled(options),KIND+'_selection':{
         scope:[identity(t) for t in targets if t['scope']==scope] for scope in scopes},KIND+'_capture':'configuration-capture:'+uuid4().hex,
         KIND+'_principals':{}}
@@ -190,12 +192,16 @@ def remaining(requests):
     return left
 
 
+def _call_limit(requests):
+    return getattr(requests,'configuration_content_call_limit',MAX_CALLS)
+
+
 def before_request(requests):
     from .aws import ReadFailure
     remaining(requests)
     with requests._lock:
         state=requests.configuration_content_state
-        if state['attempts']>=MAX_CALLS:raise ReadFailure('not_collected','selected_configuration_call_bound')
+        if state['attempts']>=_call_limit(requests):raise ReadFailure('not_collected','selected_configuration_call_bound')
         state['attempts']+=1
 
 
@@ -918,7 +924,7 @@ def project_response(response,service,operation,arguments,*,request_context=None
         remaining(requests);size=response_size(response)
         with requests._lock:
             state=requests.configuration_content_state;state['responses']+=1;state['bytes']+=size
-            if state['responses']>MAX_CALLS or state['bytes']>MAX_TOTAL:raise ValueError('total_response_bound')
+            if state['responses']>_call_limit(requests) or state['bytes']>MAX_TOTAL:raise ValueError('total_response_bound')
         if (not isinstance(response,dict) or set(response)&{'Error','_coverage','partial','Partial'}
                 or any(response.get(field) not in (None,'') for field in ('NextToken','nextToken','nextMarker','NextMarker'))):raise ValueError('partial_native_response')
         meta=response.get('ResponseMetadata')
@@ -975,7 +981,7 @@ def _record_read_failure(requests,failure):
             state=requests.configuration_content_state
             deadlines=(state.get('deadline'),getattr(requests,'deadline',None))
             elapsed=any(type(value)in(int,float)and value<=now for value in deadlines)
-            bounded=state['attempts']>=MAX_CALLS
+            bounded=state['attempts']>=_call_limit(requests)
         category='local_deadline'if elapsed else'call_bound'if bounded else'unknown_read_failure'
     exception=type(failure).__name__
     if exception not in {'ReadFailure','TimeoutError','ValueError','TypeError','KeyError'}:exception='OtherException'
@@ -1142,8 +1148,8 @@ def collect_selected(requests,session,region,caller,options,scopes,*,deferred_wi
                             state=requests.configuration_content_state
                             allowance=min(8, workers,
                                 max(0,(MAX_TOTAL-state['bytes'])//MAX_RESPONSE),
-                                max(0,MAX_CALLS-state['responses']),
-                                max(0,MAX_CALLS-state['attempts']))
+                                max(0,_call_limit(requests)-state['responses']),
+                                max(0,_call_limit(requests)-state['attempts']))
                         while (width<allowance and cursor+width<len(selected)
                                 and parse(selected[cursor+width])[0]=='ecs_environment'):
                             width+=1

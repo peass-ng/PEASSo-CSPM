@@ -170,6 +170,8 @@ def test_direct_selected_index_native_consumer_and_partial(monkeypatch):
     parent_digest = 'sha256:' + sha256(parent_raw).hexdigest()
     direct = {'scope': SCOPE, 'repository_name': REPO, 'image_digest': parent_digest}
     class Reader:
+        def start_target(self):
+            self.target_calls = 0
         denied = False
         clean = False
         def __init__(self, requests, session, account, region, *, target_count=1):
@@ -241,6 +243,8 @@ def test_lambda_index_remains_unselected_and_foreign_scope_rejected(monkeypatch)
     function = f'arn:aws:lambda:{REGION}:{ACCOUNT}:function:demo'
     target = {'scope': SCOPE, 'function_arn': function}
     class Reader:
+        def start_target(self):
+            self.target_calls = 0
         def __init__(self, requests, session, account, region, *, target_count=1):
             self.ledger = []
         def caller(self):

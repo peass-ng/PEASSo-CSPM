@@ -14,7 +14,7 @@ def options():
  return {'content_secret_scans':True,'image_vulnerability_scans':True,
   config.OPTION:[{'scope':SCOPE,'surface':'ssm_document','resource_id':f'arn:aws:ssm:us-east-1:{ACCOUNT}:document/audit-{n}','version':1}for n in range(22)],
   source.OPTION:[{'scope':SCOPE,'bucket':'account-audit-state','key':f'state-{n}.tfstate','format':'text'}for n in range(5)],
-  image.OPTION:[{'scope':SCOPE,'repository_name':f'audit/image-{n}','image_digest':'sha256:'+'a'*64}for n in range(12)]}
+  image.OPTION:[{'scope':SCOPE,'repository_name':f'audit/image-{n}','image_digest':'sha256:'+'a'*64}for n in range(20)]}
 
 def validate(value):
  auth={'method':'assume_role','role_arn':f'arn:aws:iam::{ACCOUNT}:role/reader','external_id':'peaso-synthetic-external'}
@@ -24,7 +24,7 @@ def test_full_account_configuration_images_and_states_fit_one_assessment():
  value=options();validate(value)
  assert len(config.selected_targets(value,[SCOPE]))==22
  assert len(source.selected_targets(value,[SCOPE]))==5
- assert len(image.selections(value,[SCOPE]))==12
+ assert len(image.selections(value,[SCOPE]))==20
  plan=plan_collection({'connector':{'provider':'aws','scopes':[SCOPE],'options':value},'checks':[config.CHECK,source.CHECK,image.CHECK]})
  assert {config.KIND,source.KIND,image.KIND}<=set(plan)
 

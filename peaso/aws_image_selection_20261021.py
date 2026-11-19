@@ -6,7 +6,7 @@ ENABLE = 'image_vulnerability_scans'
 OPTION = 'selected_aws_image_vulnerabilities'
 CHECK = 'aws.review.ecr.selected_image_vulnerabilities'
 KIND = 'ecr_selected_image_vulnerabilities'
-MAX_TARGETS = 16
+MAX_TARGETS = 32
 MAX_SELECTED_SCOPES = 8
 SCOPE = re.compile(r'([0-9]{12})/([a-z]{2}(?:-[a-z0-9]+)+-[0-9]+)\Z')
 REPO = re.compile(r'[a-z0-9]+(?:(?:\.|_|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:\.|_|__|-+)[a-z0-9]+)*)*\Z')
@@ -32,7 +32,7 @@ def selections(options, scopes):
         return []
     targets = options.get(OPTION)
     # The connector can inventory many Regions. Only the content targets, not
-    # the metadata allowlist, are limited to eight selected image scopes. A scan can select sixteen images.
+    # the metadata allowlist, are limited to eight selected image scopes. A scan can select thirty-two images.
     if (not scopes
             or any(type(s) is not str or not SCOPE.fullmatch(s) for s in scopes)
             or len(set(scopes)) != len(scopes)
