@@ -28,6 +28,7 @@ from .aws_user_data_secret_indicators import project as inspect_text
 
 PROFILE = 'aws-package-content-indicators-v1'
 SCHEMA = PROFILE
+EMPTY_ECR_SCHEMA = 'aws-ecr-empty-image-inventory-v1'
 PROJECTION_OPERATIONS = {('lambda', 'get_function'), ('lambda', 'get_layer_version'),
                          ('ecr', 'batch_get_image'), ('ecr', 'get_download_url_for_layer')}
 READ_ACTIONS = PROJECTION_OPERATIONS | {('ecr', 'describe_images')}
@@ -1356,7 +1357,25 @@ def enrich(kind, requests, session, region, items):
                 repo = item['repositoryName']
                 if own != account or item.get('registryId') != account or native != 'repository/' + repo: raise ValueError('foreign repository')
                 inventory = requests.pages(session, 'ecr', region, 'describe_images', 'imageDetails', registryId=account, repositoryName=repo)
-                if inventory.status != 'collected' or not inventory.items or len(inventory.items) > 5000: raise ValueError('incomplete image inventory')
+                if inventory.status == 'empty' and inventory.items == [] and inventory.error is None:
+                    source = {'collection_status': 'empty', 'EmptyImageInventory': {
+                        'Schema': EMPTY_ECR_SCHEMA, 'ResourceId': item['repositoryArn'],
+                        'AccountId': account, 'Region': region, 'RepositoryName': repo,
+                        'SourceOperation': 'ecr:describe_images', 'NativeResponseComplete': True,
+                        'ImageCount': 0}}
+                    item['PackageContentSource'] = source
+                    output.append(item)
+                    continue
+                if inventory.status != 'collected' or not inventory.items:
+                    cause = (inventory.error or {}).get('code')
+                    code = ('ecr_describe_images_' + re.sub(r'(?<!^)(?=[A-Z])', '_', cause).lower()
+                            if isinstance(cause, str) and re.fullmatch(r'[A-Za-z_]{1,100}', cause)
+                            else 'ecr_image_inventory_unavailable')
+                    source = {'collection_status': inventory.status, 'error': {'code': code}}
+                    raise Unsupported(code)
+                if len(inventory.items) > 5000:
+                    source = {'collection_status': 'not_collected', 'error': {'code': 'ecr_image_inventory_bound'}}
+                    raise Unsupported('ecr_image_inventory_bound')
                 images, digests = [], set()
                 from datetime import datetime
                 from .aws_ecr_image_rows import is_container_image

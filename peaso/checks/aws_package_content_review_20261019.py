@@ -3,7 +3,7 @@ import re
 from .facts import Unavailable, get
 from peaso import oci_index_20261021 as oci_index
 from .aws_configuration_secret_review_20261019 import _member
-from peaso.collectors.aws_package_content_indicators import (SCHEMA, CATEGORIES, COVERAGE_FIELDS, LAMBDA_IMAGE_OPERATION, NOTE_LIMIT,
+from peaso.collectors.aws_package_content_indicators import (SCHEMA, EMPTY_ECR_SCHEMA, CATEGORIES, COVERAGE_FIELDS, LAMBDA_IMAGE_OPERATION, NOTE_LIMIT,
                                                              _arn, _digest, _path, image_member_path, parse_ecr_image_uri)
 
 SURFACES = {
@@ -105,6 +105,26 @@ def evaluate(kind, item, index):
         if own != account: raise Unavailable('foreign account')
         _member(item, index, kind, field, scope)
         source = item.get('PackageContentSource')
+        if (kind == 'ecr_repository' and isinstance(source, dict) and source.get('collection_status') == 'empty'
+                and 'EmptyImageInventory' in source):
+            proof = _field(source, 'EmptyImageInventory', dict)
+            if (set(source) != {'collection_status', 'EmptyImageInventory'}
+                    or set(proof) != {'Schema', 'ResourceId', 'AccountId', 'Region', 'RepositoryName',
+                                      'SourceOperation', 'NativeResponseComplete', 'ImageCount'}
+                    or native != 'repository/' + get(item, 'repositoryName', str)
+                    or get(item, 'registryId', str) != account
+                    or _field(proof, 'Schema', str) != EMPTY_ECR_SCHEMA
+                    or _field(proof, 'ResourceId', str) != identity
+                    or _field(proof, 'AccountId', str) != account
+                    or _field(proof, 'Region', str) != region
+                    or _field(proof, 'RepositoryName', str) != item['repositoryName']
+                    or _field(proof, 'SourceOperation', str) != 'ecr:describe_images'
+                    or _field(proof, 'NativeResponseComplete', bool) is not True
+                    or _field(proof, 'ImageCount', int) != 0):
+                raise Unavailable('empty ECR inventory binding unavailable')
+            return 'EMPTY', {'observed': 'Complete native image inventory found no images in this ECR repository; no image content was inspected.',
+                             'reason': 'no_images_in_repository', 'repository_arn': identity,
+                             'source_operation': 'ecr:describe_images', 'image_count': 0}
         if isinstance(source, dict) and source.get('collection_status') != 'collected':
             # The collector names why content was not read (image package,
             # size bound, opt-out, download failure, ...); keep that cause.

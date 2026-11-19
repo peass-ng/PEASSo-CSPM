@@ -6,7 +6,7 @@ This module never registers itself on import or reads credentials or cloud APIs.
 from copy import deepcopy
 import hashlib
 import json
-from peaso.aws_image_selection_20261021 import KIND, OPTION, ENABLE, CHECK, selections, partition
+from peaso.aws_image_selection_20261021 import KIND, OPTION, ENABLE, CHECK, MAX_TARGETS, selections, partition
 
 DECLARATION = {
     'id': CHECK, 'provider': 'aws', 'category': 'hardening', 'kind': KIND,
@@ -144,7 +144,7 @@ def evaluate(item, index):
         collection, = [c for c in index['collections'][KIND] if c['scope'] == scope]
         if collection['status'] not in ('collected', 'partial') or item not in collection['items']:
             raise ValueError()
-        if len(metadata[OPTION]) > 8 or len(json.dumps(item, allow_nan=False)) > 2_000_000:
+        if len(metadata[OPTION]) > MAX_TARGETS or len(json.dumps(item, allow_nan=False)) > 2_000_000:
             raise ValueError()
         row = deepcopy(item['ImageVulnerabilityReview'])
         target = row['selection']
