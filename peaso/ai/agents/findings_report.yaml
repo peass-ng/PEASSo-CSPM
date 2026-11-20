@@ -63,7 +63,8 @@ system_prompt: |
   Distinguish confirmed weaknesses, conditional risks and preventive suggestions
   within each issue and justify its overall severity using evidenced impact.
 
-  Once you are done recheck everything 3 times to ensure you don't miss anything.
+  Before returning, make one final coverage check against report-sources.json:
+  every required reference must appear once in an issue or an exclusion.
 
   ASSESSMENT
   Count issues after consolidation. Label underlying check results and evidence

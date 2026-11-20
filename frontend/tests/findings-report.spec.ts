@@ -47,15 +47,17 @@ test('compiled report pages, searches all issues and opens source evidence', asy
   await expect(page.getByRole('heading', { name: 'Original scan evidence', exact: true })).toBeVisible();
 });
 
-test('unfinished reports explain that compilation follows the scan analyses', async ({ page }) => {
+test('running reports show generation only in the toolbar', async ({ page }) => {
   await setup(page, 'in_progress'); await page.goto('/#Findings%20Report');
-  await expect(page.getByText('The findings report will be compiled after the scan analyses finish.')).toBeVisible();
+  await expect(page.locator('.report-tabs').getByRole('button', { name: 'Generating report…', exact: true })).toBeDisabled();
+  await expect(page.getByText('The findings report will be compiled after the scan analyses finish.')).toHaveCount(0);
+  await expect(page.getByText('Generating a report replaces all current report issues.')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Report issue 0', exact: true })).toHaveCount(0);
 });
 
-test('older scans explain how to get a report', async ({ page }) => {
+test('older scans offer generation from the toolbar', async ({ page }) => {
   await setup(page, 'not_available'); await page.goto('/#Findings%20Report');
-  await expect(page.getByText('This scan has no compiled report. Run a new scan with AI enabled.')).toBeVisible();
+  await expect(page.locator('.report-tabs').getByRole('button', { name: 'Generate report', exact: true })).toBeEnabled();
 });
 
 
@@ -118,4 +120,20 @@ test('first report generation also requires confirmation and Escape cancels it',
   await page.getByRole('button', { name: 'Generate report', exact: true }).click();
   await page.getByRole('button', { name: 'Delete and generate', exact: true }).click();
   await expect.poll(() => posts).toBe(1);
+});
+
+test('generation control follows Combined reports and keeps its label when filters match nothing', async ({ page }) => {
+  await setup(page); await page.goto('/#Findings%20Report');
+  const toolbar = page.locator('.report-tabs');
+  await expect(toolbar.getByRole('button')).toHaveText(['Regenerate report', 'Combine different reports']);
+  const combined = await toolbar.getByRole('tab', { name: 'Combined reports', exact: true }).boundingBox();
+  const generate = await toolbar.getByRole('button', { name: 'Regenerate report', exact: true }).boundingBox();
+  const combine = await toolbar.getByRole('button', { name: 'Combine different reports', exact: true }).boundingBox();
+  expect(combined!.x).toBeLessThan(generate!.x); expect(generate!.x).toBeLessThan(combine!.x);
+  await page.getByLabel('Search report issues').fill('nonexistent issue');
+  await expect(page.locator('.findings-table tbody')).toContainText('No issues match');
+  await expect(toolbar.getByRole('button', { name: 'Regenerate report', exact: true })).toBeEnabled();
+  await page.getByRole('tab', { name: 'Combined reports', exact: true }).click();
+  await toolbar.getByRole('button', { name: 'Regenerate report', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('delete the current compiled findings');
 });
