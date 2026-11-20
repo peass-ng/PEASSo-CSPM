@@ -261,7 +261,9 @@ def model_access(access):
     effort = config.get('thinking_effort') or 'preset'
     if effort == 'preset':
         # The central alias service also publishes the effort for each tier.
-        effort = resolve_thinking_effort_alias(alias, provider='codex') or 'high'
+        effort = resolve_thinking_effort_alias(alias, provider='codex')
+        if not effort:
+            raise ConfigurationError('The default model alias has no thinking effort configured.')
     return check_selection('codex', model, effort, str(access))
 
 

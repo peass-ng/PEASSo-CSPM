@@ -98,10 +98,10 @@ system_prompt: |
 user_prompt: |
   Compile the completed scan using the assigned local evidence. Return the complete JSON report.
 agent:
-  primary: OPENAI_BEST_QUALITY
+  primary: OPENAI_CHEAP_BUT_QUALITY
+  thinking_effort: preset
   provider: codex
   api_key_type: codex
-  thinking_effort: high
   require_task_steps_manager_init_first: false
   max_runtime_minutes: 10
   max_turns: 60

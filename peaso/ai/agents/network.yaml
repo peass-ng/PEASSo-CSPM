@@ -96,10 +96,10 @@ user_prompt: |
 
   Explain each network and its subnet tiers: what runs there, its likely purpose, why it is placed there and how the tiers connect or are separated. Return architecture/segmentation findings after checking exposure.json for duplicates.
 agent:
-  primary: OPENAI_BEST_QUALITY
+  primary: OPENAI_CHEAP_BUT_QUALITY
+  thinking_effort: preset
   provider: codex
   api_key_type: codex
-  thinking_effort: high
   require_task_steps_manager_init_first: false
   max_runtime_minutes: 5
   max_turns: 30

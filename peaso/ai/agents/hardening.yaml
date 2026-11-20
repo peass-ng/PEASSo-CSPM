@@ -59,10 +59,10 @@ user_prompt: |
 
   Complete the goal using the assigned input files and return the requested JSON.
 agent:
-  primary: OPENAI_BEST_QUALITY
+  primary: OPENAI_CHEAP_BUT_QUALITY
+  thinking_effort: preset
   provider: codex
   api_key_type: codex
-  thinking_effort: high
   require_task_steps_manager_init_first: false
   max_runtime_minutes: 5
   max_turns: 30

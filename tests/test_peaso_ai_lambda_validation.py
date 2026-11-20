@@ -52,7 +52,7 @@ from peaso.storage import SQLiteStore
 from peaso.ai._vendor.chack import model_aliases
 # The exact pinned resolver retains the central alias service, stubbed here.
 model_aliases.requests.get = lambda *a, **k: SimpleNamespace(
-    raise_for_status=lambda: None, json=lambda: {'model_aliases': {'OPENAI_BEST_QUALITY': 'gpt-6-sol'}})
+    raise_for_status=lambda: None, json=lambda: {'model_aliases': {'OPENAI_CHEAP_BUT_QUALITY': 'gpt-6-sol'}, 'thinking_efforts': {'OPENAI_CHEAP_BUT_QUALITY': 'medium'}})
 claims = {'exp': time.time()+7200, 'https://api.openai.com/auth': {'chatgpt_account_id': 'fixture-account'}}
 token = 'e30.'+base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')+'.fixture'
 os.environ['CODEX_ACCESS_TOKEN'] = token
@@ -61,7 +61,7 @@ calls = []
 def response(method, url, headers, body=None):
     calls.append((method, url, body))
     if '/codex/models' in url:
-        return {'models': [{'slug': model, 'supported_reasoning_levels': [{'effort': 'high'}]}
+        return {'models': [{'slug': model, 'supported_reasoning_levels': [{'effort': effort} for effort in ('high', 'medium')]}
                            for model in ('gpt-6-sol', 'gpt-5.3-codex')]}
     if method == 'GET' and 'api.anthropic.com' in url:
         return {'id': 'claude-sonnet-4-6', 'capabilities': {'effort': {'supported': True, 'high': {'supported': True}}}}
@@ -82,7 +82,7 @@ with tempfile.TemporaryDirectory() as directory:
     settings = SimpleNamespace(identity_dir=root/'identity', auth_mode='cognito')
     # Real default path: YAML + alias resolution + model/effort + live preflight.
     default = providers.model_access(token)
-    assert default.model == 'gpt-6-sol' and default.thinking == 'high'
+    assert default.model == 'gpt-6-sol' and default.thinking == 'medium'
     auth.require_local_codex(settings, store, 'alice')
     status = get(user=user)
     assert status['available'] and status['source'] == 'hacktricks' and status['selection'] is None
