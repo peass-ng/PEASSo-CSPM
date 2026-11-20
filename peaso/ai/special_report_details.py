@@ -112,8 +112,8 @@ def prose(kind, details):
                 lines.append(f"- `{(row['asset'] or row['digest'] or row['scope'])[:180]}` · {counts}")
     else:
         title = 'Credentials and secrets found in scanned content'
-        intro = ('The scanner found potential credentials or secrets in captured content. '
-                 'Open a leak’s supporting finding to view its retained value and full locations.')
+        intro = ('The scan found plaintext values that matched credential or secret patterns. '
+                 'Open the evidence for each match to see the value and where it appeared.')
         lines = [f"- **{row['label']}** · {(row['locations'][0] if row['locations'] else 'Location unavailable')[:220]}"
                  for row in details]
     preview = lines[:5]
