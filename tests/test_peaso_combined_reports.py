@@ -98,8 +98,7 @@ def test_rejects_duplicate_foreign_incomplete_and_changed_sources(reports):
     with pytest.raises(StoreError, match='changed'):
         runs.create(store, artifacts, 'alice', 'alice', 'Stale', invalid)
     report_runs.request_run(store, 'alice', scans[0], 'alice')
-    with pytest.raises(StoreError, match='completed Findings Report'):
-        runs.create(store, artifacts, 'alice', 'alice', 'Incomplete', selected(store, artifacts))
+    assert runs.create(store, artifacts, 'alice', 'alice', 'Use published report', selection)['status'] == 'queued'
 
 
 @pytest.mark.parametrize('failure', ['missing', 'duplicate', 'unknown', 'special_duplicate', 'special_kind', 'severity'])

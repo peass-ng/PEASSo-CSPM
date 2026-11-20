@@ -3756,3 +3756,5 @@ main.network-map-page { max-width: none; width: 100%; min-width: 0; }
   overflow-wrap: anywhere;
   max-width: 100%;
 }
+
+.report-evidence code { overflow-wrap: anywhere; }

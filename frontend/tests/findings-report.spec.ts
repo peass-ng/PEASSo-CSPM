@@ -75,15 +75,15 @@ test('pre-generated leaks and CVE findings remain visible after agent failure', 
 });
 
 
-test('regeneration clears existing issues and displays a replacement report', async ({ page }) => {
+test('regeneration preserves published issues until the revised report is ready', async ({ page }) => {
   await setup(page);
   let stage = 'old';
   let posts = 0;
   await page.route('**/api/scans/s/findings-report?**', async route => {
-    const row = { ...issue(0), id: stage === 'old' ? 'old-generation' : 'new-generation', title: stage === 'old' ? 'Original issue' : 'Replacement issue' };
-    await route.fulfill({ json: { status: stage === 'running' ? 'in_progress' : 'completed',
-      generation: stage, can_launch: stage !== 'running', issues: stage === 'running' ? [] : [row],
-      total: stage === 'running' ? 0 : 1, exclusions: [], exclusion_count: 0 } });
+    const row = { ...issue(0), id: stage !== 'new' ? 'old-generation' : 'new-generation', title: stage !== 'new' ? 'Original issue' : 'Replacement issue' };
+    await route.fulfill({ json: { status: 'completed', run_status: stage === 'running' ? 'running' : 'completed',
+      generation: stage, can_launch: stage !== 'running', issues: [row],
+      total: 1, exclusions: [], exclusion_count: 0 } });
   });
   await page.route('**/api/scans/s/findings-report', async route => {
     expect(route.request().method()).toBe('POST'); posts++; stage = 'running';
@@ -92,15 +92,15 @@ test('regeneration clears existing issues and displays a replacement report', as
   await page.goto('/#Findings%20Report');
   await expect(page.getByRole('button', { name: 'Original issue', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Regenerate report', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('delete the current compiled findings');
+  await expect(page.getByRole('dialog')).toContainText('current report stays available');
   expect(posts).toBe(0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(posts).toBe(0);
   await expect(page.getByRole('button', { name: 'Original issue', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Regenerate report', exact: true }).click();
-  await page.getByRole('button', { name: 'Delete and generate', exact: true }).click();
+  await page.getByRole('button', { name: 'Update report', exact: true }).click();
   await expect.poll(() => posts).toBe(1);
-  await expect(page.getByRole('button', { name: 'Original issue', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Original issue', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Generating report…', exact: true })).toBeDisabled();
   stage = 'new';
   await expect(page.getByRole('button', { name: 'Replacement issue', exact: true })).toBeVisible();
@@ -116,13 +116,13 @@ test('first report generation also requires confirmation and Escape cancels it',
   });
   await page.goto('/#Findings%20Report');
   await page.getByRole('button', { name: 'Generate report', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('delete the current compiled findings');
+  await expect(page.getByRole('dialog')).toContainText('Generate a report from this assessment?');
   expect(posts).toBe(0);
   await page.getByRole('dialog').press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(posts).toBe(0);
   await page.getByRole('button', { name: 'Generate report', exact: true }).click();
-  await page.getByRole('button', { name: 'Delete and generate', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Generate report', exact: true }).click();
   await expect.poll(() => posts).toBe(1);
 });
 
@@ -139,7 +139,7 @@ test('generation control follows Combined reports and keeps its label when filte
   await expect(toolbar.getByRole('button', { name: 'Regenerate report', exact: true })).toBeEnabled();
   await page.getByRole('tab', { name: 'Combined reports', exact: true }).click();
   await toolbar.getByRole('button', { name: 'Regenerate report', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('delete the current compiled findings');
+  await expect(page.getByRole('dialog')).toContainText('current report stays available');
 });
 
 test('report prose renders Markdown safely and evidence expands after three identifiers', async ({ page }) => {

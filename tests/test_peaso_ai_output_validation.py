@@ -286,3 +286,35 @@ def test_failed_fresh_fallback_is_never_published(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match='agent_failed'):
         runner.main()
     assert len(calls) == 3 and not (tmp_path/'result.json').exists()
+
+
+def test_report_draft_missing_sources_are_retried_with_exact_ids(tmp_path, monkeypatch):
+    from peaso.ai.report_draft import initial_draft
+    from tests.test_findings_report import issue
+
+    calls = inputs(tmp_path, monkeypatch, [{'done': True}])
+    monkeypatch.setattr(sys, 'argv', ['runner', 'findings_report'])
+    from peaso.ai import briefing
+    monkeypatch.setattr(briefing, 'materialize_context', lambda _: None)
+    sources = [{'domain': 'findings', 'id': 'source-1', 'source_id': 'HC-001',
+                'kind': None, 'confirmed': True, 'required': True}]
+    (tmp_path / 'report-sources.json').write_text(json.dumps(sources))
+    draft_path = tmp_path / 'report-draft.json'
+    draft_path.write_text(json.dumps(initial_draft({})))
+    original_run = sys.modules['chack_agent'].Chack.run
+
+    def run(self, *args, **kwargs):
+        if calls:
+            feedback = json.loads((tmp_path / 'validation-feedback.json').read_text())
+            assert feedback['missing_references'] == [
+                {'domain': 'findings', 'id': 'source-1', 'source_id': 'HC-001'}]
+            draft_path.write_text(json.dumps(initial_draft({'issues': [
+                dict(issue([('findings', 'source-1')]), id='draft-issue')]})))
+        return original_run(self, *args, **kwargs)
+
+    monkeypatch.setattr(sys.modules['chack_agent'].Chack, 'run', run)
+    runner.main()
+    assert len(calls) == 2
+    result = json.loads((tmp_path / 'result.json').read_text())
+    assert len(result['issues']) == 1
+    assert list(result['draft_issue_ids'].values()) == ['draft-issue']

@@ -88,8 +88,10 @@ def feedback(error):
              'combined_severity_mismatch', 'unknown_or_duplicate_combined_reference', 'review_coverage_mismatch', 'unknown_action_reference', 'action_rank_mismatch',
              'invalid_action', 'action_reference_missing', 'unknown_network_reference', 'duplicate_network_finding', 'unknown_report_reference', 'duplicate_report_reference',
              'report_group_mismatch', 'duplicate_report_group', 'unconfirmed_report_issue',
-             'hardening_report_severity', 'invalid_report_exclusion', 'report_coverage_mismatch'}
+             'hardening_report_severity', 'invalid_report_exclusion', 'report_coverage_mismatch', 'report_draft_incomplete'}
     result = {'code': str(error) if str(error) in codes else 'invalid_output'}
+    if hasattr(error, 'missing'):
+        result['missing_references'] = error.missing
     if hasattr(error, 'errors'):
         errors = error.errors(include_input=False, include_context=False, include_url=False)
         result['fields'] = [{'type': row['type'], 'path': [part if isinstance(part, int) or

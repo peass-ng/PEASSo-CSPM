@@ -30,7 +30,7 @@ def test_all_source_areas_are_assessed_and_ids_are_stable():
                source('privesc_edges', 'e', confirmed=False), source('actions', '1', confirmed=False)]
     result = compiler.validate(report([issue([('findings', 'f'), ('actions', '1')]),
         issue([('least_privilege', 'lp')], status='needs_review')],
-        [dict(reference=dict(domain='privesc_edges', id='e'), reason='Conditional path lacks a required permission.')]), sources)
+        [dict(reference=dict(domain='privesc_edges', id='e'), reason='No current grant supports the reported relationship; the required permission is absent in the captured policy and no data access is indicated.')]), sources)
     assert result['covered_count'] == result['source_count'] == 4
     assert result['issues'][0]['id'].startswith('report-')
     original = report([issue([('findings', 'f'), ('actions', '1')])])
@@ -317,3 +317,62 @@ def test_fixed_findings_bound_description_without_losing_affected_evidence():
     assert len(value['issues']) == 1
     assert len(value['issues'][0]['description']) <= 2500
     assert len(value['issues'][0]['references']) == 100
+
+
+def test_draft_source_aliases_coverage_and_assets(tmp_path):
+    import subprocess
+    import sys
+    from peaso.ai import output_validation, report_draft
+
+    platform = {
+        'report': {'findings': [
+            {'id': 'native-hardening', 'category': 'hardening', 'status': 'FAIL', 'resource_id': 'disk'},
+            {'id': 'native-exposure', 'category': 'exposure', 'status': 'UNKNOWN', 'resource_id': 'workload'},
+            {'id': 'native-network', 'category': 'network', 'status': 'FAIL', 'resource_id': 'workload',
+             'evidence': {'source': 'ai_network_review', 'resource_ids': ['disk', 'workload']}},
+        ]},
+        'inventory': [{'id': 'disk', 'native_id': 'disk/production'}],
+        'least_privilege': {'items': [{'id': 'principal', 'principal': 'identity/worker',
+                                      'exposures': [{'resource_id': 'workload'}]}]},
+    }
+    sources = compiler.source_index(platform)
+    by_alias = {row['source_id']: row for row in sources}
+    assert set(by_alias) == {'HC-001', 'EX-001', 'NW-001', 'LP-001'}
+    assert by_alias['NW-001']['assets'] == ['disk/production', 'workload']
+    assert by_alias['LP-001']['assets'] == ['identity/worker', 'workload']
+    (tmp_path / 'report-sources.json').write_text(json.dumps(sources))
+    prior = {'issues': [dict(issue([('findings', 'native-hardening')]), id='prior-issue')]}
+    path = tmp_path / 'report-draft.json'
+    path.write_text(json.dumps(report_draft.initial_draft(prior)))
+
+    def command(operation, *args, document=None, success=True):
+        from pathlib import Path
+        import os
+        proc = subprocess.run([sys.executable, '-m', 'peaso.ai.report_draft', operation, *args],
+                              cwd=tmp_path, input=json.dumps(document), text=True, capture_output=True,
+                              env={**os.environ, 'PYTHONPATH': str(Path(compiler.__file__).parents[2])}, check=success)
+        return json.loads(proc.stdout) if success else proc
+
+    with pytest.raises(compiler.MissingReportEvidence) as error:
+        compiler.validate(report_draft.candidate(json.loads(path.read_text())), sources)
+    feedback = output_validation.feedback(error.value)
+    assert {row['source_id'] for row in feedback['missing_references']} == {'EX-001', 'NW-001', 'LP-001'}
+
+    replacement = dict(issue([('findings', 'native-hardening')]), manual_affected_assets=['manual/asset', 'workload'])
+    replacement['references'] = [{'source_id': alias} for alias in ('HC-001', 'NW-001', 'LP-001')]
+    command('update', 'prior-issue', document=replacement)
+    new_id = command('add', document=dict(replacement, references=[{'source_id': 'HC-001'}]))['id']
+    command('delete', new_id)
+    assert command('exclude', document={'reference': {'source_id': 'EX-001'}, 'reason': 'Too short'}, success=False).returncode
+    command('exclude', document={'reference': {'source_id': 'EX-001'},
+        'reason': 'The captured entry refers to a retired sample workload that receives no traffic and processes no user or business data.'})
+    draft = json.loads(path.read_text())
+    candidate = report_draft.candidate(draft)
+    candidate['draft_issue_ids'] = {
+        compiler._issue_id(draft['issues']['prior-issue']['references']): 'prior-issue'}
+    result = compiler.complete(candidate, sources, compiler.pregenerate(platform, sources), prior)
+    assert result['covered_count'] == 4
+    [compiled] = result['issues']
+    assert compiled['id'] == 'prior-issue'
+    assert compiled['affected_assets'] == ['disk/production', 'identity/worker', 'workload']
+    assert compiled['manual_affected_assets'] == ['manual/asset']

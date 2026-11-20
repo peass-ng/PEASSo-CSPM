@@ -84,6 +84,8 @@ def main():
     from .deadline import ENVIRONMENT_KEY, timeout_seconds
     from .output_validation import context, validate, feedback, private_file, InvalidAgentOutput, MAX_OUTPUT
     original = context(stage, root)
+    draft_path = root / 'report-draft.json'
+    use_draft = stage == 'findings_report' and draft_path.is_file()
     budget = timeout_seconds(os.getenv(ENVIRONMENT_KEY, str(config.agent.max_runtime_minutes * 60)))
     end = started + budget
     text = ''
@@ -129,7 +131,16 @@ def main():
             raise InvalidAgentOutput('agent_output_limit')
         data = None
         try:
-            data = json.loads(output)
+            if use_draft:
+                from .report_draft import candidate
+                if json.loads(output) != {'done': True}:
+                    raise ValueError('report_draft_incomplete')
+                if draft_path.stat().st_size > MAX_OUTPUT:
+                    raise InvalidAgentOutput('agent_output_limit')
+                draft = json.loads(draft_path.read_text())
+                data = candidate(draft)
+            else:
+                data = json.loads(output)
             validate(stage, data, original)
         except ValueError as error:
             if attempt == attempts - 1:
@@ -137,7 +148,10 @@ def main():
             private_file(root/'candidate-output.json', data if data is not None else
                          {'unparsed_output': output[:100000]})
             private_file(root/'validation-feedback.json', feedback(error))
-            if stage == 'report_combination':
+            if use_draft:
+                text = ('Read validation-feedback.json. Fix the draft through report_draft commands and account for '
+                        'each missing_references entry in an issue or a justified exclusion. Then return done.')
+            elif stage == 'report_combination':
                 text = ('Correct candidate-output.json using validation-feedback.json and combined-reports.json. '
                         'Resolve report_id and issue_id against the original issues. Preserve every source issue '
                         'exactly once and return the complete requested JSON with valid grouping, severities and field limits.')
@@ -148,6 +162,9 @@ def main():
                         'requested JSON with valid references, ranks and field limits. Use only read-only access.\n\n'
                         '### AVAILABLE ACCESS\n' + access_instructions(entries))
             continue
+        if use_draft:
+            from .findings_report import _issue_id
+            data['draft_issue_ids'] = {_issue_id(issue['references']): ident for ident, issue in draft['issues'].items()}
         private_file(root/'result.json', data)
         return
 

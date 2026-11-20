@@ -6,16 +6,26 @@ import { Badge, Inspector, State } from "./ui";
 import { NetworkArchitecture } from "./NetworkArchitecture";
 import type { Finding } from "./types";
 export type Reference = { domain: "findings" | "least_privilege" | "privesc_edges" | "actions"; id: string };
-export type Issue = { id: string; title: string; kind: string; severity: string; status: string; description: string; impact: string; recommendation: string; verification: string; references: Reference[] };
+export type Issue = { id: string; title: string; kind: string; severity: string; status: string; description: string; impact: string; recommendation: string; verification: string; affected_assets?: string[]; manual_affected_assets?: string[]; references: Reference[] };
 export const issueKinds: Record<string, string> = { vulnerability: "Security issue", hardening: "Hardening suggestion", leaks: "Leaks", image_cves: "Image CVEs" };
 export function SourceFinding({ scanId, id, onClose, onInspect }: { scanId: string; id: string; onClose: () => void; onInspect: (id: string) => void }) {
   const query = useApi<Finding>(`/scans/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(id)}`, false);
   if (!query.data) return <Inspector title="Supporting finding" onClose={onClose}><State loading={query.isPending} error={query.error} /></Inspector>;
   return <FindingInspector finding={query.data} scanId={scanId} lazy={false} onInspectMember={finding => onInspect(finding.id)} onClose={onClose} demo={false} />;
 }
+function AffectedAssets({ assets, title }: { assets: string[]; title: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return <><h3>{title}</h3><ul className="report-evidence">{(expanded ? assets : assets.slice(0, 3)).map(asset => <li key={asset}><code>{asset}</code></li>)}</ul>
+    {assets.length > 3 && <button className="text-button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+      {expanded ? "Show fewer assets" : `Show ${assets.length - 3} more assets`}
+    </button>}</>;
+}
+
 export function IssueBody({ issue }: { issue: Omit<Issue, "references"> }) {
   return <><Badge value={issue.severity} /><p>{issue.status === "confirmed" ? "Confirmed configuration" : "Needs review"} · {issueKinds[issue.kind] || issue.kind}</p>
     <h3>Description and affected scope</h3><NetworkArchitecture label="Issue description" markdown text={issue.description} />
+    {!!issue.affected_assets?.length && <AffectedAssets title="Affected assets" assets={issue.affected_assets} />}
+    {!!issue.manual_affected_assets?.length && <AffectedAssets title="Agent-added affected assets" assets={issue.manual_affected_assets} />}
     <h3>Impact</h3><NetworkArchitecture label="Issue impact" markdown text={issue.impact} />
     <h3>Recommendation</h3><NetworkArchitecture label="Issue recommendation" markdown text={issue.recommendation} />
     <h3>Verification</h3><NetworkArchitecture label="Issue verification" markdown text={issue.verification} /></>;
