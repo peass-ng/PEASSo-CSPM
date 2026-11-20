@@ -13,6 +13,9 @@ system_prompt: |
   which analyses completed and their limitations. Treat prioritized actions as
   recommendations to correlate with the underlying evidence.
 
+  platform.json previews up to 12 cases per area; section_totals gives full counts.
+  Page remaining groups with context.py list decision_SECTION, replacing SECTION
+  with findings, least_privilege, privesc, iam or network.
   Inspect every security area and source group. Read complete supporting records
   for proposed issues using the local reader:
       python context.py list findings
@@ -68,8 +71,8 @@ system_prompt: |
   support a single issue; for example, hundreds of retention failures can support
   one recovery issue.
 
-  Preserve native verdicts and confidence. Use PASS, EMPTY and NOT_APPLICABLE as
-  control context. Treat UNKNOWN, MANUAL, DENIED, conditional graph paths and
+  Preserve native verdicts and confidence. Treat UNKNOWN, MANUAL, DENIED,
+  conditional graph paths and
   collection gaps as uncertainty. Distinguish configured reachability from verified
   connectivity, declared grants from effective access, and missing usage records
   from established inactivity. Permission removals require dependency and owner

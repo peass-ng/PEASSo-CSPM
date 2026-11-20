@@ -162,22 +162,103 @@ def source_index(platform):
     return list({(r['domain'], r['id']): r for r in result}.values())
 
 
+def _scoped_context(platform, sources):
+    """Limit evidence to assigned observations and explicit nearby dependencies."""
+    from .pipeline import referenced_strings
+    from peaso.engine import hydrate_finding
+    assigned = agent_sources(sources)
+    required = {r['id'] for r in assigned if r['domain'] == 'findings' and r['required']}
+    allowed = {r['id'] for r in assigned if r['domain'] == 'findings'}
+    report = platform.get('report', {})
+    actions = {r['id'] for r in assigned if r['domain'] == 'actions'}
+    least_ids = {r['id'] for r in assigned if r['domain'] == 'least_privilege'}
+    least = [row for i, row in enumerate(platform.get('least_privilege', {}).get('items', []))
+             if str(row.get('id', i)) in least_ids]
+    top = [row for row in platform.get('top_actions', []) if str(row['rank']) in actions]
+    network_review = platform.get('network_review') or {}
+    network_ids = {r['id'] for r in network_review.get('findings', [])}
+    selected = [hydrate_finding(row, report.get('check_frameworks'), report.get('check_meta'),
+                report.get('check_meta_encoding'), report.get('remediation_templates'))
+                for row in report.get('findings', []) if row['id'] in required | network_ids]
+    paths = (report.get('graphs', {}).get('privesc') or {})
+    inventory = platform.get('inventory', [])
+    universe = {row.get(key) for row in inventory for key in ('id', 'native_id') if isinstance(row.get(key), str)}
+    for graph in report.get('graphs', {}).values():
+        if isinstance(graph, dict):
+            universe.update(row['id'] for kind in ('nodes', 'edges') for row in graph.get(kind, []) if isinstance(row.get('id'), str))
+    def references(value):
+        return set(referenced_strings(value)) & universe
+    roots = references([selected, least, top, paths])
+    # Conditional findings on the same affected assets can explain a limitation.
+    for row in report.get('findings', []):
+        if row['id'] in allowed and row['id'] not in required | network_ids and row.get('resource_id') in roots:
+            selected.append(hydrate_finding(row, report.get('check_frameworks'), report.get('check_meta'),
+                            report.get('check_meta_encoding'), report.get('remediation_templates')))
+    roots.update(references(selected))
+    related = []
+    graphs = {'privesc': paths}
+    # Two explicit relationship/dependency hops; unrelated inventory stays out.
+    for _ in range(2):
+        related = [row for row in inventory if row.get('id') in roots or row.get('native_id') in roots]
+        roots.update(references(related))
+        for name in ('iam', 'network'):
+            graph = report.get('graphs', {}).get(name) or {}
+            nodes = [row for row in graph.get('nodes', []) if references(row) & roots]
+            ids = {row['id'] for row in nodes}
+            edges = [row for row in graph.get('edges', []) if row.get('source') in ids or row.get('target') in ids or row.get('id') in roots]
+            roots.update(references([nodes, edges]))
+            graphs[name] = {**{k: v for k, v in graph.items() if k not in ('nodes', 'edges')}, 'nodes': nodes, 'edges': edges}
+    # Include edge endpoints and resources reached by the final dependency hop.
+    for name in ('iam', 'network'):
+        graph = report.get('graphs', {}).get(name) or {}
+        edges = graphs[name]['edges']
+        ids = {row.get(key) for row in edges for key in ('source', 'target')}
+        graphs[name]['nodes'] = [row for row in graph.get('nodes', []) if row.get('id') in ids or row.get('id') in roots]
+        graphs[name].update(context_restricted=True, total_nodes=len(graphs[name]['nodes']), total_edges=len(edges))
+    roots.update(references(graphs))
+    related = [row for row in inventory if row.get('id') in roots or row.get('native_id') in roots]
+    selected_ids = {row['id'] for row in selected}
+    selected_checks = {row.get('check_id') for row in selected}
+    scopes = {row.get('scope') for row in selected + related} | {'*'}
+    kinds = {row.get('type') for row in related}
+    gaps = [row for row in report.get('coverage', []) if str(row.get('status', '')).upper() in
+            {'DENIED', 'UNKNOWN', 'PARTIAL', 'ERROR', 'TIMEOUT', 'NOT_COLLECTED', 'MALFORMED'} and
+            (row.get('check_id') in selected_checks or row.get('scope') in scopes and row.get('type') in kinds)]
+    context_report = {key: report[key] for key in ('provider', 'snapshot_id', 'created_at', 'schema_version',
+                      'scopes', 'check_meta_encoding', 'remediation_templates') if key in report}
+    context_report.update(findings=selected, graphs=graphs, coverage=gaps)
+    for key in ('check_meta', 'check_frameworks', 'remediation_templates'):
+        if isinstance(report.get(key), dict):
+            context_report[key] = {k: v for k, v in report[key].items() if k in selected_checks}
+    snapshot = platform.get('snapshot_context') or {}
+    snapshot_context = {key: snapshot[key] for key in ('provider', 'snapshot_id', 'created_at', 'scopes', 'schema_version') if key in snapshot}
+    snapshot_context['metadata'] = {key: value for key, value in (snapshot.get('metadata') or {}).items()
+                                    if key in ('input_mode', 'requested_scopes')}
+    scoped = {'report': context_report, 'inventory': related, 'snapshot_context': snapshot_context,
+              'least_privilege': {'items': least, 'total': len(least)}, 'top_actions': top,
+              'network_review': network_review, 'analysis_status': platform.get('analysis_status', {})}
+    return scoped, [r for r in assigned if r['domain'] != 'findings' or r['id'] in selected_ids]
+
+
 def build(root, platform, findings, reviews, write_json):
     from .briefing import build as build_context
-    sources = source_index(platform)
-    assigned = agent_sources(sources)
-    reserved = {row['id'] for row in sources if row['domain'] == 'findings' and row['kind'] in SPECIAL_KINDS}
-    action_ids = {row['id'] for row in assigned if row['domain'] == 'actions'}
-    def scoped_report(report):
-        return dict(report, findings=[row for row in report.get('findings', []) if row['id'] not in reserved])
-    scoped = dict(platform, report=scoped_report(platform.get('report', {})),
-                  top_actions=[row for row in platform.get('top_actions', []) if str(row['rank']) in action_ids])
-    if 'source_report' in scoped:
-        scoped['source_report'] = scoped_report(scoped['source_report'])
-    build_context(root, scoped, [row for row in findings if row['id'] not in reserved],
-                  [row for row in reviews if row['finding_id'] not in reserved], write_json)
+    scoped, assigned = _scoped_context(platform, source_index(platform))
+    identifiers = {r['id'] for r in assigned if r['domain'] == 'findings'}
+    def write_context(path, value):
+        if path.name == 'platform.json':
+            sections = value.get('sections', {})
+            value = dict(value, sections={key: rows[:12] for key, rows in sections.items()},
+                section_totals={key: len(rows) for key, rows in sections.items()},
+                reading_notes=[
+                    'Each section previews up to 12 cases. Read remaining groups with context.py list decision_SECTION; continue next_offset until null.',
+                    'Detailed evidence is available through targeted local lookups. Missing facts remain uncertain.'])
+            value['data_index'] = dict(value.get('data_index', {}),
+                semantics='Evidence is scoped to assigned findings and their related dependencies.')
+        write_json(path, value)
+    build_context(root, scoped, [row for row in findings if row['id'] in identifiers],
+                  [row for row in reviews if row['finding_id'] in identifiers], write_context)
     write_json(root / 'report-sources.json', assigned)
-    write_json(root / 'analysis-status.json', platform.get('analysis_status', {}))
+    write_json(root / 'analysis-status.json', scoped['analysis_status'])
     write_json(root / 'top-actions.json', scoped['top_actions'])
 
 

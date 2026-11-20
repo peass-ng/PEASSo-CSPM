@@ -17,7 +17,7 @@ test('AI defaults on and can be disabled for a scan', async ({ page }) => {
   });
   await page.goto('/#Scans');
   await page.getByRole('button', { name: 'Launch scan', exact: true }).click();
-  const toggle = page.getByLabel('Use AI for Network analysis and prioritized actions');
+  const toggle = page.getByLabel('Use AI for network analysis, prioritized actions and the Findings Report');
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
   await page.getByRole('dialog').getByRole('button', { name: 'Start scan', exact: true }).click();
@@ -98,7 +98,8 @@ test('network findings have a separate page below Network Map', async ({ page })
   await expect(page.getByText(explanation, { exact: true })).toHaveCount(0);
   const nav = page.getByRole('navigation', { name: 'Primary navigation' });
   const labels = await nav.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')));
-  expect(labels[labels.findIndex(label => label === 'Scans') + 1]).toBe('Top 15 Actions');
+  expect(labels[labels.findIndex(label => label === 'Scans') + 1]).toBe('Findings Report');
+  expect(labels[labels.findIndex(label => label === 'Findings Report') + 1]).toBe('Top 15 Actions');
   expect(labels[labels.findIndex(label => label === 'Top 15 Actions') + 1]).toBe('Hardening & Compliance');
   expect(labels[labels.findIndex(label => label === 'Network Map') + 1]).toBe('Network Architecture');
   await expect(nav.getByRole('button', { name: 'Network Architecture', exact: true }).locator('.feature-ai')).toHaveText('✦ AI');

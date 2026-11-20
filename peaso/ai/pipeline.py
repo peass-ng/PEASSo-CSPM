@@ -762,9 +762,10 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             try:
                 from peaso.least_privilege import project
                 from .findings_report import source_index, pregenerate, agent_sources, complete
+                report_least = report_context.get('least_privilege') if isinstance(report_context, dict) else None
                 platform = {'report': priorities_report, 'inventory': inventory,
                             'snapshot_context': snapshot_context(snapshot),
-                            'least_privilege': project(report['provider'], inventory, snapshot=snapshot),
+                            'least_privilege': report_least if isinstance(report_least, dict) else project(report['provider'], inventory, snapshot=snapshot),
                             'network_review': result['network'], 'top_actions': result['actions'],
                             'analysis_status': {'network': result['network'].get('status'),
                                 'priorities': priorities_status, 'limitations': result['limitations']}}

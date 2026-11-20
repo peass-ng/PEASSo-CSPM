@@ -123,3 +123,24 @@ def test_report_compilation_is_the_last_model_stage(monkeypatch, tmp_path):
     result = pipeline.review_scan(report, {}, {}, tenant='test', artifacts=None)
     assert stages == ['network', 'priorities', 'findings_report']
     assert result['findings_report']['status'] == 'completed'
+
+
+def test_rerun_uses_original_observation_ids_instead_of_download_groups(completed, monkeypatch):
+    _, store, artifacts, scan, native, prior = completed
+    row = store.job('alice', scan)
+    bundle = artifacts.get('alice', row['report'])
+    grouped = dict(native, findings=[{'id': 'download-group', 'grouped': True, 'observations': native['findings']}], finding_grouping='check-v1')
+    detail = artifacts.put('alice', scan, 'detail', {'id': 'f', 'evidence': {'observed': 'original'}})
+    chunks = artifacts.put('alice', scan, 'findings', {'items': [{'id': 'f', '_detail_reference': detail}]})
+    updated = dict(bundle, report_json=artifacts.put('alice', scan, 'report', grouped), finding_count=1,
+                   finding_chunks=[{'reference': chunks}], check_meta={'check': {'category': 'hardening'}})
+    manifest = artifacts.put('alice', scan, 'manifest', updated)
+    store.replace_completed_report('alice', scan, row['report'], manifest)
+    def review(report, *args, **kwargs):
+        assert report['findings'] == [{'id': 'f', 'evidence': {'observed': 'original'}}]
+        assert 'finding_grouping' not in report
+        assert report['check_meta'] == updated['check_meta']
+        return {'findings_report': {'status': 'completed', 'issues': []}}
+    monkeypatch.setattr('peaso.ai.pipeline.review_scan', review)
+    state = report_runs.request_run(store, 'alice', scan, 'alice')
+    assert report_runs.execute(store, artifacts, 'alice', scan, state['generation'])

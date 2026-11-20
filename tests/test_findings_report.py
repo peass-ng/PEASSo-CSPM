@@ -218,7 +218,7 @@ def test_agent_inputs_contain_only_assigned_observations_and_actions(tmp_path, m
     compiler.build(tmp_path, platform, rows, [dict(finding_id=r['id']) for r in rows],
                    lambda path, value: files.update({path.name: value}))
     assert [r['id'] for r in captured['platform']['report']['findings']] == ['other']
-    assert [r['id'] for r in captured['platform']['source_report']['findings']] == ['other']
+    assert 'source_report' not in captured['platform']
     assert [r['id'] for r in captured['assigned']] == ['other']
     assert captured['reviews'] == [{'finding_id': 'other'}]
     assert {r['id'] for r in files['report-sources.json']} == {'other', '2'}
@@ -229,3 +229,39 @@ def test_agent_inputs_contain_only_assigned_observations_and_actions(tmp_path, m
     completed = compiler.complete(report([issue([('findings', 'other'), ('actions', '2')])]), sources, prebuilt)
     assert completed['covered_count'] == completed['source_count'] == 6
     assert len(completed['issues']) == 3
+
+
+def test_context_excludes_passes_unrelated_resources_and_bulk_snapshot_metadata():
+    platform = {'report': {'provider': 'cloud', 'findings': [
+        dict(id='fail', status='FAIL', check_id='control', resource_id='used', scope='scope'),
+        dict(id='pass', status='PASS', check_id='control', resource_id='unused', scope='other'),
+        dict(id='gap', status='UNKNOWN', check_id='gap', resource_id='used', scope='scope'),
+        dict(id='unrelated-gap', status='UNKNOWN', check_id='gap', resource_id='unused', scope='other')],
+        'graphs': {'network': {'nodes': [dict(id='n1', resource_id='used', provider='cloud'),
+                                       dict(id='n2', resource_id='dependency', provider='cloud'),
+                                       dict(id='n3', resource_id='unused', provider='cloud')],
+                               'edges': [dict(id='e', source='n1', target='n2')]}}},
+        'inventory': [dict(id='used', native_id='native-used', type='server', scope='scope', data={'depends_on': 'dependency'}),
+                      dict(id='dependency', native_id='native-dependency', type='policy', scope='scope'),
+                      dict(id='unused', native_id='native-unused', type='server', scope='other')],
+        'snapshot_context': {'provider': 'cloud', 'metadata': {'input_mode': 'live', 'bulk': 'UNRELATED-CONTEXT'},
+                             'collections': [{'irrelevant': 'UNRELATED-CONTEXT'}]}}
+    scoped, sources = compiler._scoped_context(platform, compiler.source_index(platform))
+    assert {r['id'] for r in scoped['report']['findings']} == {'fail', 'gap'}
+    assert {r['id'] for r in sources} == {'fail', 'gap'}
+    assert {r['id'] for r in scoped['inventory']} == {'used', 'dependency'}
+    assert {r['id'] for r in scoped['report']['graphs']['network']['nodes']} == {'n1', 'n2'}
+    assert 'UNRELATED-CONTEXT' not in json.dumps(scoped)
+
+
+def test_opening_overview_is_bounded_and_all_case_groups_remain_indexed(tmp_path, monkeypatch):
+    captured = {}
+    complete_cases = [dict(id=str(i)) for i in range(40)]
+    def context(root, scoped, assigned, reviews, write_json):
+        write_json(root/'platform.json', {'sections': {'findings': complete_cases}, 'data_index': {}, 'reading_notes': []})
+    monkeypatch.setattr('peaso.ai.briefing.build', context)
+    compiler.build(tmp_path, {'report': {'findings': []}}, [], [],
+                   lambda path, value: captured.update({path.name: value}))
+    assert len(captured['platform.json']['sections']['findings']) == 12
+    assert captured['platform.json']['section_totals']['findings'] == 40
+    assert len(complete_cases) == 40

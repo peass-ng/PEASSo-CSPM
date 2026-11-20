@@ -83,6 +83,22 @@ def execute(store, artifacts, tenant, scan, generation):
         ai = artifacts.get(tenant, bundle['ai_review']) if bundle.get('ai_review') else report.get('ai', {})
         report = dict(report)
         report.pop('ai', None)
+        if bundle.get('finding_chunks') is not None:
+            # Download JSON groups observations for presentation. Compilation
+            # uses the same original observation IDs as the findings UI.
+            original = []
+            for chunk in bundle['finding_chunks']:
+                for finding in artifacts.get(tenant, chunk['reference'])['items']:
+                    reference = finding.get('_detail_reference')
+                    original.append(artifacts.get(tenant, reference) if reference else finding)
+            if len(original) != bundle.get('finding_count', len(original)):
+                raise ValueError('Captured finding count changed')
+            report['findings'] = original
+            report.pop('finding_grouping', None)
+            for key in ('check_meta', 'check_meta_encoding', 'check_frameworks', 'remediation_templates'):
+                if key in bundle:
+                    report[key] = bundle[key]
+        least = artifacts.get(tenant, bundle['least_privilege']) if isinstance(bundle.get('least_privilege'), str) else None
         snapshot = artifacts.get(tenant, row['snapshot'])
         selectors = json.loads(row['data']) if isinstance(row['data'], str) else dict(row['data'])
         selectors.update(ai_enabled=True, ai_findings_report_enabled=True, ai_user_id=state['actor'])
@@ -90,7 +106,8 @@ def execute(store, artifacts, tenant, scan, generation):
         reviewed = review_scan(report, snapshot, selectors, tenant=tenant, artifacts=artifacts,
             deadline=state['expires'], scan_id=scan, stages=('findings_report',),
             reused_stages={'findings_report_context': {'network': ai.get('network'),
-                'actions': ai.get('actions', []), 'limitations': ai.get('limitations', [])}})
+                'actions': ai.get('actions', []), 'limitations': ai.get('limitations', []),
+                'least_privilege': least}})
         value = reviewed.get('findings_report') or {'status': 'unavailable', 'issues': [],
             'limitations': ['The findings report could not be generated. Check AI settings and retry.']}
         value = dict(value, issues=[dict(issue, id='report-' + generation + '-' + str(index + 1))

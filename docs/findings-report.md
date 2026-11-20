@@ -12,10 +12,14 @@ It uses the existing best-quality model alias and high thinking effort. It runs
 in the existing isolated agent runtime, with captured evidence and no live cloud
 credentials. The shared deadline reserves time for compilation and publication.
 
-The lossless local context includes all native finding statuses, resources,
-least-privilege recommendations, IAM and privilege-escalation maps, network
-configuration, the accepted architecture review, Top 15 Actions and collection
-coverage. Findings are grouped by root cause and remediation, without a 15-issue
+The local context contains failed observations, actionable least-privilege
+recommendations, privilege-escalation paths, accepted network findings and relevant
+prioritized actions. Passed checks, unrelated inventory and bulk snapshot metadata
+are omitted. Resource configuration and IAM/network relationships are limited to
+explicit references and two dependency hops around assigned evidence. Relevant
+uncertain observations and coverage gaps remain available through local lookups.
+The opening overview previews at most 12 cases per area; full case membership and
+evidence are indexed for targeted, paginated access. Findings are grouped by root cause and remediation, without a 15-issue
 limit. Check-result totals, FAIL totals and evidence-source totals are not vulnerability
 counts; only the consolidated issues are counted as report issues. Every required source (native FAIL, least-privilege candidate, escalation
 edge and top action) must appear once in an issue or a documented exclusion.
