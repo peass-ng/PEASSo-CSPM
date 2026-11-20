@@ -186,11 +186,12 @@ def source_index(platform):
                     identifiers.extend(graph_assets(target))
         result.append({'category': category, 'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident}),
                        'domain': 'findings', 'id': row['id'], 'kind': kind,
+                       'actionable': row.get('status') == 'FAIL',
                        'confirmed': row.get('status') == 'FAIL', 'required': row.get('status') == 'FAIL' or category in ('hardening', 'exposure', 'network')})
     for index, row in enumerate(platform.get('least_privilege', {}).get('items', [])):
         if row.get('suggestions') or row.get('exposures'):
             result.append({'domain': 'least_privilege', 'id': str(row.get('id', index)),
-                           'kind': None, 'confirmed': False, 'required': True,
+                           'kind': None, 'confirmed': False, 'required': True, 'actionable': True,
                            'assets': sorted({item for item in [row.get('principal'), *(
                                asset(exposure.get('resource_id')) for exposure in row.get('exposures', []))]
                                if isinstance(item, str) and item})})
@@ -201,7 +202,7 @@ def source_index(platform):
         identifiers = [ident for endpoint in endpoint_ids
                        for ident in graph_assets(nodes.get(endpoint, {'id': endpoint}))]
         result.append({'domain': 'privesc_edges', 'id': str(row.get('id', index)),
-                       'kind': None, 'confirmed': False, 'required': True,
+                       'kind': None, 'confirmed': False, 'required': True, 'actionable': False,
                        'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident})})
     finding_sources = {row['id']: row for row in result if row['domain'] == 'findings'}
     for action in platform.get('top_actions', []):
@@ -210,7 +211,7 @@ def source_index(platform):
         kind = (next(iter(kinds)) if len(kinds) == 1 and kinds <= SPECIAL_KINDS and
                 supporting and all(row and row['confirmed'] for row in supporting) else None)
         result.append({'domain': 'actions', 'id': str(action['rank']), 'kind': kind,
-                       'confirmed': False, 'required': True,
+                       'confirmed': False, 'required': True, 'actionable': False,
                        'assets': sorted({asset_id for row in supporting if row for asset_id in row.get('assets', [])})})
     # The lossless reader can distinguish historic duplicate graph IDs by their
     # records, but report references deliberately identify the original edge.
@@ -349,7 +350,10 @@ def validate(data, sources):
         if covered.intersection(keys):
             raise ValueError('duplicate_report_reference')
         covered.update(keys)
-        if issue['status'] == 'confirmed' and not any(known[key]['confirmed'] for key in keys):
+        confirmed = any(known[key]['confirmed'] for key in keys)
+        if ((issue['kind'] == 'vulnerability' and issue['status'] != 'confirmed')
+                or (issue['status'] == 'confirmed' and not confirmed)
+                or not any(known[key].get('actionable', True) for key in keys)):
             raise ValueError('unconfirmed_report_issue')
         if issue['kind'] == 'hardening' and issue['severity'] != 'info':
             raise ValueError('hardening_report_severity')

@@ -236,3 +236,30 @@ def test_combined_fixed_findings_keep_all_assets_and_breakdowns():
         assert {row['report_id'] for row in merged['special_details']} == {'a', 'b'}
         assert len(merged['references']) == 2
     assert 'east/config:12' in next(row for row in result['issues'] if row['kind'] == 'leaks')['description']
+
+
+def test_combiner_can_lower_vulnerability_rating_but_preserves_fixed_finding_rating():
+    sources = [{'scan_id': 'a', 'issues': [
+        issue('encryption', severity='high'),
+        issue('images', 'image_cves', 'high'),
+        issue('leaks', 'leaks', 'high'),
+    ]}]
+    data = compiled(sources)
+    data['issues'][0]['severity'] = 'medium'
+    assert any(row['severity'] == 'medium' for row in compiler.validate(data, sources)['issues'])
+    data['issues'][1]['severity'] = 'medium'
+    with pytest.raises(ValueError, match='combined_severity_mismatch'):
+        compiler.validate(data, sources)
+
+
+def test_unconfirmed_legacy_issue_does_not_remain_a_vulnerability_in_merge():
+    original = issue()
+    original['status'] = 'needs_review'
+    frozen = [{'scan_id': 'a', 'issues': [original]}]
+    candidate = {key: original[key] for key in compiler.CombinedIssue.model_fields if key != 'references'}
+    candidate['references'] = [{'report_id': 'a', 'issue_id': original['id']}]
+    data = {'summary': 'Combined report', 'limitations': [], 'issues': [candidate]}
+    with pytest.raises(ValueError, match='unconfirmed_report_issue'):
+        compiler.validate(data, frozen)
+    candidate.update(kind='hardening', severity='info')
+    assert compiler.validate(data, frozen)['issues'][0]['status'] == 'needs_review'

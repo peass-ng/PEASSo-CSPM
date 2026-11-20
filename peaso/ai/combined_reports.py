@@ -66,12 +66,18 @@ def validate(data, reports):
                         row['label'] = f'Leak {index}'
                 issue['special_details'] = details
                 issue['title'], issue['description'] = prose(issue['kind'], details)
-        if issue['severity'] != min((row['severity'] for row in source), key=RISK.index):
+        highest_source = min(RISK.index(row['severity']) for row in source)
+        combined_severity = RISK.index(issue['severity'])
+        if (combined_severity < highest_source
+                or issue['kind'] in SPECIAL_KINDS and combined_severity != highest_source):
             raise ValueError('combined_severity_mismatch')
-        if (issue['kind'] == 'hardening' and (kinds != {'hardening'} or issue['severity'] != 'info')
+        confirmed_vulnerability = any(row['kind'] == 'vulnerability' and row['status'] == 'confirmed'
+                                      for row in source)
+        if (issue['kind'] == 'hardening' and (confirmed_vulnerability or issue['severity'] != 'info')
                 or kinds == {'hardening'} and issue['kind'] != 'hardening'):
             raise ValueError('hardening_report_severity')
-        if issue['status'] == 'confirmed' and not any(row['status'] == 'confirmed' for row in source):
+        if ((issue['kind'] == 'vulnerability' and (issue['status'] != 'confirmed' or not confirmed_vulnerability))
+                or (issue['status'] == 'confirmed' and not any(row['status'] == 'confirmed' for row in source))):
             raise ValueError('unconfirmed_report_issue')
         covered.update(keys)
     expected = {row['kind'] for row in known.values()} & SPECIAL_KINDS

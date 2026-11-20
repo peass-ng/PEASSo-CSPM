@@ -41,7 +41,12 @@ function SpecialDetails({ rows, onInspect }: {
           {!!row.scope && <div className="muted small">{row.scope}</div>}
           {!!row.digest && row.digest !== row.asset && <div className="muted small"><code>{row.digest}</code></div>}
         </td>
-        {["critical", "high", "medium"].map(level => <td key={level}>{row.counts?.[level] ?? "—"}</td>)}
+        {["critical", "high", "medium"].map(level => {
+          const count = row.counts?.[level];
+          return <td key={level} aria-label={count === 0 ? "None found" : count === undefined ? "Count unavailable" : undefined}>
+            {count === 0 ? "" : count ?? "—"}
+          </td>;
+        })}
       </tr>)}</tbody>
     </table></div> : <ul className="report-evidence">{visible.map((row, index) => <li key={index}>
       <strong>{row.label}</strong>{!!row.detectors?.length && <> · {row.detectors.join(", ")}</>}

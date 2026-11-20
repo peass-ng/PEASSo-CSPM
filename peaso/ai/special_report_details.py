@@ -103,11 +103,13 @@ def prose(kind, details):
                     'The captured image scans reported vulnerable packages. Open the source findings for the affected image and advisory details.')
         title = 'Critical or high package vulnerabilities in container images' if any(
             row['counts'].get(level, 0) for row in details for level in ('critical', 'high')) else 'Vulnerable packages in container images'
-        intro = ('The captured scans found installed package versions that match vulnerability advisories. '
-                 'Counts are package findings per resource and image digest. A missing severity count means it was not captured.')
-        lines = [f"- `{(row['asset'] or row['digest'] or row['scope'])[:180]}` · " +
-                 (', '.join(f"{count} {level}" for level, count in row['counts'].items()) or 'severity counts unavailable')
-                 for row in details]
+        intro = ('Some container images include software with known security flaws. '
+                 'The breakdown shows how many findings the scan reported for each image.')
+        lines = []
+        for row in details:
+            counts = ', '.join(f"{row['counts'][level]} {level}" for level in LEVELS if row['counts'].get(level, 0) > 0)
+            if counts:
+                lines.append(f"- `{(row['asset'] or row['digest'] or row['scope'])[:180]}` · {counts}")
     else:
         title = 'Credentials and secrets found in scanned content'
         intro = ('The scanner found potential credentials or secrets in captured content. '
