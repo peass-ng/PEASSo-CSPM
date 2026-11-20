@@ -343,7 +343,7 @@ def build(root, platform, findings, reviews, write_json):
                   [row for row in reviews if row['finding_id'] in identifiers], write_context)
     write_json(root / 'report-sources.json', [dict(
         {key: val for key, val in row.items() if key != 'permission_recommendations'},
-        **({'permission_review_count': len(row['permission_recommendations'])}
+        **({'permission_review_ids': [item['review_id'] for item in row['permission_recommendations']]}
            if row.get('permission_recommendations') else {})) for row in assigned])
     write_json(root / 'analysis-status.json', scoped['analysis_status'])
     write_json(root / 'top-actions.json', scoped['top_actions'])
@@ -378,7 +378,8 @@ def validate(data, sources):
         if issue['kind'] == 'hardening' and issue['severity'] != 'info':
             raise ValueError('hardening_report_severity')
         if issue['permission_review_ids']:
-            available = {item['review_id'] for key in keys for item in known[key].get('permission_recommendations', [])}
+            available = {ident for key in keys for ident in (known[key].get('permission_review_ids') or
+                         [item['review_id'] for item in known[key].get('permission_recommendations', [])])}
             chosen = issue['permission_review_ids']
             if len(set(chosen)) != len(chosen) or not set(chosen) <= available:
                 raise ValueError('unknown_or_duplicate_permission_review')
