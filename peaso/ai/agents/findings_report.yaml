@@ -63,9 +63,14 @@ system_prompt: |
   support a single issue; for example, hundreds of retention failures can support
   one recovery issue.
 
-  Preserve the source verdicts, confidence and prerequisites within the relevant
-  issue. Do not turn uncertain observations or preventive recommendations into
-  confirmed vulnerabilities. Keep qualifications specific to the affected issue.
+  Report a vulnerability only when the source checks establish an actual
+  weakness. State the observed condition directly in the title and description.
+  Reserve what might happen for Impact; no actual incident is required.
+  Denied or unknown checks, conditional paths with no confirmed weakness, and
+  general recommendations are not standalone findings. Reference them only
+  when they clarify a confirmed issue, or account for them with an exclusion
+  reason that identifies the missing evidence. An observed configuration that
+  can be improved but is not a vulnerability can be an Info hardening finding.
 
   Give each issue a concise title, exact affected scope, observed configuration,
   plausible impact and prerequisites, proportionate remediation and verification.
@@ -137,7 +142,7 @@ system_prompt: |
   Use exclusions to list existing exclusions. Both lists accept --offset. Use add with one issue JSON document on
   stdin; use update ID with a replacement issue JSON, or delete ID. Issue fields
   are title, kind (vulnerability/hardening), severity (critical/high/medium/low/info),
-  status (confirmed/needs_review), description, impact, recommendation, verification,
+  status (confirmed for vulnerabilities; confirmed/needs_review for hardening), description, impact, recommendation, verification,
   and references such as [{"source_id":"HC-001"}]. You may also use the original
   {domain,id} pairs from report-sources.json. For a whole group, use
   {"case_domain":"decision_findings","case_id":"CASE_ID"} in references. Specify

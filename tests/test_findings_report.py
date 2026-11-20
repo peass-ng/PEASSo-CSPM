@@ -29,7 +29,7 @@ def test_all_source_areas_are_assessed_and_ids_are_stable():
     sources = [source('findings', 'f'), source('least_privilege', 'lp', confirmed=False),
                source('privesc_edges', 'e', confirmed=False), source('actions', '1', confirmed=False)]
     result = compiler.validate(report([issue([('findings', 'f'), ('actions', '1')]),
-        issue([('least_privilege', 'lp')], status='needs_review')],
+        issue([('least_privilege', 'lp')], kind='hardening', status='needs_review')],
         [dict(reference=dict(domain='privesc_edges', id='e'), reason='No current grant supports the reported relationship; the required permission is absent in the captured policy and no data access is indicated.')]), sources)
     assert result['covered_count'] == result['source_count'] == 4
     assert result['issues'][0]['id'].startswith('report-')
@@ -57,7 +57,7 @@ def test_platform_pregenerates_special_findings_and_agent_cannot_create_or_refer
     assert completed['issues'] == prebuilt['issues'] and completed['covered_count'] == 2
 
 
-@pytest.mark.parametrize('case', ['missing', 'foreign', 'duplicate', 'unconfirmed', 'hardening'])
+@pytest.mark.parametrize('case', ['missing', 'foreign', 'duplicate', 'unconfirmed', 'tentative', 'hardening'])
 def test_bad_coverage_references_and_confidence_fail_closed(case):
     sources = [source('findings', 'f')]
     data = report([issue([('findings', 'f')])])
@@ -65,6 +65,7 @@ def test_bad_coverage_references_and_confidence_fail_closed(case):
     if case == 'foreign': data['issues'][0]['references'][0]['id'] = 'another-tenant-finding'
     if case == 'duplicate': data['issues'].append(copy.deepcopy(data['issues'][0]))
     if case == 'unconfirmed': sources[0]['confirmed'] = False
+    if case == 'tentative': data['issues'][0]['status'] = 'needs_review'
     if case == 'hardening': data['issues'][0]['kind'] = 'hardening'
     with pytest.raises(ValueError): compiler.validate(data, sources)
 
