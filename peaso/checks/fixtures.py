@@ -33,6 +33,12 @@ CASES["aws_config_all_resources_recorded"] = {
     "unknown": _CONFIG_SCOPE, "unknown_index": _config_index(_CONFIG_ALL, last="Pending"),
     "missing": {}, "malformed": _CONFIG_SCOPE, "index": _config_index("malformed")}
 
+CASES["aws.ec2.prevent_public_snapshot_sharing"] = {
+    "pass": {"SnapshotBlockPublicAccessState": "block-new-sharing"},
+    "fail": {"SnapshotBlockPublicAccessState": "unblocked"},
+    "unknown": {"SnapshotBlockPublicAccessState": "unexpected"},
+}
+
 # Central cases for the three native intake IDs; fixture-only import avoids registry cycles.
 from .central_native_fixtures import install as _install_central_native_fixtures
 _install_central_native_fixtures(CASES)
