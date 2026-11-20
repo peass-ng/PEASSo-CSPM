@@ -265,3 +265,23 @@ def test_opening_overview_is_bounded_and_all_case_groups_remain_indexed(tmp_path
     assert len(captured['platform.json']['sections']['findings']) == 12
     assert captured['platform.json']['section_totals']['findings'] == 40
     assert len(complete_cases) == 40
+
+
+def test_native_image_scan_summary_and_its_action_belong_to_fixed_cve_finding(tmp_path):
+    platform = {'report': {'findings': [
+        dict(id='summary', status='FAIL', check_id='custom.image_no_medium_plus_findings',
+             evidence={'image_digest': 'sha256:captured', 'severity_counts': {'HIGH': 7}}),
+        dict(id='details', status='FAIL', check_id='custom.selected_image_vulnerabilities', evidence={}),
+        dict(id='scan-config', status='FAIL', check_id='custom.image_scanning_enabled', evidence={})]},
+        'top_actions': [dict(rank=3, finding_ids=['summary', 'details'])]}
+    sources = compiler.source_index(platform)
+    assert {r['id'] for r in sources if r['kind'] == 'image_cves'} == {'summary', 'details', '3'}
+    assert {r['id'] for r in compiler.agent_sources(sources)} == {'scan-config'}
+    prebuilt = compiler.pregenerate(platform, sources)
+    assert len(prebuilt['issues']) == 1 and prebuilt['issues'][0]['kind'] == 'image_cves'
+    assert {r['id'] for r in prebuilt['issues'][0]['references']} == {'summary', 'details', '3'}
+    scoped, assigned = compiler._scoped_context(platform, sources)
+    assert [r['id'] for r in scoped['report']['findings']] == ['scan-config']
+    assert scoped['top_actions'] == []
+    result = compiler.complete(report([issue([('findings', 'scan-config')])]), sources, prebuilt)
+    assert len(result['issues']) == 2 and result['covered_count'] == 4
