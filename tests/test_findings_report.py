@@ -360,7 +360,18 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
 
     replacement = dict(issue([('findings', 'native-hardening')]), manual_affected_assets=['manual/asset', 'workload'])
     replacement['references'] = [{'source_id': alias} for alias in ('HC-001', 'NW-001', 'LP-001')]
+    import sqlite3
+    with sqlite3.connect(tmp_path / 'context.sqlite') as db:
+        db.execute('CREATE TABLE case_members(case_domain TEXT, case_id TEXT, domain TEXT, id TEXT)')
+        db.executemany('INSERT INTO case_members VALUES(?, ?, ?, ?)', [
+            ('decision_findings', 'case', 'findings', 'native-hardening'),
+            ('decision_findings', 'case', 'findings', 'native-network'),
+            ('decision_findings', 'case', 'findings', 'native-exposure'),
+            ('decision_findings', 'case', 'findings', 'unassigned'),
+        ])
+    replacement['references'] = [{'case_id': 'case', 'except_source_ids': ['EX-001']}, {'source_id': 'LP-001'}]
     command('update', 'prior-issue', document=replacement)
+    assert [row['source_id'] for row in command('coverage')['items']] == ['EX-001']
     new_id = command('add', document=dict(replacement, references=[{'source_id': 'HC-001'}]))['id']
     command('delete', new_id)
     assert command('exclude', document={'reference': {'source_id': 'EX-001'}, 'reason': 'Too short'}, success=False).returncode

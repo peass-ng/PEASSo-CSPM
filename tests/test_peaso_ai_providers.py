@@ -367,7 +367,7 @@ def test_scan_resolves_once_and_passes_same_selection_to_network_and_priorities(
         if stage == 'findings_report':
             return {'summary': 'Account configuration review.', 'issues': [],
                     'exclusions': [{'reference': {'domain': 'findings', 'id': 'f1'},
-                                    'reason': 'General hardening observation.'}], 'limitations': [secret]}
+                                    'reason': 'The example describes an isolated fixture with no external connectivity, persistent data, or real user access permissions.'}], 'limitations': [secret]}
         return {'actions': [], 'limitations': [secret]}
     monkeypatch.setattr(pipeline, 'review_network', network_review)
     monkeypatch.setattr(pipeline, 'invoke_before_deadline', priorities)

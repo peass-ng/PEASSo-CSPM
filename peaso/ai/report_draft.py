@@ -1,8 +1,10 @@
 """Edit issues in a private workspace. Publication still requires server validation."""
 import argparse
+from contextlib import closing
 import fcntl
 import json
 from pathlib import Path
+import sqlite3
 import sys
 import uuid
 
@@ -32,7 +34,7 @@ def candidate(draft):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=('sources', 'list', 'get', 'add', 'update', 'delete', 'exclusions', 'exclude', 'include'))
+    parser.add_argument('operation', choices=('sources', 'coverage', 'list', 'get', 'add', 'update', 'delete', 'exclusions', 'exclude', 'include'))
     parser.add_argument('id', nargs='?')
     parser.add_argument('--offset', type=int, default=0)
     args = parser.parse_args()
@@ -49,6 +51,8 @@ def edit(parser, args):
     sources = json.loads(Path('report-sources.json').read_text())
     by_alias = {source['source_id']: source for source in sources}
 
+    known = {(source['domain'], source['id']): source for source in sources}
+
     def resolve(reference):
         if isinstance(reference, dict) and reference.keys() == {'source_id'}:
             source = by_alias.get(reference['source_id'])
@@ -57,15 +61,35 @@ def edit(parser, args):
             return {key: source[key] for key in ('domain', 'id')}
         return reference
 
-    if args.operation in ('sources', 'list', 'exclusions'):
+    def expand(reference):
+        if not isinstance(reference, dict) or 'case_id' not in reference:
+            return [resolve(reference)]
+        if reference.keys() - {'case_id', 'case_domain', 'except_source_ids'}:
+            parser.error('Unexpected keys in case reference')
+        database = Path('context.sqlite').resolve().as_uri() + '?mode=ro'
+        with closing(sqlite3.connect(database, uri=True)) as db:
+            keys = db.execute('SELECT domain, id FROM case_members WHERE case_domain=? AND case_id=? ORDER BY domain,id',
+                              (reference.get('case_domain', 'decision_findings'), reference['case_id'])).fetchall()
+        rows = [known[key] for key in keys if key in known]
+        omitted = set(reference.get('except_source_ids', []))
+        if not rows or not omitted <= {row['source_id'] for row in rows}:
+            parser.error('Case contains no assigned sources or an exception is outside that case')
+        return [{key: row[key] for key in ('domain', 'id')} for row in rows if row['source_id'] not in omitted]
+
+    if args.operation in ('sources', 'coverage', 'list', 'exclusions'):
         rows = [{'id': ident, 'title': issue['title']} for ident, issue in issues.items()]
+        if args.operation == 'coverage':
+            refs = [ref for issue in issues.values() for ref in issue['references']]
+            refs.extend(exclusion['reference'] for exclusion in draft['exclusions'].values())
+            covered = {(ref['domain'], ref['id']) for ref in refs}
+            rows = [row for key, row in known.items() if row['required'] and key not in covered]
         if args.operation == 'sources':
             rows = [source for source in sources if not args.id or source['source_id'].startswith(args.id.upper())]
         if args.operation == 'exclusions':
             rows = list(draft['exclusions'].values())
         start = max(args.offset, 0)
         end = start + 25
-        print(json.dumps({'items': rows[start:end], 'next_offset': end if end < len(rows) else None}))
+        print(json.dumps({'items': rows[start:end], 'total': len(rows), 'next_offset': end if end < len(rows) else None}))
         return
     if args.operation == 'get':
         if args.id not in issues:
@@ -97,7 +121,8 @@ def edit(parser, args):
                 draft['exclusions'].pop(key, None)
         else:
             ident = args.id if args.operation == 'update' else uuid.uuid4().hex
-            document['references'] = [resolve(reference) for reference in document['references']]
+            expanded = [ref for entry in document['references'] for ref in expand(entry)]
+            document['references'] = list({(ref['domain'], ref['id']): ref for ref in expanded}.values())
             issues[ident] = AgentIssue.model_validate(document).model_dump()
             if len(issues) > 500:
                 parser.error('Too many draft issues')

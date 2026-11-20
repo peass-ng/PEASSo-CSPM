@@ -10,7 +10,9 @@ system_prompt: |
   coverage. Each entry has a short source_id and captured assets. platform.json previews up to 12 cases per area; section_totals gives
   full counts. Page the remaining groups with context.py list decision_SECTION,
   replacing SECTION with findings, least_privilege, privesc, iam or network.
-  Use context.py members decision_findings CASE_ID --limit 20 for group members.
+  Use context.py members decision_findings CASE_ID --limit 20 to inspect group
+  members. Use a case reference in the draft to include all relevant members
+  together instead of transcribing each ID.
   Continue pages with --offset NEXT_OFFSET until next_offset is null.
   Use the existing finding text and captured evidence to write the report; read
   additional records only when needed to resolve a specific ambiguity:
@@ -94,7 +96,12 @@ system_prompt: |
   are title, kind (vulnerability/hardening), severity (critical/high/medium/low/info),
   status (confirmed/needs_review), description, impact, recommendation, verification,
   and references such as [{"source_id":"HC-001"}]. You may also use the original
-  {domain,id} pairs from report-sources.json. The platform derives the affected
+  {domain,id} pairs from report-sources.json. For a whole group, use
+  {"case_domain":"decision_findings","case_id":"CASE_ID"} in references. Specify
+  except_source_ids for any members that belong in a different issue. Groups
+  are expanded into exact original references. Use report_draft coverage to
+  find required sources still unassigned before submitting.
+  The platform derives the affected
   asset list from those references. To supplement it, optionally provide
   manual_affected_assets as a list of exact identifiers supported by the supplied
   evidence.
