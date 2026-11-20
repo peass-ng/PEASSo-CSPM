@@ -16,7 +16,7 @@ from threading import Lock
 import unicodedata
 import uuid
 from typing import Literal
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -1555,7 +1555,9 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         if isinstance(network, dict):
             rows = network.get("findings", [])
             network = dict(network, findings=rows[offset:offset + limit], total=len(rows))
-        compiled = value.get("findings_report")
+        from peaso.ai.report_runs import current_report
+        compiled = current_report(store, artifacts, user.tenant_id, ident, row,
+                                  value.get("findings_report") or {"status": "not_available", "issues": []})
         if isinstance(compiled, dict):
             value = dict(value, findings_report={"status": compiled.get("status"), "total": len(compiled.get("issues", []))})
         from peaso.ai.finding_reviews import presented_reviews
@@ -1575,8 +1577,29 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         absent_status = ("in_progress" if row.get("status") not in TERMINAL else
                          "unavailable" if ai.get("status") == "unavailable" else "not_available")
         report = ai.get("findings_report") or {"status": absent_status, "issues": []}
+        from peaso.ai.report_runs import current_report
+        report = current_report(store, artifacts, user.tenant_id, ident, row, report)
         from .findings_report import page as report_page
         return report_page(report, offset=offset, limit=limit, search=search, severity=severity, exclusion_offset=exclusion_offset)
+
+    @app.post("/api/scans/{ident}/findings-report", status_code=202)
+    def generate_findings_report(ident: str, background: BackgroundTasks, user=Depends(identity), account=Depends(account_identity)):
+        row = store.job(user.tenant_id, ident)
+        if row['status'] != 'completed':
+            raise HTTPException(409, "Wait for the assessment to finish before generating its report")
+        from peaso.ai.auth import require_local_codex
+        require_local_codex(settings, store, account.tenant_id)
+        from peaso.ai.report_runs import request_run, dispatch, execute, fail_dispatch
+        state = request_run(store, user.tenant_id, ident, account.tenant_id)
+        try:
+            if os.getenv("PEASO_WORKFLOW_ARN"):
+                dispatch(user.tenant_id, ident, state['generation'])
+            else:
+                background.add_task(execute, store, artifacts, user.tenant_id, ident, state['generation'])
+        except Exception:
+            fail_dispatch(store, user.tenant_id, ident, state['generation'])
+            raise HTTPException(503, "Could not start report generation; retry") from None
+        return {"status": "queued", "generation": state['generation']}
 
     @app.get("/api/scans/{ident}/summary")
     def summary(ident: str, aggregation: Literal["none", "check"] = "none", user=Depends(identity)):

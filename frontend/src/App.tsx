@@ -500,7 +500,7 @@ export function App() {
           )}
           {pageInfo.ai && codex.isPending && signedIn && <State loading />}
           {page === "Images CVEs" && <ImagesFindings key={`${scanId}:${demo}`} scanId={scanId} demo={demo} />}
-          {aiAvailable && page === "Findings Report" && <FindingsReport key={scanId} scanId={scanId} demo={demo} />}
+          {aiAvailable && page === "Findings Report" && <FindingsReport key={scanId} scanId={scanId} demo={demo} canLaunch={canWriteWorkspace && current?.status === "completed"} />}
           {aiAvailable && page === "Top 15 Actions" && <AiReview key={scanId} scanId={scanId} demo={demo} />}
           {aiAvailable && page === "Network Architecture" && <NetworkAiReview key={scanId} scanId={scanId} demo={demo} />}
           {page === "Least Privilege" && <LeastPrivilege scanId={scanId} demo={demo} />}

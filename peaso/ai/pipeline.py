@@ -615,6 +615,11 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
     result['coverage'] = {'hardening': len(hardening), 'exposure': len(exposure) + len(duplicates),
                           'reviewed': len(reviewed), 'native_final': len(reviewed),
                           'model_reviewed': 0, 'total': len(reviewed)}
+    report_context = (reused_stages or {}).get('findings_report_context') if selected == {'findings_report'} else None
+    if isinstance(report_context, dict):
+        result['network'] = copy.deepcopy(report_context.get('network'))
+        result['actions'] = copy.deepcopy(report_context.get('actions', []))
+        result['limitations'].extend(report_context.get('limitations', []))
     chain = chain_token = None
     try:
         from peaso.storage.runtime import stores
@@ -715,7 +720,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         result['network'] = result.get('network') or {
             'status': 'not_available', 'explanation': '', 'findings': [],
             'reason': 'network_inventory_unavailable'}
-        priorities_status = 'not_requested'
+        priorities_status = 'completed' if report_context is not None else 'not_requested'
         priorities_report = with_findings(report, result['network']['findings'])
         if 'priorities' in selected and not _priorities_have_evidence(priorities_report, reviewed, network):
             priorities_status = 'skipped_no_actionable_evidence'

@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
-import { useApi } from "./api";
+import { useEffect, useRef, useState } from "react";
+import { request, useApi } from "./api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FindingInspector } from "./Findings";
 import { Badge, Inspector, Panel, State } from "./ui";
 import { NetworkArchitecture } from "./NetworkArchitecture";
@@ -7,7 +8,7 @@ import type { Finding } from "./types";
 
 type Reference = { domain: "findings" | "least_privilege" | "privesc_edges" | "actions"; id: string };
 type Issue = { id: string; title: string; kind: string; severity: string; status: string; description: string; impact: string; recommendation: string; verification: string; references: Reference[] };
-type Report = { status: string; summary?: string; issues: Issue[]; limitations?: string[]; exclusions?: { reference: Reference; reason: string }[]; total: number; exclusion_count?: number; source_count?: number; covered_count?: number };
+type Report = { can_launch?: boolean; generation?: string; status: string; summary?: string; issues: Issue[]; limitations?: string[]; exclusions?: { reference: Reference; reason: string }[]; total: number; exclusion_count?: number; source_count?: number; covered_count?: number };
 const labels = { findings: "Check result", least_privilege: "Least privilege", privesc_edges: "Privilege escalation path", actions: "Top action" };
 const kinds: Record<string, string> = { vulnerability: "Security issue", hardening: "Hardening suggestion", leaks: "Leaks", image_cves: "Image CVEs" };
 const pages = { findings: "Hardening & Compliance", least_privilege: "Least Privilege", privesc_edges: "Privilege Escalation Map", actions: "Top 15 Actions" };
@@ -16,7 +17,8 @@ function SourceFinding({ scanId, id, onClose, onInspect }: { scanId: string; id:
   if (!query.data) return <Inspector title="Supporting finding" onClose={onClose}><State loading={query.isPending} error={query.error} /></Inspector>;
   return <FindingInspector finding={query.data} scanId={scanId} lazy={false} onInspectMember={finding => onInspect(finding.id)} onClose={onClose} demo={false} />;
 }
-export function FindingsReport({ scanId, demo }: { scanId: string; demo: boolean }) {
+export function FindingsReport({ scanId, demo, canLaunch = true }: { scanId: string; demo: boolean; canLaunch?: boolean }) {
+  const client = useQueryClient();
   const [search, setSearch] = useState("");
   const [severity, setSeverity] = useState("");
   const [page, setPage] = useState(0);
@@ -24,7 +26,20 @@ export function FindingsReport({ scanId, demo }: { scanId: string; demo: boolean
   const [selected, setSelected] = useState<Issue>();
   const [source, setSource] = useState<string>();
   const trigger = useRef<HTMLButtonElement | null>(null);
-  const query = useApi<Report>(`/scans/${encodeURIComponent(scanId)}/findings-report?offset=${page * 25}&limit=25&search=${encodeURIComponent(search)}&severity=${severity}&exclusion_offset=${exclusionPage * 25}`, demo, !!scanId && !demo);
+  const query = useApi<Report>(`/scans/${encodeURIComponent(scanId)}/findings-report?offset=${page * 25}&limit=25&search=${encodeURIComponent(search)}&severity=${severity}&exclusion_offset=${exclusionPage * 25}`, demo, !!scanId && !demo, true);
+  const launch = useMutation({
+    mutationFn: () => request(`/scans/${encodeURIComponent(scanId)}/findings-report`, { method: "POST" }),
+    onSuccess: () => {
+      setSelected(undefined); setSource(undefined); setPage(0); setExclusionPage(0);
+      client.setQueriesData<Report>({ predicate: query => query.queryKey.some(part => typeof part === "string" && part.startsWith(`/scans/${encodeURIComponent(scanId)}/findings-report?`)) },
+        old => old ? { ...old, status: "in_progress", issues: [], exclusions: [], total: 0, can_launch: false } : old);
+      void client.invalidateQueries({ predicate: query => query.queryKey.some(part => typeof part === "string" &&
+        (part.startsWith(`/scans/${encodeURIComponent(scanId)}/findings-report?`) || part.startsWith(`/scans/${encodeURIComponent(scanId)}/ai?`))) });
+    },
+  });
+  useEffect(() => {
+    void client.invalidateQueries({ predicate: query => query.queryKey.some(part => typeof part === "string" && part.startsWith(`/scans/${encodeURIComponent(scanId)}/ai?`)) });
+  }, [client, scanId, query.data?.status, query.data?.generation]);
   if (demo) return <Panel title="Findings Report"><p>Run a scan with AI enabled to compile a findings report.</p></Panel>;
   if (!scanId) return <Panel title="Findings Report"><p>Select an assessment with results.</p></Panel>;
   if (query.isPending || query.error) return <State loading={query.isPending} error={query.error} onRetry={() => void query.refetch()} />;
@@ -33,6 +48,10 @@ export function FindingsReport({ scanId, demo }: { scanId: string; demo: boolean
   const close = () => { setSelected(undefined); requestAnimationFrame(() => trigger.current?.focus()); };
   return <div className="ai-review-view">
     <Panel title="Findings Report">
+      <div className="button-row"><button className="primary" disabled={!canLaunch || report.can_launch === false || launch.isPending || report.status === "in_progress"} onClick={() => launch.mutate()}>
+        {launch.isPending || report.status === "in_progress" ? "Generating report…" : report.issues.length ? "Regenerate report" : "Generate report"}
+      </button><span>Generating a report replaces all current report issues.</span></div>
+      {launch.error && <p role="alert">{launch.error.message}</p>}
       {report.status === "in_progress" ? <p role="status">The findings report will be compiled after the scan analyses finish.</p> :
         report.status === "not_available" ? <p>This scan has no compiled report. Run a new scan with AI enabled.</p> :
         report.status === "unavailable" ? <p>The report could not be completed. The scan findings are still available.</p> : null}

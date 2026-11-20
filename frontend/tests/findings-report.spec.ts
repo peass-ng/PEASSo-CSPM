@@ -67,3 +67,27 @@ test('pre-generated leaks and CVE findings remain visible after agent failure', 
   await expect(page.locator('.findings-table').getByText('Leaks', { exact: true })).toBeVisible();
   await expect(page.locator('.findings-table').getByText('Image CVEs', { exact: true })).toBeVisible();
 });
+
+
+test('regeneration clears existing issues and displays a replacement report', async ({ page }) => {
+  await setup(page);
+  let stage = 'old';
+  await page.route('**/api/scans/s/findings-report?**', async route => {
+    const row = { ...issue(0), id: stage === 'old' ? 'old-generation' : 'new-generation', title: stage === 'old' ? 'Original issue' : 'Replacement issue' };
+    await route.fulfill({ json: { status: stage === 'running' ? 'in_progress' : 'completed',
+      generation: stage, can_launch: stage !== 'running', issues: stage === 'running' ? [] : [row],
+      total: stage === 'running' ? 0 : 1, exclusions: [], exclusion_count: 0 } });
+  });
+  await page.route('**/api/scans/s/findings-report', async route => {
+    expect(route.request().method()).toBe('POST'); stage = 'running';
+    await route.fulfill({ status: 202, json: { status: 'queued', generation: 'new-generation' } });
+  });
+  await page.goto('/#Findings%20Report');
+  await expect(page.getByRole('button', { name: 'Original issue', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Regenerate report', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Original issue', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Generating report…', exact: true })).toBeDisabled();
+  stage = 'new';
+  await expect(page.getByRole('button', { name: 'Replacement issue', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Regenerate report', exact: true })).toBeEnabled();
+});

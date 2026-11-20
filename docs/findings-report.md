@@ -47,8 +47,14 @@ The report is stored with the owning scan's existing AI artifact. The authentica
 pagination and paginates exclusions independently (`exclusion_offset`). The
 existing `/ai` endpoint returns only report status and total, keeping sidebar
 polling bounded. The Security Insights page provides search, severity filtering,
-issue details and links to supporting evidence. Older scans show an unavailable
-report state; this change does not mutate or automatically backfill them.
+issue details and links to supporting evidence. Completed assessments expose a Generate/Regenerate report action. A generation
+request immediately replaces the active report with an empty pending report;
+completion publishes newly created issue IDs. Generation uses the saved snapshot,
+accepted architecture review and prioritized actions without collection or changing
+native assessment results. Tenant-scoped compare-and-swap state prevents concurrent
+runs and stale publication. Hosted requests use a report-only branch of the existing
+assessment workflow; the normal analyzer runs report compilation after the other
+analyses. Older assessments can generate a report on demand.
 
 Validation failures receive bounded correction attempts. A failed compiler
 marks AI output partial while keeping the scan's native findings available.

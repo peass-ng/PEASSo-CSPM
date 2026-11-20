@@ -1380,6 +1380,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("role", choices=("collector", "analyzer"))
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--findings-report-generation")
     parser.add_argument("--ai-smoke", action="store_true", help="Run the isolated live AI deployment acceptance check")
     parser.add_argument("--progressive", action="store_true", help="Watch one scan's completed sections while collection continues")
     parser.add_argument("--tenant-id")
@@ -1387,6 +1388,15 @@ def main():
     args = parser.parse_args()
     if bool(args.tenant_id) != bool(args.scan_id):
         parser.error("--tenant-id and --scan-id must be supplied together")
+    if args.findings_report_generation:
+        if args.role != "analyzer" or not args.tenant_id or not args.scan_id or args.progressive or args.ai_smoke:
+            parser.error("Report generation requires analyzer role and one assessment")
+        import re
+        if not re.fullmatch(r"[a-f0-9]{32}", args.findings_report_generation):
+            parser.error("Invalid report generation")
+        from .ai.report_runs import worker as report_worker
+        report_worker(args.tenant_id, args.scan_id, args.findings_report_generation)
+        return
     if args.ai_smoke:
         if args.role != "analyzer" or args.once or args.tenant_id or args.scan_id or args.progressive:
             parser.error("--ai-smoke requires the analyzer role without scan selectors")
