@@ -16,6 +16,24 @@ def isolated_cache():
     scanning._RESULTS.clear()
 
 
+def test_incompatible_trufflehog_file_is_probed_once(monkeypatch):
+    calls = []
+
+    def version(argv, payload, timeout):
+        calls.append(argv[0])
+        return b"trufflehog 0.0.0"
+
+    monkeypatch.setattr(scanning, "_run", version)
+    monkeypatch.setattr(scanning, "_VERIFIED", {})
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="unsupported scanner version"):
+            scanning._verified_trufflehog("/fixture/trufflehog", (1, 100))
+    assert calls == ["/fixture/trufflehog"]
+
+    monkeypatch.setattr(scanning, "_run", lambda *args: f"trufflehog {scanning.TRUFFLEHOG_VERSION}".encode())
+    assert scanning._verified_trufflehog("/fixture/trufflehog", (2, 100)) == "/fixture/trufflehog"
+
+
 def test_both_detectors_overlap_and_union_redaction_before_return(monkeypatch):
     barrier = threading.Barrier(2, timeout=2)
     values = ("synthetic-first-value", "synthetic-second-value")

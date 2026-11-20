@@ -10,6 +10,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import tempfile
 import time
@@ -41,6 +42,14 @@ FLAGS = ('--scanners', 'vuln', '--pkg-types', 'os,library', '--severity', 'HIGH,
          '--format', 'json', '--exit-code', '0', '--cache-backend', 'memory',
          '--offline-scan', '--skip-db-update', '--skip-java-db-update', '--skip-check-update',
          '--skip-vex-repo-update', '--skip-version-check', '--disable-telemetry', '--parallel', '1')
+
+
+def installed_cli():
+    """Prefer the bundled executable, with PATH for local installations."""
+    if os.access(DEFAULT_CLI, os.X_OK) and Path(DEFAULT_CLI).is_file():
+        return DEFAULT_CLI
+    local = shutil.which('trivy')
+    return str(Path(local).absolute()) if local else DEFAULT_CLI
 
 
 def _base(identity=None):
@@ -293,7 +302,7 @@ def scan_image(image_identity, manifest, config, layers, *, native_verifier=None
         check()
         archive.require(callable(native_verifier) and native_verifier() == selected, 'native_binding_unavailable')
         check()
-        executable = Path(cli)
+        executable = Path(installed_cli() if cli == DEFAULT_CLI else cli)
         archive.require(executable.is_absolute() and executable.is_file() and os.access(executable, os.X_OK),
                         'installed_trivy_required')
         before = database_state(db_cache)

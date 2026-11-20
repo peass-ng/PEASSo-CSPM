@@ -45,6 +45,17 @@ def test_azure_storage_endpoint_selection_survives_sorted_json():
     assert observed == [sorted(endpoints.values())]
 
 
+def test_gcp_network_attributes_survive_sorted_json():
+    scope = "projects/p-one"
+    item = {"name": "vpc", "properties": {"ipAddress": "10.0.0.1", "cidr": "10.0.0.0/8"}}
+    snapshot = make_snapshot("gcp", [scope], [{"type": "network", "scope": scope,
+        "status": "collected", "items": [item]}], created_at="2026-10-14T00:00:00Z")
+    before = evaluate_snapshot(snapshot, categories=["network"])
+    after = evaluate_snapshot(json.loads(json.dumps(snapshot, sort_keys=True)), categories=["network"])
+    assert before == after
+    assert any(len(node.get("network_attributes", [])) >= 2 for node in before["graphs"]["network"]["nodes"])
+
+
 @pytest.mark.parametrize("provider", ["azure", "gcp", "k8s"])
 def test_network_reports_are_equal_across_process_hash_seeds(tmp_path, provider):
     path = tmp_path / "snapshot.json"

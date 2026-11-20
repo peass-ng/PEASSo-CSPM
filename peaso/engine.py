@@ -1823,6 +1823,12 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
                         retirement[1] if retirement else psp_absence if psp_absence else _unsupported_aws_region_evidence(collection) if unsupported_region else management_only if management_only else _org_policy_evidence(policy_denial) if policy_denial else {"collection_status": collection_status, "reason": collection.get("error", {}).get("code", "no collected resources"),
                          "semantics": "Inventory coverage, not a resource security pass.",
                          **_resource_policy_coverage_evidence(collection)}))
+                if check.id == "gcp.review.artifact_image.content_secret_indicators":
+                    image_selection = evaluation_metadata.get("artifact_image_secret_selections", {}).get(scope, {})
+                    if image_selection.get("unresolved"):
+                        scope_findings.append(emit_finding(scope, "selection:" + check.kind, collection.get("service", check.kind),
+                            "UNKNOWN", {"reason": "selected_image_missing_or_ambiguous",
+                                        "unresolved_target_count": len(image_selection["unresolved"])}))
                 check_findings.extend(scope_findings)
                 counts = dict(Counter(f["status"] for f in scope_findings))
                 check_status = "not_applicable" if management_only or unsupported_region else "blocked_by_policy" if policy_denial and not retirement else "partial" if unavailable and collection_status == "partial" else "denied" if collection_status == "denied" else "unknown" if unavailable or counts.get("UNKNOWN") or counts.get("DENIED") else "empty" if collection_status == "empty" else "manual" if counts.get("MANUAL") else "evaluated"
@@ -1878,6 +1884,11 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
             for graph, category in (("network", "network"), ("iam", "iam_graph")):
                 if category in graph_categories:
                     graphs[graph] = built[graph]
+            # Sorted-key snapshot serialization can reorder the native fields.
+            for node in graphs["network"]["nodes"]:
+                if "network_attributes" in node:
+                    node["network_attributes"].sort(
+                        key=lambda row: (row["path"], row["name"], row.get("evidence_path", "")))
             if not include_not_applicable:  # unassigned role definitions -> per-scope aggregates with member refs
                 from .analysis import collapse_unreferenced_definitions
                 graphs["iam"] = collapse_unreferenced_definitions(graphs["iam"])

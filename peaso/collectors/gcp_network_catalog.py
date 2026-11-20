@@ -120,9 +120,9 @@ def locations(collector, scope, kind):
     if regions is not None:
         yield _location_validations(regions), None
         return
-    if kind in BACKUPDR_ALL_LOCATIONS:
-        # Each of these three native list operations explicitly supports all
-        # locations. This retains multi-regions without guessing valid regions.
+    if kind in BACKUPDR_ALL_LOCATIONS or kind in NCC_KINDS:
+        # These native list operations support all locations. Keep explicit
+        # location selections above and let pages() handle unreachable regions.
         yield ['-'], None
         return
     if plan.get('default_location'):
@@ -787,7 +787,14 @@ def regional_pages(collector, scope, kind):
                     page = parallel(dms_policy, page) if callable(parallel) else [dms_policy(item) for item in page]
                 if kind in NCC_KINDS:
                     def ncc_policy(item):
-                        name, _ = _native_child_name(item, parent, segment, collector, scope)
+                        native_parent = parent
+                        if location == '-':
+                            value = item.get('name')
+                            parts = value.split('/') if isinstance(value, str) else []
+                            if len(parts) != 6 or not re.fullmatch(r'[a-z][a-z0-9-]{0,62}', parts[3]):
+                                raise ReadError('malformed', 'ncc_spoke_location_identity_invalid')
+                            native_parent = f'{scope}/locations/{parts[3]}'
+                        name, _ = _native_child_name(item, native_parent, segment, collector, scope)
                         return collector.hydrate(item, 'iamPolicy', root + '/' + name + ':getIamPolicy', scope,
                             params={'options.requestedPolicyVersion': 3})
                     parallel = getattr(collector, 'parallel', None)
