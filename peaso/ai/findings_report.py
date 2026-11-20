@@ -138,7 +138,8 @@ def source_index(platform):
         check = row.get('check_id', '')
         kind = ('leaks' if evidence.get('secret_leaks') or annotate(row)['finding_type'] == 'detected_leaks'
                 else 'image_cves' if ('selected_' in check and 'image' in check and 'vulnerabilit' in check
-                    or evidence.get('Image') and isinstance(evidence.get('Vulnerabilities'), list))
+                    or evidence.get('Image') and isinstance(evidence.get('Vulnerabilities'), list)
+                    or evidence.get('image_digest') and isinstance(evidence.get('severity_counts'), dict))
                 else None)
         result.append({'domain': 'findings', 'id': row['id'], 'kind': kind,
                        'confirmed': row.get('status') == 'FAIL', 'required': row.get('status') == 'FAIL'})
