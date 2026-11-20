@@ -46,9 +46,9 @@ def test_permission_recommendations_survive_individual_and_combined_compilation(
     arn = 'arn:aws:iam::123456789012:role/App'
     aws = project('aws', [{'id': arn, 'type': 'iam_role', 'scope': '123456789012/global', 'data': {
         'Arn': arn, 'RoleName': 'App', 'RolePolicyList': [{'PolicyName': 'inline', 'PolicyDocument': {'Statement': [
-            {'Effect': 'Allow', 'Action': ['iam:CreateAccessKey', 'iam:UpdateAssumeRolePolicy', 'iam:DeleteRole'], 'Resource': '*'}]}}],
+            {'Effect': 'Allow', 'Action': ['iam:CreateAccessKey', 'iam:UpdateAssumeRolePolicy', 'iam:PutRolePolicy'], 'Resource': '*'}]}}],
         'ServicesLastAccessedStatus': {'collection_status': 'collected', 'job_completion_date': '2026-10-20T00:00:00Z'},
-        'ServicesLastAccessed': [{'ServiceNamespace': 'iam', 'TrackedActionsUnobserved': ['CreateAccessKey'],
+        'ServicesLastAccessed': [{'ServiceNamespace': 'iam', 'TrackedActionsUnobserved': ['CreateAccessKey', 'PutRolePolicy'],
             'TrackedActionsLastAccessed': [{'ActionName': 'UpdateAssumeRolePolicy', 'LastAccessedTime': '2026-10-18T00:00:00Z'}]}],
     }}])
     member = 'user:app@example.test'
@@ -61,12 +61,18 @@ def test_permission_recommendations_survive_individual_and_combined_compilation(
         platform = {'report': {'provider': provider}, 'least_privilege': projection}
         sources = compiler.source_index(platform)
         ref = ('least_privilege', principal)
-        with pytest.raises(compiler.MissingReportEvidence) as error:
-            compiler.validate(report(exclusions=[{'reference': dict(zip(('domain', 'id'), ref)),
-                'reason': 'This observation is not security relevant according to the owner because this role has no access to the scoped workload.'}]), sources)
-        assert error.value.missing[0]['source_id'] == 'LP-001'
-        final = compiler.complete(report([issue([ref], kind='hardening', status='needs_review')]), sources,
-                                  compiler.pregenerate(platform, sources))
+        excluded = report(exclusions=[{'reference': dict(zip(('domain', 'id'), ref)),
+            'reason': 'This observation is not security relevant according to the owner because this role has no access to the scoped workload.'}])
+        assert compiler.validate(excluded, sources)['covered_count'] == 1
+        choices = sources[0]['permission_recommendations']
+        assert {item['value'] for item in choices} == ({'iam:CreateAccessKey', 'iam:PutRolePolicy'} if provider == 'aws' else {'roles/editor'})
+        draft = issue([ref], kind='hardening', status='needs_review')
+        draft['permission_review_ids'] = ['PR-111111111111']
+        with pytest.raises(ValueError, match='unknown_or_duplicate_permission_review'):
+            compiler.validate(report([draft]), sources)
+        relevant = 'iam:CreateAccessKey' if provider == 'aws' else 'roles/editor'
+        draft['permission_review_ids'] = [next(item['review_id'] for item in choices if item['value'] == relevant)]
+        final = compiler.complete(report([draft]), sources, compiler.pregenerate(platform, sources))
         [compiled] = final['issues']
         inputs.append({'scan_id': provider, 'issues': [compiled]})
     combined_issue = issue([], kind='hardening', status='needs_review')
