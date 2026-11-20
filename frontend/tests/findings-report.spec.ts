@@ -23,7 +23,7 @@ async function setup(page: import('@playwright/test').Page, status = 'completed'
       const available = ['completed', 'partial'].includes(status);
       json = { status, summary: status === 'completed' ? 'Compiled account security issues.' : undefined,
         total: available ? rows.length : 0, issues: available ? rows.slice(offset, offset + 25) : [],
-        exclusions: [], exclusion_count: 0, covered_count: 26, source_count: 26, limitations: ['Runtime exploitability was not verified.'] };
+        covered_count: 26, source_count: 26, limitations: ['Runtime exploitability was not verified.'], exclusions: [{ reference: { domain: 'findings', id: 'excluded' }, reason: 'An excluded observation.' }], exclusion_count: 1 };
     }
     if (/\/findings\/f\d+$/.test(path)) json = { id: path.split('/').pop(), title: 'Original scan evidence', status: 'FAIL',
       severity: 'high', category: 'hardening', check_id: 'test', provider: 'aws', scope: '123456789012/us-east-1',
@@ -37,6 +37,10 @@ test('compiled report pages, searches all issues and opens source evidence', asy
   await expect(page.getByLabel('Findings Report total', { exact: true })).toHaveText('26');
   await expect(page.locator('.nav-group').filter({ hasText: 'SECURITY INSIGHTS' })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Report issue 0', exact: true })).toBeVisible();
+  await expect(page.getByText('Runtime exploitability was not verified.')).toHaveCount(0);
+  await expect(page.getByText('Evidence coverage', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('An excluded observation.')).toHaveCount(0);
+  await expect(page.getByText('Compiled account security issues.')).toHaveCount(0);
   await page.getByRole('button', { name: 'Next page', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Report issue 25', exact: true })).toBeVisible();
   await page.getByLabel('Search report issues').fill('Report issue 25');
@@ -64,7 +68,6 @@ test('older scans offer generation from the toolbar', async ({ page }) => {
 test('pre-generated leaks and CVE findings remain visible after agent failure', async ({ page }) => {
   await setup(page, 'partial'); await page.goto('/#Findings%20Report');
   await expect(page.getByLabel('Findings Report total', { exact: true })).toHaveText('2');
-  await expect(page.getByText('Pre-generated findings are available. Compilation of remaining issues is incomplete.')).toBeVisible();
   await expect(page.locator('.findings-table tbody tr')).toHaveCount(2);
   await expect(page.locator('.findings-table').getByText('Leaks', { exact: true })).toBeVisible();
   await expect(page.locator('.findings-table').getByText('Image CVEs', { exact: true })).toBeVisible();
