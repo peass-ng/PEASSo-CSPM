@@ -2,8 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { items, json, request, useApi } from "./api";
 import { Badge, Inspector, openInspectorFromRow, Panel, State } from "./ui";
-import { NetworkArchitecture } from "./NetworkArchitecture";
-import { IssueBody, SourceFinding, issueKinds } from "./ReportIssue";
+import { IssueBody, SourceFinding, SupportingEvidence, issueKinds } from "./ReportIssue";
 import type { Issue } from "./ReportIssue";
 
 type Source = { scan_id: string; connector_name: string; provider: string; created_at: string; version: string };
@@ -63,7 +62,7 @@ function FrozenSource({ combinedId, reference, onClose, onInspect, onSelectAsses
       <IssueBody issue={query.data.issue} />
       {query.data.assessment_available === false && <p>The original assessment is no longer available. Its saved report issue is preserved here.</p>}
       {onSelectAssessment && query.data.assessment_available !== false && <button className="text-button" onClick={() => onSelectAssessment(reference.report_id)}>Open assessment report</button>}
-      <h3>Original supporting evidence</h3><ul>{query.data.issue.references.map(ref => <li key={ref.domain + ref.id}>{ref.domain === "findings" && query.data?.assessment_available !== false ? <button className="text-button" onClick={() => onInspect(reference.report_id, ref.id)}>Check result {ref.id}</button> : `${ref.domain.replaceAll("_", " ")} ${ref.id}`}</li>)}</ul>
+      <h3>Original supporting evidence</h3><SupportingEvidence key={reference.report_id + reference.issue_id} scanId={reference.report_id} references={query.data.issue.references} available={query.data.assessment_available !== false} onInspect={id => onInspect(reference.report_id, id)} />
     </>}
   </Inspector>;
 }
@@ -96,8 +95,6 @@ export function CombinedReports({ scanId, selectedId, onSelect, showAll, onShowA
       <Panel title={report.name}><Badge value={report.status} /><p>Created {date(report.created)} from {report.sources.length} reports.</p>
         <ul>{report.sources.map(row => <li key={row.scan_id}>{row.connector_name} · {date(row.created_at)}</li>)}</ul>
         {["queued", "running"].includes(report.status) && <p role="status">Combining the selected report issues…</p>}
-        {report.summary && <NetworkArchitecture label="Combined report summary" text={report.summary} />}
-        {!!report.limitations?.length && <details><summary>Limitations ({report.limitations.length})</summary><ul>{report.limitations.map((text, i) => <li key={i}>{text}</li>)}</ul></details>}
       </Panel>
       <Panel><div className="filters"><input aria-label="Search combined report issues" placeholder="Search combined report issues…" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} /><select aria-label="Combined report issue severity" value={severity} onChange={event => { setSeverity(event.target.value); setPage(0); }}><option value="">All severities</option>{["critical", "high", "medium", "low", "info"].map(value => <option key={value}>{value}</option>)}</select><span className="count-pill">{report.total} {report.total === 1 ? "issue" : "issues"}</span></div>
         <div className="table-scroll"><table className="findings-table"><thead><tr><th>Severity</th><th>Issue</th><th>Type</th><th>Assessment</th><th>Source issues</th></tr></thead><tbody>{report.issues.map(issue => <tr key={issue.id} className="finding-data-row" onClick={event => openInspectorFromRow(event, () => setSelectedIssue(issue))}>

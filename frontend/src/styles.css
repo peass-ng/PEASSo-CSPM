@@ -3749,3 +3749,10 @@ main.network-map-page { max-width: none; width: 100%; min-width: 0; }
 
 .inspector.report-confirmation-modal { width: min(560px, calc(100vw - 32px)); }
 .report-confirmation-modal .button-row { margin-top: 20px; justify-content: flex-end; }
+
+.report-evidence .text-button, .report-evidence a {
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}

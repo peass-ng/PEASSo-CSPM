@@ -38,7 +38,7 @@
           "type": "string"
         },
         "description": {
-          "maxLength": 12000,
+          "maxLength": 2500,
           "minLength": 1,
           "pattern": "\\S",
           "title": "Description",
