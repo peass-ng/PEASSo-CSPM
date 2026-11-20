@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -7,6 +7,21 @@ import {
   X,
   ShieldCheck,
 } from "lucide-react";
+
+export function openInspectorFromRow(
+  event: MouseEvent<HTMLTableRowElement>,
+  open: (trigger: HTMLButtonElement | null) => void,
+) {
+  if (event.defaultPrevented || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (!(event.target instanceof Element) || event.target.closest(
+    'a, button, input, select, textarea, summary, [role="button"], [role="link"], [contenteditable]:not([contenteditable="false"])',
+  )) return;
+  if (event.currentTarget.ownerDocument.getSelection()?.isCollapsed === false) return;
+  const trigger = event.currentTarget.querySelector<HTMLButtonElement>('button.finding-title');
+  trigger?.focus({ preventScroll: true });
+  open(trigger);
+}
+
 export function ProviderIcon({
   provider,
   size = 28,
@@ -156,8 +171,14 @@ export function Inspector({
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
+    const trigger = dialog?.ownerDocument.activeElement;
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      if (trigger instanceof HTMLElement) requestAnimationFrame(() => {
+        if (trigger.isConnected) trigger.focus({ preventScroll: true });
+      });
+    };
   }, []);
   return (
     <dialog ref={ref} className={`inspector${className ? ` ${className}` : ""}`} onCancel={onClose}>

@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-table";
 import { Search, SlidersHorizontal, ChevronRight } from "lucide-react";
 import type { Catalog, Finding, Report } from "./types";
-import { Badge, Evidence, Inspector, Panel, State } from "./ui";
+import { Badge, Evidence, Inspector, Panel, State, openInspectorFromRow } from "./ui";
 import { catalogFrameworksPath, items, request, useApi } from "./api";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { explainExposureAction, explainFindingEvidence, explainInternetExposure } from "./findingExplanation";
@@ -129,7 +129,8 @@ function ServiceSection({ summary, groupBy, scanId, category, findingType, demo,
     {expanded && (query.isPending || query.error) && <tr><td colSpan={6} className="service-group-message">
       {query.isPending ? "Loading findings…" : <span role="alert">This group could not be loaded. <button type="button" className="text-button" onClick={() => void query.refetch()}>Retry</button></span>}
     </td></tr>}
-    {expanded && findings.map(finding => <tr key={finding.id}>
+    {expanded && findings.map(finding => <tr key={finding.id} className="finding-data-row"
+      onClick={event => openInspectorFromRow(event, () => onInspect(finding))}>
       <td><Badge value={finding.severity} /></td>
       <td><button className="finding-title" onClick={() => onInspect(finding)}>{finding.title}<span>{finding.check_id}</span></button></td>
       <td><span className="service-cell" title={finding.service}>{finding.service}</span></td>
@@ -671,7 +672,8 @@ export function Findings({
                           )
                         : "";
                     return (
-                      <tr key={row.id} style={{ height: 87 }}>
+                      <tr key={row.id} className="finding-data-row" style={{ height: 87 }}
+                        onClick={event => openInspectorFromRow(event, () => setInspect(row.original))}>
                         {row.getVisibleCells().map((cell, index) => (
                           <td key={cell.id}>
                             {index === 1 && !groupedServices && !sort && current !== previous && (
