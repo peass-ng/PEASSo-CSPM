@@ -72,6 +72,7 @@ test('pre-generated leaks and CVE findings remain visible after agent failure', 
 test('regeneration clears existing issues and displays a replacement report', async ({ page }) => {
   await setup(page);
   let stage = 'old';
+  let posts = 0;
   await page.route('**/api/scans/s/findings-report?**', async route => {
     const row = { ...issue(0), id: stage === 'old' ? 'old-generation' : 'new-generation', title: stage === 'old' ? 'Original issue' : 'Replacement issue' };
     await route.fulfill({ json: { status: stage === 'running' ? 'in_progress' : 'completed',
@@ -79,15 +80,42 @@ test('regeneration clears existing issues and displays a replacement report', as
       total: stage === 'running' ? 0 : 1, exclusions: [], exclusion_count: 0 } });
   });
   await page.route('**/api/scans/s/findings-report', async route => {
-    expect(route.request().method()).toBe('POST'); stage = 'running';
+    expect(route.request().method()).toBe('POST'); posts++; stage = 'running';
     await route.fulfill({ status: 202, json: { status: 'queued', generation: 'new-generation' } });
   });
   await page.goto('/#Findings%20Report');
   await expect(page.getByRole('button', { name: 'Original issue', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Regenerate report', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('delete the current compiled findings');
+  expect(posts).toBe(0);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(posts).toBe(0);
+  await expect(page.getByRole('button', { name: 'Original issue', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Regenerate report', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete and generate', exact: true }).click();
+  await expect.poll(() => posts).toBe(1);
   await expect(page.getByRole('button', { name: 'Original issue', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Generating report…', exact: true })).toBeDisabled();
   stage = 'new';
   await expect(page.getByRole('button', { name: 'Replacement issue', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Regenerate report', exact: true })).toBeEnabled();
+});
+
+test('first report generation also requires confirmation and Escape cancels it', async ({ page }) => {
+  await setup(page, 'not_available');
+  let posts = 0;
+  await page.route('**/api/scans/s/findings-report', async route => {
+    posts++;
+    await route.fulfill({ status: 202, json: { status: 'queued', generation: 'new' } });
+  });
+  await page.goto('/#Findings%20Report');
+  await page.getByRole('button', { name: 'Generate report', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('delete the current compiled findings');
+  expect(posts).toBe(0);
+  await page.getByRole('dialog').press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(posts).toBe(0);
+  await page.getByRole('button', { name: 'Generate report', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete and generate', exact: true }).click();
+  await expect.poll(() => posts).toBe(1);
 });

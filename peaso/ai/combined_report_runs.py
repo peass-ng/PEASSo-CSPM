@@ -34,16 +34,30 @@ def _report(store, artifacts, tenant, scan):
     return row, report_runs.current_report(store, artifacts, tenant, scan, row, ai.get('findings_report') or {})
 
 
+def _connector_index(store, tenant):
+    return {row['id']: json.loads(row['data']) if isinstance(row['data'], str) else row['data']
+            for row in store.connectors(tenant)}
+
+
+def _connector_metadata(connectors, row):
+    request = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
+    connector = connectors.get(row.get('connector_id') or request['connector_id'])
+    if connector is not None:
+        return connector
+    captured = row.get('connector') or {}
+    captured = json.loads(captured) if isinstance(captured, str) else captured
+    return captured.get('data', {})
+
+
 def candidates(store, artifacts, tenant):
-    connectors = {row['id']: row for row in store.connectors(tenant)}
+    connectors = _connector_index(store, tenant)
     result = []
     for row in store.jobs(tenant):
         if row['status'] != 'completed' or not row.get('result_available'):
             continue
-        _, report = _report(store, artifacts, tenant, row['id'])
-        connector_id = row.get('connector_id') or json.loads(row['data'])['connector_id']
-        connector = connectors.get(connector_id, {})
-        result.append({'scan_id': row['id'], 'connector_name': connector.get('name', 'Deleted connector'),
+        saved, report = _report(store, artifacts, tenant, row['id'])
+        connector = _connector_metadata(connectors, saved)
+        result.append({'scan_id': row['id'], 'connector_name': connector.get('name', 'Unknown connector'),
             'provider': connector.get('provider', ''), 'created_at': row.get('created_at') or utc(row['created']),
             'version': version(report), 'status': report.get('status', 'not_available'),
             'issue_count': len(report.get('issues', []))})
@@ -54,7 +68,7 @@ def create(store, artifacts, tenant, actor, name, selections):
     ids = [row['scan_id'] for row in selections]
     if not 2 <= len(ids) <= 20 or len(ids) != len(set(ids)):
         raise StoreError(422, 'Select between 2 and 20 different assessment reports')
-    connectors = {row['id']: row for row in store.connectors(tenant)}
+    connectors = _connector_index(store, tenant)
     reports = []
     for selection in selections:
         row, report = _report(store, artifacts, tenant, selection['scan_id'])
@@ -62,9 +76,8 @@ def create(store, artifacts, tenant, actor, name, selections):
             raise StoreError(409, 'Generate a completed Findings Report for every selected assessment first')
         if selection['version'] != version(report):
             raise StoreError(409, 'A selected report changed; reopen the selection and try again')
-        connector_id = row.get('connector_id') or json.loads(row['data'])['connector_id']
-        connector = connectors.get(connector_id, {})
-        reports.append({'scan_id': row['id'], 'connector_name': connector.get('name', 'Deleted connector'),
+        connector = _connector_metadata(connectors, row)
+        reports.append({'scan_id': row['id'], 'connector_name': connector.get('name', 'Unknown connector'),
             'provider': connector.get('provider', ''), 'created_at': row.get('created_at') or utc(row['created']),
             'version': selection['version'], 'summary': report.get('summary', ''),
             'issues': report.get('issues', []), 'limitations': report.get('limitations', [])})

@@ -160,6 +160,8 @@ def test_dynamo_prefix_listing_is_tenant_scoped_and_keeps_auth_private():
         KeySchema=[{'AttributeName': k, 'KeyType': t} for k, t in [('PK', 'HASH'), ('SK', 'RANGE')]],
         AttributeDefinitions=[{'AttributeName': k, 'AttributeType': 'S'} for k in ('PK', 'SK')])
     store = DynamoStore('combined-tests', client=client)
+    connector = store.add_connector('alice', {'name': 'Cloud account', 'provider': 'gcp'}, 'encrypted')
+    assert runs._connector_index(store, 'alice')[connector['id']] == connector
     for tenant in ('alice', 'bob'):
         store.set_ai_state(tenant, 'auth', 'PRIVATE')
         store.set_ai_state(tenant, runs.PREFIX+'a'*32, tenant)
@@ -204,3 +206,15 @@ def test_workspace_cleanup_waits_for_combination_then_removes_its_snapshot(repor
         assert response.status_code == 200, response.text
         assert response.json()['remaining'] is False
         assert runs.listing(store, 'alice') == []
+
+
+def test_connector_names_decode_storage_data_and_survive_connector_deletion(reports):
+    _, store, artifacts, scans = reports
+    rows = runs.candidates(store, artifacts, 'alice')
+    assert {(row['connector_name'], row['provider']) for row in rows} == {('Production', 'aws'), ('Workloads', 'k8s')}
+    entry = runs.create(store, artifacts, 'alice', 'alice', 'Named sources', selected(store, artifacts))
+    assert {(row['connector_name'], row['provider']) for row in entry['sources']} == {('Production', 'aws'), ('Workloads', 'k8s')}
+    connector = store.job('alice', scans[0])['connector_id']
+    store.delete_connector('alice', connector)
+    captured = next(row for row in runs.candidates(store, artifacts, 'alice') if row['scan_id'] == scans[0])
+    assert captured['connector_name'] == 'Production' and captured['provider'] == 'aws'
