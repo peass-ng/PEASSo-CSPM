@@ -4465,6 +4465,10 @@
       "decision": "include",
       "group": "security_configuration"
     },
+    "aws.ec2.prevent_public_snapshot_sharing": {
+      "decision": "include",
+      "group": "backup_recovery"
+    },
     "aws.ec2.restrict_internet_ingress": {
       "decision": "include",
       "group": "security_configuration"

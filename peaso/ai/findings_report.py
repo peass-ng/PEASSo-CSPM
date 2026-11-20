@@ -182,6 +182,8 @@ def source_index(platform):
                     or evidence.get('image_digest') and isinstance(evidence.get('severity_counts'), dict))
                 else None)
         identifiers = [row.get('native_resource_id') or asset(row.get('resource_id'))]
+        if identifiers[0] == 'ec2-regional-settings' and report.get('provider') == 'aws' and row.get('scope'):
+            identifiers[0] = f"{row['scope']}/ec2-regional-settings"
         linked = evidence.get('resource_ids', [])
         if isinstance(linked, list):
             identifiers.extend(asset(ident) for ident in linked if isinstance(ident, str) and

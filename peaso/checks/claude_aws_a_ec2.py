@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from ipaddress import ip_address
 
-from . import result
+from . import register, result
 from .facts import Unavailable, get, list_of_objects, optional
 from .claude_aws_a_common import (install, absent_or, items, account, region, clock, parse_time, tags,
     prowler_sg_open, is_cidr_public, security_groups, subnet_by_id, subnet_public_prowler,
@@ -253,6 +253,22 @@ def ebs_default_encryption_used(item, index):
     return result(not value, ebs_encryption_by_default=value)
 
 
+def snapshot_sharing_state(item):
+    state = get(item, "SnapshotBlockPublicAccessState", str)
+    if state not in ("block-all-sharing", "block-new-sharing", "unblocked"):
+        raise Unavailable("unrecognized snapshot block public access state")
+    return state
+
+
+@register("aws.ec2.prevent_public_snapshot_sharing", "aws", "hardening", "ec2_regional_settings",
+    "The region blocks new public EBS snapshot sharing", "info", "AC-3",
+    "Enable EBS snapshot Block Public Access in block-all-sharing mode to prevent accidental public sharing when snapshots are created.")
+def prevent_public_snapshot_sharing(item, _index):
+    """The account safeguard applies even before the first snapshot exists."""
+    state = snapshot_sharing_state(item)
+    return result(state == "unblocked", state=state)
+
+
 @install("aws.claude_a.ec2.snapshot_block_public_access", "ec2_regional_settings", "EBS snapshot block public access blocks all sharing",
     SETTINGS, w(SETTINGS, SnapshotBlockPublicAccessState="block-new-sharing"), index=idx(ebs_snapshot=[SNAP]),
     rows=[P + "ec2_ebs_snapshot_account_block_public_access"], severity="high", category="exposure", control="AC-3",
@@ -260,9 +276,7 @@ def ebs_default_encryption_used(item, index):
     docs=[EC2_API + "API_GetSnapshotBlockPublicAccessState.html"], dependencies=["ec2_regional_settings", "ebs_snapshot"],
     extra={"na": (SETTINGS, idx(ebs_snapshot=[]))}, note="Prowler reports only regions with snapshots; block-new-sharing is a FAIL.")
 def snapshot_bpa(item, index):
-    state = get(item, "SnapshotBlockPublicAccessState", str)
-    if state not in ("block-all-sharing", "block-new-sharing", "unblocked"):
-        raise Unavailable("unrecognized snapshot block public access state")
+    state = snapshot_sharing_state(item)
     if not items(index, "ebs_snapshot"):
         return "NOT_APPLICABLE", {"reason": "no EBS snapshots in region"}
     return result(state != "block-all-sharing", state=state)
