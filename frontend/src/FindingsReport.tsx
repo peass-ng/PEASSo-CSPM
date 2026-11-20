@@ -6,7 +6,7 @@ import { CombineReportsModal, CombinedReports } from "./CombinedReports";
 import { IssueBody, SourceFinding, SupportingEvidence, issueKinds as kinds } from "./ReportIssue";
 import type { Issue, Reference } from "./ReportIssue";
 
-type Report = { can_launch?: boolean; generation?: string; status: string; summary?: string; issues: Issue[]; limitations?: string[]; exclusions?: { reference: Reference; reason: string }[]; total: number; exclusion_count?: number; source_count?: number; covered_count?: number };
+type Report = { can_launch?: boolean; generation?: string; run_status?: string; status: string; summary?: string; issues: Issue[]; limitations?: string[]; exclusions?: { reference: Reference; reason: string }[]; total: number; exclusion_count?: number; source_count?: number; covered_count?: number };
 function AssessmentReport({ scanId, demo }: { scanId: string; demo: boolean }) {
   const client = useQueryClient();
   const [search, setSearch] = useState("");
@@ -30,7 +30,7 @@ function AssessmentReport({ scanId, demo }: { scanId: string; demo: boolean }) {
   const close = () => { setSelected(undefined); requestAnimationFrame(() => trigger.current?.focus()); };
   return <div className="ai-review-view">
     <Panel>
-      {report.status === "unavailable" && <p role="alert">Report generation failed. Generate the report again to retry.</p>}
+      {(report.status === "unavailable" || report.run_status === "failed") && <p role="alert">Report generation failed. Generate the report again to retry.</p>}
       <div className="filters"><input aria-label="Search report issues" placeholder="Search report issues…" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} />
         <select aria-label="Report issue severity" value={severity} onChange={event => { setSeverity(event.target.value); setPage(0); }}><option value="">All severities</option>{["critical", "high", "medium", "low", "info"].map(s => <option key={s}>{s}</option>)}</select>
         <span className="count-pill">{report.total} issues</span></div>
@@ -55,13 +55,13 @@ function GenerateReport({ scanId, demo, canLaunch }: { scanId: string; demo: boo
     mutationFn: () => request(`/scans/${encodeURIComponent(scanId)}/findings-report`, { method: "POST" }),
     onSuccess: () => {
       client.setQueriesData<Report>({ predicate: query => query.queryKey.some(part => typeof part === "string" && part.startsWith(`/scans/${encodeURIComponent(scanId)}/findings-report?`)) },
-        old => old ? { ...old, status: "in_progress", issues: [], exclusions: [], total: 0, can_launch: false } : old);
+        old => old ? { ...old, run_status: "queued", can_launch: false } : old);
       void client.invalidateQueries({ predicate: query => query.queryKey.some(part => typeof part === "string" &&
         (part.startsWith(`/scans/${encodeURIComponent(scanId)}/findings-report?`) || part.startsWith(`/scans/${encodeURIComponent(scanId)}/ai?`))) });
     },
   });
   const report = query.data;
-  const running = launch.isPending || report?.status === "in_progress";
+  const running = launch.isPending || report?.status === "in_progress" || report?.run_status === "queued" || report?.run_status === "running";
   const disabled = demo || !scanId || !canLaunch || !report || report.can_launch === false || running;
   const exists = report?.status === "completed" || report?.status === "partial" || !!report?.total;
   useEffect(() => { setConfirmGeneration(false); }, [scanId]);
@@ -71,9 +71,9 @@ function GenerateReport({ scanId, demo, canLaunch }: { scanId: string; demo: boo
     </button>
     {launch.error && <span role="alert">{launch.error.message}</span>}
     {confirmGeneration && <Inspector title="Generate a new Findings Report?" className="combine-report-modal report-confirmation-modal" onClose={() => setConfirmGeneration(false)}>
-      <p>This will delete the current compiled findings and generate a new report from this assessment. Do you want to continue?</p>
+      <p>{exists ? "The agent will review and update the current findings. The current report stays available until the update is complete." : "Generate a report from this assessment?"}</p>
       <div className="button-row"><button className="button" onClick={() => setConfirmGeneration(false)}>Cancel</button>
-        <button className="button danger" disabled={launch.isPending || !canLaunch || report?.can_launch === false} onClick={() => { setConfirmGeneration(false); launch.mutate(); }}>Delete and generate</button>
+        <button className="button primary" disabled={launch.isPending || !canLaunch || report?.can_launch === false} onClick={() => { setConfirmGeneration(false); launch.mutate(); }}>{exists ? "Update report" : "Generate report"}</button>
       </div>
     </Inspector>}
   </>;

@@ -367,7 +367,7 @@ def test_scan_resolves_once_and_passes_same_selection_to_network_and_priorities(
         if stage == 'findings_report':
             return {'summary': 'Account configuration review.', 'issues': [],
                     'exclusions': [{'reference': {'domain': 'findings', 'id': 'f1'},
-                                    'reason': 'General hardening observation.'}], 'limitations': [secret]}
+                                    'reason': 'The example describes an isolated fixture with no external connectivity, persistent data, or real user access permissions.'}], 'limitations': [secret]}
         return {'actions': [], 'limitations': [secret]}
     monkeypatch.setattr(pipeline, 'review_network', network_review)
     monkeypatch.setattr(pipeline, 'invoke_before_deadline', priorities)
@@ -524,3 +524,29 @@ def test_hosted_relay_forwards_only_selected_provider_and_hides_real_credentials
     finally:
         server.shutdown()
         thread.join(timeout=3)
+
+@pytest.mark.parametrize('stage', ['network', 'priorities', 'findings_report', 'report_combination'])
+@pytest.mark.parametrize('model,effort', [('gpt-6-sol', 'medium'), ('gpt-5.3-codex', 'low')])
+def test_platform_agents_follow_alias_model_and_effort_changes(monkeypatch, stage, model, effort):
+    from chack_agent import load_config, model_aliases as native
+    from peaso.ai._vendor.chack import model_aliases as lightweight
+    from peaso.ai.prompting import agent_config_path
+    payload = {'model_aliases': {'OPENAI_CHEAP_BUT_QUALITY': model},
+               'thinking_efforts': {'OPENAI_CHEAP_BUT_QUALITY': effort}}
+    for resolver in (native, lightweight):
+        monkeypatch.setattr(resolver, '_load_remote_aliases', lambda: payload)
+        for field in ('_REMOTE_MODEL_CACHE', '_REMOTE_BACKEND_CACHE', '_REMOTE_EFFORT_CACHE'):
+            monkeypatch.setattr(resolver, field, None)
+        monkeypatch.setattr(resolver, '_REMOTE_CACHE_LOADED_AT', 0.0)
+    access = providers.model_access('fixture-token')
+    assert access.public() == {'provider': 'codex', 'model': model, 'thinking': effort}
+    config = load_config(str(agent_config_path(stage)))
+    assert config.model.primary == model and config.agent.thinking_effort == effort
+    assert config.agent.output_schema_json
+
+
+def test_alias_without_a_thinking_effort_fails_instead_of_hardcoding_one(monkeypatch):
+    from peaso.ai._vendor.chack import model_aliases
+    monkeypatch.setattr(model_aliases, 'resolve_thinking_effort_alias', lambda *a, **k: '')
+    with pytest.raises(providers.ConfigurationError, match='no thinking effort'):
+        providers.model_access('fixture-token')

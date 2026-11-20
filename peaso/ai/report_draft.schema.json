@@ -1,0 +1,6 @@
+{
+  "type": "object",
+  "properties": {"done": {"type": "boolean", "enum": [true]}},
+  "required": ["done"],
+  "additionalProperties": false
+}

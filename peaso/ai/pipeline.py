@@ -770,6 +770,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                             'snapshot_context': snapshot_context(snapshot),
                             'least_privilege': report_least if isinstance(report_least, dict) else project(report['provider'], inventory, snapshot=snapshot),
                             'network_review': result['network'], 'top_actions': result['actions'],
+                            'previous_findings_report': report_context.get('previous_report') if report_context else None,
                             'analysis_status': {'network': result['network'].get('status'),
                                 'priorities': priorities_status, 'limitations': result['limitations']}}
                 sources = source_index(platform)
@@ -781,7 +782,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                     data = invoke_before_deadline('findings_report', platform, [], token,
                         hardening + exposure, reviewed, end, stage_limit('findings_report', isolation.remote()),
                         **({'cancel_event': cancel_event} if cancel_event is not None else {}))
-                    result['findings_report'] = complete(data, sources, prebuilt)
+                    result['findings_report'] = complete(data, sources, prebuilt, platform['previous_findings_report'])
                     result['findings_report']['limitations'] = list(dict.fromkeys(
                         result['limitations'] + result['findings_report']['limitations']))
                 else:

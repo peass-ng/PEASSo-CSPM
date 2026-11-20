@@ -27,7 +27,7 @@ class Issue(Strict):
 
 class Exclusion(Strict):
     reference: Reference
-    reason: str = Field(min_length=1, max_length=1000, pattern=r'\S')
+    reason: str = Field(min_length=100, max_length=300, pattern=r'\S')
 
 
 class FindingsReport(Strict):
@@ -39,6 +39,7 @@ class FindingsReport(Strict):
 
 class AgentIssue(Issue):
     kind: Literal['vulnerability', 'hardening']
+    manual_affected_assets: list[Annotated[str, Field(min_length=1, max_length=500, pattern=r'\S')]] = Field(default_factory=list, max_length=200)
 
 
 class AgentReport(FindingsReport):
@@ -110,16 +111,34 @@ def pregenerate(platform, sources=None):
                                'Review each affected immutable image and vendor applicability, update affected packages or base images to compatible patched versions, rebuild and redeploy, and document advisories without an available fix.'),
             'verification': ('Rescan the affected sources, confirm exposed credentials are retired, and verify replacement credentials work only for their intended consumers.' if leaks else
                              'Rescan rebuilt immutable digests, confirm affected package versions are addressed or documented as not affected, and verify intended workloads use the rebuilt images.'),
-            'references': refs})
+            'references': refs,
+            'affected_assets': sorted({asset for source in positive for asset in source.get('assets', [])})})
     return {'summary': 'Pre-generated findings from captured scan evidence.', 'issues': issues,
             'exclusions': exclusions, 'limitations': [],
             'status': 'partial' if agent_sources(sources) else 'completed',
             'source_count': len(sources), 'covered_count': covered}
 
 
-def complete(data, sources, prebuilt):
+def complete(data, sources, prebuilt, previous_report=None):
     """Append validated model findings without accepting edits to fixed findings."""
-    value = validate(data, agent_sources(sources))
+    value = validate({key: item for key, item in data.items() if key != 'draft_issue_ids'}, agent_sources(sources))
+    previous_ids = {issue['id'] for issue in (previous_report or {}).get('issues', [])
+                    if issue['kind'] not in SPECIAL_KINDS}
+    edits = data.get('draft_issue_ids', {})
+    claimed = set()
+    for issue in value['issues']:
+        previous_id = edits.get(issue['id'])
+        if isinstance(previous_id, str) and previous_id in previous_ids and previous_id not in claimed:
+            if previous_id == issue['id'] or all(other['id'] != previous_id for other in value['issues']):
+                issue['id'] = previous_id
+                claimed.add(previous_id)
+    assets = {(row['domain'], row['id']): row.get('assets', []) for row in sources}
+    for issue in prebuilt['issues'] + value['issues']:
+        issue['affected_assets'] = sorted({asset for ref in issue['references']
+            for asset in assets.get((ref['domain'], ref['id']), [])})
+        if 'manual_affected_assets' in issue:
+            issue['manual_affected_assets'] = sorted({asset.strip() for asset in issue['manual_affected_assets']}
+                                                     - set(issue['affected_assets']))
     value['issues'] = sorted(prebuilt['issues'] + value['issues'], key=lambda r: (RISK.index(r['severity']), r['id']))
     value['exclusions'] = prebuilt['exclusions'] + value['exclusions']
     value['source_count'] = len(sources)
@@ -134,6 +153,21 @@ def source_index(platform):
     from peaso.finding_types import annotate
     report = platform.get('report', {})
     result = []
+    network_ids = {row['id'] for row in (platform.get('network_review') or {}).get('findings', [])}
+    inventory = {row['id']: row for row in platform.get('inventory', []) if row.get('id')}
+    def asset(ident):
+        if isinstance(ident, str):
+            return inventory.get(ident, {}).get('native_id') or ident
+
+    def graph_assets(node):
+        attrs = node.get('attrs') or {}
+        members = node.get('members')
+        if isinstance(members, list) and members:
+            return [asset(member) for member in members]
+        return [node.get('native_id') or attrs.get('arn') or attrs.get('email') or
+                asset(node.get('resource_id')) or asset(node.get('id'))]
+
+    meta = report.get('check_meta') or {}
     for row in report.get('findings', []):
         if row.get('status') not in ('FAIL', 'MANUAL', 'UNKNOWN', 'DENIED'):
             continue
@@ -144,15 +178,37 @@ def source_index(platform):
                     or evidence.get('Image') and isinstance(evidence.get('Vulnerabilities'), list)
                     or evidence.get('image_digest') and isinstance(evidence.get('severity_counts'), dict))
                 else None)
-        result.append({'domain': 'findings', 'id': row['id'], 'kind': kind,
-                       'confirmed': row.get('status') == 'FAIL', 'required': row.get('status') == 'FAIL'})
+        identifiers = [row.get('native_resource_id') or asset(row.get('resource_id'))]
+        linked = evidence.get('resource_ids', [])
+        if isinstance(linked, list):
+            identifiers.extend(asset(ident) for ident in linked if isinstance(ident, str) and
+                               (ident in inventory or evidence.get('source') == 'ai_network_review'))
+        category = row.get('category') or (meta.get(check) or {}).get('category')
+        if row['id'] in network_ids:
+            category = 'network'
+        if category == 'privesc':
+            for target in evidence.get('targets', []):
+                if isinstance(target, dict):
+                    identifiers.extend(graph_assets(target))
+        result.append({'category': category, 'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident}),
+                       'domain': 'findings', 'id': row['id'], 'kind': kind,
+                       'confirmed': row.get('status') == 'FAIL', 'required': row.get('status') == 'FAIL' or category in ('hardening', 'exposure', 'network')})
     for index, row in enumerate(platform.get('least_privilege', {}).get('items', [])):
         if row.get('suggestions') or row.get('exposures'):
             result.append({'domain': 'least_privilege', 'id': str(row.get('id', index)),
-                           'kind': None, 'confirmed': False, 'required': True})
-    for index, row in enumerate((report.get('graphs', {}).get('privesc') or {}).get('edges', [])):
+                           'kind': None, 'confirmed': False, 'required': True,
+                           'assets': sorted({item for item in [row.get('principal'), *(
+                               asset(exposure.get('resource_id')) for exposure in row.get('exposures', []))]
+                               if isinstance(item, str) and item})})
+    graph = report.get('graphs', {}).get('privesc') or {}
+    nodes = {row['id']: row for row in graph.get('nodes', [])}
+    for index, row in enumerate(graph.get('edges', [])):
+        endpoint_ids = [row.get('source'), row.get('target')]
+        identifiers = [ident for endpoint in endpoint_ids
+                       for ident in graph_assets(nodes.get(endpoint, {'id': endpoint}))]
         result.append({'domain': 'privesc_edges', 'id': str(row.get('id', index)),
-                       'kind': None, 'confirmed': False, 'required': True})
+                       'kind': None, 'confirmed': False, 'required': True,
+                       'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident})})
     finding_sources = {row['id']: row for row in result if row['domain'] == 'findings'}
     for action in platform.get('top_actions', []):
         supporting = [finding_sources.get(ident) for ident in action.get('finding_ids', [])]
@@ -160,10 +216,22 @@ def source_index(platform):
         kind = (next(iter(kinds)) if len(kinds) == 1 and kinds <= SPECIAL_KINDS and
                 supporting and all(row and row['confirmed'] for row in supporting) else None)
         result.append({'domain': 'actions', 'id': str(action['rank']), 'kind': kind,
-                       'confirmed': False, 'required': True})
+                       'confirmed': False, 'required': True,
+                       'assets': sorted({asset_id for row in supporting if row for asset_id in row.get('assets', [])})})
     # The lossless reader can distinguish historic duplicate graph IDs by their
     # records, but report references deliberately identify the original edge.
-    return list({(r['domain'], r['id']): r for r in result}.values())
+    from collections import Counter
+    rows = {(row['domain'], row['id']): row for row in result}
+    prefixes = {'hardening': 'HC', 'exposure': 'EX', 'network': 'NW',
+                'least_privilege': 'LP', 'privesc_edges': 'PE', 'actions': 'AC'}
+    counts = Counter()
+    for key in sorted(rows):
+        row = rows[key]
+        prefix = prefixes.get(row.get('category') or row['domain'], 'F')
+        counts[prefix] += 1
+        row['source_id'] = f'{prefix}-{counts[prefix]:03}'
+        row.setdefault('assets', [])
+    return list(rows.values())
 
 
 def _scoped_context(platform, sources):
@@ -264,6 +332,15 @@ def build(root, platform, findings, reviews, write_json):
     write_json(root / 'report-sources.json', assigned)
     write_json(root / 'analysis-status.json', scoped['analysis_status'])
     write_json(root / 'top-actions.json', scoped['top_actions'])
+    from .report_draft import initial_draft
+    write_json(root / 'report-draft.json', initial_draft(platform.get('previous_findings_report') or {}))
+
+
+class MissingReportEvidence(ValueError):
+    def __init__(self, missing):
+        super().__init__('report_coverage_mismatch')
+        self.missing = [{key: row[key] for key in ('domain', 'id', 'source_id') if key in row}
+                        for row in missing]
 
 
 def validate(data, sources):
@@ -288,8 +365,10 @@ def validate(data, sources):
         key = ref['domain'], ref['id']
         if key not in known or key in covered or known[key]['kind'] in ('leaks', 'image_cves') and known[key]['required']:
             raise ValueError('invalid_report_exclusion')
+        if not 100 <= len(exclusion['reason'].strip()) <= 300:
+            raise ValueError('invalid_report_exclusion')
         covered.add(key)
     if not required <= covered:
-        raise ValueError('report_coverage_mismatch')
+        raise MissingReportEvidence(known[key] for key in sorted(required - covered))
     value['issues'].sort(key=lambda r: (['critical', 'high', 'medium', 'low', 'info'].index(r['severity']), r['id']))
     return dict(value, status='completed', source_count=len(known), covered_count=len(covered))

@@ -667,7 +667,8 @@ def test_real_chack_yaml_loader_schema_and_dynamic_access_prompt(stage, monkeypa
     # model catalogs or running a model/tool.
     monkeypatch.setattr(chack_config, 'resolve_config_aliases', lambda config: config)
     config = chack_config.load_config(str(agent_config_path(stage)))
-    assert config.model.primary == 'OPENAI_BEST_QUALITY'
+    assert config.model.primary == 'OPENAI_CHEAP_BUT_QUALITY'
+    assert config.agent.thinking_effort == 'preset'
     assert config.model.provider == 'codex' and config.model.api_key_type == 'codex'
     assert config.agent.sub_action == stage and config.agent.output_schema_json
     assert config.agent.output_schema_json == {'priorities': Recommendations, 'network': NetworkReview}.get(stage, Reviews).model_json_schema()

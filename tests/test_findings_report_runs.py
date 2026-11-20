@@ -28,19 +28,19 @@ def completed(tmp_path):
     return settings, store, artifacts, job['id'], report, prior
 
 
-def test_request_hides_old_report_and_prevents_concurrent_runs(completed):
+def test_request_preserves_old_report_and_prevents_concurrent_runs(completed):
     _, store, artifacts, scan, _, prior = completed
     state = report_runs.request_run(store, 'alice', scan, 'alice')
     row = store.job('alice', scan)
     current = report_runs.current_report(store, artifacts, 'alice', scan, row, prior['findings_report'])
-    assert current['status'] == 'in_progress' and current['issues'] == [] and not current['can_launch']
+    assert current['status'] == 'completed' and current['run_status'] == 'queued' and current['issues'] == prior['findings_report']['issues'] and not current['can_launch']
     with pytest.raises(StoreError, match='already running'):
         report_runs.request_run(store, 'alice', scan, 'alice')
     with pytest.raises(StoreError): report_runs.request_run(store, 'bob', scan, 'bob')
     assert state['result_ref'] is None
 
 
-def test_execute_replaces_all_issues_and_preserves_saved_analyses(completed, monkeypatch):
+def test_execute_publishes_updated_issues_and_preserves_saved_analyses(completed, monkeypatch):
     _, store, artifacts, scan, native, prior = completed
     state = report_runs.request_run(store, 'alice', scan, 'alice')
     def review(report, snapshot, selectors, **kwargs):
@@ -48,6 +48,7 @@ def test_execute_replaces_all_issues_and_preserves_saved_analyses(completed, mon
         assert 'ai' not in report
         context = kwargs['reused_stages']['findings_report_context']
         assert context['actions'] == prior['actions'] and context['network'] == prior['network']
+        assert context['previous_report']['issues'] == prior['findings_report']['issues']
         assert selectors['ai_enabled'] and selectors['ai_user_id'] == 'alice'
         return {'findings_report': {'status': 'completed', 'issues': [{'id': 'stable-id', 'title': 'New issue'}]}}
     monkeypatch.setattr('peaso.ai.pipeline.review_scan', review)
@@ -55,12 +56,12 @@ def test_execute_replaces_all_issues_and_preserves_saved_analyses(completed, mon
     row = store.job('alice', scan)
     current = report_runs.current_report(store, artifacts, 'alice', scan, row, prior['findings_report'])
     assert [i['title'] for i in current['issues']] == ['New issue']
-    assert state['generation'] in current['issues'][0]['id']
+    assert current['issues'][0]['id'] == 'stable-id'
     assert artifacts.get('alice', artifacts.get('alice', row['report'])['report_json']) == native
     assert not report_runs.execute(store, artifacts, 'alice', scan, state['generation'])
     next_run = report_runs.request_run(store, 'alice', scan, 'alice')
     assert next_run['generation'] != state['generation']
-    assert report_runs.current_report(store, artifacts, 'alice', scan, row, {})['issues'] == []
+    assert report_runs.current_report(store, artifacts, 'alice', scan, row, {})['issues'] == current['issues']
 
 
 def test_obsolete_worker_cannot_publish_into_a_new_generation(completed, monkeypatch):
@@ -75,7 +76,7 @@ def test_obsolete_worker_cannot_publish_into_a_new_generation(completed, monkeyp
     assert state['generation'] != first['generation'] and state['result_ref'] is None
 
 
-def test_launch_endpoint_owns_scan_and_clears_count_immediately(completed, monkeypatch):
+def test_launch_endpoint_owns_scan_and_preserves_report(completed, monkeypatch):
     settings, store, artifacts, scan, _, _ = completed
     monkeypatch.setattr('peaso.ai.auth.require_local_codex', lambda *a: None)
     monkeypatch.setenv('PEASO_WORKFLOW_ARN', 'arn:fixture')
@@ -91,8 +92,8 @@ def test_launch_endpoint_owns_scan_and_clears_count_immediately(completed, monke
         assert response.status_code == 202, response.text
         assert dispatched[0] == ('alice', scan, response.json()['generation'])
         assert client.post(path, headers=own).status_code == 409
-        assert client.get(path, headers=own).json()['issues'] == []
-        assert client.get(f'/api/scans/{scan}/ai', headers=own).json()['findings_report'] == {'status': 'in_progress', 'total': 0}
+        assert client.get(path, headers=own).json()['issues'][0]['id'] == 'old'
+        assert client.get(f'/api/scans/{scan}/ai', headers=own).json()['findings_report'] == {'status': 'completed', 'total': 1}
 
 
 @pytest.mark.parametrize('remote,report_only', [(False, False), (True, False), (True, True)])
@@ -118,7 +119,7 @@ def test_report_compilation_is_the_last_model_stage(monkeypatch, tmp_path, remot
         if stage == 'priorities': return {'actions': [], 'limitations': []}
         assert platform['network_review']['status'] == 'completed'
         return {'summary': 'Compiled supplied evidence.', 'issues': [], 'limitations': [],
-                'exclusions': [{'reference': {'domain': r['domain'], 'id': r['id']}, 'reason': 'Owner review required.'}
+                'exclusions': [{'reference': {'domain': r['domain'], 'id': r['id']}, 'reason': 'The supplied observation describes a planned documentation change with no effect on access controls, data handling, or service exposure.'}
                                for r in findings_report.agent_sources(findings_report.source_index(platform)) if r['required']]}
     monkeypatch.setattr(pipeline, 'invoke', invoke)
     options = {}

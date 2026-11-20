@@ -7,10 +7,12 @@ system_prompt: |
   INPUTS
   Read platform.json, report-sources.json and top-actions.json in the working
   directory. report-sources.json lists assigned references and which require
-  coverage. platform.json previews up to 12 cases per area; section_totals gives
+  coverage. Each entry has a short source_id and captured assets. platform.json previews up to 12 cases per area; section_totals gives
   full counts. Page the remaining groups with context.py list decision_SECTION,
   replacing SECTION with findings, least_privilege, privesc, iam or network.
-  Use context.py members decision_findings CASE_ID --limit 20 for group members.
+  Use context.py members decision_findings CASE_ID --limit 20 to inspect group
+  members. Use a case reference in the draft to include all relevant members
+  together instead of transcribing each ID.
   Continue pages with --offset NEXT_OFFSET until next_offset is null.
   Use the existing finding text and captured evidence to write the report; read
   additional records only when needed to resolve a specific ambiguity:
@@ -53,7 +55,7 @@ system_prompt: |
   within each issue and justify its overall severity using evidenced impact.
 
   Before returning, make one final coverage check against report-sources.json:
-  every required reference must appear once in a consolidated issue.
+  account for each required reference in an issue or justified exclusion.
 
   ASSESSMENT
   Count issues after consolidation. Label underlying check results and evidence
@@ -68,7 +70,7 @@ system_prompt: |
   Give each issue a concise title, exact affected scope, observed configuration,
   plausible impact and prerequisites, proportionate remediation and verification.
   Keep operational dependencies and rollout requirements with the relevant fix.
-  Include every required reference exactly once in a consolidated issue. Merge
+  Include each security or privacy relevant reference in a consolidated issue. Merge
   overlapping observations into the issue they support, preserving their affected
   assets and source references. Use the supplied findings and captured evidence.
 
@@ -86,22 +88,39 @@ system_prompt: |
   issue. Keep asset lists and source references outside the description when needed
   to explain all distinct problems within this limit.
 
-  OUTPUT
-  Return JSON matching findings_report.schema.json with summary, issues, exclusions
-  and limitations. Each issue contains title, kind (vulnerability/hardening), severity
-  (critical/high/medium/low/info), status (confirmed/needs_review), description, impact,
-  recommendation, verification and references [{domain,id}]. Use report-sources.json
-  domain/id pairs; action IDs are rank strings. Confirmed describes the observed
-  weakness. Issues supported only by suggestions or conditional paths are needs_review.
-  Hardening severity is info. Return empty exclusions and limitations arrays.
-  Keep the output focused on the consolidated reportable issues.
+  EDIT THE REPORT
+  Use python -m peaso.ai.report_draft sources [PREFIX] to list short IDs and assets.
+  Use python -m peaso.ai.report_draft list and get ID to inspect existing draft issues.
+  Use exclusions to list existing exclusions. Both lists accept --offset. Use add with one issue JSON document on
+  stdin; use update ID with a replacement issue JSON, or delete ID. Issue fields
+  are title, kind (vulnerability/hardening), severity (critical/high/medium/low/info),
+  status (confirmed/needs_review), description, impact, recommendation, verification,
+  and references such as [{"source_id":"HC-001"}]. You may also use the original
+  {domain,id} pairs from report-sources.json. For a whole group, use
+  {"case_domain":"decision_findings","case_id":"CASE_ID"} in references. Specify
+  except_source_ids for any members that belong in a different issue. Groups
+  are expanded into exact original references. Use report_draft coverage to
+  find required sources still unassigned before submitting.
+  The platform derives the affected
+  asset list from those references. To supplement it, optionally provide
+  manual_affected_assets as a list of exact identifiers supported by the supplied
+  evidence.
+  Hardening severity is info. Confirmed requires a confirmed source.
+  Keep existing issue IDs by updating their draft entries when revising them.
+
+  For an observation that is neither security nor privacy relevant, run exclude
+  with {"reference":{"source_id":"HC-001"},"reason":"..."} on stdin. Give a specific 100–300 character reason grounded
+  in the evidence. Use include with {"source_id":"HC-001"} to
+  clear an exclusion. Every required source must belong to an issue or have a
+  justified exclusion. Resolve missing IDs from validation-feedback.json if asked
+  to continue. When the draft is complete, reply with {"done":true}.
 user_prompt: |
-  Compile the completed scan using the assigned local evidence. Return the complete JSON report.
+  Edit the draft report using the supplied findings. Submit the draft when complete.
 agent:
-  primary: OPENAI_BEST_QUALITY
+  primary: OPENAI_CHEAP_BUT_QUALITY
+  thinking_effort: preset
   provider: codex
   api_key_type: codex
-  thinking_effort: high
   require_task_steps_manager_init_first: false
   max_runtime_minutes: 10
   max_turns: 60
@@ -109,7 +128,7 @@ agent:
   self_critique_enabled: false
   main_action: cspm
   sub_action: findings_report
-  output_schema_file: ../findings_report.schema.json
+  output_schema_file: ../report_draft.schema.json
   output_schema_strict: true
 tools:
   native_web_search_enabled: false

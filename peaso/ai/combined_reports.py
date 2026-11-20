@@ -46,6 +46,9 @@ def validate(data, reports):
         if len(keys) != len(set(keys)) or any(key not in known or key in covered for key in keys):
             raise ValueError('unknown_or_duplicate_combined_reference')
         source = [known[key] for key in keys]
+        issue['affected_assets'] = sorted({asset for row in source for asset in row.get('affected_assets', [])})
+        issue['manual_affected_assets'] = sorted({asset for row in source
+            for asset in row.get('manual_affected_assets', [])} - set(issue['affected_assets']))
         kinds = {row['kind'] for row in source}
         if (kinds & SPECIAL_KINDS and (len(kinds) != 1 or issue['kind'] not in kinds)
                 or issue['kind'] in SPECIAL_KINDS and kinds != {issue['kind']}):

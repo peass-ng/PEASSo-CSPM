@@ -72,6 +72,17 @@
           "minItems": 1,
           "title": "References",
           "type": "array"
+        },
+        "manual_affected_assets": {
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "maxItems": 200,
+          "title": "Manual Affected Assets",
+          "type": "array"
         }
       },
       "required": [
@@ -95,8 +106,8 @@
           "$ref": "#/$defs/Reference"
         },
         "reason": {
-          "maxLength": 1000,
-          "minLength": 1,
+          "maxLength": 300,
+          "minLength": 100,
           "pattern": "\\S",
           "title": "Reason",
           "type": "string"

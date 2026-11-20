@@ -33,7 +33,7 @@ def request_run(store, tenant, scan, actor, *, now=None):
         raise StoreError(409, 'Findings Report generation is already running')
     state = {'generation': uuid.uuid4().hex, 'status': 'queued', 'actor': actor,
              'expected_report': row['report'], 'created': now, 'expires': now + 2400,
-             'result_ref': None}
+             'result_ref': prior.get('result_ref') if prior and prior['expected_report'] == row['report'] else None}
     if not _save(store, tenant, scan, state, raw):
         raise StoreError(409, 'Findings Report generation changed; refresh and retry')
     return state
@@ -50,16 +50,21 @@ def current_report(store, artifacts, tenant, scan, row, fallback):
     if not state:
         return dict(fallback, can_launch=row['status'] == 'completed')
     active = state['status'] in ('queued', 'running') and state['expires'] > time.time()
-    if active:
+    if state['expected_report'] != row.get('report'):
+        return dict(fallback, can_launch=row['status'] == 'completed')
+    if active and not state.get('result_ref') and fallback.get('status') not in ('completed', 'partial'):
         value = {'status': 'in_progress', 'summary': 'Generating a new Findings Report.', 'issues': [], 'exclusions': [], 'limitations': []}
     elif state.get('result_ref') and state['expected_report'] == row.get('report'):
         if not state['result_ref'].startswith(job_prefix(tenant, scan)):
             raise StoreError(409, 'Invalid Findings Report binding')
         value = artifacts.get(tenant, state['result_ref'])
+    elif fallback.get('status') in ('completed', 'partial'):
+        value = fallback
     else:
         value = {'status': 'unavailable', 'issues': [], 'exclusions': [],
                  'limitations': ['Report generation did not complete. Generate it again to retry.']}
-    return dict(value, generation=state['generation'], run_status=state['status'],
+    run_status = 'failed' if not active and state['status'] in ('queued', 'running') else state['status']
+    return dict(value, generation=state['generation'], run_status=run_status,
                 can_launch=row['status'] == 'completed' and not active)
 
 
@@ -102,22 +107,23 @@ def execute(store, artifacts, tenant, scan, generation):
         snapshot = artifacts.get(tenant, row['snapshot'])
         selectors = json.loads(row['data']) if isinstance(row['data'], str) else dict(row['data'])
         selectors.update(ai_enabled=True, ai_findings_report_enabled=True, ai_user_id=state['actor'])
+        previous_report = current_report(store, artifacts, tenant, scan, row, ai.get('findings_report') or {})
         from .pipeline import review_scan
         reviewed = review_scan(report, snapshot, selectors, tenant=tenant, artifacts=artifacts,
             deadline=state['expires'], scan_id=scan, stages=('findings_report',),
             reused_stages={'findings_report_context': {'network': ai.get('network'),
                 'actions': ai.get('actions', []), 'limitations': ai.get('limitations', []),
-                'least_privilege': least}})
+                'least_privilege': least, 'previous_report': previous_report}})
         value = reviewed.get('findings_report') or {'status': 'unavailable', 'issues': [],
             'limitations': ['The findings report could not be generated. Check AI settings and retry.']}
-        value = dict(value, issues=[dict(issue, id='report-' + generation + '-' + str(index + 1))
-                                   for index, issue in enumerate(value.get('issues', []))])
         status = 'completed' if value.get('status') == 'completed' else 'failed'
-        reference = artifacts.put(tenant, scan, 'ai-review', value)
+        has_previous = previous_report.get('status') in ('completed', 'partial')
+        reference = (state['result_ref'] if status == 'failed' and has_previous
+                     else artifacts.put(tenant, scan, 'ai-review', value))
         # A reconcile/delete or newer generation invalidates this publication.
         current = store.job(tenant, scan)
-        if current['status'] != 'completed' or current.get('report') != state['expected_report']:
-            status, reference = 'failed', None
+        if time.time() >= state['expires'] or current['status'] != 'completed' or current.get('report') != state['expected_report']:
+            status, reference = 'failed', state['result_ref']
         published = _save(store, tenant, scan, dict(state, status=status, result_ref=reference), running_raw)
         return published and status == 'completed'
     except Exception:
