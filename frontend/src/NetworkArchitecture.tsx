@@ -2,18 +2,19 @@ import { Fragment, type ReactNode } from "react";
 
 function inline(text: string) {
   return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, index) =>
-    part.startsWith("**") && part.endsWith("**") ? <strong key={index}>{part.slice(2, -2)}</strong> :
+    part.startsWith("**") && part.endsWith("**") ? <strong key={index}>{inline(part.slice(2, -2))}</strong> :
       part.startsWith("`") && part.endsWith("`") ? <code key={index}>{part.slice(1, -1)}</code> : part);
 }
 
 // Render only headings, paragraphs and lists. React escapes all source text;
 // model output never becomes HTML or executable Markdown.
-export function NetworkArchitecture({ text, label = "Network architecture" }: { text: string; label?: string }) {
+export function NetworkArchitecture({ text, label = "Network architecture", markdown = false }: { text: string; label?: string; markdown?: boolean }) {
   const blocks = text.split(/\n\s*\n/).filter(block => block.trim());
-  const structured = blocks.some(block => /^#{2,4}\s/m.test(block));
+  const structured = markdown || blocks.some(block => /^#{2,4}\s/m.test(block));
   return <section className="network-architecture" aria-label={label}>{blocks.map((block, index) => {
     if (structured) {
       const lines = block.trim().split('\n');
+      if (lines.every(line => /^\d+[.)]\s/.test(line))) return <ol key={index}>{lines.map((line, item) => <li key={item}>{inline(line.replace(/^\d+[.)]\s/, ''))}</li>)}</ol>;
       if (lines.every(line => /^[-*]\s/.test(line))) return <ul key={index}>{lines.map((line, item) => <li key={item}>{inline(line.replace(/^[-*]\s/, ''))}</li>)}</ul>;
       return <Fragment key={index}>{lines.map((line, item) => {
         if (/^#{2,3}\s/.test(line)) return <h3 key={item}>{inline(line.replace(/^#{2,3}\s/, ''))}</h3>;

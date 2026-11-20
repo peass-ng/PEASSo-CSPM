@@ -18,7 +18,7 @@ class Issue(Strict):
     kind: Literal['vulnerability', 'hardening', 'leaks', 'image_cves']
     severity: Literal['critical', 'high', 'medium', 'low', 'info']
     status: Literal['confirmed', 'needs_review']
-    description: Text
+    description: Annotated[str, Field(min_length=1, max_length=2500, pattern=r'\S')]
     impact: Text
     recommendation: Text
     verification: Text
@@ -83,11 +83,14 @@ def pregenerate(platform, sources=None):
         scopes = sorted({str(row.get('scope')) for row in rows if row.get('scope')})
         assets = sorted({str(row.get('native_resource_id') or row.get('resource_id')) for row in rows
                          if row.get('native_resource_id') or row.get('resource_id')})
-        locations = '\n'.join('- ' + asset for asset in assets)
+        locations = '\n'.join('- `' + asset + '`' for asset in assets)
         # Complete evidence remains reachable through every original reference;
         # bound only the readable preview, never the underlying membership.
-        if len(locations) > 8000:
-            locations = locations[:8000] + '\nAdditional locations are in the supporting check results.'
+        if len(locations) > 1200:
+            locations = locations[:1200].rsplit('\n', 1)[0] + '\nAdditional locations are in the supporting check results.'
+        scope_preview = ', '.join(scopes) or 'See supporting evidence'
+        if len(scope_preview) > 400:
+            scope_preview = scope_preview[:400] + '…'
         severity = min((row.get('severity', 'high') for row in rows), key=lambda v: RISK.index(v) if v in RISK else 2)
         if severity not in RISK:
             severity = 'high'
@@ -97,7 +100,7 @@ def pregenerate(platform, sources=None):
             'severity': severity, 'status': 'confirmed',
             'description': (f'All {len(positive)} positive source check results are consolidated in this finding. '
                 'These are observations, not distinct vulnerability counts. '
-                f'Affected scopes: {", ".join(scopes) or "See supporting evidence"}.\n\n'
+                f'Affected scopes: {scope_preview}.\n\n'
                 f'Affected resources:\n{locations or "See supporting check results."}\n\n' +
                 ('Supporting evidence retains safe leak locations and detector details; matched values are omitted from this report.' if leaks else
                  'Supporting evidence retains immutable image digests, CVEs, package versions, fixed versions and coverage details.')),

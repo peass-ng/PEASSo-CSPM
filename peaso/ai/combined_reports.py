@@ -16,7 +16,7 @@ class Reference(Strict):
 
 
 class CombinedIssue(Issue):
-    description: CombinedText
+    description: Annotated[str, Field(min_length=1, max_length=2500, pattern=r'\S')]
     impact: CombinedText
     recommendation: CombinedText
     verification: CombinedText

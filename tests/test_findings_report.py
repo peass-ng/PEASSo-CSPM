@@ -154,7 +154,10 @@ def test_report_api_is_tenant_bound_and_keeps_polling_payload_small(tmp_path):
     analyzer = store.claim('analyzer')
     compiled = compiler.validate(report([issue([('findings', 'f')])]), [source('findings', 'f')])
     ai = {'findings_report': compiled, 'actions': [], 'reviews': {}}
-    manifest = dict(bundle_version=1, summary={}, ai_review=artifacts.put('alice', job['id'], 'ai-review', ai))
+    manifest = dict(bundle_version=1, summary={}, ai_review=artifacts.put('alice', job['id'], 'ai-review', ai),
+        finding_count=1, finding_index_chunks=[{'reference': artifacts.put('alice', job['id'], 'finding-index',
+        {'items': [{'id': 'f', 'resource_id': 'opaque-internal-id', 'native_resource_id': 'arn:cloud:identity::123:role/reader',
+                    'evidence': {'private': 'NOT-A-LABEL'}}]}), 'count': 1}])
     ref = artifacts.put('alice', job['id'], 'manifest', manifest)
     store.finish(job['id'], analyzer['owner'], 'completed', ref)
     with TestClient(create_app(settings, store=store, artifacts=artifacts, authenticator=TestIdentities()), base_url='http://127.0.0.1') as client:
@@ -164,6 +167,12 @@ def test_report_api_is_tenant_bound_and_keeps_polling_payload_small(tmp_path):
         assert own.json()['issues'][0]['references'][0]['id'] == 'f'
         assert client.get(url + '/findings-report', headers={'Authorization': 'Bearer bob'}).status_code == 404
         assert client.get(url + '/findings-report').status_code == 401
+        evidence = client.get(url + '/findings-report/evidence?finding_id=f', headers={'Authorization': 'Bearer alice'})
+        assert evidence.status_code == 200, evidence.text
+        assert evidence.json() == {'items': {'f': 'arn:cloud:identity::123:role/reader'}}
+        assert client.get(url + '/findings-report/evidence?finding_id=f', headers={'Authorization': 'Bearer bob'}).status_code == 404
+        assert client.get(url + '/findings-report/evidence?finding_id=f').status_code == 401
+        assert client.get(url + '/findings-report/evidence?' + '&'.join(['finding_id=f'] * 21), headers={'Authorization': 'Bearer alice'}).status_code == 422
         counts = client.get(url + '/ai', headers={'Authorization': 'Bearer alice'}).json()['findings_report']
         assert counts == {'status': 'completed', 'total': 1}
 
@@ -285,3 +294,26 @@ def test_native_image_scan_summary_and_its_action_belong_to_fixed_cve_finding(tm
     assert scoped['top_actions'] == []
     result = compiler.complete(report([issue([('findings', 'scan-config')])]), sources, prebuilt)
     assert len(result['issues']) == 2 and result['covered_count'] == 4
+
+@pytest.mark.parametrize('combined', [False, True])
+def test_report_descriptions_are_limited_to_2500_characters(combined):
+    from pydantic import ValidationError
+    from peaso.ai.combined_reports import CombinedIssue
+    model = CombinedIssue if combined else compiler.AgentIssue
+    value = issue([('findings', 'f')])
+    if combined:
+        value['references'] = [{'report_id': 'scan', 'issue_id': 'issue'}]
+    value['description'] = 'x' * 2500
+    assert len(model.model_validate(value).description) == 2500
+    value['description'] += 'x'
+    with pytest.raises(ValidationError):
+        model.model_validate(value)
+
+def test_fixed_findings_bound_description_without_losing_affected_evidence():
+    rows = [dict(id=str(i), status='FAIL', scope='scope-' + 's' * 80 + str(i),
+                 resource_id='resource-' + 'a' * 150 + str(i), check_id='custom',
+                 evidence={'secret_leaks': [{}]}) for i in range(100)]
+    value = compiler.pregenerate({'report': {'findings': rows}})
+    assert len(value['issues']) == 1
+    assert len(value['issues'][0]['description']) <= 2500
+    assert len(value['issues'][0]['references']) == 100

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { items, json, request, useApi } from "./api";
 import { Badge, Inspector, openInspectorFromRow, Panel, State } from "./ui";
-import { IssueBody, SourceFinding, issueKinds } from "./ReportIssue";
+import { IssueBody, SourceFinding, SupportingEvidence, issueKinds } from "./ReportIssue";
 import type { Issue } from "./ReportIssue";
 
 type Source = { scan_id: string; connector_name: string; provider: string; created_at: string; version: string };
@@ -62,7 +62,7 @@ function FrozenSource({ combinedId, reference, onClose, onInspect, onSelectAsses
       <IssueBody issue={query.data.issue} />
       {query.data.assessment_available === false && <p>The original assessment is no longer available. Its saved report issue is preserved here.</p>}
       {onSelectAssessment && query.data.assessment_available !== false && <button className="text-button" onClick={() => onSelectAssessment(reference.report_id)}>Open assessment report</button>}
-      <h3>Original supporting evidence</h3><ul>{query.data.issue.references.map(ref => <li key={ref.domain + ref.id}>{ref.domain === "findings" && query.data?.assessment_available !== false ? <button className="text-button" onClick={() => onInspect(reference.report_id, ref.id)}>Check result {ref.id}</button> : `${ref.domain.replaceAll("_", " ")} ${ref.id}`}</li>)}</ul>
+      <h3>Original supporting evidence</h3><SupportingEvidence key={reference.report_id + reference.issue_id} scanId={reference.report_id} references={query.data.issue.references} available={query.data.assessment_available !== false} onInspect={id => onInspect(reference.report_id, id)} />
     </>}
   </Inspector>;
 }

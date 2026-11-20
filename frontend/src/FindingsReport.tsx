@@ -3,12 +3,10 @@ import { request, useApi } from "./api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Badge, Inspector, Panel, State } from "./ui";
 import { CombineReportsModal, CombinedReports } from "./CombinedReports";
-import { IssueBody, SourceFinding, issueKinds as kinds } from "./ReportIssue";
+import { IssueBody, SourceFinding, SupportingEvidence, issueKinds as kinds } from "./ReportIssue";
 import type { Issue, Reference } from "./ReportIssue";
 
 type Report = { can_launch?: boolean; generation?: string; status: string; summary?: string; issues: Issue[]; limitations?: string[]; exclusions?: { reference: Reference; reason: string }[]; total: number; exclusion_count?: number; source_count?: number; covered_count?: number };
-const labels = { findings: "Check result", least_privilege: "Least privilege", privesc_edges: "Privilege escalation path", actions: "Top action" };
-const pages = { findings: "Hardening & Compliance", least_privilege: "Least Privilege", privesc_edges: "Privilege Escalation Map", actions: "Top 15 Actions" };
 function AssessmentReport({ scanId, demo }: { scanId: string; demo: boolean }) {
   const client = useQueryClient();
   const [search, setSearch] = useState("");
@@ -43,7 +41,7 @@ function AssessmentReport({ scanId, demo }: { scanId: string; demo: boolean }) {
     </Panel>
     {selected && <Inspector title={selected.title} onClose={close}>
       <IssueBody issue={selected} />
-      <h3>Supporting evidence</h3><ul>{selected.references.map(ref => <li key={ref.domain + ref.id}>{ref.domain === "findings" ? <button className="text-button" onClick={() => setSource(ref.id)}>{labels[ref.domain]} {ref.id}</button> : <a href={`#${encodeURIComponent(pages[ref.domain])}`}>{labels[ref.domain]} {ref.id}</a>}</li>)}</ul>
+      <h3>Supporting evidence</h3><SupportingEvidence key={selected.id} scanId={scanId} references={selected.references} onInspect={setSource} />
     </Inspector>}
     {source && <SourceFinding scanId={scanId} id={source} onInspect={setSource} onClose={() => setSource(undefined)} />}
   </div>;

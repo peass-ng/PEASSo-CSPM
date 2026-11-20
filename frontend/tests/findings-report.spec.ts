@@ -25,6 +25,7 @@ async function setup(page: import('@playwright/test').Page, status = 'completed'
         total: available ? rows.length : 0, issues: available ? rows.slice(offset, offset + 25) : [],
         covered_count: 26, source_count: 26, limitations: ['Runtime exploitability was not verified.'], exclusions: [{ reference: { domain: 'findings', id: 'excluded' }, reason: 'An excluded observation.' }], exclusion_count: 1 };
     }
+    if (path.endsWith('/findings-report/evidence')) json = { items: Object.fromEntries(url.searchParams.getAll('finding_id').map(id => [id, `arn:cloud:identity::123456789012:role/${id}`])) };
     if (/\/findings\/f\d+$/.test(path)) json = { id: path.split('/').pop(), title: 'Original scan evidence', status: 'FAIL',
       severity: 'high', category: 'hardening', check_id: 'test', provider: 'aws', scope: '123456789012/us-east-1',
       resource_id: 'resource', service: 'iam', evidence: { observed: 'Captured policy.' }, remediation: 'Restrict policy.' };
@@ -47,7 +48,7 @@ test('compiled report pages, searches all issues and opens source evidence', asy
   await expect(page.locator('.findings-table tbody tr')).toHaveCount(1);
   await page.getByRole('button', { name: 'Report issue 25', exact: true }).click();
   await expect(page.getByRole('dialog').getByText('Conditional access to sensitive data.')).toBeVisible();
-  await page.getByRole('button', { name: 'Check result f25', exact: true }).click();
+  await page.getByRole('button', { name: 'arn:cloud:identity::123456789012:role/f25', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Original scan evidence', exact: true })).toBeVisible();
 });
 
@@ -139,4 +140,27 @@ test('generation control follows Combined reports and keeps its label when filte
   await page.getByRole('tab', { name: 'Combined reports', exact: true }).click();
   await toolbar.getByRole('button', { name: 'Regenerate report', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('delete the current compiled findings');
+});
+
+test('report prose renders Markdown safely and evidence expands after three identifiers', async ({ page }) => {
+  await setup(page);
+  const markdown = { ...issue(0), description: '**Broad access** lets `source-role` update `target-role` trust.\n\n- The target grants **administrator** access.',
+    impact: '**Privilege escalation** to `target-role`.', recommendation: 'Remove `UpdateTrust` from **source-role**. <img src=x onerror=alert(1)>',
+    references: Array.from({ length: 7 }, (_, i) => ({ domain: 'findings', id: 'f' + i })) };
+  await page.route('**/api/scans/s/findings-report?**', route => route.fulfill({ json: { status: 'completed', issues: [markdown], total: 1 } }));
+  await page.goto('/#Findings%20Report');
+  await page.getByRole('button', { name: 'Report issue 0', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByLabel('Issue description').locator('strong').first()).toHaveText('Broad access');
+  await expect(dialog.getByLabel('Issue description').locator('code').first()).toHaveText('source-role');
+  await expect(dialog.getByLabel('Issue impact').locator('strong')).toHaveText('Privilege escalation');
+  await expect(dialog.getByLabel('Issue recommendation').locator('code')).toHaveText('UpdateTrust');
+  await expect(dialog.locator('img')).toHaveCount(0);
+  await expect(dialog.locator('.report-evidence li')).toHaveCount(3);
+  await expect(dialog.getByRole('button', { name: 'arn:cloud:identity::123456789012:role/f0', exact: true })).toBeVisible();
+  await expect(dialog.getByText(/Check result/)).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Show 4 more evidence links', exact: true }).click();
+  await expect(dialog.locator('.report-evidence li')).toHaveCount(7);
+  await dialog.getByRole('button', { name: 'Show fewer evidence links', exact: true }).click();
+  await expect(dialog.locator('.report-evidence li')).toHaveCount(3);
 });

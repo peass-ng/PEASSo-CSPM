@@ -1635,6 +1635,17 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         from .findings_report import page as report_page
         return report_page(report, offset=offset, limit=limit, search=search, severity=severity, exclusion_offset=exclusion_offset)
 
+    @app.get("/api/scans/{ident}/findings-report/evidence")
+    def report_evidence_labels(ident: str, finding_id: list[str] = Query(), user=Depends(identity)):
+        if not 1 <= len(finding_id) <= 20 or sum(len(value) for value in finding_id) > 6000:
+            raise HTTPException(422, "Select at most 20 evidence references")
+        row, bundle = owned_bundle(user.tenant_id, ident)
+        wanted = set(finding_id)
+        native = (finding_index(user.tenant_id, row['report'], finding_index_references(bundle))
+                  if bundle.get('bundle_version') == 1 else bundle.get('findings', []))
+        return {'items': {item['id']: item.get('native_resource_id') or item.get('resource_id') or item['id']
+                          for item in native if item['id'] in wanted}}
+
     @app.post("/api/scans/{ident}/findings-report", status_code=202)
     def generate_findings_report(ident: str, background: BackgroundTasks, user=Depends(identity), account=Depends(account_identity)):
         row = store.job(user.tenant_id, ident)
