@@ -364,6 +364,10 @@ def test_scan_resolves_once_and_passes_same_selection_to_network_and_priorities(
         return {'status': 'completed', 'explanation': '', 'findings': []}, False
     def priorities(stage, platform, entries, access, *args):
         captured.append(access)
+        if stage == 'findings_report':
+            return {'summary': 'Account configuration review.', 'issues': [],
+                    'exclusions': [{'reference': {'domain': 'findings', 'id': 'f1'},
+                                    'reason': 'General hardening observation.'}], 'limitations': [secret]}
         return {'actions': [], 'limitations': [secret]}
     monkeypatch.setattr(pipeline, 'review_network', network_review)
     monkeypatch.setattr(pipeline, 'invoke_before_deadline', priorities)
@@ -372,7 +376,7 @@ def test_scan_resolves_once_and_passes_same_selection_to_network_and_priorities(
               'provider': 'aws', 'resource_id': 'bucket', 'scope': '123456789012/us-east-1', 'evidence': {'public': True}}
     result = pipeline.review_scan({'provider': 'aws', 'findings': [failed], 'graphs': {}}, {}, {}, tenant='alice', artifacts=None)
     assert result['status'] == 'completed' and result['auth_source'] == 'personal'
-    assert len(captured) == 2 and captured[0] is captured[1]
+    assert len(captured) == 3 and captured[0] is captured[1] is captured[2]
     assert captured[0].public() == {'provider': provider, 'model': model, 'thinking': 'high'}
     assert captured[0].credential == secret
     assert secret not in json.dumps(result)

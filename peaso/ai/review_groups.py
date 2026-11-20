@@ -112,7 +112,7 @@ def stage_limit(stage, remote):
     Holistic stages read the whole scan, so a fixed 600 s ceiling cut off large
     scans that still had budget left. Both stay below the 1800 s task limit.
     """
-    if stage == 'priorities':
+    if stage in ('priorities', 'findings_report'):
         return 1500 if remote else 150
     if stage == 'network':
         return 900 if remote else 150

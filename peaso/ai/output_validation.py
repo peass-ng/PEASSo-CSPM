@@ -16,6 +16,8 @@ class InvalidAgentOutput(ValueError):
 
 
 def context(stage, root):
+    if stage == 'findings_report':
+        return json.loads((root / 'report-sources.json').read_text())
     import sqlite3
     from contextlib import closing
     with closing(sqlite3.connect((root/'context.sqlite').as_uri() + '?mode=ro', uri=True)) as db:
@@ -66,7 +68,10 @@ def context(stage, root):
 
 def validate(stage, data, original):
     from .contracts import validate_actions, validate_network
-    if stage == 'network':
+    if stage == 'findings_report':
+        from .findings_report import validate as validate_report
+        validate_report(data, original)
+    elif stage == 'network':
         validate_network(data, original)
     else:
         validate_actions(data, original['report'], original['reviews'], require_assessment=True)
@@ -75,7 +80,9 @@ def validate(stage, data, original):
 
 def feedback(error):
     codes = {'review_coverage_mismatch', 'unknown_action_reference', 'action_rank_mismatch',
-             'invalid_action', 'action_reference_missing', 'unknown_network_reference', 'duplicate_network_finding'}
+             'invalid_action', 'action_reference_missing', 'unknown_network_reference', 'duplicate_network_finding', 'unknown_report_reference', 'duplicate_report_reference',
+             'report_group_mismatch', 'duplicate_report_group', 'unconfirmed_report_issue',
+             'hardening_report_severity', 'invalid_report_exclusion', 'report_coverage_mismatch'}
     result = {'code': str(error) if str(error) in codes else 'invalid_output'}
     if hasattr(error, 'errors'):
         errors = error.errors(include_input=False, include_context=False, include_url=False)

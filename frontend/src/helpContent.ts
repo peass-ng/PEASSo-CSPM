@@ -56,6 +56,7 @@ export const sections = [
   ["Privilege Escalation Map", "Relationships from principals and grants toward stronger privileges, with exact technique prerequisites and evidence."],
   ["Network Map", "VPCs, subnets, resources and recorded connectivity relationships. Expand a subnet to inspect its workloads and network controls."],
   ["Network Architecture", "AI explanation of each network and subnet tier’s purpose, plus segmentation and architecture findings."],
+  ["Findings Report", "AI compiles scan evidence into distinct reportable issues, with one combined leaks issue and one combined image CVE issue. Open issues for impact, recommendations and supporting evidence."],
   ["Top 15 Actions", "AI-prioritized security actions. Click an action for its implementation plan; related finding links open the evidence while preserving the plan."],
   ["Attack Detection", "Detection rules and event-based attack observations collected for the assessment."],
   ["Settings", "Account and workspace configuration, API keys and AI configuration."],

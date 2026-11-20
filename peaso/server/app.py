@@ -1555,9 +1555,28 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         if isinstance(network, dict):
             rows = network.get("findings", [])
             network = dict(network, findings=rows[offset:offset + limit], total=len(rows))
+        compiled = value.get("findings_report")
+        if isinstance(compiled, dict):
+            value = dict(value, findings_report={"status": compiled.get("status"), "total": len(compiled.get("issues", []))})
         from peaso.ai.finding_reviews import presented_reviews
         return dict(value, **({"network": network} if network is not None else {}), reviews=presented_reviews(value, offset, limit),
                     review_totals={kind: len(rows) for kind, rows in reviews.items()}, offset=offset, limit=limit)
+
+    @app.get("/api/scans/{ident}/findings-report")
+    def scan_findings_report(ident: str, offset: int = Query(default=0, ge=0),
+                             limit: int = Query(default=25, ge=1, le=100),
+                             exclusion_offset: int = Query(default=0, ge=0),
+                             search: str = Query(default="", max_length=300),
+                             severity: str = Query(default="", max_length=20), user=Depends(identity)):
+        row, bundle = owned_bundle(user.tenant_id, ident)
+        ai = (artifacts.get(user.tenant_id, bundle["ai_review"]) if bundle.get("ai_review") else
+              bundle.get("summary", bundle).get("ai", {}))
+        from peaso.storage.sqlite import TERMINAL
+        absent_status = ("in_progress" if row.get("status") not in TERMINAL else
+                         "unavailable" if ai.get("status") == "unavailable" else "not_available")
+        report = ai.get("findings_report") or {"status": absent_status, "issues": []}
+        from .findings_report import page as report_page
+        return report_page(report, offset=offset, limit=limit, search=search, severity=severity, exclusion_offset=exclusion_offset)
 
     @app.get("/api/scans/{ident}/summary")
     def summary(ident: str, aggregation: Literal["none", "check"] = "none", user=Depends(identity)):

@@ -49,6 +49,7 @@ class ConnectorPatch(StrictModel):
 
 class ScanCreate(StrictModel):
     ai_enabled: StrictBool = True
+    ai_findings_report_enabled: StrictBool = True
     ai_priorities_enabled: StrictBool = True
     ai_network_enabled: StrictBool = True
     connector_id: str = Field(min_length=1, max_length=100)
@@ -125,6 +126,7 @@ class ScheduleCreate(ScanCreate):
 
 class SchedulePatch(StrictModel):
     ai_enabled: StrictBool | None = None
+    ai_findings_report_enabled: StrictBool | None = None
     ai_priorities_enabled: StrictBool | None = None
     ai_network_enabled: StrictBool | None = None
     connector_id: str | None = Field(default=None, min_length=1, max_length=100)

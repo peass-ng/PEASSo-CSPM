@@ -8,10 +8,10 @@ function inline(text: string) {
 
 // Render only headings, paragraphs and lists. React escapes all source text;
 // model output never becomes HTML or executable Markdown.
-export function NetworkArchitecture({ text }: { text: string }) {
+export function NetworkArchitecture({ text, label = "Network architecture" }: { text: string; label?: string }) {
   const blocks = text.split(/\n\s*\n/).filter(block => block.trim());
   const structured = blocks.some(block => /^#{2,4}\s/m.test(block));
-  return <section className="network-architecture" aria-label="Network architecture">{blocks.map((block, index) => {
+  return <section className="network-architecture" aria-label={label}>{blocks.map((block, index) => {
     if (structured) {
       const lines = block.trim().split('\n');
       if (lines.every(line => /^[-*]\s/.test(line))) return <ul key={index}>{lines.map((line, item) => <li key={item}>{inline(line.replace(/^[-*]\s/, ''))}</li>)}</ul>;
