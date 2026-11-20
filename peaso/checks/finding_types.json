@@ -1196,6 +1196,7 @@
     "aws.config.service_linked_role": "permissions",
     "aws.ebs.encryption": "encryption",
     "aws.ec2.imdsv2": "workload_hardening",
+    "aws.ec2.prevent_public_snapshot_sharing": "data_privacy",
     "aws.ec2.restrict_internet_ingress": "network",
     "aws.ecr.immutable_tags": "supply_chain",
     "aws.ecr.lifecycle_policy": "asset_lifecycle",
