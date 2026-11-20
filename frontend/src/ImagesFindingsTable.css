@@ -30,5 +30,6 @@
 
 .image-cve-detail { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
 .image-cve-detail dd { margin: 4px 0 14px; }
-.image-cve-detail dt { color: var(--muted); font-size: 11px; }
+.image-cve-detail dt { color: var(--muted); }
+.image-cve-detail .images-findings-secondary { font: inherit; }
 .image-cve-detail a { overflow-wrap: anywhere; color: var(--mint); }
