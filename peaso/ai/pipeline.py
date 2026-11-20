@@ -116,7 +116,7 @@ def _invoke(stage, platform, entries, token, findings, reviews, timeout, *, canc
             on_prepared=None):
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError()
-    if stage == 'findings_report' and entries:
+    if stage in ('findings_report', 'report_combination') and entries:
         raise ValueError('report_live_access_disabled')
     if any(entry.get('provider') == 'aws' for entry in entries):
         raise ValueError('aws_live_ai_access_disabled')
@@ -131,7 +131,7 @@ def _invoke(stage, platform, entries, token, findings, reviews, timeout, *, canc
         isolation.launcher()
         from .providers import validate_before_launch
         token = validate_before_launch(token)
-    categories = {'network': set(), 'priorities': {'hardening', 'exposure'}, 'findings_report': {'hardening', 'exposure'}}
+    categories = {'network': set(), 'priorities': {'hardening', 'exposure'}, 'findings_report': {'hardening', 'exposure'}, 'report_combination': set()}
     if stage not in categories:
         raise ValueError('unknown_ai_stage')
     # Enforce the scope again before creating findings.json. A caller error
@@ -156,7 +156,10 @@ def _invoke(stage, platform, entries, token, findings, reviews, timeout, *, canc
                 prepared_platform = dict(prepared_platform, **{
                     key: without_found_secret_values(prepared_platform[key])
                     for key in ('report', 'source_report', 'snapshot_context') if key in prepared_platform})
-            if stage == 'findings_report':
+            if stage == 'report_combination':
+                from .combined_reports import build
+                build(root, prepared_platform, private_json)
+            elif stage == 'findings_report':
                 from .findings_report import build
                 build(root, prepared_platform, without_found_secret_values(findings), reviews, private_json)
             elif stage == 'priorities':
@@ -229,7 +232,7 @@ def invoke_before_deadline(stage, platform, entries, token, findings, reviews, e
     from .fargate import TaskReuseError, TaskStartupError
     # Fixed labels only: no model input, task identity or exception text enters
     # the numeric recorder. Include startup retries in the stage's wall time.
-    label = {'network': 'ai.network', 'priorities': 'ai.priorities', 'findings_report': 'ai.findings_report'}.get(stage)
+    label = {'network': 'ai.network', 'priorities': 'ai.priorities', 'findings_report': 'ai.findings_report', 'report_combination': 'ai.report_combination'}.get(stage)
     with _runtime_span(label):
         attempt = reuse_fallback = 0
         while True:

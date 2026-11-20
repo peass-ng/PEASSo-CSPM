@@ -1773,7 +1773,8 @@ dd {
   font-size: 10px;
   color: #9eafbb;
 }
-.segmented button[aria-pressed="true"] {
+.segmented button[aria-pressed="true"],
+.segmented button[aria-selected="true"] {
   background: #2b453f;
   color: #bff6dd;
 }
@@ -3725,3 +3726,23 @@ main.network-map-page { max-width: none; width: 100%; min-width: 0; }
 
 .scan-resume-choice { margin: 16px 0; padding: 16px; border: 1px solid var(--line); display: grid; gap: 12px; }
 .badge.credentials_expired { color: #e7c879; border-color: #c6a04c66; background: #c6a04c12; }
+
+.navigation-hint-anchor { min-width: 0; }
+.navigation-hint {
+  position: fixed; z-index: 1600; width: 264px; max-width: calc(100vw - 16px);
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+  color: #e8edf4; background: #14202d; box-shadow: 0 8px 24px #0005;
+  font-size: 12px; line-height: 1.5; pointer-events: none;
+}
+.report-tabs { margin-bottom: 16px; }
+.combined-report-picker { display: grid; gap: 10px; margin: 18px 0; }
+.combined-report-option { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.combined-report-option small, .combined-source-list { display: block; color: var(--muted); line-height: 1.6; }
+.combined-report-option input { margin-top: 4px; }
+.combine-report-modal { width: min(760px, calc(100vw - 32px)); }
+
+.inspector.combine-report-modal { inset: 0; margin: auto; width: min(760px, calc(100vw - 32px)); height: fit-content; max-height: 90dvh; border: 1px solid var(--line); border-radius: 12px; }
+.combine-report-modal form { display: grid; gap: 14px; margin-top: 16px; }
+.combine-report-modal form > label { display: grid; gap: 6px; }
+.combined-report-option input[type="checkbox"] { width: 14px; height: 14px; min-width: 14px; flex: 0 0 14px; margin: 4px 0 0; }
+.combined-report-option > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }

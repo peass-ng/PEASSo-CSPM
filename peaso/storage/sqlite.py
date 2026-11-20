@@ -317,6 +317,13 @@ class SQLiteStore:
                 db.execute("INSERT INTO ai_state VALUES(?,?,?) ON CONFLICT(user,name) DO UPDATE SET value=excluded.value", (user, name, value))
             return True
 
+    def ai_states(self, user, prefix):
+        with self.connect() as db:
+            db.execute("CREATE TABLE IF NOT EXISTS ai_state (user TEXT, name TEXT, value TEXT, PRIMARY KEY(user,name))")
+            return [dict(row) for row in db.execute(
+                "SELECT name,value FROM ai_state WHERE user=? AND name>=? AND name<? ORDER BY name",
+                (user, prefix, prefix + '\uffff'))]
+
     def add_connector(self, tenant, data, encrypted_auth):
         value = dict(data, id=uuid.uuid4().hex, created_at=utc())
         with self.transaction() as db:

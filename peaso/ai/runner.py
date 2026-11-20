@@ -48,11 +48,12 @@ def output_text(result):
 def main():
     started = time.monotonic()
     stage = sys.argv[1]
-    if stage not in ('network', 'priorities', 'findings_report'):
+    if stage not in ('network', 'priorities', 'findings_report', 'report_combination'):
         raise ValueError('unknown_ai_stage')
     root = Path.cwd()
     from .briefing import materialize_context
-    materialize_context(root)
+    if stage != 'report_combination':
+        materialize_context(root)
     from chack_agent import Chack, load_config
     from .prompting import access_instructions, agent_config_path
     auth_path = root / 'codex-auth.json'
@@ -89,7 +90,7 @@ def main():
     # A first correction can fix references but expose another schema error.
     # Allow one further Priorities correction against the same complete inputs;
     # every attempt shares the original deadline and unchanged agent config.
-    attempts = 3 if stage in ('priorities', 'findings_report') else 2
+    attempts = 3 if stage in ('priorities', 'findings_report', 'report_combination') else 2
     # Corrections continue the same agent session. The model then fixes its own
     # candidate with the evidence it already read instead of starting a new
     # thread that must reload the context before it can repair a reference.
@@ -106,7 +107,7 @@ def main():
         configure_runner(config, remaining=remaining)
         result = agent.run(
             'cspm-' + stage, text, exec_cwd=str(root),
-            prompt_variables_override={'access_instructions': access_instructions(entries)},
+            prompt_variables_override={'access_instructions': '' if stage == 'report_combination' else access_instructions(entries)},
         )
         if end - time.monotonic() <= 0:
             raise TimeoutError()
@@ -117,7 +118,7 @@ def main():
             configure_runner(config, remaining=end - time.monotonic())
             result = agent.run(
                 'cspm-' + stage, text, exec_cwd=str(root),
-                prompt_variables_override={'access_instructions': access_instructions(entries)},
+                prompt_variables_override={'access_instructions': '' if stage == 'report_combination' else access_instructions(entries)},
             )
             if end - time.monotonic() <= 0:
                 raise TimeoutError()
@@ -136,11 +137,16 @@ def main():
             private_file(root/'candidate-output.json', data if data is not None else
                          {'unparsed_output': output[:100000]})
             private_file(root/'validation-feedback.json', feedback(error))
-            text = ('Correct candidate-output.json using validation-feedback.json. Both files and all original '
-                    'inputs are in the working directory. Resolve references against original findings/resources '
-                    'with the supplied local reader. Preserve confirmed facts and uncertainty; return the complete '
-                    'requested JSON with valid references, ranks and field limits. Use only read-only access.\n\n'
-                    '### AVAILABLE ACCESS\n' + access_instructions(entries))
+            if stage == 'report_combination':
+                text = ('Correct candidate-output.json using validation-feedback.json and combined-reports.json. '
+                        'Resolve report_id and issue_id against the original issues. Preserve every source issue '
+                        'exactly once and return the complete requested JSON with valid grouping, severities and field limits.')
+            else:
+                text = ('Correct candidate-output.json using validation-feedback.json. Both files and all original '
+                        'inputs are in the working directory. Resolve references against original findings/resources '
+                        'with the supplied local reader. Preserve confirmed facts and uncertainty; return the complete '
+                        'requested JSON with valid references, ranks and field limits. Use only read-only access.\n\n'
+                        '### AVAILABLE ACCESS\n' + access_instructions(entries))
             continue
         private_file(root/'result.json', data)
         return
