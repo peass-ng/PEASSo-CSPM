@@ -12,7 +12,7 @@ from .findings_report import AgentIssue, Exclusion, SPECIAL_KINDS
 from .output_validation import MAX_OUTPUT, private_file
 
 
-def initial_draft(report):
+def initial_draft(report, *, requires_issue=()):
     issues = {
         issue['id']: {key: issue[key] for key in AgentIssue.model_fields if key in issue}
         for issue in report.get('issues', [])
@@ -23,7 +23,9 @@ def initial_draft(report):
         if not 100 <= len(row['reason'].strip()) <= 300:
             continue
         reference = row['reference']
-        exclusions[json.dumps([reference['domain'], reference['id']])] = row
+        key = reference['domain'], reference['id']
+        if key not in requires_issue:
+            exclusions[json.dumps(key)] = row
     return {'issues': issues, 'exclusions': exclusions}
 
 
@@ -80,7 +82,10 @@ def edit(parser, args):
         rows = [{'id': ident, 'title': issue['title']} for ident, issue in issues.items()]
         if args.operation == 'coverage':
             refs = [ref for issue in issues.values() for ref in issue['references']]
-            refs.extend(exclusion['reference'] for exclusion in draft['exclusions'].values())
+            for exclusion in draft['exclusions'].values():
+                ref = exclusion['reference']
+                if not known.get((ref['domain'], ref['id']), {}).get('requires_issue'):
+                    refs.append(ref)
             covered = {(ref['domain'], ref['id']) for ref in refs}
             rows = [row for key, row in known.items() if row['required'] and key not in covered]
         if args.operation == 'sources':
@@ -116,6 +121,8 @@ def edit(parser, args):
             reference = item.reference if args.operation == 'exclude' else item
             key = json.dumps([reference.domain, reference.id])
             if args.operation == 'exclude':
+                if known.get((reference.domain, reference.id), {}).get('requires_issue'):
+                    parser.error('Permission removal evidence must be linked to a finding')
                 draft['exclusions'][key] = item.model_dump()
             else:
                 draft['exclusions'].pop(key, None)

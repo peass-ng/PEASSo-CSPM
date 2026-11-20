@@ -127,9 +127,15 @@ def complete(data, sources, prebuilt, previous_report=None):
                 issue['id'] = previous_id
                 claimed.add(previous_id)
     assets = {(row['domain'], row['id']): row.get('assets', []) for row in sources}
+    recommendations = {row['id']: row.get('permission_recommendations', []) for row in sources
+                       if row['domain'] == 'least_privilege'}
     for issue in value['issues']:
         issue['affected_assets'] = sorted({asset for ref in issue['references']
             for asset in assets.get((ref['domain'], ref['id']), [])})
+        linked_reviews = [item for ref in issue['references'] if ref['domain'] == 'least_privilege'
+                          for item in recommendations.get(ref['id'], [])]
+        if linked_reviews:
+            issue['permission_recommendations'] = linked_reviews
         if 'manual_affected_assets' in issue:
             issue['manual_affected_assets'] = sorted({asset.strip() for asset in issue['manual_affected_assets']}
                                                      - set(issue['affected_assets']))
@@ -190,8 +196,12 @@ def source_index(platform):
                        'confirmed': row.get('status') == 'FAIL', 'required': row.get('status') == 'FAIL' or category in ('hardening', 'exposure', 'network')})
     for index, row in enumerate(platform.get('least_privilege', {}).get('items', [])):
         if row.get('suggestions') or row.get('exposures'):
+            reviews = [dict(item, principal=row['principal'], provider=row.get('provider', report.get('provider')))
+                       for item in row.get('suggestions', []) if item.get('confidence') in
+                       {'provider_recommendation', 'tracked_without_observed_use'} and row.get('principal')]
             result.append({'domain': 'least_privilege', 'id': str(row.get('id', index)),
                            'kind': None, 'confirmed': False, 'required': True, 'actionable': True,
+                           **({'permission_recommendations': reviews} if reviews else {}),
                            'assets': sorted({item for item in [row.get('principal'), *(
                                asset(exposure.get('resource_id')) for exposure in row.get('exposures', []))]
                                if isinstance(item, str) and item})})
@@ -324,11 +334,14 @@ def build(root, platform, findings, reviews, write_json):
         write_json(path, value)
     build_context(root, scoped, [row for row in findings if row['id'] in identifiers],
                   [row for row in reviews if row['finding_id'] in identifiers], write_context)
-    write_json(root / 'report-sources.json', assigned)
+    write_json(root / 'report-sources.json', [dict(
+        {key: val for key, val in row.items() if key != 'permission_recommendations'},
+        **({'requires_issue': True} if row.get('permission_recommendations') else {})) for row in assigned])
     write_json(root / 'analysis-status.json', scoped['analysis_status'])
     write_json(root / 'top-actions.json', scoped['top_actions'])
     from .report_draft import initial_draft
-    write_json(root / 'report-draft.json', initial_draft(platform.get('previous_findings_report') or {}))
+    requires_issue = {(row['domain'], row['id']) for row in assigned if row.get('permission_recommendations')}
+    write_json(root / 'report-draft.json', initial_draft(platform.get('previous_findings_report') or {}, requires_issue=requires_issue))
 
 
 class MissingReportEvidence(ValueError):
@@ -358,6 +371,7 @@ def validate(data, sources):
         if issue['kind'] == 'hardening' and issue['severity'] != 'info':
             raise ValueError('hardening_report_severity')
         issue['id'] = _issue_id(issue['references'])
+    refused = []
     for exclusion in value['exclusions']:
         ref = exclusion['reference']
         key = ref['domain'], ref['id']
@@ -365,7 +379,11 @@ def validate(data, sources):
             raise ValueError('invalid_report_exclusion')
         if not 100 <= len(exclusion['reason'].strip()) <= 300:
             raise ValueError('invalid_report_exclusion')
+        if known[key].get('permission_recommendations'):
+            refused.append(known[key])
         covered.add(key)
+    if refused:
+        raise MissingReportEvidence(refused)
     if not required <= covered:
         raise MissingReportEvidence(known[key] for key in sorted(required - covered))
     value['issues'].sort(key=lambda r: (['critical', 'high', 'medium', 'low', 'info'].index(r['severity']), r['id']))

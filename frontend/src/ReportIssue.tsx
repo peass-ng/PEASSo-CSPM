@@ -11,7 +11,13 @@ type SpecialDetail = {
   label?: string; locations?: string[]; detectors?: string[]; finding_ids: string[];
   report_id?: string; issue_id?: string;
 };
-export type Issue = { id: string; title: string; kind: string; severity: string; status: string; description: string; impact: string; recommendation: string; verification: string; affected_assets?: string[]; manual_affected_assets?: string[]; special_details?: SpecialDetail[]; references: Reference[] };
+type PermissionRecommendation = {
+  principal: string; kind: "permission" | "service" | "role"; value: string;
+  source: string; scope: string; policy?: string; replacement?: string[];
+  last_accessed?: string; last_refreshed?: string; usage_window_end?: string; usage_window_days?: number;
+  confidence: "provider_recommendation" | "tracked_without_observed_use";
+};
+export type Issue = { id: string; title: string; kind: string; severity: string; status: string; description: string; impact: string; recommendation: string; verification: string; affected_assets?: string[]; manual_affected_assets?: string[]; special_details?: SpecialDetail[]; permission_recommendations?: PermissionRecommendation[]; references: Reference[] };
 export const issueKinds: Record<string, string> = { vulnerability: "Security issue", hardening: "Hardening suggestion", leaks: "Leaks", image_cves: "Image CVEs" };
 export function SourceFinding({ scanId, id, onClose, onInspect }: { scanId: string; id: string; onClose: () => void; onInspect: (id: string) => void }) {
   const query = useApi<Finding>(`/scans/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(id)}`, false);
@@ -59,6 +65,30 @@ function SpecialDetails({ rows, onInspect }: {
   </>;
 }
 
+function PermissionRecommendations({ items }: { items: PermissionRecommendation[] }) {
+  const [limit, setLimit] = useState(5);
+  return <><h4>Access to review for removal</h4>
+    <p>Confirm workload and emergency access needs before changing a grant.</p>
+    <div className="table-scroll"><table className="findings-table">
+      <thead><tr><th>Principal and scope</th><th>Access</th><th>Usage evidence</th></tr></thead>
+      <tbody>{items.slice(0, limit).map((item, index) => <tr key={index}>
+        <td><code>{item.principal}</code><div className="muted small">{item.scope}</div></td>
+        <td><code>{item.value}</code>{item.policy && <div className="muted small">{item.policy}</div>}
+          {!!item.replacement?.length && <div>Replace with {item.replacement.join(", ")}</div>}</td>
+        <td>{item.confidence === "tracked_without_observed_use" ? "No use observed for this tracked action" : "Provider recommendation"}
+          <div className="muted small">{item.source}</div>
+          {item.last_accessed && <div>Last accessed {item.last_accessed}</div>}
+          {item.last_refreshed && <div>Refreshed {item.last_refreshed}</div>}
+          {item.usage_window_days && <div>{item.usage_window_days}-day observation window</div>}
+          {item.usage_window_end && <div>Report completed {item.usage_window_end}</div>}</td>
+      </tr>)}</tbody>
+    </table></div>
+    {items.length > 5 && <button type="button" className="text-button" aria-expanded={limit > 5}
+      onClick={() => setLimit(limit < items.length ? limit + 25 : 5)}>
+      {limit < items.length ? `Show ${Math.min(items.length - limit, 25)} more` : "Show fewer"}
+    </button>}</>;
+}
+
 export function IssueBody({ issue, onInspectDetails }: { issue: Omit<Issue, "references">; onInspectDetails?: (row: SpecialDetail) => void }) {
   return <><Badge value={issue.severity} /><p>{issue.status === "confirmed" ? "Confirmed configuration" : "Needs review"} · {issueKinds[issue.kind] || issue.kind}</p>
     <h3>Description and affected scope</h3><NetworkArchitecture label="Issue description" markdown text={issue.description} />
@@ -67,6 +97,7 @@ export function IssueBody({ issue, onInspectDetails }: { issue: Omit<Issue, "ref
     {!!issue.manual_affected_assets?.length && <AffectedAssets title="Agent-added affected assets" assets={issue.manual_affected_assets} />}
     <h3>Impact</h3><NetworkArchitecture label="Issue impact" markdown text={issue.impact} />
     <h3>Recommendation</h3><NetworkArchitecture label="Issue recommendation" markdown text={issue.recommendation} />
+    {!!issue.permission_recommendations?.length && <PermissionRecommendations items={issue.permission_recommendations} />}
     <h3>Verification</h3><NetworkArchitecture label="Issue verification" markdown text={issue.verification} /></>;
 }
 

@@ -1,6 +1,6 @@
 """Principal-centric, evidence-bound suggestions for reducing standing access.
 
-Only provider recommendations and unused-access findings become removal advice.
+Provider recommendations and explicit tracked-action observations support review.
 Declared broad grants without usage evidence remain review candidates.
 """
 from __future__ import annotations
@@ -35,7 +35,7 @@ def project(provider, resources, snapshot=None):
             card["suggestions"].append(suggestion)
 
     if provider == "aws":
-        coverage["limitations"].append("Only ACTIVE findings from an UNUSED_ACCESS analyzer support unused-permission advice. Temporary analyzers wait at least three minutes; initial findings may still be incomplete.")
+        coverage["limitations"].append("Access Analyzer recommendations require active unused-access findings. Temporary analyzers may still be completing initial analysis when scanned. Dated IAM reports can flag tracked actions with no observed attempt for removal review.")
         analyzers = 0
         for row in resources:
             if row.get("type") != "access_analyzer":
@@ -48,6 +48,8 @@ def project(provider, resources, snapshot=None):
                 if not isinstance(finding, Mapping) or finding.get("status") != "ACTIVE" or finding.get("findingType") != "UnusedPermission":
                     continue
                 principal = _text(finding.get("resource"))
+                observation = ((data.get("configuration") or {}).get("unusedAccess") or {}).get("unusedAccessAge")
+                window = {"usage_window_days": observation} if type(observation) is int and observation > 0 else {}
                 details = finding.get("UnusedPermissionDetails") or {}
                 if not isinstance(details, Mapping) or details.get("collection_status") not in {"collected", "empty", "partial"}:
                     continue
@@ -64,12 +66,12 @@ def project(provider, resources, snapshot=None):
                         add(principal, row.get("scope", ""), {"kind": "permission", "value": permission,
                             "source": "AWS IAM Access Analyzer unused access", "evidence_id": finding.get("id"),
                             "last_accessed": action.get("lastAccessed"), "confidence": "provider_recommendation",
-                            "details_complete": details.get("collection_status") in {"collected", "empty"}})
+                            "details_complete": details.get("collection_status") in {"collected", "empty"}, **window})
                     if not unused.get("actions") and namespace:
                         add(principal, row.get("scope", ""), {"kind": "service", "value": namespace,
                             "source": "AWS IAM Access Analyzer unused access", "evidence_id": finding.get("id"),
                             "last_accessed": unused.get("lastAccessed"), "confidence": "provider_recommendation",
-                            "details_complete": details.get("collection_status") in {"collected", "empty"}})
+                            "details_complete": details.get("collection_status") in {"collected", "empty"}, **window})
         coverage["unused_access_analyzers"] = analyzers
     elif provider == "gcp":
         coverage["limitations"].append("IAM Recommender proposes role removal or replacement; individual permissions are shown only when the provider supplies them. Review conditions and business need before applying.")
@@ -170,4 +172,8 @@ def project(provider, resources, snapshot=None):
         card["scopes"].sort()
         card["suggestions"].sort(key=lambda x: (x["kind"], x["value"]))
         card["recommendation_count"] = sum(s["confidence"] == "provider_recommendation" for s in card["suggestions"])
-    return {"items": output, "total": len(output), "coverage": coverage}
+    projection = {"items": output, "total": len(output), "coverage": coverage}
+    if provider == 'aws':
+        from peaso.least_privilege_permissions import with_aws_tracked_reviews
+        projection = with_aws_tracked_reviews(projection, normalized, snapshot.get('created_at'))
+    return projection

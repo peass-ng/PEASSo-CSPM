@@ -373,6 +373,38 @@ def enrich(card, provider, resources, observed_at, *, _rows=None, _usage=None):
         observed_at=observed_at, identity_last_used=identity_last_used)
 
 
+def with_aws_tracked_reviews(projection, resources, observed_at):
+    """Augment existing and newly generated cards from the same saved inventory."""
+    cards = projection['items']
+    if all('tracked_review_count' in card for card in cards):
+        return projection
+    keep = permission_input_filter('aws', cards)
+    rows = [{**row, 'provider': 'aws'} for row in resources if keep(row) and isinstance(row.get('data'), dict)]
+    if not any(service.get('TrackedActionsUnobserved') for row in rows if row['type'] in {'iam_role', 'iam_user'}
+               for service in row['data'].get('ServicesLastAccessed', []) if isinstance(service, dict)):
+        return projection
+    usage = _usage_index('aws', rows)
+    return dict(projection, items=[with_aws_tracked_card_reviews(card, enrich(card, 'aws', rows, observed_at,
+                _rows=rows, _usage=usage)['high_risk_permissions']) for card in cards])
+
+
+def with_aws_tracked_card_reviews(card, permissions):
+    """Use only explicit principal/action observations with a dated report."""
+    suggestions = list(card.get('suggestions', []))
+    known = {(s['value'].casefold(), s['scope'], s.get('policy')) for s in suggestions if s['kind'] == 'permission'}
+    for entry in permissions:
+        if entry.get('usage_status') != 'not_observed' or _date(entry.get('usage_window_end')) is None:
+            continue
+        key = entry['permission'].casefold(), entry['scope'], entry['group_key']
+        if key not in known:
+            known.add(key)
+            suggestions.append({'kind': 'permission', 'value': entry['permission'], 'scope': entry['scope'],
+                'policy': entry['group_key'], 'source': 'AWS IAM action report',
+                'usage_window_end': entry['usage_window_end'], 'confidence': 'tracked_without_observed_use'})
+    return dict(card, suggestions=suggestions, tracked_review_count=sum(
+        s['confidence'] == 'tracked_without_observed_use' for s in suggestions))
+
+
 def permission_input_filter(provider, cards):
     """Keep all AWS grant/usage records and exact exposure-label targets."""
     if provider != 'aws' or cards is None:
