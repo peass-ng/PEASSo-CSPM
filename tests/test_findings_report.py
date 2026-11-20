@@ -407,6 +407,8 @@ def test_fixed_reports_show_counts_and_leak_locations_without_values():
     cves = results['image_cves']
     assert cves['special_details'][0]['counts'] == {'critical': 0, 'high': 1, 'medium': 3}
     assert '1 high, 3 medium' in cves['description']
+    assert '0 critical' not in cves['description']
+    assert 'Some container images include software with known security flaws.' in cves['description']
     assert cves['affected_assets'] == ['registry/image']
     leaks = results['leaks']
     assert 'settings.yaml:12' in leaks['description']
