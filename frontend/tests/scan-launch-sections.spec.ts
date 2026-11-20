@@ -34,6 +34,8 @@ test("assessment sections control the submitted scan work", async ({ page }) => 
   expect(submitted?.categories).not.toContain("network");
   expect(submitted?.categories).toContain("hardening");
   expect(submitted?.ai_priorities_enabled).toBe(false);
+  expect(submitted?.ai_findings_report_enabled).toBe(true);
+  expect(submitted?.ai_enabled).toBe(true);
 });
 
 test("scan actions use an icon grid at the right edge", async ({ page }) => {

@@ -28,6 +28,7 @@ def test_smoke_rejects_collection_or_scan_selection(monkeypatch, arguments):
 def test_live_acceptance_requires_the_complete_pipeline(monkeypatch):
     from peaso.ai import pipeline
     completed = {'status': 'completed', 'network': {'status': 'completed'},
+                 'findings_report': {'status': 'completed'},
                  'actions': [], 'native_final': {'hardening': ['hard'], 'exposure': ['exposed']},
                  'reviews': {'hardening': [{}], 'exposure': [{}]},
                  'stage_inputs': {'hardening': [], 'exposure': []}, 'coverage': {'total': 2}}

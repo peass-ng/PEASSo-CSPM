@@ -433,6 +433,7 @@ export function LaunchForm({
     schedule?.categories || categories.map((c) => c.id),
   );
   const [aiEnabled, setAiEnabled] = useState(schedule?.ai_enabled ?? true);
+  const [aiReportEnabled, setAiReportEnabled] = useState(schedule?.ai_findings_report_enabled ?? true);
   const [aiPrioritiesEnabled, setAiPrioritiesEnabled] = useState(schedule?.ai_priorities_enabled ?? true);
   const [aiNetworkEnabled, setAiNetworkEnabled] = useState(schedule?.ai_network_enabled ?? true);
   const codex = useApi<{ available: boolean; disabled?: boolean; isolation_available?: boolean }>("/ai/codex", demo);
@@ -494,7 +495,7 @@ export function LaunchForm({
       return setError("Select at least one assessment category or content analysis.");
     if (isSchedule && rules.some(rule => !rule.time || (rule.frequency === "weekly" && !rule.weekdays?.length)))
       return setError("Choose a time for each rule and at least one weekday for every weekly rule.");
-    const aiWorkSelected = aiPrioritiesEnabled ||
+    const aiWorkSelected = aiReportEnabled || aiPrioritiesEnabled ||
       (selected.includes("network") && aiNetworkEnabled);
     const namedChecks = checks.split(",").map((s) => s.trim()).filter(Boolean);
     const selectedContentChecks = namedChecks.length
@@ -502,6 +503,7 @@ export function LaunchForm({
     mutation.mutate({
       connector_id: connector,
       ai_enabled: aiAvailable && aiEnabled && aiWorkSelected,
+      ai_findings_report_enabled: aiReportEnabled,
       ai_priorities_enabled: aiPrioritiesEnabled,
       ai_network_enabled: aiNetworkEnabled,
       categories: selected,
@@ -553,7 +555,7 @@ export function LaunchForm({
           <p className="muted small">{resumePrevious ? "Keeps the same scan and saved results. Only unfinished work runs, using the original check selection and the connector’s current credentials." : "Collects fresh evidence and creates a new scan."}</p>
         </fieldset>}
         {!resumePrevious && <>
-        <label className="checkbox"><input type="checkbox" checked={aiAvailable && aiEnabled} disabled={!aiAvailable} onChange={event => setAiEnabled(event.target.checked)} />Use AI for Network analysis and prioritized actions</label>
+        <label className="checkbox"><input type="checkbox" checked={aiAvailable && aiEnabled} disabled={!aiAvailable} onChange={event => setAiEnabled(event.target.checked)} />Use AI for network analysis, prioritized actions and the Findings Report</label>
         {!aiAvailable && <p className="muted small">{codex.isPending ? "Checking AI access…" : codex.data?.disabled ? "AI review is disabled for every scan in Settings." : codex.data?.isolation_available === false ? "AI checks are unavailable until the platform administrator configures isolated agent execution." : "Configure an AI provider, model and thinking effort in Settings to enable AI checks."}</p>}
         <section className="assessment-config-section" aria-labelledby="hardening-config-title">
           <div className="assessment-section-heading"><span>01</span><div><h3 id="hardening-config-title">Hardening &amp; Compliance</h3><p>Select the checks to run for this environment.</p></div></div>
@@ -623,6 +625,8 @@ export function LaunchForm({
         <section className="assessment-config-section" aria-labelledby="analysis-config-title">
           <div className="assessment-section-heading"><span>02</span><div><h3 id="analysis-config-title">Other analyses</h3><p>Turn each analysis on or off for this assessment.</p></div></div>
           <div className="assessment-category-grid">
+            <label className="checkbox"><input type="checkbox" checked={aiAvailable && aiEnabled && aiReportEnabled}
+              disabled={!aiAvailable || !aiEnabled} onChange={event => setAiReportEnabled(event.target.checked)} />Findings Report <small>Uses AI after all analyses finish</small></label>
             <label className="checkbox"><input type="checkbox" checked={aiAvailable && aiEnabled && aiPrioritiesEnabled}
               disabled={!aiAvailable || !aiEnabled} onChange={(event) => setAiPrioritiesEnabled(event.target.checked)} />Top 15 Actions <small>Uses AI</small></label>
             {analysisCategories.map((category) => <label key={category.id} className="checkbox">

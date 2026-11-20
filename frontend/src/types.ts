@@ -191,6 +191,7 @@ export type Scan = {
   resumable?: boolean;
   ai_enabled?: boolean;
   ai_network_enabled?: boolean;
+  ai_findings_report_enabled?: boolean;
   ai_priorities_enabled?: boolean;
   error_code?: string;
   created_at: string;
@@ -210,6 +211,7 @@ export type ScheduleRule = {
 export type Schedule = {
   last_error?: string | null;
   ai_enabled?: boolean;
+  ai_findings_report_enabled?: boolean;
   ai_priorities_enabled?: boolean;
   ai_network_enabled?: boolean;
   id: string;

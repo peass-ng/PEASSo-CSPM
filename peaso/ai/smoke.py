@@ -23,12 +23,13 @@ def main():
     reviews = result.get('reviews', {})
     if (result.get('status') != 'completed' or result.get('network', {}).get('status') != 'completed'
             or not isinstance(result.get('actions'), list)
+            or result.get('findings_report', {}).get('status') != 'completed'
             or len(native.get('hardening', [])) != 1 or len(native.get('exposure', [])) != 1
             or len(reviews.get('hardening', [])) != 1 or len(reviews.get('exposure', [])) != 1
             or result.get('stage_inputs') != {'hardening': [], 'exposure': []}
             or result.get('coverage', {}).get('total') != 2):
         raise RuntimeError('isolated_live_pipeline_smoke_failed')
-    print(json.dumps({'status': 'passed', 'model_stages': ['network', 'priorities'],
+    print(json.dumps({'status': 'passed', 'model_stages': ['network', 'priorities', 'findings_report'],
                       'native_final_categories': ['hardening', 'exposure']}))
 
 

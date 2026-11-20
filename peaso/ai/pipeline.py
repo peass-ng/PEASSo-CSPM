@@ -116,6 +116,8 @@ def _invoke(stage, platform, entries, token, findings, reviews, timeout, *, canc
             on_prepared=None):
     if cancel_event is not None and cancel_event.is_set():
         raise CancelledError()
+    if stage == 'findings_report' and entries:
+        raise ValueError('report_live_access_disabled')
     if any(entry.get('provider') == 'aws' for entry in entries):
         raise ValueError('aws_live_ai_access_disabled')
     stop_at = time.monotonic() + timeout
@@ -129,7 +131,7 @@ def _invoke(stage, platform, entries, token, findings, reviews, timeout, *, canc
         isolation.launcher()
         from .providers import validate_before_launch
         token = validate_before_launch(token)
-    categories = {'network': set(), 'priorities': {'hardening', 'exposure'}}
+    categories = {'network': set(), 'priorities': {'hardening', 'exposure'}, 'findings_report': {'hardening', 'exposure'}}
     if stage not in categories:
         raise ValueError('unknown_ai_stage')
     # Enforce the scope again before creating findings.json. A caller error
@@ -154,7 +156,10 @@ def _invoke(stage, platform, entries, token, findings, reviews, timeout, *, canc
                 prepared_platform = dict(prepared_platform, **{
                     key: without_found_secret_values(prepared_platform[key])
                     for key in ('report', 'source_report', 'snapshot_context') if key in prepared_platform})
-            if stage == 'priorities':
+            if stage == 'findings_report':
+                from .findings_report import build
+                build(root, prepared_platform, without_found_secret_values(findings), reviews, private_json)
+            elif stage == 'priorities':
                 from .briefing import build
                 build(root, prepared_platform, without_found_secret_values(findings), reviews, private_json)
             elif stage == 'network':
@@ -224,7 +229,7 @@ def invoke_before_deadline(stage, platform, entries, token, findings, reviews, e
     from .fargate import TaskReuseError, TaskStartupError
     # Fixed labels only: no model input, task identity or exception text enters
     # the numeric recorder. Include startup retries in the stage's wall time.
-    label = {'network': 'ai.network', 'priorities': 'ai.priorities'}.get(stage)
+    label = {'network': 'ai.network', 'priorities': 'ai.priorities', 'findings_report': 'ai.findings_report'}.get(stage)
     with _runtime_span(label):
         attempt = reuse_fallback = 0
         while True:
@@ -553,16 +558,16 @@ def review_network(report, entries, token, network, end, *, cancel_event=None):
 
 
 def selected_stages(selectors, stages=None):
-    """Only Network and Priorities use model agents."""
+    """The report runs only in the final review, after the selected analyses."""
     if stages is not None:
-        selected = set(stages) & {'network', 'priorities'}
+        selected = set(stages) & {'network', 'priorities', 'findings_report'}
         if 'priorities' in selected:
             selected.add('network')
         return frozenset(selected)
     categories = set(selectors.get('categories') or ())
     if not categories:
         categories = {'hardening', 'exposure', 'network'}
-    selected = set()
+    selected = {'findings_report'} if selectors.get('ai_findings_report_enabled', True) else set()
     if 'network' in categories and selectors.get('ai_network_enabled', True):
         selected.add('network')
     if selectors.get('ai_priorities_enabled', True):
@@ -586,6 +591,11 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
     result = {'version': 1, 'status': 'skipped', 'actions': [],
               'reviews': {'hardening': [], 'exposure': []}, 'limitations': [],
               'duplicates': {}, 'auth_source': None}
+    if 'findings_report' in selected:
+        from .findings_report import pregenerate
+        prebuilt = pregenerate({'report': report})
+        if prebuilt['issues']:
+            result['findings_report'] = prebuilt
     if not selectors.get('ai_enabled', True):
         result['reason'] = 'disabled_for_scan'
         return result
@@ -605,6 +615,11 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
     result['coverage'] = {'hardening': len(hardening), 'exposure': len(exposure) + len(duplicates),
                           'reviewed': len(reviewed), 'native_final': len(reviewed),
                           'model_reviewed': 0, 'total': len(reviewed)}
+    report_context = (reused_stages or {}).get('findings_report_context') if selected == {'findings_report'} else None
+    if isinstance(report_context, dict):
+        result['network'] = copy.deepcopy(report_context.get('network'))
+        result['actions'] = copy.deepcopy(report_context.get('actions', []))
+        result['limitations'].extend(report_context.get('limitations', []))
     chain = chain_token = None
     try:
         from peaso.storage.runtime import stores
@@ -642,9 +657,13 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         from .review_groups import publish_reserve, stage_limit
         until_deadline = deadline - time.time() if deadline else 0
         end = min(time.monotonic() + int(os.getenv('PEASO_AI_TIMEOUT_SECONDS',
-                  '600' if isolation.remote() else '300')),
+                  '3000' if isolation.remote() else '600')),
                   time.monotonic() + max(0, until_deadline - publish_reserve(until_deadline, isolation.remote()))
                   if deadline else float('inf'))
+        # Keep part of the shared deadline for compilation even when an upstream
+        # agent exhausts its budget. Publication retains its existing reserve.
+        analysis_end = end - min(stage_limit('findings_report', isolation.remote()),
+            max(0, end - time.monotonic()) * .3) if 'findings_report' in selected else end
         from .network import prepare, with_findings, snapshot_context
         network = None
         if 'network' in selected:
@@ -687,8 +706,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             return None
         if network is not None and 'network' not in result:
             try:
-                review_end = end - min(600 if isolation.remote() else 60,
-                    max(0, end - time.monotonic()) * (.3 if isolation.remote() else .2))
+                review_end = analysis_end - min(600 if isolation.remote() else 60,
+                    max(0, analysis_end - time.monotonic()) * (.3 if isolation.remote() else .2))
                 kwargs = {'cancel_event': cancel_event} if cancel_event is not None else {}
                 result['network'], failed_stage = review_network(report, entries, token, network,
                     review_end, **kwargs)
@@ -701,8 +720,10 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         result['network'] = result.get('network') or {
             'status': 'not_available', 'explanation': '', 'findings': [],
             'reason': 'network_inventory_unavailable'}
+        priorities_status = 'completed' if report_context is not None else 'not_requested'
         priorities_report = with_findings(report, result['network']['findings'])
         if 'priorities' in selected and not _priorities_have_evidence(priorities_report, reviewed, network):
+            priorities_status = 'skipped_no_actionable_evidence'
             result['limitations'].append(
                 'Prioritized recommendations were skipped because collected evidence supports no actionable finding.')
         elif 'priorities' in selected:
@@ -723,18 +744,51 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                 # and process isolation contract.
                 platform = priorities_platform if isolation.remote() else priorities_platform()
                 data = invoke_before_deadline('priorities', platform, entries, token,
-                    hardening + exposure, reviewed, end, stage_limit('priorities', isolation.remote()),
+                    hardening + exposure, reviewed, analysis_end, stage_limit('priorities', isolation.remote()),
                     **({key: value for key, value in
                         (('cancel_event', cancel_event), ('on_prepared', on_prepared)) if value is not None}))
                 recommendations = validate_actions(data, priorities_report, reviewed,
                                                     require_assessment=True)
+                priorities_status = 'completed'
                 result['actions'] = recommendations['actions']
                 result['limitations'].extend(recommendations['limitations'])
             except Exception as exc:
                 # Exception class only: messages may carry model or tenant data.
+                priorities_status = 'unavailable'
                 LOGGER.warning('AI priorities stage failed: %s', type(exc).__name__)
                 failed_stage = True
                 result['limitations'].append('Prioritized recommendations could not be completed.')
+        if 'findings_report' in selected:
+            try:
+                from peaso.least_privilege import project
+                from .findings_report import source_index, pregenerate, agent_sources, complete
+                report_least = report_context.get('least_privilege') if isinstance(report_context, dict) else None
+                platform = {'report': priorities_report, 'inventory': inventory,
+                            'snapshot_context': snapshot_context(snapshot),
+                            'least_privilege': report_least if isinstance(report_least, dict) else project(report['provider'], inventory, snapshot=snapshot),
+                            'network_review': result['network'], 'top_actions': result['actions'],
+                            'analysis_status': {'network': result['network'].get('status'),
+                                'priorities': priorities_status, 'limitations': result['limitations']}}
+                sources = source_index(platform)
+                prebuilt = pregenerate(platform, sources)
+                result['findings_report'] = prebuilt
+                if agent_sources(sources):
+                    if review_concurrency() == 0:
+                        raise MemoryError('ai_memory_headroom_unavailable')
+                    data = invoke_before_deadline('findings_report', platform, [], token,
+                        hardening + exposure, reviewed, end, stage_limit('findings_report', isolation.remote()),
+                        **({'cancel_event': cancel_event} if cancel_event is not None else {}))
+                    result['findings_report'] = complete(data, sources, prebuilt)
+                    result['findings_report']['limitations'] = list(dict.fromkeys(
+                        result['limitations'] + result['findings_report']['limitations']))
+                else:
+                    result['findings_report'] = dict(prebuilt, status='completed', limitations=list(result['limitations']))
+            except Exception as exc:
+                LOGGER.warning('AI findings report failed: %s', type(exc).__name__)
+                failed_stage = True
+                prebuilt = result.get('findings_report') or {'issues': []}
+                result['findings_report'] = dict(prebuilt, status='partial' if prebuilt['issues'] else 'unavailable',
+                    limitations=['Compilation of remaining issues could not be completed. Pre-generated findings and native evidence remain available.'])
         result['status'] = 'partial' if failed_stage else 'completed'
         secrets = [credential_value(token), *getattr(getattr(token, 'guard', None), 'secrets', ())] + [value for entry in entries for key, value in entry.items()
             if key in ('token', 'aws_access_key_id', 'aws_secret_access_key', 'aws_session_token') and isinstance(value, str)]
@@ -747,6 +801,9 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         return sanitized
     except Exception:
         result.update(status='unavailable', reason='ai_setup_unavailable', actions=[])
+        if result.get('findings_report'):
+            result['findings_report']['limitations'].append(
+                'Model compilation is unavailable; pre-generated findings are retained.')
         result['limitations'].append('AI authentication, runtime or scan context is unavailable. Native findings remain final.')
         return result
     finally:

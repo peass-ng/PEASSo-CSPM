@@ -77,6 +77,7 @@ export function CodexSettings() {
         <li><strong>Hardening &amp; compliance:</strong> rechecks failed findings against collected evidence and, where permitted, verifies cloud configuration.</li>
         <li><strong>Exposure:</strong> reviews failed exposure findings and verifies whether the recorded configuration supports them.</li>
         <li><strong>Network architecture:</strong> explains VPCs and subnets and recommends architecture and segmentation improvements.</li>
+        <li><strong>Findings Report:</strong> compiles completed scan analyses into evidence-backed issues, grouping leaks and image CVEs.</li>
         <li><strong>Top 15 Actions:</strong> prioritizes security improvements and provides an action plan for each.</li>
       </ul>
       <p className="muted small">AI-enabled scans share captured evidence with the selected AI provider. AWS AI reviews use captured evidence only. Eligible GCP, Azure and Kubernetes connectors may allow targeted read-only verification; native checks still use the connector's cloud access.</p>

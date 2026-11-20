@@ -34,7 +34,7 @@ def workflow(terraform):
     assert bounds == {"workflow_seconds": 7200, "stage_seconds": 7200, "lease_seconds": 7500}
     compiled = json.loads(definition)
     parallel = compiled["States"]["ScanStages"]
-    assert parallel["Type"] == "Parallel" and compiled["StartAt"] == "ScanStages"
+    assert parallel["Type"] == "Parallel" and compiled["StartAt"] == "AssessmentMode"
     assert [branch["StartAt"] for branch in parallel["Branches"]] == ["Collect", "Analyze"]
     assert parallel["Branches"][0]["States"]["Collect"]["TimeoutSeconds"] == bounds["stage_seconds"]
     assert parallel["Branches"][1]["States"]["Analyze"]["TimeoutSeconds"] == bounds["workflow_seconds"]
@@ -249,7 +249,7 @@ def run_failure(workflow, stage, failure, terminal=None, *, terminal_race=False)
             assert persisted["history"][-1]["status"] == "failed"
         assert private not in json.dumps(persisted)
         assert states["Collect" if stage == "collector" else "Analyze"]["Type"] == "Task"
-        assert workflow["StartAt"] == "ScanStages"
+        assert workflow["StartAt"] == "AssessmentMode"
         expected_end = {"cancelled": "Cancelled", "completed": "Succeeded"}.get(terminal, "Failed")
         assert visited[-1] == expected_end
         assert ("MarkFailed" in visited) == (not terminal or terminal_race)

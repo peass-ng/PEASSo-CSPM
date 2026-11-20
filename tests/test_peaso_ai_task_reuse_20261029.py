@@ -517,6 +517,12 @@ def test_progressive_handoff_reuses_only_this_scans_descriptor(
             kwargs['retain']['task'] = {'version': 1, 'task': TASK_ARN, 'ident': 'b' * 32,
                                         'binding': kwargs['task_binding'], 'ready_until': time.time() + 90}
             return network_output
+        if stage == 'findings_report':
+            kwargs['prepare']()
+            sources = json.loads((root / 'report-sources.json').read_text())
+            return {'summary': 'Evidence reviewed.', 'issues': [], 'limitations': [],
+                    'exclusions': [{'reference': {'domain': row['domain'], 'id': row['id']},
+                                    'reason': 'Requires owner validation.'} for row in sources if row['required']]}
         return {'actions': [], 'limitations': []}
 
     monkeypatch.setattr(fargate, 'invoke', invoke)
@@ -529,7 +535,7 @@ def test_progressive_handoff_reuses_only_this_scans_descriptor(
         seen.clear()
         final = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2],
                                      reused_stages={'network': reused}, scan_id=scan)
-        assert seen == [('priorities', expected, False)]
+        assert seen == [('priorities', expected, False), ('findings_report', None, False)]
         assert 'task_reuse' not in json.dumps(final)
 
 

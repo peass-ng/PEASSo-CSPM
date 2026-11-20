@@ -48,7 +48,7 @@ def output_text(result):
 def main():
     started = time.monotonic()
     stage = sys.argv[1]
-    if stage not in ('network', 'priorities'):
+    if stage not in ('network', 'priorities', 'findings_report'):
         raise ValueError('unknown_ai_stage')
     root = Path.cwd()
     from .briefing import materialize_context
@@ -89,7 +89,7 @@ def main():
     # A first correction can fix references but expose another schema error.
     # Allow one further Priorities correction against the same complete inputs;
     # every attempt shares the original deadline and unchanged agent config.
-    attempts = 3 if stage == 'priorities' else 2
+    attempts = 3 if stage in ('priorities', 'findings_report') else 2
     # Corrections continue the same agent session. The model then fixes its own
     # candidate with the evidence it already read instead of starting a new
     # thread that must reload the context before it can repair a reference.

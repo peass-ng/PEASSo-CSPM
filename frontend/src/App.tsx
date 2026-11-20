@@ -13,6 +13,7 @@ import {
   Layers,
   Loader2,
   ListChecks,
+  FileText,
   Network,
   ScanLine,
   Radar,
@@ -40,6 +41,7 @@ const PrivescMap = lazy(() =>
   import("./PrivescMap").then((m) => ({ default: m.PrivescMap })),
 );
 import { AiReview, NetworkAiReview } from "./AiReview";
+import { FindingsReport } from "./FindingsReport";
 import { Scans } from "./Scans";
 import { Settings } from "./Settings";
 import type { Connector, Me, Report, Scan, Workspace } from "./types";
@@ -74,7 +76,8 @@ const pages = [
     icon: ScanLine,
     description: "Assess, monitor and revisit your cloud posture.",
   },
-  { label: "Top 15 Actions", icon: ListChecks, ai: true, group: "SECURITY INSIGHTS", description: "Review the security changes to prioritize." },
+  { label: "Findings Report", icon: FileText, ai: true, group: "SECURITY INSIGHTS", description: "Review consolidated, evidence-backed issues from the completed scan." },
+  { label: "Top 15 Actions", icon: ListChecks, ai: true, description: "Review the security changes to prioritize." },
   {
     label: "Hardening & Compliance",
     icon: ShieldCheck,
@@ -204,7 +207,7 @@ export function App() {
       query.queryKey.some((part) => typeof part === "string" && part.startsWith(`/scans/${encodeURIComponent(scanId)}/summary`)) });
   }, [client, demo, scanId, scanStatus]);
   const running = !!current && !["completed", ...partialTerminal].includes(current.status) && hasResult(current);
-  const aiRequested = current?.ai_enabled !== false && (current?.ai_network_enabled !== false || current?.ai_priorities_enabled !== false);
+  const aiRequested = current?.ai_enabled !== false && (current?.ai_network_enabled !== false || current?.ai_priorities_enabled !== false || current?.ai_findings_report_enabled !== false);
   const aiInProgress = running && aiRequested && report.data?.publication?.phase === "analyzing";
   const pageInfo = pages.find((p) => p.label === page) || pages[0];
   function navigate(p: string) {
@@ -260,6 +263,7 @@ export function App() {
     "Leaks",
     "Images CVEs",
     "Top 15 Actions",
+    "Findings Report",
     "Network Architecture",
     "Least Privilege",
     "Privilege Escalation Map",
@@ -496,6 +500,7 @@ export function App() {
           )}
           {pageInfo.ai && codex.isPending && signedIn && <State loading />}
           {page === "Images CVEs" && <ImagesFindings key={`${scanId}:${demo}`} scanId={scanId} demo={demo} />}
+          {aiAvailable && page === "Findings Report" && <FindingsReport key={scanId} scanId={scanId} demo={demo} canLaunch={canWriteWorkspace && current?.status === "completed"} />}
           {aiAvailable && page === "Top 15 Actions" && <AiReview key={scanId} scanId={scanId} demo={demo} />}
           {aiAvailable && page === "Network Architecture" && <NetworkAiReview key={scanId} scanId={scanId} demo={demo} />}
           {page === "Least Privilege" && <LeastPrivilege scanId={scanId} demo={demo} />}

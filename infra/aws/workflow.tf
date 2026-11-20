@@ -146,9 +146,26 @@ resource "aws_sfn_state_machine" "scan" {
   type     = "STANDARD"
   definition = jsonencode({
     Comment        = "Bounded collection and progressive analysis run concurrently with separate credentials"
-    StartAt        = "ScanStages"
+    StartAt        = "AssessmentMode"
     TimeoutSeconds = var.scan_runtime_limits.workflow_seconds
     States = {
+      AssessmentMode = {
+        Type    = "Choice"
+        Choices = [{ Variable = "$.report_generation", IsPresent = true, Next = "GenerateReport" }]
+        Default = "ScanStages"
+      }
+      GenerateReport = merge(local.run_tasks.analyzer, {
+        Parameters = merge(local.run_tasks.analyzer.Parameters, {
+          Overrides = { ContainerOverrides = [{
+            Name        = "analyzer"
+            "Command.$" = "States.Array('analyzer', '--findings-report-generation', $.report_generation, '--tenant-id', $.tenant_id, '--scan-id', $.scan_id)"
+          }] }
+        })
+        Catch = [{ ErrorEquals = ["States.ALL"], ResultPath = "$.failure", Next = "ReportFailed" }]
+        Next  = "ReportSucceeded"
+      })
+      ReportSucceeded = { Type = "Succeed" }
+      ReportFailed    = { Type = "Fail", Error = "ReportGenerationFailed", Cause = "Findings Report generation did not complete" }
       ScanStages = {
         Type       = "Parallel"
         ResultPath = null

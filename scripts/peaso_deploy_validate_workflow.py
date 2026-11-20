@@ -108,7 +108,7 @@ def compile_definition(root: Path, terraform: str):
     stages = compiled["States"]
     parallel = stages.get("ScanStages", {})
     branches = parallel.get("Branches", [])
-    if compiled.get("StartAt") != "ScanStages" or parallel.get("Type") != "Parallel" or len(branches) != 2:
+    if compiled.get("StartAt") != "AssessmentMode" or stages.get("AssessmentMode") != {"Type": "Choice", "Choices": [{"Variable": "$.report_generation", "IsPresent": True, "Next": "GenerateReport"}], "Default": "ScanStages"} or parallel.get("Type") != "Parallel" or len(branches) != 2:
         raise ValueError("Collector and progressive analyzer must start in one Parallel state")
     collector, analyzer = (branch["States"] for branch in branches)
     stage_seconds = collector["Collect"]["TimeoutSeconds"]
@@ -130,6 +130,16 @@ def validate_failure_paths(definition):
     parallel = states["ScanStages"]
     if parallel.get("ResultPath", "missing") is not None or parallel.get("Next") != "ReleaseSucceeded":
         raise ValueError("Parallel workers must both settle before success")
+    analyzer = parallel['Branches'][1]['States']['Analyze']
+    report = states.get('GenerateReport', {})
+    expected_parameters = __import__('copy').deepcopy(analyzer['Parameters'])
+    expected_parameters['Overrides'] = {'ContainerOverrides': [{'Name': 'analyzer',
+        'Command.$': "States.Array('analyzer', '--findings-report-generation', $.report_generation, '--tenant-id', $.tenant_id, '--scan-id', $.scan_id)"}]}
+    if (report.get('Resource') != analyzer['Resource'] or report.get('Parameters') != expected_parameters
+            or report.get('TimeoutSeconds') != analyzer['TimeoutSeconds']
+            or report.get('Catch') != [{'ErrorEquals': ['States.ALL'], 'ResultPath': '$.failure', 'Next': 'ReportFailed'}]
+            or report.get('Next') != 'ReportSucceeded' or states.get('ReportSucceeded') != {'Type': 'Succeed'}):
+        raise ValueError('Report generation must run only the bound analyzer without collection or runtime overrides')
     expected_catches = [
         {"ErrorEquals": ["CollectorBranchFailed"], "ResultPath": "$.failure", "Next": "CollectorTaskFailed"},
         {"ErrorEquals": ["AnalyzerBranchFailed"], "ResultPath": "$.failure", "Next": "AnalyzerTaskFailed"},

@@ -180,7 +180,7 @@ def test_native_features_are_reviewable_while_ai_runs_and_final_keeps_them(scena
     assert partial['summary']['stats']['observation_count'] == partial['findings']['total']
     # AI says it is running, not "not requested".
     assert during['ai']['status'] == 'in_progress'
-    assert during['ai']['pending_stages'] == ['network', 'priorities']
+    assert during['ai']['pending_stages'] == ['findings_report', 'network', 'priorities']
     assert during['ai']['actions'] == []
 
     s.store.finish(s.job['id'], s.owner, 'completed', s.published[-1][0])
@@ -199,16 +199,16 @@ def test_pending_stage_projection_never_rewrites_stored_ai_or_terminal_scans():
     running = {'status': 'analyzing', 'data': '{"ai_enabled": true, "categories": ["network"]}'}
     placeholder = {'status': 'not_requested', 'actions': [], 'reviews': {}}
     assert with_pending_stages(running, placeholder) == dict(placeholder, status='in_progress',
-                                                            pending_stages=['network', 'priorities'])
+                                                            pending_stages=['findings_report', 'network', 'priorities'])
     overlay = {'version': 1, 'status': 'partial', 'actions': [], 'completed_stages': ['network']}
-    assert with_pending_stages(running, overlay) == dict(overlay, pending_stages=['priorities'])
+    assert with_pending_stages(running, overlay) == dict(overlay, pending_stages=['findings_report', 'priorities'])
     stored = {'version': 1, 'status': 'completed', 'actions': []}
     assert with_pending_stages(running, stored) is stored
     for status in ('completed', 'failed', 'cancelled', 'timed_out'):
         assert with_pending_stages(dict(running, status=status), placeholder) is placeholder
     disabled = dict(running, data='{"ai_enabled": false}')
     assert with_pending_stages(disabled, placeholder) is placeholder
-    only_network = dict(running, data='{"ai_priorities_enabled": false, "categories": ["network"]}')
+    only_network = dict(running, data='{"ai_findings_report_enabled": false, "ai_priorities_enabled": false, "categories": ["network"]}')
     assert with_pending_stages(only_network, overlay) is overlay
-    no_stage = dict(running, data='{"ai_priorities_enabled": false, "categories": ["hardening"]}')
+    no_stage = dict(running, data='{"ai_findings_report_enabled": false, "ai_priorities_enabled": false, "categories": ["hardening"]}')
     assert with_pending_stages(no_stage, placeholder) is placeholder

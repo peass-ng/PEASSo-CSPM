@@ -112,7 +112,7 @@ def test_nonfail_conclusions_cannot_be_recommended_and_fewer_than_15_is_valid(ve
 
 def test_disabled_ai_does_not_resolve_auth_or_credentials(monkeypatch):
     monkeypatch.setattr(pipeline, 'personal_token', lambda *a: pytest.fail('AI opt out must make no auth call'))
-    assert pipeline.review_scan({}, {}, {'ai_enabled': False}, tenant='alice', artifacts=None)['reason'] == 'disabled_for_scan'
+    assert pipeline.review_scan({}, {}, {'ai_findings_report_enabled': False, 'ai_enabled': False}, tenant='alice', artifacts=None)['reason'] == 'disabled_for_scan'
     assert ScanCreate(connector_id='x').ai_enabled is True
     with pytest.raises(ValidationError):
         ScanCreate(connector_id='x', ai_enabled='false')
@@ -125,7 +125,7 @@ def test_priorities_skip_unobserved_network_unknowns_after_denied_inventory(envi
     findings = [dict(id='network-unknown', check_id='azure.network.unknown', category='network',
                      status='UNKNOWN', provider='azure', resource_id='uncollected', scope='subscription')]
     data = {'provider': 'azure', 'findings': findings, 'resources': [], 'graphs': {}}
-    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=artifacts)
+    result = pipeline.review_scan(data, {}, {'ai_findings_report_enabled': False}, tenant='alice', artifacts=artifacts)
     assert result['status'] == 'completed'
     assert result['network']['status'] == 'not_available'
     assert result['actions'] == []
@@ -248,7 +248,7 @@ def test_network_review_shares_parallel_limit_and_finishes_before_priorities(env
                 active -= 1
     monkeypatch.setattr(pipeline, 'invoke', invoke)
     with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(pipeline.review_scan, data, {}, {}, tenant='alice', artifacts=environment[2])
+        future = executor.submit(pipeline.review_scan, data, {}, {'ai_findings_report_enabled': False}, tenant='alice', artifacts=environment[2])
         try:
             # This tests queue overlap, independently of cold evidence imports.
             assert network_started.wait(30)
@@ -274,7 +274,7 @@ def test_network_failure_preserves_reviews_and_still_runs_priorities(environment
             return {'actions': [], 'limitations': []}
         return {'items': [review(row['id']) for row in findings]}
     monkeypatch.setattr(pipeline, 'invoke', invoke)
-    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2])
+    result = pipeline.review_scan(data, {}, {'ai_findings_report_enabled': False}, tenant='alice', artifacts=environment[2])
     assert calls == ['network', 'priorities']
     assert result['status'] == 'partial' and result['coverage']['reviewed'] == 2
     assert result['network']['status'] == 'unavailable' and result['network']['findings'] == []
@@ -303,7 +303,7 @@ def test_remote_priorities_projects_full_inventory_after_task_launch(environment
         assert any(row.get('category') == 'network' for row in prepared['report']['findings'])
         return {'actions': [], 'limitations': []}
     monkeypatch.setattr(pipeline, 'invoke', invoke)
-    result = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2])
+    result = pipeline.review_scan(data, {}, {'ai_findings_report_enabled': False}, tenant='alice', artifacts=environment[2])
     assert result['status'] == 'completed' and len(projected) == 1
 
 
@@ -409,7 +409,7 @@ def test_native_verdicts_feed_priorities_without_review_agents(provider, environ
         assert all(row['verdict'] == 'FAIL' for row in reviews)
         return {'actions': [], 'limitations': []}
     monkeypatch.setattr(pipeline, 'invoke', invoke)
-    result = pipeline.review_scan(data, {}, {'ai_network_enabled': False}, tenant='alice',
+    result = pipeline.review_scan(data, {}, {'ai_findings_report_enabled': False, 'ai_network_enabled': False}, tenant='alice',
                                   artifacts=environment[2])
     assert calls == ['priorities']
     assert result['status'] == 'completed'
@@ -426,7 +426,7 @@ def test_pipeline_prioritizes_native_findings_and_redacts(environment, monkeypat
         assert {r['finding_id'] for r in reviews} == {'h1', 'e1'}
         return {'actions': [action() | {'rationale': selected_token}], 'limitations': []}
     monkeypatch.setattr(pipeline, 'invoke', invoke)
-    result = pipeline.review_scan(report(), {}, {}, tenant='alice', artifacts=artifacts)
+    result = pipeline.review_scan(report(), {}, {'ai_findings_report_enabled': False}, tenant='alice', artifacts=artifacts)
     assert calls == ['priorities']
     assert result['status'] == 'completed' and result['coverage']['reviewed'] == 2
     assert result['actions'][0]['rationale'] == '[REDACTED]'
@@ -1060,7 +1060,7 @@ def test_hosted_priorities_keep_startup_time_when_network_uses_its_budget(enviro
 
     monkeypatch.setattr(pipeline, 'review_network', finish_at_network_deadline)
     monkeypatch.setattr(pipeline, 'invoke', priorities)
-    value = pipeline.review_scan(report(), {}, {}, tenant='alice', artifacts=environment[2])
+    value = pipeline.review_scan(report(), {}, {'ai_findings_report_enabled': False}, tenant='alice', artifacts=environment[2])
     assert value['status'] == 'completed'
 
 

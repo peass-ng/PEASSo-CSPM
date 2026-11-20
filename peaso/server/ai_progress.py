@@ -2,7 +2,7 @@
 
 Native sections (findings, leaks, image CVEs, graphs, least privilege and the
 privilege-escalation map) are served from the latest durable publication while
-the scan runs. Only the model stages (Network and Priorities) may still be in
+the scan runs. Only the model stages (Network, Priorities and Findings Report) may still be in
 progress. This projection names those stages so a reader can tell "still
 running" apart from "not requested" without waiting for the final report.
 """
