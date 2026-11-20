@@ -1,23 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { request, useApi } from "./api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FindingInspector } from "./Findings";
 import { Badge, Inspector, Panel, State } from "./ui";
 import { NetworkArchitecture } from "./NetworkArchitecture";
-import type { Finding } from "./types";
+import { CombineReportsModal, CombinedReports } from "./CombinedReports";
+import { IssueBody, SourceFinding, issueKinds as kinds } from "./ReportIssue";
+import type { Issue, Reference } from "./ReportIssue";
 
-type Reference = { domain: "findings" | "least_privilege" | "privesc_edges" | "actions"; id: string };
-type Issue = { id: string; title: string; kind: string; severity: string; status: string; description: string; impact: string; recommendation: string; verification: string; references: Reference[] };
 type Report = { can_launch?: boolean; generation?: string; status: string; summary?: string; issues: Issue[]; limitations?: string[]; exclusions?: { reference: Reference; reason: string }[]; total: number; exclusion_count?: number; source_count?: number; covered_count?: number };
 const labels = { findings: "Check result", least_privilege: "Least privilege", privesc_edges: "Privilege escalation path", actions: "Top action" };
-const kinds: Record<string, string> = { vulnerability: "Security issue", hardening: "Hardening suggestion", leaks: "Leaks", image_cves: "Image CVEs" };
 const pages = { findings: "Hardening & Compliance", least_privilege: "Least Privilege", privesc_edges: "Privilege Escalation Map", actions: "Top 15 Actions" };
-function SourceFinding({ scanId, id, onClose, onInspect }: { scanId: string; id: string; onClose: () => void; onInspect: (id: string) => void }) {
-  const query = useApi<Finding>(`/scans/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(id)}`, false);
-  if (!query.data) return <Inspector title="Supporting finding" onClose={onClose}><State loading={query.isPending} error={query.error} /></Inspector>;
-  return <FindingInspector finding={query.data} scanId={scanId} lazy={false} onInspectMember={finding => onInspect(finding.id)} onClose={onClose} demo={false} />;
-}
-export function FindingsReport({ scanId, demo, canLaunch = true }: { scanId: string; demo: boolean; canLaunch?: boolean }) {
+function AssessmentReport({ scanId, demo, canLaunch = true }: { scanId: string; demo: boolean; canLaunch?: boolean }) {
   const client = useQueryClient();
   const [search, setSearch] = useState("");
   const [severity, setSeverity] = useState("");
@@ -48,7 +41,7 @@ export function FindingsReport({ scanId, demo, canLaunch = true }: { scanId: str
   const close = () => { setSelected(undefined); requestAnimationFrame(() => trigger.current?.focus()); };
   return <div className="ai-review-view">
     <Panel title="Findings Report">
-      <div className="button-row"><button className="primary" disabled={!canLaunch || report.can_launch === false || launch.isPending || report.status === "in_progress"} onClick={() => launch.mutate()}>
+      <div className="button-row"><button className="button primary" disabled={!canLaunch || report.can_launch === false || launch.isPending || report.status === "in_progress"} onClick={() => launch.mutate()}>
         {launch.isPending || report.status === "in_progress" ? "Generating report…" : report.issues.length ? "Regenerate report" : "Generate report"}
       </button><span>Generating a report replaces all current report issues.</span></div>
       {launch.error && <p role="alert">{launch.error.message}</p>}
@@ -71,13 +64,27 @@ export function FindingsReport({ scanId, demo, canLaunch = true }: { scanId: str
     </Panel>
     {!!report.exclusion_count && <Panel><details><summary>Excluded observations ({report.exclusion_count})</summary><p>Each exclusion records why an observation was not raised as an issue.</p><ul>{report.exclusions?.map((row, i) => <li key={i}>{labels[row.reference.domain]} {row.reference.id}: {row.reason}</li>)}</ul><div className="service-page-controls"><button disabled={exclusionPage === 0} onClick={() => setExclusionPage(exclusionPage - 1)}>Previous exclusions</button><button disabled={(exclusionPage + 1) * 25 >= (report.exclusion_count || 0)} onClick={() => setExclusionPage(exclusionPage + 1)}>Next exclusions</button></div></details></Panel>}
     {selected && <Inspector title={selected.title} onClose={close}>
-      <Badge value={selected.severity} /><p>{selected.status === "confirmed" ? "Confirmed configuration" : "Needs review"} · {kinds[selected.kind] || selected.kind}</p>
-      <h3>Description and affected scope</h3><NetworkArchitecture label="Issue description" text={selected.description} />
-      <h3>Impact</h3><NetworkArchitecture label="Issue impact" text={selected.impact} />
-      <h3>Recommendation</h3><NetworkArchitecture label="Issue recommendation" text={selected.recommendation} />
-      <h3>Verification</h3><NetworkArchitecture label="Issue verification" text={selected.verification} />
+      <IssueBody issue={selected} />
       <h3>Supporting evidence</h3><ul>{selected.references.map(ref => <li key={ref.domain + ref.id}>{ref.domain === "findings" ? <button className="text-button" onClick={() => setSource(ref.id)}>{labels[ref.domain]} {ref.id}</button> : <a href={`#${encodeURIComponent(pages[ref.domain])}`}>{labels[ref.domain]} {ref.id}</a>}</li>)}</ul>
     </Inspector>}
     {source && <SourceFinding scanId={scanId} id={source} onInspect={setSource} onClose={() => setSource(undefined)} />}
   </div>;
+}
+
+export function FindingsReport({ scanId, demo, canLaunch = true, canCombine = true, onSelectAssessment }: {
+  scanId: string; demo: boolean; canLaunch?: boolean; canCombine?: boolean; onSelectAssessment?: (id: string) => void;
+}) {
+  const [tab, setTab] = useState("assessment");
+  const [combine, setCombine] = useState(false);
+  const [combinedId, setCombinedId] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  return <>
+    <div className="button-row report-tabs"><div className="segmented" role="tablist" aria-label="Report views">
+      <button role="tab" aria-selected={tab === "assessment"} onClick={() => setTab("assessment")}>Assessment report</button>
+      <button role="tab" aria-selected={tab === "combined"} onClick={() => setTab("combined")}>Combined reports</button>
+    </div><button className="button" disabled={demo || !canCombine} onClick={() => setCombine(true)}>Combine different reports</button></div>
+    {tab === "assessment" ? <AssessmentReport scanId={scanId} demo={demo} canLaunch={canLaunch} /> : demo ? <Panel title="Combined reports"><p>Sign in to combine completed assessment reports.</p></Panel> :
+      <CombinedReports key={combinedId} scanId={scanId} selectedId={combinedId} onSelect={setCombinedId} showAll={showAll} onShowAll={setShowAll} onSelectAssessment={onSelectAssessment ? id => { setTab("assessment"); onSelectAssessment(id); } : undefined} />}
+    {combine && <CombineReportsModal scanId={scanId} onClose={() => setCombine(false)} onCreated={id => { setCombine(false); setCombinedId(id); setShowAll(true); setTab("combined"); }} />}
+  </>;
 }

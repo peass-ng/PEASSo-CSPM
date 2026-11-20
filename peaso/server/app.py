@@ -27,7 +27,7 @@ from peaso.storage import SQLiteStore, StoreError, FileArtifacts
 from peaso.storage.runtime import stores, WorkflowDispatcher
 from peaso.storage.reports import finding_summary
 from .config import Settings
-from .models import ConnectorCreate, ConnectorCheck, ConnectorPatch, ScanCreate, AttackLogSource, AttackLogRun, ScheduleCreate, SchedulePatch, ReachabilityQuery, ReachabilityBatchQuery, ReachabilityMatrixQuery, ReachabilityGridQuery, WorkspaceCreate, WorkspaceInvite, WorkspaceRole
+from .models import ConnectorCreate, ConnectorCheck, ConnectorPatch, ScanCreate, AttackLogSource, AttackLogRun, ScheduleCreate, SchedulePatch, ReachabilityQuery, ReachabilityBatchQuery, ReachabilityMatrixQuery, ReachabilityGridQuery, WorkspaceCreate, WorkspaceInvite, WorkspaceRole, CombinedReportCreate
 from .materialized_catalog import validate_selectors
 from .validation import validate_connector, auth_capabilities, COLLECTOR_ROLE_ARN, CUSTOMER_ROLE_TEMPLATE_URL, EXTERNAL_ID_PREFIX
 
@@ -1026,6 +1026,10 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         jobs = store.deletion_jobs(tenant)
         if any(job["status"] not in TERMINAL and job["deadline"] > time.time() for job in jobs):
             raise HTTPException(409, "Cancel active scans or wait for them to finish before deleting workspace data")
+        from peaso.ai import combined_report_runs as combined
+        combined_rows = combined.listing(store, tenant)
+        if any(row['status'] in ('queued', 'running') for row in combined_rows):
+            raise HTTPException(409, "Wait for combined reports to finish before deleting workspace data")
         # Bounded batches keep hosted requests short and make partial cleanup retryable.
         deleted = {"scans": 0, "connectors": 0, "schedules": 0}
         for schedule in store.schedules(tenant):
@@ -1038,7 +1042,13 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
             for connector in store.connectors(tenant):
                 store.delete_connector(tenant, connector["id"])
                 deleted["connectors"] += 1
-        remaining = bool(store.deletion_jobs(tenant) or store.connectors(tenant) or store.schedules(tenant))
+        if not store.deletion_jobs(tenant):
+            for combined_row in combined_rows[:5]:
+                raw, _ = combined.read(store, tenant, combined_row['id'])
+                artifacts.delete_job(tenant, combined_row['id'])
+                store.set_ai_state(tenant, combined.key(combined_row['id']), None, raw)
+        remaining = bool(store.deletion_jobs(tenant) or store.connectors(tenant) or store.schedules(tenant)
+                         or combined.listing(store, tenant))
         if not remaining:
             # Also remove orphaned artifacts whose metadata has already expired by TTL.
             artifacts.delete_workspace(tenant)
@@ -1563,6 +1573,49 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         from peaso.ai.finding_reviews import presented_reviews
         return dict(value, **({"network": network} if network is not None else {}), reviews=presented_reviews(value, offset, limit),
                     review_totals={kind: len(rows) for kind, rows in reviews.items()}, offset=offset, limit=limit)
+
+    @app.get("/api/combined-reports/candidates")
+    def combined_report_candidates(user=Depends(identity)):
+        from peaso.ai.combined_report_runs import candidates
+        return {"items": candidates(store, artifacts, user.tenant_id)}
+
+    @app.get("/api/combined-reports")
+    def combined_reports(scan_id: str | None = None, user=Depends(identity)):
+        from peaso.ai.combined_report_runs import listing
+        return {"items": listing(store, user.tenant_id, scan_id)}
+
+    @app.post("/api/combined-reports", status_code=202)
+    def combine_reports(payload: CombinedReportCreate, background: BackgroundTasks,
+                        user=Depends(identity), account=Depends(account_identity)):
+        from peaso.ai.auth import require_local_codex
+        from peaso.ai import combined_report_runs as combined
+        require_local_codex(settings, store, account.tenant_id)
+        state = combined.create(store, artifacts, user.tenant_id, account.tenant_id,
+                                payload.name.strip(), [row.model_dump() for row in payload.reports])
+        try:
+            if os.getenv("PEASO_WORKFLOW_ARN"):
+                combined.dispatch(user.tenant_id, state['id'])
+            else:
+                background.add_task(combined.execute, store, artifacts, user.tenant_id, state['id'])
+        except Exception:
+            combined.fail(store, user.tenant_id, state['id'])
+            raise HTTPException(503, "Could not start the combined report; try again") from None
+        return state
+
+    @app.get("/api/combined-reports/{ident}")
+    def combined_report(ident: str, offset: int = Query(default=0, ge=0),
+                        limit: int = Query(default=25, ge=1, le=100),
+                        search: str = Query(default="", max_length=300),
+                        severity: str = Query(default="", max_length=20), user=Depends(identity)):
+        from peaso.ai.combined_report_runs import detail
+        from .findings_report import page
+        return page(detail(store, artifacts, user.tenant_id, ident), offset=offset, limit=limit,
+                    search=search, severity=severity)
+
+    @app.get("/api/combined-reports/{ident}/source-issue")
+    def combined_source_issue(ident: str, report_id: str, issue_id: str, user=Depends(identity)):
+        from peaso.ai.combined_report_runs import source_issue
+        return source_issue(store, artifacts, user.tenant_id, ident, report_id, issue_id)
 
     @app.get("/api/scans/{ident}/findings-report")
     def scan_findings_report(ident: str, offset: int = Query(default=0, ge=0),

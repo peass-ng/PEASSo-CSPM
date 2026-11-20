@@ -62,3 +62,29 @@ analyses. Older assessments can generate a report on demand.
 
 Validation failures receive bounded correction attempts. A failed compiler
 marks AI output partial while keeping the scan's native findings available.
+
+## Combined reports
+
+The Findings Report view provides a **Combine different reports** dialog. Choose
+2–20 completed assessment reports from the current workspace. Each combination
+freezes the selected report versions, including their issue text, source IDs and
+limitations; regenerating an original report does not rewrite an existing
+combination. Changed selections are rejected so the user can refresh them before
+starting. Combined reports have their own history, source list, status, issue table,
+search and severity filters. Each source assessment lists its combinations in the
+Combined reports tab; users can also show all workspace combinations.
+
+The isolated `report_combination` agent receives compiled issues and report metadata
+only, with small previews and paginated local lookups. Its provider-neutral prompt
+is in `peaso/ai/agents/report_combination.yaml`. It consolidates matching security
+themes across scopes, preserving asset identities, individual fixes, dates and
+conditional assessments. Every source issue must be referenced exactly once;
+leaks and image CVEs each remain one combined finding when present. Validation
+preserves the highest supporting severity and repeats at the worker boundary.
+Source-issue drawers read frozen originals, so identical issue IDs in different
+assessments and later source regenerations remain unambiguous.
+
+Hosted combinations use the existing role-free agent runtime through a report-only
+workflow branch. Generation is tenant-scoped and fenced; read-only workspace access
+cannot create combinations. Workspace cleanup waits for active combinations and
+removes completed combination metadata and artifacts with the other workspace data.

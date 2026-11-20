@@ -1381,11 +1381,20 @@ def main():
     parser.add_argument("role", choices=("collector", "analyzer"))
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--findings-report-generation")
+    parser.add_argument("--combined-report-id")
     parser.add_argument("--ai-smoke", action="store_true", help="Run the isolated live AI deployment acceptance check")
     parser.add_argument("--progressive", action="store_true", help="Watch one scan's completed sections while collection continues")
     parser.add_argument("--tenant-id")
     parser.add_argument("--scan-id")
     args = parser.parse_args()
+    if args.combined_report_id:
+        import re
+        if (args.role != 'analyzer' or not args.tenant_id or args.scan_id or args.progressive or args.ai_smoke
+                or args.findings_report_generation or not re.fullmatch(r'[a-f0-9]{32}', args.combined_report_id)):
+            parser.error('Combined report generation requires analyzer role, tenant and report ID')
+        from .ai.combined_report_runs import worker as combined_worker
+        combined_worker(args.tenant_id, args.combined_report_id)
+        return
     if bool(args.tenant_id) != bool(args.scan_id):
         parser.error("--tenant-id and --scan-id must be supplied together")
     if args.findings_report_generation:

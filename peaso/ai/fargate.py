@@ -12,7 +12,7 @@ import uuid
 
 MAX_INPUT = 512 * 1024 * 1024
 MAX_OUTPUT = 8_000_000
-STAGES = {'network', 'priorities', 'findings_report'}
+STAGES = {'network', 'priorities', 'findings_report', 'report_combination'}
 
 
 class TaskStartupError(RuntimeError):

@@ -46,6 +46,7 @@ import { Scans } from "./Scans";
 import { Settings } from "./Settings";
 import type { Connector, Me, Report, Scan, Workspace } from "./types";
 import { Panel, State, sourceHref } from "./ui";
+import { NavigationHint } from "./NavigationHint";
 import { scanNames } from "./scanNames";
 import { useInsightCounts } from "./InsightCounts";
 function IamIcon({ size = 18 }: { size?: number }) {
@@ -59,24 +60,30 @@ function IamIcon({ size = 18 }: { size?: number }) {
 
 // Stopped scans whose saved partial results stay reviewable.
 const partialTerminal = ["failed", "timed_out", "cancelled", "queue_exhausted", "credentials_expired"];
+const navigationGroups: Record<string, string> = {
+  WORKSPACE: "Manage connectors and view your assessment history.",
+  "SECURITY INSIGHTS": "Review security findings, identity risks and network architecture.",
+  "THREAT DETECTION": "Investigate suspicious activity found in audit logs.",
+  ADMINISTRATION: "Manage workspace access and platform configuration.",
+};
 const pages = [
   {
     label: "Dashboard",
     icon: Gauge,
     group: "WORKSPACE",
-    description: "",
+    description: "See assessment posture, connected environments and recent scans.",
   },
   {
     label: "Connectors",
     icon: Cloud,
-    description: "Connect your environments with confidence.",
+    description: "Manage cloud and Kubernetes connections and access checks.",
   },
   {
     label: "Scans",
     icon: ScanLine,
-    description: "Assess, monitor and revisit your cloud posture.",
+    description: "Launch assessments, follow their progress and revisit saved results.",
   },
-  { label: "Findings Report", icon: FileText, ai: true, group: "SECURITY INSIGHTS", description: "Review consolidated, evidence-backed issues from the completed scan." },
+  { label: "Findings Report", icon: FileText, ai: true, group: "SECURITY INSIGHTS", description: "Review and combine security reports from completed assessments." },
   { label: "Top 15 Actions", icon: ListChecks, ai: true, description: "Review the security changes to prioritize." },
   {
     label: "Hardening & Compliance",
@@ -97,7 +104,7 @@ const pages = [
     label: "Privilege Escalation Map",
     icon: Route,
     description:
-      "Which identities can escalate to others or to admin · catalog-driven attack paths.",
+      "Explore conditional paths from identities to other identities or administrative access.",
   },
   {
     label: "Network Map",
@@ -130,7 +137,7 @@ const pages = [
     label: "Settings",
     icon: SettingsIcon,
     group: "ADMINISTRATION",
-    description: "Account, quota, supported scope and help.",
+    description: "Manage workspace access, AI configuration and account settings.",
   },
   {
     label: "Help",
@@ -310,8 +317,8 @@ export function App() {
         <nav aria-label="Primary navigation">
           {pages.filter((p) => p.label !== "Help" && (!p.ai || aiAvailable)).map((p) => (
             <div key={p.label}>
-              {(p.group || (p.label === "Hardening & Compliance" && !aiAvailable)) && <div className="nav-group">{p.group || "SECURITY INSIGHTS"}</div>}
-              <button
+              {(p.group || (p.label === "Hardening & Compliance" && !aiAvailable)) && <NavigationHint description={navigationGroups[p.group || "SECURITY INSIGHTS"]}><div className="nav-group">{p.group || "SECURITY INSIGHTS"}</div></NavigationHint>}
+              <NavigationHint description={p.description}><button
                 className={`nav-item ${p.ai ? "nav-item-ai" : ""} ${page === p.label ? "active" : ""}`}
                 onClick={() => navigate(p.label)}
                 aria-label={p.label}
@@ -326,15 +333,15 @@ export function App() {
                 {Object.hasOwn(insightCounts, p.label) && <span className="nav-count" aria-label={`${p.label} total`}>
                   {insightCounts[p.label] ?? "—"}
                 </span>}
-              </button>
+              </button></NavigationHint>
             </div>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <button className="nav-item" onClick={() => navigate("Help")}>
+          <NavigationHint description="Find setup instructions and help interpreting assessment results."><button className="nav-item" onClick={() => navigate("Help")}>
             <HelpCircle size={18} />
             Help & documentation
-          </button>
+          </button></NavigationHint>
           <div className="sidebar-version">Built by HackTricks</div>
         </div>
       </aside>
@@ -500,7 +507,7 @@ export function App() {
           )}
           {pageInfo.ai && codex.isPending && signedIn && <State loading />}
           {page === "Images CVEs" && <ImagesFindings key={`${scanId}:${demo}`} scanId={scanId} demo={demo} />}
-          {aiAvailable && page === "Findings Report" && <FindingsReport key={scanId} scanId={scanId} demo={demo} canLaunch={canWriteWorkspace && current?.status === "completed"} />}
+          {aiAvailable && page === "Findings Report" && <FindingsReport key={scanId} scanId={scanId} demo={demo} canLaunch={canWriteWorkspace && current?.status === "completed"} canCombine={canWriteWorkspace} onSelectAssessment={setSelected} />}
           {aiAvailable && page === "Top 15 Actions" && <AiReview key={scanId} scanId={scanId} demo={demo} />}
           {aiAvailable && page === "Network Architecture" && <NetworkAiReview key={scanId} scanId={scanId} demo={demo} />}
           {page === "Least Privilege" && <LeastPrivilege scanId={scanId} demo={demo} />}

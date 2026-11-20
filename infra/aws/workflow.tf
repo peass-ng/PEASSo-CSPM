@@ -151,9 +151,20 @@ resource "aws_sfn_state_machine" "scan" {
     States = {
       AssessmentMode = {
         Type    = "Choice"
-        Choices = [{ Variable = "$.report_generation", IsPresent = true, Next = "GenerateReport" }]
+        Choices = [{ Variable = "$.combined_report_id", IsPresent = true, Next = "CombineReports" },
+                   { Variable = "$.report_generation", IsPresent = true, Next = "GenerateReport" }]
         Default = "ScanStages"
       }
+      CombineReports = merge(local.run_tasks.analyzer, {
+        Parameters = merge(local.run_tasks.analyzer.Parameters, {
+          Overrides = { ContainerOverrides = [{
+            Name        = "analyzer"
+            "Command.$" = "States.Array('analyzer', '--combined-report-id', $.combined_report_id, '--tenant-id', $.tenant_id)"
+          }] }
+        })
+        Catch = [{ ErrorEquals = ["States.ALL"], ResultPath = "$.failure", Next = "ReportFailed" }]
+        Next  = "ReportSucceeded"
+      })
       GenerateReport = merge(local.run_tasks.analyzer, {
         Parameters = merge(local.run_tasks.analyzer.Parameters, {
           Overrides = { ContainerOverrides = [{

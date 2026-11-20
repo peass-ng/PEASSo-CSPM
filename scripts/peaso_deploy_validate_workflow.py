@@ -108,7 +108,7 @@ def compile_definition(root: Path, terraform: str):
     stages = compiled["States"]
     parallel = stages.get("ScanStages", {})
     branches = parallel.get("Branches", [])
-    if compiled.get("StartAt") != "AssessmentMode" or stages.get("AssessmentMode") != {"Type": "Choice", "Choices": [{"Variable": "$.report_generation", "IsPresent": True, "Next": "GenerateReport"}], "Default": "ScanStages"} or parallel.get("Type") != "Parallel" or len(branches) != 2:
+    if compiled.get("StartAt") != "AssessmentMode" or stages.get("AssessmentMode") != {"Type": "Choice", "Choices": [{"Variable": "$.combined_report_id", "IsPresent": True, "Next": "CombineReports"}, {"Variable": "$.report_generation", "IsPresent": True, "Next": "GenerateReport"}], "Default": "ScanStages"} or parallel.get("Type") != "Parallel" or len(branches) != 2:
         raise ValueError("Collector and progressive analyzer must start in one Parallel state")
     collector, analyzer = (branch["States"] for branch in branches)
     stage_seconds = collector["Collect"]["TimeoutSeconds"]
@@ -140,6 +140,13 @@ def validate_failure_paths(definition):
             or report.get('Catch') != [{'ErrorEquals': ['States.ALL'], 'ResultPath': '$.failure', 'Next': 'ReportFailed'}]
             or report.get('Next') != 'ReportSucceeded' or states.get('ReportSucceeded') != {'Type': 'Succeed'}):
         raise ValueError('Report generation must run only the bound analyzer without collection or runtime overrides')
+    combined = states.get('CombineReports', {})
+    expected_parameters['Overrides'] = {'ContainerOverrides': [{'Name': 'analyzer',
+        'Command.$': "States.Array('analyzer', '--combined-report-id', $.combined_report_id, '--tenant-id', $.tenant_id)"}]}
+    if (combined.get('Resource') != analyzer['Resource'] or combined.get('Parameters') != expected_parameters
+            or combined.get('TimeoutSeconds') != analyzer['TimeoutSeconds']
+            or combined.get('Catch') != report.get('Catch') or combined.get('Next') != 'ReportSucceeded'):
+        raise ValueError('Combined reports must run only the bound isolated analyzer workflow')
     expected_catches = [
         {"ErrorEquals": ["CollectorBranchFailed"], "ResultPath": "$.failure", "Next": "CollectorTaskFailed"},
         {"ErrorEquals": ["AnalyzerBranchFailed"], "ResultPath": "$.failure", "Next": "AnalyzerTaskFailed"},

@@ -21,6 +21,16 @@ class WorkspaceRole(StrictModel):
     role: Literal["read", "write", "admin"]
 
 
+class ReportSelection(StrictModel):
+    scan_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    version: str = Field(pattern=r'^[a-f0-9]{64}$')
+
+
+class CombinedReportCreate(StrictModel):
+    name: str = Field(min_length=1, max_length=200, pattern=r'\S')
+    reports: list[ReportSelection] = Field(min_length=2, max_length=20)
+
+
 class ConnectorCreate(StrictModel):
     name: str = Field(min_length=1, max_length=200)
     provider: Literal["aws", "gcp", "azure", "k8s"]

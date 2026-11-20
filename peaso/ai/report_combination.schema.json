@@ -1,0 +1,150 @@
+{
+  "$defs": {
+    "CombinedIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 300,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Title",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "vulnerability",
+            "hardening",
+            "leaks",
+            "image_cves"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "confirmed",
+            "needs_review"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 120000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Description",
+          "type": "string"
+        },
+        "impact": {
+          "maxLength": 120000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Impact",
+          "type": "string"
+        },
+        "recommendation": {
+          "maxLength": 120000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Recommendation",
+          "type": "string"
+        },
+        "verification": {
+          "maxLength": 120000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Verification",
+          "type": "string"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/Reference"
+          },
+          "minItems": 1,
+          "title": "References",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "kind",
+        "severity",
+        "status",
+        "description",
+        "impact",
+        "recommendation",
+        "verification",
+        "references"
+      ],
+      "title": "CombinedIssue",
+      "type": "object"
+    },
+    "Reference": {
+      "additionalProperties": false,
+      "properties": {
+        "report_id": {
+          "minLength": 1,
+          "title": "Report Id",
+          "type": "string"
+        },
+        "issue_id": {
+          "minLength": 1,
+          "title": "Issue Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "report_id",
+        "issue_id"
+      ],
+      "title": "Reference",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "maxLength": 12000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Summary",
+      "type": "string"
+    },
+    "issues": {
+      "items": {
+        "$ref": "#/$defs/CombinedIssue"
+      },
+      "maxItems": 500,
+      "title": "Issues",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "maxLength": 12000,
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary",
+    "issues",
+    "limitations"
+  ],
+  "title": "CombinedReport",
+  "type": "object"
+}

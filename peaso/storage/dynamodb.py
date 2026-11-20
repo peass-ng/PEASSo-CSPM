@@ -482,6 +482,10 @@ class DynamoStore:
         item = self.client.get_item(TableName=self.table, Key=attrs(self.key(user, "ai", name)), ConsistentRead=True).get("Item")
         return row(item)["value"] if item else None
 
+    def ai_states(self, user, prefix):
+        return [{'name': item['SK'][3:], 'value': item['value']}
+                for item in self._query(user, 'ai/' + prefix.rstrip('/'))]
+
     def set_ai_state(self, user, name, value, expected=None):
         arguments = dict(TableName=self.table, ConditionExpression="attribute_not_exists(PK)" if expected is None else "#v=:old")
         if expected is not None:
