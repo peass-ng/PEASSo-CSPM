@@ -39,7 +39,7 @@ def test_all_source_areas_are_assessed_and_ids_are_stable():
     assert compiler.validate(original, sources[:1] + sources[3:])['issues'][0]['id'] == result1['issues'][0]['id']
 
 
-def test_permission_recommendations_survive_individual_and_combined_compilation():
+def test_permission_recommendations_survive_individual_and_combined_compilation(tmp_path):
     from peaso.ai import combined_reports
     from peaso.least_privilege import project
 
@@ -72,6 +72,12 @@ def test_permission_recommendations_survive_individual_and_combined_compilation(
             compiler.validate(report([draft]), sources)
         relevant = 'iam:CreateAccessKey' if provider == 'aws' else 'roles/editor'
         draft['permission_review_ids'] = [next(item['review_id'] for item in choices if item['value'] == relevant)]
+        workspace = tmp_path / provider
+        workspace.mkdir()
+        compiler.build(workspace, platform, [], [], output_validation.private_file)
+        worker_sources = output_validation.context('findings_report', workspace)
+        assert 'permission_recommendations' not in worker_sources[0]
+        output_validation.validate('findings_report', report([draft]), worker_sources)
         final = compiler.complete(report([draft]), sources, compiler.pregenerate(platform, sources))
         [compiled] = final['issues']
         inputs.append({'scan_id': provider, 'issues': [compiled]})
