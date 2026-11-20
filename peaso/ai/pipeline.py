@@ -591,6 +591,11 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
     result = {'version': 1, 'status': 'skipped', 'actions': [],
               'reviews': {'hardening': [], 'exposure': []}, 'limitations': [],
               'duplicates': {}, 'auth_source': None}
+    if 'findings_report' in selected:
+        from .findings_report import pregenerate
+        prebuilt = pregenerate({'report': report})
+        if prebuilt['issues']:
+            result['findings_report'] = prebuilt
     if not selectors.get('ai_enabled', True):
         result['reason'] = 'disabled_for_scan'
         return result
@@ -750,10 +755,8 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                 result['limitations'].append('Prioritized recommendations could not be completed.')
         if 'findings_report' in selected:
             try:
-                if review_concurrency() == 0:
-                    raise MemoryError('ai_memory_headroom_unavailable')
                 from peaso.least_privilege import project
-                from .findings_report import source_index, validate as validate_report
+                from .findings_report import source_index, pregenerate, agent_sources, complete
                 platform = {'report': priorities_report, 'inventory': inventory,
                             'snapshot_context': snapshot_context(snapshot),
                             'least_privilege': project(report['provider'], inventory, snapshot=snapshot),
@@ -761,21 +764,25 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
                             'analysis_status': {'network': result['network'].get('status'),
                                 'priorities': priorities_status, 'limitations': result['limitations']}}
                 sources = source_index(platform)
-                if sources:
+                prebuilt = pregenerate(platform, sources)
+                result['findings_report'] = prebuilt
+                if agent_sources(sources):
+                    if review_concurrency() == 0:
+                        raise MemoryError('ai_memory_headroom_unavailable')
                     data = invoke_before_deadline('findings_report', platform, [], token,
                         hardening + exposure, reviewed, end, stage_limit('findings_report', isolation.remote()),
                         **({'cancel_event': cancel_event} if cancel_event is not None else {}))
-                    result['findings_report'] = validate_report(data, sources)
+                    result['findings_report'] = complete(data, sources, prebuilt)
                     result['findings_report']['limitations'] = list(dict.fromkeys(
                         result['limitations'] + result['findings_report']['limitations']))
                 else:
-                    result['findings_report'] = dict(status='completed', summary='No reportable findings in the collected evidence.',
-                        issues=[], exclusions=[], limitations=list(result['limitations']), source_count=len(sources), covered_count=0)
+                    result['findings_report'] = dict(prebuilt, status='completed', limitations=list(result['limitations']))
             except Exception as exc:
                 LOGGER.warning('AI findings report failed: %s', type(exc).__name__)
                 failed_stage = True
-                result['findings_report'] = {'status': 'unavailable', 'issues': [],
-                    'limitations': ['The findings report could not be completed. Native findings remain available.']}
+                prebuilt = result.get('findings_report') or {'issues': []}
+                result['findings_report'] = dict(prebuilt, status='partial' if prebuilt['issues'] else 'unavailable',
+                    limitations=['Compilation of remaining issues could not be completed. Pre-generated findings and native evidence remain available.'])
         result['status'] = 'partial' if failed_stage else 'completed'
         secrets = [credential_value(token), *getattr(getattr(token, 'guard', None), 'secrets', ())] + [value for entry in entries for key, value in entry.items()
             if key in ('token', 'aws_access_key_id', 'aws_secret_access_key', 'aws_session_token') and isinstance(value, str)]
@@ -788,6 +795,9 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         return sanitized
     except Exception:
         result.update(status='unavailable', reason='ai_setup_unavailable', actions=[])
+        if result.get('findings_report'):
+            result['findings_report']['limitations'].append(
+                'Model compilation is unavailable; pre-generated findings are retained.')
         result['limitations'].append('AI authentication, runtime or scan context is unavailable. Native findings remain final.')
         return result
     finally:

@@ -40,16 +40,21 @@ def test_all_source_areas_are_assessed_and_ids_are_stable():
 
 
 @pytest.mark.parametrize('kind', ['leaks', 'image_cves'])
-def test_special_sources_must_all_land_in_one_issue(kind):
+def test_platform_pregenerates_special_findings_and_agent_cannot_create_or_reference_them(kind):
     sources = [source('findings', 'a', kind), source('findings', 'b', kind)]
-    assert len(compiler.validate(report([issue([('findings', 'a'), ('findings', 'b')], kind)]), sources)['issues']) == 1
-    with pytest.raises(ValueError, match='duplicate_report_group'):
-        compiler.validate(report([issue([('findings', 'a')], kind), issue([('findings', 'b')], kind)]), sources)
-    with pytest.raises(ValueError, match='invalid_report_exclusion'):
-        compiler.validate(report([issue([('findings', 'a')], kind)],
-            [dict(reference=dict(domain='findings', id='b'), reason='Omitted')]), sources)
-    with pytest.raises(ValueError, match='report_group_mismatch'):
-        compiler.validate(report([issue([('findings', 'a'), ('findings', 'b')])]), sources)
+    platform = {'report': {'findings': [dict(id=i, status='FAIL', check_id='custom', scope='account/region',
+                 resource_id='asset-' + i, evidence={'secret_leaks': [{'value': 'PRIVATE-SENTINEL'}]}) for i in ('a', 'b')]}}
+    prebuilt = compiler.pregenerate(platform, sources)
+    assert len(prebuilt['issues']) == 1 and prebuilt['issues'][0]['kind'] == kind
+    assert {ref['id'] for ref in prebuilt['issues'][0]['references']} == {'a', 'b'}
+    assert 'PRIVATE-SENTINEL' not in json.dumps(prebuilt)
+    assert compiler.agent_sources(sources) == []
+    with pytest.raises(ValueError):
+        compiler.validate(report([issue([('findings', 'a'), ('findings', 'b')], kind)]), sources)
+    with pytest.raises(ValueError, match='unknown_report_reference'):
+        compiler.validate(report([issue([('findings', 'a')])]), sources)
+    completed = compiler.complete(report(), sources, prebuilt)
+    assert completed['issues'] == prebuilt['issues'] and completed['covered_count'] == 2
 
 
 @pytest.mark.parametrize('case', ['missing', 'foreign', 'duplicate', 'unconfirmed', 'hardening'])
@@ -87,7 +92,8 @@ def test_runner_and_backend_validate_the_same_report(tmp_path):
 
 
 @pytest.mark.parametrize('failed', [False, True])
-def test_final_pipeline_compiles_after_analyses_without_cloud_credentials(tmp_path, monkeypatch, failed):
+@pytest.mark.parametrize('with_fixed', [False, True])
+def test_final_pipeline_compiles_after_analyses_without_cloud_credentials(tmp_path, monkeypatch, failed, with_fixed):
     monkeypatch.setattr(pipeline, 'Settings', lambda: SimpleNamespace(state_dir=tmp_path, identity_dir=tmp_path, auth_mode='local'))
     monkeypatch.setattr('peaso.storage.runtime.stores', lambda _: (SimpleNamespace(), None))
     monkeypatch.setattr('peaso.ai.providers.review_disabled', lambda *a: False)
@@ -107,11 +113,19 @@ def test_final_pipeline_compiles_after_analyses_without_cloud_credentials(tmp_pa
         return report([issue([('findings', 'f')])])
     monkeypatch.setattr(pipeline, 'invoke_before_deadline', invoke)
     findings = [dict(id='f', provider='aws', category='hardening', check_id='custom', status='FAIL', evidence={})]
+    if with_fixed:
+        findings += [dict(id='leak', provider='aws', status='FAIL', category='hardening', check_id='custom',
+                         evidence={'secret_leaks': [{'value': 'PRIVATE-SENTINEL'}]}),
+                     dict(id='image', provider='aws', status='FAIL', category='hardening',
+                          check_id='aws.review.ecr.selected_image_vulnerabilities', evidence={})]
     result = pipeline.review_scan({'provider': 'aws', 'findings': findings, 'graphs': {}}, {},
         {'categories': ['hardening'], 'ai_priorities_enabled': False}, tenant='test', artifacts=None)
     assert calls == ['findings_report']
     assert result['status'] == ('partial' if failed else 'completed')
-    assert result['findings_report']['status'] == ('unavailable' if failed else 'completed')
+    assert result['findings_report']['status'] == ('partial' if failed and with_fixed else 'unavailable' if failed else 'completed')
+    if with_fixed:
+        assert {r['kind'] for r in result['findings_report']['issues']} >= {'leaks', 'image_cves'}
+        assert 'PRIVATE-SENTINEL' not in json.dumps(result['findings_report'])
     assert result['reviews']['hardening'][0]['verdict'] == 'FAIL'
     assert 'private upstream' not in json.dumps(result)
 
@@ -157,3 +171,32 @@ def test_report_api_is_tenant_bound_and_keeps_polling_payload_small(tmp_path):
 def test_compiler_refuses_live_credentials_even_if_called_directly():
     with pytest.raises(ValueError, match='report_live_access_disabled'):
         pipeline.invoke('findings_report', {}, [{'provider': 'gcp', 'token': 'private'}], 'model', [], [], 10)
+
+
+def test_prebuilt_findings_survive_ai_authentication_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr('peaso.storage.runtime.stores', lambda *_: (_ for _ in ()).throw(RuntimeError('no model access')))
+    findings = [dict(id='leak', status='FAIL', check_id='custom', evidence={'secret_leaks': [{}]})]
+    result = pipeline.review_scan({'provider': 'aws', 'findings': findings}, {}, {}, tenant='test', artifacts=None)
+    assert result['status'] == 'unavailable'
+    assert result['findings_report']['issues'][0]['kind'] == 'leaks'
+
+
+def test_agent_schema_and_prompt_reserve_fixed_findings_and_give_thematic_merge_examples():
+    import yaml
+    from pathlib import Path
+    root = Path(compiler.__file__).parent
+    schema = json.loads((root / 'findings_report.schema.json').read_text())
+    assert schema['$defs']['AgentIssue']['properties']['kind']['enum'] == ['vulnerability', 'hardening']
+    prompt = yaml.safe_load((root / 'agents/findings_report.yaml').read_text())['system_prompt']
+    assert 'pre-generated-issues.json' in prompt
+    assert 'Encryption:' in prompt and 'Logging and monitoring:' in prompt and 'Backups and recovery:' in prompt
+
+
+def test_fixed_findings_are_generated_even_when_model_work_is_disabled(monkeypatch):
+    monkeypatch.setattr('peaso.storage.runtime.stores', lambda *_: pytest.fail('deterministic findings require no model setup'))
+    findings = [dict(id='leak', status='FAIL', check_id='custom', evidence={'secret_leaks': [{}]}),
+                dict(id='image', status='FAIL', check_id='aws.review.ecr.selected_image_vulnerabilities', evidence={})]
+    result = pipeline.review_scan({'provider': 'aws', 'findings': findings}, {}, {'ai_enabled': False}, tenant='test', artifacts=None)
+    assert result['status'] == 'skipped'
+    assert result['findings_report']['status'] == 'completed'
+    assert {r['kind'] for r in result['findings_report']['issues']} == {'leaks', 'image_cves'}

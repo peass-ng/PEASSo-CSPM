@@ -1,27 +1,6 @@
 {
   "$defs": {
-    "Exclusion": {
-      "additionalProperties": false,
-      "properties": {
-        "reference": {
-          "$ref": "#/$defs/Reference"
-        },
-        "reason": {
-          "maxLength": 1000,
-          "minLength": 1,
-          "pattern": "\\S",
-          "title": "Reason",
-          "type": "string"
-        }
-      },
-      "required": [
-        "reference",
-        "reason"
-      ],
-      "title": "Exclusion",
-      "type": "object"
-    },
-    "Issue": {
+    "AgentIssue": {
       "additionalProperties": false,
       "properties": {
         "title": {
@@ -34,9 +13,7 @@
         "kind": {
           "enum": [
             "vulnerability",
-            "hardening",
-            "leaks",
-            "image_cves"
+            "hardening"
           ],
           "title": "Kind",
           "type": "string"
@@ -108,7 +85,28 @@
         "verification",
         "references"
       ],
-      "title": "Issue",
+      "title": "AgentIssue",
+      "type": "object"
+    },
+    "Exclusion": {
+      "additionalProperties": false,
+      "properties": {
+        "reference": {
+          "$ref": "#/$defs/Reference"
+        },
+        "reason": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference",
+        "reason"
+      ],
+      "title": "Exclusion",
       "type": "object"
     },
     "Reference": {
@@ -149,7 +147,7 @@
     },
     "issues": {
       "items": {
-        "$ref": "#/$defs/Issue"
+        "$ref": "#/$defs/AgentIssue"
       },
       "maxItems": 500,
       "title": "Issues",
@@ -179,6 +177,6 @@
     "exclusions",
     "limitations"
   ],
-  "title": "FindingsReport",
+  "title": "AgentReport",
   "type": "object"
 }

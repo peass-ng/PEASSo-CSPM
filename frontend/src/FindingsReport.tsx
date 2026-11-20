@@ -36,6 +36,7 @@ export function FindingsReport({ scanId, demo }: { scanId: string; demo: boolean
       {report.status === "in_progress" ? <p role="status">The findings report will be compiled after the scan analyses finish.</p> :
         report.status === "not_available" ? <p>This scan has no compiled report. Run a new scan with AI enabled.</p> :
         report.status === "unavailable" ? <p>The report could not be completed. The scan findings are still available.</p> : null}
+      {report.status === "partial" && <p>Pre-generated findings are available. Compilation of remaining issues is incomplete.</p>}
       {report.summary && <NetworkArchitecture label="Report summary" text={report.summary} />}
       {!!report.limitations?.length && <details><summary>Limitations ({report.limitations.length})</summary><ul>{report.limitations.map((text, i) => <li key={i}>{text}</li>)}</ul></details>}
       {report.status === "completed" && <details><summary>Evidence coverage</summary><p>{report.covered_count} assessed evidence sources · {report.exclusion_count} documented exclusions</p></details>}

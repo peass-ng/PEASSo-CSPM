@@ -22,10 +22,16 @@ edge and top action) must appear once in an issue or a documented exclusion.
 Unavailable upstream stages are retained as limitations. The compiled report does
 not replace native verdicts.
 
-All detected leaks belong to one issue, with safe locations and no matched
-secret values. All image CVEs belong to one issue, including immutable image
-references and package details. Both grouping rules are validated against the
-trusted source index. Suggestions and conditional graph paths cannot alone
+The platform deterministically pre-generates one finding containing all positive
+leak observations and another containing all positive image CVE observations before
+any agent invocation. Their complete native evidence remains linked; leak values
+are omitted from generated prose. These findings survive agent failure. The agent
+receives them as fixed context and cannot generate either kind or reference their
+reserved observations. Its validated remaining issues are appended to them.
+
+The prompt explicitly groups encryption observations into one finding, logging
+and monitoring gaps into one, and backup and recovery gaps into one, with exact
+resource-specific observations and fixes inside each theme. Suggestions and conditional graph paths cannot alone
 support a confirmed issue. General preventive hardening is informational.
 
 The historical report review informed these writing rules: distinguish settings

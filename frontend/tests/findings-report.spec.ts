@@ -14,13 +14,15 @@ async function setup(page: import('@playwright/test').Page, status = 'completed'
     if (path.endsWith('/ai/codex')) json = { available: true };
     if (path.endsWith('/scans')) json = { items: [{ id: 's', result_available: true, status: status === 'in_progress' ? 'analyzing' : 'completed' }] };
     if (path.endsWith('/summary')) json = { stats: {} };
-    if (path.endsWith('/ai')) json = { actions: [], findings_report: { status, total: 26 } };
+    if (path.endsWith('/ai')) json = { actions: [], findings_report: { status, total: status === 'partial' ? 2 : 26 } };
     if (path.endsWith('/findings-report')) {
       const offset = Number(url.searchParams.get('offset') || 0);
       const search = url.searchParams.get('search') || '';
-      const rows = Array.from({ length: 26 }, (_, i) => issue(i)).filter(row => row.title.includes(search));
+      const allRows = status === 'partial' ? [issue(0), { ...issue(1), kind: 'image_cves' }] : Array.from({ length: 26 }, (_, i) => issue(i));
+      const rows = allRows.filter(row => row.title.includes(search));
+      const available = ['completed', 'partial'].includes(status);
       json = { status, summary: status === 'completed' ? 'Compiled account security issues.' : undefined,
-        total: status === 'completed' ? rows.length : 0, issues: status === 'completed' ? rows.slice(offset, offset + 25) : [],
+        total: available ? rows.length : 0, issues: available ? rows.slice(offset, offset + 25) : [],
         exclusions: [], exclusion_count: 0, covered_count: 26, source_count: 26, limitations: ['Runtime exploitability was not verified.'] };
     }
     if (/\/findings\/f\d+$/.test(path)) json = { id: path.split('/').pop(), title: 'Original scan evidence', status: 'FAIL',
@@ -54,4 +56,14 @@ test('unfinished reports explain that compilation follows the scan analyses', as
 test('older scans explain how to get a report', async ({ page }) => {
   await setup(page, 'not_available'); await page.goto('/#Findings%20Report');
   await expect(page.getByText('This scan has no compiled report. Run a new scan with AI enabled.')).toBeVisible();
+});
+
+
+test('pre-generated leaks and CVE findings remain visible after agent failure', async ({ page }) => {
+  await setup(page, 'partial'); await page.goto('/#Findings%20Report');
+  await expect(page.getByLabel('Findings Report total', { exact: true })).toHaveText('2');
+  await expect(page.getByText('Pre-generated findings are available. Compilation of remaining issues is incomplete.')).toBeVisible();
+  await expect(page.locator('.findings-table tbody tr')).toHaveCount(2);
+  await expect(page.locator('.findings-table').getByText('Leaks', { exact: true })).toBeVisible();
+  await expect(page.locator('.findings-table').getByText('Image CVEs', { exact: true })).toBeVisible();
 });

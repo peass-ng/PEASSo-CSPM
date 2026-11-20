@@ -21,7 +21,7 @@ export function useInsightCounts(scanId: string, demo: boolean, enabled: boolean
     (data?.truncated ? undefined : data?.[kind]?.length);
   return {
     // A running AI stage has no count yet; show the pending dash, not zero.
-    "Findings Report": ai.data?.findings_report?.status === "completed" ? ai.data.findings_report.total : undefined,
+    "Findings Report": ["completed", "partial"].includes(ai.data?.findings_report?.status || "") ? ai.data?.findings_report?.total : undefined,
     "Top 15 Actions": ai.data?.pending_stages?.includes("priorities") && !ai.data.actions?.length ? undefined : ai.data?.actions?.length,
     "Hardening & Compliance": categoryCount("hardening"),
     "Exposure": categoryCount("exposure"),
