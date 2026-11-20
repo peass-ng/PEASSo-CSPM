@@ -68,8 +68,8 @@ def pregenerate(platform, sources=None):
     covered = 0
     for kind in ('leaks', 'image_cves'):
         members = [row for row in sources if row['kind'] == kind]
-        positive = [row for row in members if row['confirmed']]
-        unresolved = [row for row in members if not row['confirmed']]
+        positive = [row for row in members if row['domain'] == 'findings' and row['confirmed']]
+        unresolved = [row for row in members if row['domain'] == 'findings' and not row['confirmed']]
         for row in unresolved:
             exclusions.append({'reference': {'domain': row['domain'], 'id': row['id']},
                 'reason': 'No confirmed positive observation; retain the native coverage or review state.'})
@@ -78,7 +78,8 @@ def pregenerate(platform, sources=None):
             continue
         rows = [hydrate_finding(findings[row['id']], native.get('check_frameworks'), native.get('check_meta'),
                                native.get('check_meta_encoding'), native.get('remediation_templates')) for row in positive]
-        refs = [{'domain': row['domain'], 'id': row['id']} for row in positive]
+        refs = [{'domain': row['domain'], 'id': row['id']} for row in
+                positive + [row for row in members if row['domain'] == 'actions']]
         scopes = sorted({str(row.get('scope')) for row in rows if row.get('scope')})
         assets = sorted({str(row.get('native_resource_id') or row.get('resource_id')) for row in rows
                          if row.get('native_resource_id') or row.get('resource_id')})
@@ -148,8 +149,13 @@ def source_index(platform):
     for index, row in enumerate((report.get('graphs', {}).get('privesc') or {}).get('edges', [])):
         result.append({'domain': 'privesc_edges', 'id': str(row.get('id', index)),
                        'kind': None, 'confirmed': False, 'required': True})
+    finding_sources = {row['id']: row for row in result if row['domain'] == 'findings'}
     for action in platform.get('top_actions', []):
-        result.append({'domain': 'actions', 'id': str(action['rank']), 'kind': None,
+        supporting = [finding_sources.get(ident) for ident in action.get('finding_ids', [])]
+        kinds = {row['kind'] for row in supporting if row}
+        kind = (next(iter(kinds)) if len(kinds) == 1 and kinds <= SPECIAL_KINDS and
+                supporting and all(row and row['confirmed'] for row in supporting) else None)
+        result.append({'domain': 'actions', 'id': str(action['rank']), 'kind': kind,
                        'confirmed': False, 'required': True})
     # The lossless reader can distinguish historic duplicate graph IDs by their
     # records, but report references deliberately identify the original edge.
@@ -158,12 +164,21 @@ def source_index(platform):
 
 def build(root, platform, findings, reviews, write_json):
     from .briefing import build as build_context
-    build_context(root, platform, findings, reviews, write_json)
     sources = source_index(platform)
-    write_json(root / 'report-sources.json', agent_sources(sources))
-    write_json(root / 'pre-generated-issues.json', pregenerate(platform, sources))
+    assigned = agent_sources(sources)
+    reserved = {row['id'] for row in sources if row['domain'] == 'findings' and row['kind'] in SPECIAL_KINDS}
+    action_ids = {row['id'] for row in assigned if row['domain'] == 'actions'}
+    def scoped_report(report):
+        return dict(report, findings=[row for row in report.get('findings', []) if row['id'] not in reserved])
+    scoped = dict(platform, report=scoped_report(platform.get('report', {})),
+                  top_actions=[row for row in platform.get('top_actions', []) if str(row['rank']) in action_ids])
+    if 'source_report' in scoped:
+        scoped['source_report'] = scoped_report(scoped['source_report'])
+    build_context(root, scoped, [row for row in findings if row['id'] not in reserved],
+                  [row for row in reviews if row['finding_id'] not in reserved], write_json)
+    write_json(root / 'report-sources.json', assigned)
     write_json(root / 'analysis-status.json', platform.get('analysis_status', {}))
-    write_json(root / 'top-actions.json', platform.get('top_actions', []))
+    write_json(root / 'top-actions.json', scoped['top_actions'])
 
 
 def validate(data, sources):

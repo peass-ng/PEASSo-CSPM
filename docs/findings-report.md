@@ -26,8 +26,9 @@ The platform deterministically pre-generates one finding containing all positive
 leak observations and another containing all positive image CVE observations before
 any agent invocation. Their complete native evidence remains linked; leak values
 are omitted from generated prose. These findings survive agent failure. The agent
-receives them as fixed context and cannot generate either kind or reference their
-reserved observations. Its validated remaining issues are appended to them.
+receives only its assigned observations and actions; the deterministic findings
+and their source records stay outside its workspace. Its validated issues are
+appended to those findings by the platform.
 
 The prompt explicitly groups encryption observations into one finding, logging
 and monitoring gaps into one, and backup and recovery gaps into one, with exact
