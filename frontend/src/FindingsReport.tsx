@@ -18,6 +18,7 @@ function AssessmentReport({ scanId, demo, canLaunch = true }: { scanId: string; 
   const [exclusionPage, setExclusionPage] = useState(0);
   const [selected, setSelected] = useState<Issue>();
   const [source, setSource] = useState<string>();
+  const [confirmGeneration, setConfirmGeneration] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const query = useApi<Report>(`/scans/${encodeURIComponent(scanId)}/findings-report?offset=${page * 25}&limit=25&search=${encodeURIComponent(search)}&severity=${severity}&exclusion_offset=${exclusionPage * 25}`, demo, !!scanId && !demo, true);
   const launch = useMutation({
@@ -41,7 +42,7 @@ function AssessmentReport({ scanId, demo, canLaunch = true }: { scanId: string; 
   const close = () => { setSelected(undefined); requestAnimationFrame(() => trigger.current?.focus()); };
   return <div className="ai-review-view">
     <Panel title="Findings Report">
-      <div className="button-row"><button className="button primary" disabled={!canLaunch || report.can_launch === false || launch.isPending || report.status === "in_progress"} onClick={() => launch.mutate()}>
+      <div className="button-row"><button className="button primary" disabled={!canLaunch || report.can_launch === false || launch.isPending || report.status === "in_progress"} onClick={() => setConfirmGeneration(true)}>
         {launch.isPending || report.status === "in_progress" ? "Generating report…" : report.issues.length ? "Regenerate report" : "Generate report"}
       </button><span>Generating a report replaces all current report issues.</span></div>
       {launch.error && <p role="alert">{launch.error.message}</p>}
@@ -63,6 +64,12 @@ function AssessmentReport({ scanId, demo, canLaunch = true }: { scanId: string; 
       {report.total > 25 && <div className="service-page-controls"><button disabled={page === 0} onClick={() => setPage(page - 1)}>Previous page</button><span>{page * 25 + 1}–{Math.min((page + 1) * 25, report.total)} of {report.total}</span><button disabled={(page + 1) * 25 >= report.total} onClick={() => setPage(page + 1)}>Next page</button></div>}
     </Panel>
     {!!report.exclusion_count && <Panel><details><summary>Excluded observations ({report.exclusion_count})</summary><p>Each exclusion records why an observation was not raised as an issue.</p><ul>{report.exclusions?.map((row, i) => <li key={i}>{labels[row.reference.domain]} {row.reference.id}: {row.reason}</li>)}</ul><div className="service-page-controls"><button disabled={exclusionPage === 0} onClick={() => setExclusionPage(exclusionPage - 1)}>Previous exclusions</button><button disabled={(exclusionPage + 1) * 25 >= (report.exclusion_count || 0)} onClick={() => setExclusionPage(exclusionPage + 1)}>Next exclusions</button></div></details></Panel>}
+    {confirmGeneration && <Inspector title="Generate a new Findings Report?" className="combine-report-modal report-confirmation-modal" onClose={() => setConfirmGeneration(false)}>
+      <p>This will delete the current compiled findings and generate a new report from this assessment. Do you want to continue?</p>
+      <div className="button-row"><button className="button" onClick={() => setConfirmGeneration(false)}>Cancel</button>
+        <button className="button danger" disabled={launch.isPending || !canLaunch || report.can_launch === false} onClick={() => { setConfirmGeneration(false); launch.mutate(); }}>Delete and generate</button>
+      </div>
+    </Inspector>}
     {selected && <Inspector title={selected.title} onClose={close}>
       <IssueBody issue={selected} />
       <h3>Supporting evidence</h3><ul>{selected.references.map(ref => <li key={ref.domain + ref.id}>{ref.domain === "findings" ? <button className="text-button" onClick={() => setSource(ref.id)}>{labels[ref.domain]} {ref.id}</button> : <a href={`#${encodeURIComponent(pages[ref.domain])}`}>{labels[ref.domain]} {ref.id}</a>}</li>)}</ul>
