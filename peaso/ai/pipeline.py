@@ -690,7 +690,7 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
         if isolation.remote():
             from .fargate import binding as task_binding
             bound = task_binding(tenant, scan_id)
-            descriptor = prior.get('task_reuse') if 'network' in result else None
+            descriptor = prior.get('task_reuse') if isinstance(prior, dict) and 'network' in result else None
             if not (isinstance(descriptor, dict) and isinstance(descriptor.get('binding'), str)
                     and scan_id and hmac.compare_digest(descriptor['binding'], bound)):
                 descriptor = None
