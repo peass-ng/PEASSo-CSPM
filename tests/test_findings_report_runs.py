@@ -93,3 +93,33 @@ def test_launch_endpoint_owns_scan_and_clears_count_immediately(completed, monke
         assert client.post(path, headers=own).status_code == 409
         assert client.get(path, headers=own).json()['issues'] == []
         assert client.get(f'/api/scans/{scan}/ai', headers=own).json()['findings_report'] == {'status': 'in_progress', 'total': 0}
+
+
+def test_report_compilation_is_the_last_model_stage(monkeypatch, tmp_path):
+    from peaso.ai import pipeline, findings_report
+    from tests.test_peaso_ai_review import network_fixture
+    from types import SimpleNamespace
+    report, inventory, architecture = network_fixture()
+    monkeypatch.setattr(pipeline, 'Settings', lambda: SimpleNamespace(state_dir=tmp_path, identity_dir=tmp_path, auth_mode='local'))
+    monkeypatch.setattr('peaso.storage.runtime.stores', lambda _: (SimpleNamespace(), None))
+    monkeypatch.setattr('peaso.ai.providers.review_disabled', lambda *a: False)
+    monkeypatch.setattr('peaso.ai.providers.resolve_access', lambda *a, **kw: ('MODEL-TOKEN', 'test'))
+    monkeypatch.setattr('peaso.ai.providers.credential_value', lambda _: 'MODEL-TOKEN')
+    monkeypatch.setattr(pipeline.isolation, 'available', lambda: True)
+    monkeypatch.setattr(pipeline.isolation, 'remote', lambda: False)
+    monkeypatch.setattr('peaso.snapshot.resources', lambda _: inventory)
+    monkeypatch.setattr('peaso.least_privilege.project', lambda *a, **kw: {'items': []})
+    monkeypatch.setattr(pipeline, 'available_memory', lambda: 4 * 1024**3)
+    stages = []
+    def invoke(stage, platform, *args, **kwargs):
+        stages.append(stage)
+        if stage == 'network': return architecture
+        if stage == 'priorities': return {'actions': [], 'limitations': []}
+        assert platform['network_review']['status'] == 'completed'
+        return {'summary': 'Compiled supplied evidence.', 'issues': [], 'limitations': [],
+                'exclusions': [{'reference': {'domain': r['domain'], 'id': r['id']}, 'reason': 'Owner review required.'}
+                               for r in findings_report.agent_sources(findings_report.source_index(platform)) if r['required']]}
+    monkeypatch.setattr(pipeline, 'invoke', invoke)
+    result = pipeline.review_scan(report, {}, {}, tenant='test', artifacts=None)
+    assert stages == ['network', 'priorities', 'findings_report']
+    assert result['findings_report']['status'] == 'completed'

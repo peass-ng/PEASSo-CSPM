@@ -118,7 +118,7 @@ def test_slow_network_leaves_priorities_the_remaining_budget_and_publication_tim
         return {'actions': [], 'limitations': []}
     monkeypatch.setattr(pipeline, 'review_network', network_review)
     monkeypatch.setattr(pipeline, 'invoke', invoke)
-    value = pipeline.review_scan(report, {}, {}, tenant='alice', artifacts=environment, deadline=1000.0 + 3600)
+    value = pipeline.review_scan(report, {}, {"ai_findings_report_enabled": False}, tenant='alice', artifacts=environment, deadline=1000.0 + 3600)
     assert value['status'] == 'completed', value
     assert 'review_end' in seen and seen['priorities'] == 1500
     # Deadline 3600 s away: 300 s stay reserved for the final publication.
@@ -132,6 +132,6 @@ def test_slow_network_leaves_priorities_the_remaining_budget_and_publication_tim
         return {'actions': [], 'limitations': []}
     monkeypatch.setattr(pipeline, 'review_network', tight_network)
     monkeypatch.setattr(pipeline, 'invoke', tight_invoke)
-    value = pipeline.review_scan(report, {}, {}, tenant='alice', artifacts=environment, deadline=1000.0 + 2000)
+    value = pipeline.review_scan(report, {}, {"ai_findings_report_enabled": False}, tenant='alice', artifacts=environment, deadline=1000.0 + 2000)
     assert value['status'] == 'completed', value
     assert tight['priorities'] == 1500 and tight['review_end'] == 1700 - 510
