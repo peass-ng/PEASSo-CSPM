@@ -156,7 +156,18 @@ def source_index(platform):
     network_ids = {row['id'] for row in (platform.get('network_review') or {}).get('findings', [])}
     inventory = {row['id']: row for row in platform.get('inventory', []) if row.get('id')}
     def asset(ident):
-        return inventory.get(ident, {}).get('native_id') or ident
+        if isinstance(ident, str):
+            return inventory.get(ident, {}).get('native_id') or ident
+
+    def graph_assets(node):
+        attrs = node.get('attrs') or {}
+        members = node.get('members')
+        if isinstance(members, list) and members:
+            return [asset(member) for member in members]
+        return [node.get('native_id') or attrs.get('arn') or attrs.get('email') or
+                asset(node.get('resource_id')) or asset(node.get('id'))]
+
+    meta = report.get('check_meta') or {}
     for row in report.get('findings', []):
         if row.get('status') not in ('FAIL', 'MANUAL', 'UNKNOWN', 'DENIED'):
             continue
@@ -172,7 +183,13 @@ def source_index(platform):
         if isinstance(linked, list):
             identifiers.extend(asset(ident) for ident in linked if isinstance(ident, str) and
                                (ident in inventory or evidence.get('source') == 'ai_network_review'))
-        category = 'network' if row['id'] in network_ids else row.get('category')
+        category = row.get('category') or (meta.get(check) or {}).get('category')
+        if row['id'] in network_ids:
+            category = 'network'
+        if category == 'privesc':
+            for target in evidence.get('targets', []):
+                if isinstance(target, dict):
+                    identifiers.extend(graph_assets(target))
         result.append({'category': category, 'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident}),
                        'domain': 'findings', 'id': row['id'], 'kind': kind,
                        'confirmed': row.get('status') == 'FAIL', 'required': row.get('status') == 'FAIL' or category in ('hardening', 'exposure', 'network')})
@@ -186,8 +203,9 @@ def source_index(platform):
     graph = report.get('graphs', {}).get('privesc') or {}
     nodes = {row['id']: row for row in graph.get('nodes', [])}
     for index, row in enumerate(graph.get('edges', [])):
-        endpoints = [nodes.get(row.get(key), {}) for key in ('source', 'target')]
-        identifiers = [node.get('native_id') or asset(node.get('resource_id')) for node in endpoints]
+        endpoint_ids = [row.get('source'), row.get('target')]
+        identifiers = [ident for endpoint in endpoint_ids
+                       for ident in graph_assets(nodes.get(endpoint, {'id': endpoint}))]
         result.append({'domain': 'privesc_edges', 'id': str(row.get('id', index)),
                        'kind': None, 'confirmed': False, 'required': True,
                        'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident})})

@@ -326,11 +326,11 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
 
     platform = {
         'report': {'findings': [
-            {'id': 'native-hardening', 'category': 'hardening', 'status': 'FAIL', 'resource_id': 'disk'},
+            {'id': 'native-hardening', 'check_id': 'hardening-check', 'status': 'FAIL', 'resource_id': 'disk'},
             {'id': 'native-exposure', 'category': 'exposure', 'status': 'UNKNOWN', 'resource_id': 'workload'},
             {'id': 'native-network', 'category': 'network', 'status': 'FAIL', 'resource_id': 'workload',
              'evidence': {'source': 'ai_network_review', 'resource_ids': ['disk', 'workload']}},
-        ]},
+        ], 'check_meta': {'hardening-check': {'category': 'hardening'}}},
         'inventory': [{'id': 'disk', 'native_id': 'disk/production'}],
         'least_privilege': {'items': [{'id': 'principal', 'principal': 'identity/worker',
                                       'exposures': [{'resource_id': 'workload'}]}]},
