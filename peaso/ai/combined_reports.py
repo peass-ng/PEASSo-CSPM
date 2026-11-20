@@ -49,6 +49,11 @@ def validate(data, reports):
         issue['affected_assets'] = sorted({asset for row in source for asset in row.get('affected_assets', [])})
         issue['manual_affected_assets'] = sorted({asset for row in source
             for asset in row.get('manual_affected_assets', [])} - set(issue['affected_assets']))
+        recommendations = [dict(item, report_id=ref['report_id'], issue_id=ref['issue_id'])
+                           for ref, row in zip(issue['references'], source)
+                           for item in row.get('permission_recommendations', [])]
+        if recommendations:
+            issue['permission_recommendations'] = recommendations
         kinds = {row['kind'] for row in source}
         if (kinds & SPECIAL_KINDS and (len(kinds) != 1 or issue['kind'] not in kinds)
                 or issue['kind'] in SPECIAL_KINDS and kinds != {issue['kind']}):

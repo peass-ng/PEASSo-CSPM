@@ -39,6 +39,51 @@ def test_all_source_areas_are_assessed_and_ids_are_stable():
     assert compiler.validate(original, sources[:1] + sources[3:])['issues'][0]['id'] == result1['issues'][0]['id']
 
 
+def test_permission_recommendations_survive_individual_and_combined_compilation():
+    from peaso.ai import combined_reports
+    from peaso.least_privilege import project
+
+    arn = 'arn:aws:iam::123456789012:role/App'
+    aws = project('aws', [{'id': arn, 'type': 'iam_role', 'scope': '123456789012/global', 'data': {
+        'Arn': arn, 'RoleName': 'App', 'RolePolicyList': [{'PolicyName': 'inline', 'PolicyDocument': {'Statement': [
+            {'Effect': 'Allow', 'Action': ['iam:CreateAccessKey', 'iam:UpdateAssumeRolePolicy', 'iam:PutRolePolicy'], 'Resource': '*'}]}}],
+        'ServicesLastAccessedStatus': {'collection_status': 'collected', 'job_completion_date': '2026-10-20T00:00:00Z'},
+        'ServicesLastAccessed': [{'ServiceNamespace': 'iam', 'TrackedActionsUnobserved': ['CreateAccessKey', 'PutRolePolicy'],
+            'TrackedActionsLastAccessed': [{'ActionName': 'UpdateAssumeRolePolicy', 'LastAccessedTime': '2026-10-18T00:00:00Z'}]}],
+    }}])
+    member = 'user:app@example.test'
+    gcp = project('gcp', [{'type': 'recommendation', 'scope': 'projects/example', 'data': {
+        'name': 'recommendations/editor', 'stateInfo': {'state': 'ACTIVE'}, 'lastRefreshTime': '2026-10-20T00:00:00Z',
+        'content': {'overview': {'member': member, 'removedRole': 'roles/editor', 'addedRoles': ['roles/viewer']}},
+    }}])
+    inputs = []
+    for provider, projection, principal in [('aws', aws, arn), ('gcp', gcp, member)]:
+        platform = {'report': {'provider': provider}, 'least_privilege': projection}
+        sources = compiler.source_index(platform)
+        ref = ('least_privilege', principal)
+        excluded = report(exclusions=[{'reference': dict(zip(('domain', 'id'), ref)),
+            'reason': 'This observation is not security relevant according to the owner because this role has no access to the scoped workload.'}])
+        assert compiler.validate(excluded, sources)['covered_count'] == 1
+        choices = sources[0]['permission_recommendations']
+        assert {item['value'] for item in choices} == ({'iam:CreateAccessKey', 'iam:PutRolePolicy'} if provider == 'aws' else {'roles/editor'})
+        draft = issue([ref], kind='hardening', status='needs_review')
+        draft['permission_review_ids'] = ['PR-111111111111']
+        with pytest.raises(ValueError, match='unknown_or_duplicate_permission_review'):
+            compiler.validate(report([draft]), sources)
+        relevant = 'iam:CreateAccessKey' if provider == 'aws' else 'roles/editor'
+        draft['permission_review_ids'] = [next(item['review_id'] for item in choices if item['value'] == relevant)]
+        final = compiler.complete(report([draft]), sources, compiler.pregenerate(platform, sources))
+        [compiled] = final['issues']
+        inputs.append({'scan_id': provider, 'issues': [compiled]})
+    combined_issue = issue([], kind='hardening', status='needs_review')
+    combined_issue['references'] = [{'report_id': item['scan_id'], 'issue_id': item['issues'][0]['id']} for item in inputs]
+    merged = combined_reports.validate({'summary': 'Scoped access review.', 'issues': [combined_issue], 'limitations': []}, inputs)
+    aws_hint, gcp_hint = merged['issues'][0]['permission_recommendations']
+    assert (aws_hint['value'], aws_hint['principal'], aws_hint['report_id']) == ('iam:CreateAccessKey', arn, 'aws')
+    assert aws_hint['usage_window_end'] == '2026-10-20T00:00:00Z'
+    assert (gcp_hint['value'], gcp_hint['replacement'], gcp_hint['report_id']) == ('roles/editor', ['roles/viewer'], 'gcp')
+
+
 @pytest.mark.parametrize('kind', ['leaks', 'image_cves'])
 def test_platform_pregenerates_special_findings_and_agent_cannot_create_or_reference_them(kind):
     sources = [source('findings', 'a', kind), source('findings', 'b', kind)]

@@ -3,6 +3,10 @@ import { expect, test } from '@playwright/test';
 const issue = (n: number) => ({ id: 'r' + n, title: `Report issue ${n}`, kind: n === 0 ? 'leaks' : 'vulnerability',
   severity: n === 0 ? 'high' : 'medium', status: 'confirmed', description: 'Observed restricted-scope configuration.',
   impact: 'Conditional access to sensitive data.', recommendation: 'Restrict the affected policy.',
+  permission_recommendations: n === 25 ? Array.from({ length: 6 }, (_, row) => ({
+    principal: 'workload-identity', scope: 'production', value: `iam:TrackedAction${row}`, policy: 'workload-policy',
+    source: 'AWS IAM action report', usage_window_end: '2026-11-18', confidence: 'tracked_without_observed_use',
+  })) : [],
   verification: 'Read back the expected policy.', references: [{ domain: 'findings', id: 'f' + n }] });
 
 async function setup(page: import('@playwright/test').Page, status = 'completed') {
@@ -48,6 +52,12 @@ test('compiled report pages, searches all issues and opens source evidence', asy
   await expect(page.locator('.findings-table tbody tr')).toHaveCount(1);
   await page.getByRole('button', { name: 'Report issue 25', exact: true }).click();
   await expect(page.getByRole('dialog').getByText('Conditional access to sensitive data.')).toBeVisible();
+  const access = page.getByRole('dialog').getByRole('table');
+  await expect(access.getByText('iam:TrackedAction0', { exact: true })).toBeVisible();
+  await expect(access.getByText('iam:TrackedAction5', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show 1 more', exact: true }).click();
+  await expect(access.getByText('iam:TrackedAction5', { exact: true })).toBeVisible();
+  await expect(access.getByText('Report completed 2026-11-18').first()).toBeVisible();
   await page.getByRole('button', { name: 'arn:cloud:identity::123456789012:role/f25', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Original scan evidence', exact: true })).toBeVisible();
 });

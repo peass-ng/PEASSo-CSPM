@@ -1,6 +1,6 @@
 """Read principal permission details from tenant-owned immutable inventory."""
 from concurrent.futures import ThreadPoolExecutor
-from peaso.least_privilege_permissions import enrich, permission_input_filter
+from peaso.least_privilege_permissions import enrich, permission_input_filter, with_aws_tracked_card_reviews
 
 
 def resource_rows(artifacts, tenant, bundle, *, cards=None):
@@ -42,5 +42,6 @@ def resource_rows(artifacts, tenant, bundle, *, cards=None):
 
 def principal_detail(artifacts, tenant, bundle, card):
     summary = bundle.get('summary', bundle)
-    return enrich(card, summary.get('provider', card.get('provider')),
-                  resource_rows(artifacts, tenant, bundle, cards=[card]), summary.get('created_at'))
+    provider = summary.get('provider', card.get('provider'))
+    detail = enrich(card, provider, resource_rows(artifacts, tenant, bundle, cards=[card]), summary.get('created_at'))
+    return with_aws_tracked_card_reviews(detail, detail['high_risk_permissions']) if provider == 'aws' else detail

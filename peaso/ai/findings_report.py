@@ -40,6 +40,7 @@ class FindingsReport(Strict):
 class AgentIssue(Issue):
     kind: Literal['vulnerability', 'hardening']
     manual_affected_assets: list[Annotated[str, Field(min_length=1, max_length=500, pattern=r'\S')]] = Field(default_factory=list, max_length=200)
+    permission_review_ids: list[Annotated[str, Field(pattern=r'^PR-[0-9a-f]{12}$')]] = Field(default_factory=list)
 
 
 class AgentReport(FindingsReport):
@@ -127,9 +128,17 @@ def complete(data, sources, prebuilt, previous_report=None):
                 issue['id'] = previous_id
                 claimed.add(previous_id)
     assets = {(row['domain'], row['id']): row.get('assets', []) for row in sources}
+    recommendations = {row['id']: row.get('permission_recommendations', []) for row in sources
+                       if row['domain'] == 'least_privilege'}
     for issue in value['issues']:
         issue['affected_assets'] = sorted({asset for ref in issue['references']
             for asset in assets.get((ref['domain'], ref['id']), [])})
+        if issue['permission_review_ids']:
+            linked_reviews = {item['review_id']: item for ref in issue['references'] if ref['domain'] == 'least_privilege'
+                              for item in recommendations.get(ref['id'], [])}
+            issue['permission_recommendations'] = [linked_reviews[ident] for ident in issue['permission_review_ids']]
+        else:
+            del issue['permission_review_ids']
         if 'manual_affected_assets' in issue:
             issue['manual_affected_assets'] = sorted({asset.strip() for asset in issue['manual_affected_assets']}
                                                      - set(issue['affected_assets']))
@@ -190,8 +199,15 @@ def source_index(platform):
                        'confirmed': row.get('status') == 'FAIL', 'required': row.get('status') == 'FAIL' or category in ('hardening', 'exposure', 'network')})
     for index, row in enumerate(platform.get('least_privilege', {}).get('items', [])):
         if row.get('suggestions') or row.get('exposures'):
+            reviews = [dict(item, principal=row['principal'], provider=row.get('provider', report.get('provider')))
+                       for item in row.get('suggestions', []) if item.get('confidence') in
+                       {'provider_recommendation', 'tracked_without_observed_use'} and row.get('principal')]
+            for review in reviews:
+                fingerprint = json.dumps(review, sort_keys=True, separators=(',', ':')).encode()
+                review['review_id'] = 'PR-' + hashlib.sha256(fingerprint).hexdigest()[:12]
             result.append({'domain': 'least_privilege', 'id': str(row.get('id', index)),
                            'kind': None, 'confirmed': False, 'required': True, 'actionable': True,
+                           **({'permission_recommendations': reviews} if reviews else {}),
                            'assets': sorted({item for item in [row.get('principal'), *(
                                asset(exposure.get('resource_id')) for exposure in row.get('exposures', []))]
                                if isinstance(item, str) and item})})
@@ -238,9 +254,10 @@ def _scoped_context(platform, sources):
     allowed = {r['id'] for r in assigned if r['domain'] == 'findings'}
     report = platform.get('report', {})
     actions = {r['id'] for r in assigned if r['domain'] == 'actions'}
-    least_ids = {r['id'] for r in assigned if r['domain'] == 'least_privilege'}
-    least = [row for i, row in enumerate(platform.get('least_privilege', {}).get('items', []))
-             if str(row.get('id', i)) in least_ids]
+    least_reviews = {r['id']: r.get('permission_recommendations', []) for r in assigned if r['domain'] == 'least_privilege'}
+    least = [dict(row, permission_recommendations=least_reviews[str(row.get('id', i))])
+             for i, row in enumerate(platform.get('least_privilege', {}).get('items', []))
+             if str(row.get('id', i)) in least_reviews]
     top = [row for row in platform.get('top_actions', []) if str(row['rank']) in actions]
     network_review = platform.get('network_review') or {}
     network_ids = {r['id'] for r in network_review.get('findings', [])}
@@ -324,7 +341,10 @@ def build(root, platform, findings, reviews, write_json):
         write_json(path, value)
     build_context(root, scoped, [row for row in findings if row['id'] in identifiers],
                   [row for row in reviews if row['finding_id'] in identifiers], write_context)
-    write_json(root / 'report-sources.json', assigned)
+    write_json(root / 'report-sources.json', [dict(
+        {key: val for key, val in row.items() if key != 'permission_recommendations'},
+        **({'permission_review_count': len(row['permission_recommendations'])}
+           if row.get('permission_recommendations') else {})) for row in assigned])
     write_json(root / 'analysis-status.json', scoped['analysis_status'])
     write_json(root / 'top-actions.json', scoped['top_actions'])
     from .report_draft import initial_draft
@@ -357,6 +377,11 @@ def validate(data, sources):
             raise ValueError('unconfirmed_report_issue')
         if issue['kind'] == 'hardening' and issue['severity'] != 'info':
             raise ValueError('hardening_report_severity')
+        if issue['permission_review_ids']:
+            available = {item['review_id'] for key in keys for item in known[key].get('permission_recommendations', [])}
+            chosen = issue['permission_review_ids']
+            if len(set(chosen)) != len(chosen) or not set(chosen) <= available:
+                raise ValueError('unknown_or_duplicate_permission_review')
         issue['id'] = _issue_id(issue['references'])
     for exclusion in value['exclusions']:
         ref = exclusion['reference']

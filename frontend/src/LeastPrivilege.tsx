@@ -15,7 +15,9 @@ type Suggestion = {
   replacement?: string[];
   last_accessed?: string;
   last_refreshed?: string;
-  confidence: "provider_recommendation" | "declared_grant_only";
+  usage_window_end?: string;
+  policy?: string;
+  confidence: "provider_recommendation" | "declared_grant_only" | "tracked_without_observed_use";
 };
 type RiskPermission = {
   permission: string; severity: string; source: string; scope: string; resources: string[];
@@ -31,6 +33,7 @@ type Principal = {
   scopes: string[];
   provider: string;
   recommendation_count: number;
+  tracked_review_count?: number;
   severity?: string;
   base_severity?: string;
   exposures?: PrincipalExposure[];
@@ -133,6 +136,7 @@ export function LeastPrivilege({ scanId, demo }: { scanId: string; demo: boolean
               <span className="least-identity"><strong>{principal.label || principal.principal.split("/").pop() || principal.principal}</strong><small>{principal.principal} · {principal.scopes.length} scope{principal.scopes.length === 1 ? "" : "s"}</small></span>
               <span className={`least-row-count${principal.recommendation_count ? " recommended" : ""}`}>{principal.recommendation_count
                 ? `${principal.recommendation_count} suggested changes`
+                : principal.tracked_review_count ? `${principal.tracked_review_count} tracked actions to review`
                 : principal.suggestions.length ? `${principal.suggestions.length} grants to review` : "Exposure to review"}</span>
               <ExposureBadges exposures={principal.exposures} />
               {principal.severity && <Badge value={principal.severity} />}
@@ -183,6 +187,8 @@ export function LeastPrivilege({ scanId, demo }: { scanId: string; demo: boolean
           <div className="least-suggestions">{detail.suggestions.filter(item => item.value !== "high-impact declared access").map((item, index) => <article key={`${item.scope}-${item.value}-${index}`}>
             <span className="least-source">{item.source}</span><h4>{item.kind === "permission" ? `Review removing ${item.value}` : item.kind === "service" ? `Review ${item.value} service access` : item.kind === "role" ? `Remove or replace ${item.value}` : `Review ${item.value}`}</h4>
             {item.replacement?.length ? <p>Suggested replacement: {item.replacement.join(", ")}</p> : null}
+            {item.policy && <p>Granting policy: <code>{item.policy}</code></p>}
+            {item.usage_window_end && <p>No use observed for this tracked action in the report completed {item.usage_window_end}.</p>}
             <p>{item.scope}</p>{item.last_accessed && <p>Last accessed: {item.last_accessed}</p>}
           </article>)}</div>
         </section>}
