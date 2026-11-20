@@ -54,3 +54,30 @@ test('CVE and image groups open the shared inspector and table scrolls internall
   await table.locator('.finding-title').first().click();
   await expect(page.getByRole('dialog').getByRole('heading', { name: /CVE-2026-1000/ }).first()).toBeVisible();
 });
+
+for (const width of [1440, 390]) {
+  test(`image detail typography follows its reading context at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1080 });
+    await setup(page);
+    await page.goto('/#Images%20CVEs');
+    const font = (element: Element) => {
+      const style = getComputedStyle(element);
+      return { family: style.fontFamily, size: style.fontSize, lineHeight: style.lineHeight };
+    };
+    await page.getByRole('button', { name: 'CVE-2026-1000', exact: true }).click();
+    const detail = page.getByRole('dialog').locator('.image-cve-detail').first();
+    const summary = detail.locator('summary');
+    await summary.click();
+    await expect(detail.getByText('task-0', { exact: true })).toBeVisible();
+    const reference = await detail.locator('a').first().evaluate(font);
+    for (const selector of ['p', 'dt', 'dd', 'summary', 'li .images-findings-break', '.images-findings-secondary']) {
+      expect(await detail.locator(selector).first().evaluate(font), selector).toEqual(reference);
+    }
+    expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    // Headings retain their hierarchy; body values do not inherit browser defaults.
+    expect(await detail.locator('h3').evaluate(el => getComputedStyle(el).fontWeight)).not.toBe(
+      await detail.locator('dd').first().evaluate(el => getComputedStyle(el).fontWeight));
+    await summary.click();
+    await expect(detail.getByText('task-0', { exact: true })).not.toBeVisible();
+  });
+}

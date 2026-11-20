@@ -1068,6 +1068,8 @@ h1 {
   border-left: 1px solid #78979b44;
   box-shadow: -10px 0 100px #0009;
   overflow: auto;
+  font-size: 14px;
+  line-height: 1.65;
 }
 .inspector::backdrop {
   background: rgba(2, 9, 19, 0.7);
@@ -1092,7 +1094,8 @@ h1 {
   gap: 10px;
 }
 .inspector p {
-  font-size: 12px;
+  font-size: inherit;
+  line-height: inherit;
   margin-bottom: 17px;
   color: #b6c6d3;
 }
@@ -1529,7 +1532,7 @@ dl {
   grid-template-columns: 80px 1fr;
   gap: 13px;
   margin: 22px 0;
-  font-size: 11px;
+  font-size: inherit;
 }
 dt {
   color: #93a9b8;
@@ -1987,7 +1990,7 @@ dd {
   word-break: break-all;
 }
 summary {
-  font-size: 11px;
+  font: inherit;
   color: #abc7d4;
   cursor: pointer;
 }
