@@ -24,7 +24,7 @@ def compiled(reports):
     rows = []
     for ident in ('encryption', 'images', 'leaks'):
         source = next(i for r in reports for i in r['issues'] if i['id'] == ident)
-        rows.append({k: v for k, v in source.items() if k != 'id'} |
+        rows.append({k: v for k, v in source.items() if k not in ('id', 'affected_assets', 'special_details')} |
                     {'references': [{'report_id': r['scan_id'], 'issue_id': i['id']}
                                     for r in reports for i in r['issues'] if i['id'] == ident]})
     return dict(summary='Combined captured issues.', issues=rows, limitations=[])
@@ -217,3 +217,22 @@ def test_connector_names_decode_storage_data_and_survive_connector_deletion(repo
     store.delete_connector('alice', connector)
     captured = next(row for row in runs.candidates(store, artifacts, 'alice') if row['scan_id'] == scans[0])
     assert captured['connector_name'] == 'Production' and captured['provider'] == 'aws'
+
+
+def test_combined_fixed_findings_keep_all_assets_and_breakdowns():
+    sources = []
+    for scan, scope in [('a', 'west'), ('b', 'east')]:
+        images = issue('images', 'image_cves', 'high')
+        images.update(affected_assets=[f'{scope}/image'], special_details=[
+            {'asset': f'{scope}/image', 'counts': {'critical': 0, 'high': 2}, 'finding_ids': [f'native-{scan}']}])
+        leak = issue('leaks', 'leaks', 'high')
+        leak.update(affected_assets=[f'{scope}/workload'], special_details=[
+            {'label': 'Leak 1', 'locations': [f'{scope}/config:12'], 'finding_ids': [f'leak-{scan}']}])
+        sources.append({'scan_id': scan, 'issues': [issue(), images, leak]})
+    result = compiler.validate(compiled(sources), sources)
+    for kind, asset in (('image_cves', 'image'), ('leaks', 'workload')):
+        [merged] = [row for row in result['issues'] if row['kind'] == kind]
+        assert merged['affected_assets'] == [f'east/{asset}', f'west/{asset}']
+        assert {row['report_id'] for row in merged['special_details']} == {'a', 'b'}
+        assert len(merged['references']) == 2
+    assert 'east/config:12' in next(row for row in result['issues'] if row['kind'] == 'leaks')['description']

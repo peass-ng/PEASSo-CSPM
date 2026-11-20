@@ -1,3 +1,4 @@
+import { ReportFilters } from "./ReportFilters";
 import { useEffect, useRef, useState } from "react";
 import { request, useApi } from "./api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -31,16 +32,16 @@ function AssessmentReport({ scanId, demo }: { scanId: string; demo: boolean }) {
   return <div className="ai-review-view">
     <Panel>
       {(report.status === "unavailable" || report.run_status === "failed") && <p role="alert">Report generation failed. Generate the report again to retry.</p>}
-      <div className="filters"><input aria-label="Search report issues" placeholder="Search report issues…" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} />
-        <select aria-label="Report issue severity" value={severity} onChange={event => { setSeverity(event.target.value); setPage(0); }}><option value="">All severities</option>{["critical", "high", "medium", "low", "info"].map(s => <option key={s}>{s}</option>)}</select>
-        <span className="count-pill">{report.total} issues</span></div>
-      <div className="table-scroll"><table className="findings-table"><thead><tr><th>Severity</th><th>Issue</th><th>Type</th><th>Assessment</th><th>Sources</th></tr></thead>
+      <ReportFilters search={search} severity={severity} total={report.total}
+          onSearch={value => { setSearch(value); setPage(0); }}
+          onSeverity={value => { setSeverity(value); setPage(0); }} />
+        <div className="table-scroll"><table className="findings-table"><thead><tr><th>Severity</th><th>Issue</th><th>Type</th><th>Assessment</th><th>Sources</th></tr></thead>
         <tbody>{report.issues.map(issue => <tr key={issue.id}><td><Badge value={issue.severity} /></td><td><button className="finding-title" onClick={event => { trigger.current = event.currentTarget; setSelected(issue); }}>{issue.title}</button></td><td>{kinds[issue.kind] || issue.kind}</td><td>{issue.status === "confirmed" ? "Confirmed configuration" : "Needs review"}</td><td>{issue.references.length}</td></tr>)}
           {!report.issues.length && <tr><td colSpan={5}>{report.status === "completed" ? "No issues match the selected filters." : "No compiled issues are available yet."}</td></tr>}</tbody></table></div>
       {report.total > 25 && <div className="service-page-controls"><button disabled={page === 0} onClick={() => setPage(page - 1)}>Previous page</button><span>{page * 25 + 1}–{Math.min((page + 1) * 25, report.total)} of {report.total}</span><button disabled={(page + 1) * 25 >= report.total} onClick={() => setPage(page + 1)}>Next page</button></div>}
     </Panel>
     {selected && <Inspector title={selected.title} onClose={close}>
-      <IssueBody issue={selected} />
+      <IssueBody issue={selected} onInspectDetails={row => setSource(row.finding_ids[0])} />
       <h3>Supporting evidence</h3><SupportingEvidence key={selected.id} scanId={scanId} references={selected.references} onInspect={setSource} />
     </Inspector>}
     {source && <SourceFinding scanId={scanId} id={source} onInspect={setSource} onClose={() => setSource(undefined)} />}

@@ -83,3 +83,26 @@ test('navigation descriptions cover icon, text, count and keyboard focus', async
     await expect(page.getByRole('tooltip')).toBeVisible();
   }
 });
+
+test('source reports stay collapsed in the table and detail header', async ({ page }) => {
+  await setup(page);
+  const extra = { ...sources[0], scan_id: 'e'.repeat(32), connector_name: 'Log archive' };
+  const entry = { id: combined, name: 'All environments', sources: [...sources, extra], status: 'completed', created: 1795170000 };
+  await page.route('**/api/combined-reports?**', route => route.fulfill({ json: { items: [entry] } }));
+  await page.route('**/api/combined-reports/' + combined + '?**', route => route.fulfill({ json: { ...entry, issues: [merged], total: 1 } }));
+  await page.goto('/#Findings%20Report');
+  await page.getByRole('tab', { name: 'Combined reports', exact: true }).click();
+  const row = page.getByRole('row', { name: /All environments/ });
+  await expect(row.getByText('Log archive', { exact: false })).toHaveCount(0);
+  await row.getByRole('button', { name: 'Show 1 more source report', exact: true }).click();
+  await expect(row.getByText('Log archive', { exact: false })).toBeVisible();
+  await row.getByRole('button', { name: 'Show fewer source reports', exact: true }).click();
+  await expect(row.getByText('Log archive', { exact: false })).toHaveCount(0);
+  await row.getByRole('button', { name: 'All environments', exact: true }).click();
+  const metadata = page.locator('.combined-report-meta');
+  await expect(metadata.getByText('Log archive', { exact: false })).toBeHidden();
+  await metadata.getByText('3 source reports', { exact: true }).click();
+  await expect(metadata.getByText('Log archive', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: merged.title, exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Production · same-id', exact: true })).toHaveCSS('text-align', 'left');
+});

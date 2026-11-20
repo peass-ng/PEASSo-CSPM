@@ -55,6 +55,17 @@ def validate(data, reports):
             raise ValueError('combined_special_kind_mismatch')
         if issue['kind'] in SPECIAL_KINDS:
             special[issue['kind']] += 1
+            details = []
+            for ref, original in zip(issue['references'], source):
+                for row in original.get('special_details', []):
+                    details.append(dict(row, report_id=ref['report_id'], issue_id=ref['issue_id']))
+            if details:
+                from .special_report_details import prose
+                if issue['kind'] == 'leaks':
+                    for index, row in enumerate(details, 1):
+                        row['label'] = f'Leak {index}'
+                issue['special_details'] = details
+                issue['title'], issue['description'] = prose(issue['kind'], details)
         if issue['severity'] != min((row['severity'] for row in source), key=RISK.index):
             raise ValueError('combined_severity_mismatch')
         if (issue['kind'] == 'hardening' and (kinds != {'hardening'} or issue['severity'] != 'info')
