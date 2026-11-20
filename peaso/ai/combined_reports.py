@@ -66,7 +66,10 @@ def validate(data, reports):
                         row['label'] = f'Leak {index}'
                 issue['special_details'] = details
                 issue['title'], issue['description'] = prose(issue['kind'], details)
-        if issue['severity'] != min((row['severity'] for row in source), key=RISK.index):
+        highest_source = min(RISK.index(row['severity']) for row in source)
+        combined_severity = RISK.index(issue['severity'])
+        if (combined_severity < highest_source
+                or issue['kind'] in SPECIAL_KINDS and combined_severity != highest_source):
             raise ValueError('combined_severity_mismatch')
         if (issue['kind'] == 'hardening' and (kinds != {'hardening'} or issue['severity'] != 'info')
                 or kinds == {'hardening'} and issue['kind'] != 'hardening'):

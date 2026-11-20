@@ -236,3 +236,17 @@ def test_combined_fixed_findings_keep_all_assets_and_breakdowns():
         assert {row['report_id'] for row in merged['special_details']} == {'a', 'b'}
         assert len(merged['references']) == 2
     assert 'east/config:12' in next(row for row in result['issues'] if row['kind'] == 'leaks')['description']
+
+
+def test_combiner_can_lower_vulnerability_rating_but_preserves_fixed_finding_rating():
+    sources = [{'scan_id': 'a', 'issues': [
+        issue('encryption', severity='high'),
+        issue('images', 'image_cves', 'high'),
+        issue('leaks', 'leaks', 'high'),
+    ]}]
+    data = compiled(sources)
+    data['issues'][0]['severity'] = 'medium'
+    assert any(row['severity'] == 'medium' for row in compiler.validate(data, sources)['issues'])
+    data['issues'][1]['severity'] = 'medium'
+    with pytest.raises(ValueError, match='combined_severity_mismatch'):
+        compiler.validate(data, sources)
