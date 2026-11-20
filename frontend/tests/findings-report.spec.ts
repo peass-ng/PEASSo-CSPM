@@ -164,3 +164,18 @@ test('report prose renders Markdown safely and evidence expands after three iden
   await dialog.getByRole('button', { name: 'Show fewer evidence links', exact: true }).click();
   await expect(dialog.locator('.report-evidence li')).toHaveCount(3);
 });
+
+test('report search keeps severity and centered count on its right', async ({ page }) => {
+  await setup(page);
+  await page.goto('/#Findings%20Report');
+  const search = page.getByRole('textbox', { name: 'Search report issues', exact: true });
+  const severity = page.getByRole('combobox', { name: 'Report issue severity', exact: true });
+  await expect(severity).toBeVisible();
+  const [searchBox, severityBox] = await Promise.all([search.boundingBox(), severity.boundingBox()]);
+  expect(severityBox!.x).toBeGreaterThan(searchBox!.x + searchBox!.width);
+  expect(severityBox!.y).toBeCloseTo(searchBox!.y, 0);
+  const filters = page.locator('.report-filters');
+  await expect(filters.locator('.count-pill')).toHaveCSS('justify-content', 'center');
+  const chevron = await filters.locator('svg').boundingBox();
+  expect(chevron!.x + chevron!.width).toBeLessThan(severityBox!.x + severityBox!.width);
+});

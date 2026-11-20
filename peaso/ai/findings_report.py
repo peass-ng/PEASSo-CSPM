@@ -81,30 +81,24 @@ def pregenerate(platform, sources=None):
                                native.get('check_meta_encoding'), native.get('remediation_templates')) for row in positive]
         refs = [{'domain': row['domain'], 'id': row['id']} for row in
                 positive + [row for row in members if row['domain'] == 'actions']]
-        scopes = sorted({str(row.get('scope')) for row in rows if row.get('scope')})
-        assets = sorted({str(row.get('native_resource_id') or row.get('resource_id')) for row in rows
-                         if row.get('native_resource_id') or row.get('resource_id')})
-        locations = '\n'.join('- `' + asset + '`' for asset in assets)
-        # Complete evidence remains reachable through every original reference;
-        # bound only the readable preview, never the underlying membership.
-        if len(locations) > 1200:
-            locations = locations[:1200].rsplit('\n', 1)[0] + '\nAdditional locations are in the supporting check results.'
-        scope_preview = ', '.join(scopes) or 'See supporting evidence'
-        if len(scope_preview) > 400:
-            scope_preview = scope_preview[:400] + '…'
         severity = min((row.get('severity', 'high') for row in rows), key=lambda v: RISK.index(v) if v in RISK else 2)
         if severity not in RISK:
             severity = 'high'
         leaks = kind == 'leaks'
-        issues.append({'id': _issue_id(refs), 'title': 'Detected credential and secret leaks' if leaks else
-                       'Container images contain known-vulnerable packages', 'kind': kind,
-            'severity': severity, 'status': 'confirmed',
-            'description': (f'All {len(positive)} positive source check results are consolidated in this finding. '
-                'These are observations, not distinct vulnerability counts. '
-                f'Affected scopes: {scope_preview}.\n\n'
-                f'Affected resources:\n{locations or "See supporting check results."}\n\n' +
-                ('Supporting evidence retains safe leak locations and detector details; matched values are omitted from this report.' if leaks else
-                 'Supporting evidence retains immutable image digests, CVEs, package versions, fixed versions and coverage details.')),
+        from .special_report_details import image_details, leak_details, prose
+        details = leak_details(rows) if leaks else image_details(rows)
+        title, description = prose(kind, details)
+        detail_assets = {asset for row in details for asset in
+                         (row['assets'] if leaks else [row['asset']]) if asset}
+        # Detailed image rows and leak locations carry the real assets, while
+        # some native finding records have a synthetic finding-level resource.
+        detail_source_ids = {ident for row in details for ident in row['finding_ids']
+                             if (row['assets'] if leaks else row['asset'])}
+        source_assets = {asset for source in positive for asset in source.get('assets', [])
+                         if source['id'] not in detail_source_ids or asset in detail_assets}
+        issues.append({'id': _issue_id(refs), 'title': title, 'kind': kind,
+            'severity': severity, 'status': 'confirmed', 'description': description,
+            'special_details': details,
             'impact': ('Detected secrets may enable access within their permissions if still valid. Detection alone does not establish credential validity or misuse.' if leaks else
                        'Affected package versions match vulnerability advisories. Source severity is retained; runtime reachability, deployment status and exploitability require separate review.'),
             'recommendation': ('Review each detected location, rotate or revoke affected credentials, remove exposed copies, and restrict access to the affected configuration, artifacts or logs.' if leaks else
@@ -112,7 +106,7 @@ def pregenerate(platform, sources=None):
             'verification': ('Rescan the affected sources, confirm exposed credentials are retired, and verify replacement credentials work only for their intended consumers.' if leaks else
                              'Rescan rebuilt immutable digests, confirm affected package versions are addressed or documented as not affected, and verify intended workloads use the rebuilt images.'),
             'references': refs,
-            'affected_assets': sorted({asset for source in positive for asset in source.get('assets', [])})})
+            'affected_assets': sorted(detail_assets | source_assets)})
     return {'summary': 'Pre-generated findings from captured scan evidence.', 'issues': issues,
             'exclusions': exclusions, 'limitations': [],
             'status': 'partial' if agent_sources(sources) else 'completed',
@@ -133,7 +127,7 @@ def complete(data, sources, prebuilt, previous_report=None):
                 issue['id'] = previous_id
                 claimed.add(previous_id)
     assets = {(row['domain'], row['id']): row.get('assets', []) for row in sources}
-    for issue in prebuilt['issues'] + value['issues']:
+    for issue in value['issues']:
         issue['affected_assets'] = sorted({asset for ref in issue['references']
             for asset in assets.get((ref['domain'], ref['id']), [])})
         if 'manual_affected_assets' in issue:

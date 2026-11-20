@@ -387,3 +387,29 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
     assert compiled['id'] == 'prior-issue'
     assert compiled['affected_assets'] == ['disk/production', 'identity/worker', 'workload']
     assert compiled['manual_affected_assets'] == ['manual/asset']
+
+
+def test_fixed_reports_show_counts_and_leak_locations_without_values():
+    digest = 'sha256:' + 'a' * 64
+    package = {'image_digest': digest, 'vulnerability_id': 'CVE-2026-1234',
+               'package': 'example-lib', 'installed_version': '1.0', 'severity': 'HIGH'}
+    image = {'status': 'FAIL', 'scope': 'production', 'resource_id': 'registry/image',
+             'check_id': 'cloud.selected_image_vulnerabilities'}
+    leak = {'id': 'leak', 'status': 'FAIL', 'evidence': {'secret_leaks': [{
+        'fingerprint': 'fingerprint', 'value': 'PRIVATE-CLEARTEXT', 'detectors': [{'rule': 'api-token'}],
+        'locations': [{'resource_id': 'deployment', 'path': 'settings.yaml', 'line': 12}]}]}}
+    platform = {'report': {'findings': [
+        dict(image, id='detail', evidence={'image_digest': digest, 'vulnerabilities': [package, package]}),
+        dict(image, id='summary', evidence={'image_digest': digest, 'severity_counts': {'HIGH': 1, 'MEDIUM': 3}}),
+        leak,
+    ]}}
+    results = {item['kind']: item for item in compiler.pregenerate(platform)['issues']}
+    cves = results['image_cves']
+    assert cves['special_details'][0]['counts'] == {'critical': 0, 'high': 1, 'medium': 3}
+    assert '1 high, 3 medium' in cves['description']
+    assert cves['affected_assets'] == ['registry/image']
+    leaks = results['leaks']
+    assert 'settings.yaml:12' in leaks['description']
+    assert leaks['special_details'][0]['finding_ids'] == ['leak']
+    assert leaks['affected_assets'] == ['deployment']
+    assert 'PRIVATE-CLEARTEXT' not in json.dumps(results)

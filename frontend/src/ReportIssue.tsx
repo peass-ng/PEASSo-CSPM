@@ -6,7 +6,12 @@ import { Badge, Inspector, State } from "./ui";
 import { NetworkArchitecture } from "./NetworkArchitecture";
 import type { Finding } from "./types";
 export type Reference = { domain: "findings" | "least_privilege" | "privesc_edges" | "actions"; id: string };
-export type Issue = { id: string; title: string; kind: string; severity: string; status: string; description: string; impact: string; recommendation: string; verification: string; affected_assets?: string[]; manual_affected_assets?: string[]; references: Reference[] };
+type SpecialDetail = {
+  asset?: string; scope?: string; digest?: string; counts?: Record<string, number>;
+  label?: string; locations?: string[]; detectors?: string[]; finding_ids: string[];
+  report_id?: string; issue_id?: string;
+};
+export type Issue = { id: string; title: string; kind: string; severity: string; status: string; description: string; impact: string; recommendation: string; verification: string; affected_assets?: string[]; manual_affected_assets?: string[]; special_details?: SpecialDetail[]; references: Reference[] };
 export const issueKinds: Record<string, string> = { vulnerability: "Security issue", hardening: "Hardening suggestion", leaks: "Leaks", image_cves: "Image CVEs" };
 export function SourceFinding({ scanId, id, onClose, onInspect }: { scanId: string; id: string; onClose: () => void; onInspect: (id: string) => void }) {
   const query = useApi<Finding>(`/scans/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(id)}`, false);
@@ -21,9 +26,38 @@ function AffectedAssets({ assets, title }: { assets: string[]; title: string }) 
     </button>}</>;
 }
 
-export function IssueBody({ issue }: { issue: Omit<Issue, "references"> }) {
+function SpecialDetails({ rows, onInspect }: {
+  rows: SpecialDetail[]; onInspect?: (row: SpecialDetail) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? rows : rows.slice(0, 5);
+  const images = rows[0].counts !== undefined;
+  return <>
+    <h4>{images ? "Severity by resource and image" : "Detected leaks and locations"}</h4>
+    {images ? <div className="table-scroll"><table className="findings-table">
+      <thead><tr><th>Resource and image</th><th>Critical</th><th>High</th><th>Medium</th></tr></thead>
+      <tbody>{visible.map((row, index) => <tr key={index}>
+        <td><code>{row.asset || row.digest || row.scope}</code>
+          {!!row.scope && <div className="muted small">{row.scope}</div>}
+          {!!row.digest && row.digest !== row.asset && <div className="muted small"><code>{row.digest}</code></div>}
+        </td>
+        {["critical", "high", "medium"].map(level => <td key={level}>{row.counts?.[level] ?? "—"}</td>)}
+      </tr>)}</tbody>
+    </table></div> : <ul className="report-evidence">{visible.map((row, index) => <li key={index}>
+      <strong>{row.label}</strong>{!!row.detectors?.length && <> · {row.detectors.join(", ")}</>}
+      <div>{row.locations?.[0] || "Location unavailable in the captured evidence"}</div>
+      {onInspect && !!row.finding_ids.length && <button type="button" className="text-button" onClick={() => onInspect(row)}>View retained value and evidence</button>}
+    </li>)}</ul>}
+    {rows.length > 5 && <button type="button" className="text-button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+      {expanded ? "Show fewer entries" : `Show ${rows.length - 5} more entries`}
+    </button>}
+  </>;
+}
+
+export function IssueBody({ issue, onInspectDetails }: { issue: Omit<Issue, "references">; onInspectDetails?: (row: SpecialDetail) => void }) {
   return <><Badge value={issue.severity} /><p>{issue.status === "confirmed" ? "Confirmed configuration" : "Needs review"} · {issueKinds[issue.kind] || issue.kind}</p>
     <h3>Description and affected scope</h3><NetworkArchitecture label="Issue description" markdown text={issue.description} />
+    {!!issue.special_details?.length && <SpecialDetails rows={issue.special_details} onInspect={onInspectDetails} />}
     {!!issue.affected_assets?.length && <AffectedAssets title="Affected assets" assets={issue.affected_assets} />}
     {!!issue.manual_affected_assets?.length && <AffectedAssets title="Agent-added affected assets" assets={issue.manual_affected_assets} />}
     <h3>Impact</h3><NetworkArchitecture label="Issue impact" markdown text={issue.impact} />

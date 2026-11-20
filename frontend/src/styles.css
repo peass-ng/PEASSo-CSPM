@@ -3758,3 +3758,52 @@ main.network-map-page { max-width: none; width: 100%; min-width: 0; }
 }
 
 .report-evidence code { overflow-wrap: anywhere; }
+
+.combined-report-heading, .combined-report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .5rem 1rem;
+}
+.combined-report-heading h2 { font-size: 1.15rem; margin: 0; }
+.combined-report-meta {
+  padding: .45rem 0 .75rem;
+  margin-bottom: .75rem;
+  border-bottom: 1px solid rgba(166, 227, 212, .16);
+  color: var(--muted);
+  font-size: .875rem;
+}
+.combined-report-meta summary { cursor: pointer; }
+.combined-sources .text-button { text-align: left; white-space: normal; }
+
+.report-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.report-filters > input { min-width: 0; height: 39px; }
+.report-filter-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.report-severity-select { position: relative; }
+.report-filters .report-severity-select select {
+  width: 142px;
+  appearance: none;
+  padding-right: 32px;
+}
+.report-severity-select svg {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.report-filter-actions .count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 74px;
+  min-height: 39px;
+  text-align: center;
+}
+@media (max-width: 600px) {
+  .report-filters { grid-template-columns: minmax(0, 1fr); }
+}

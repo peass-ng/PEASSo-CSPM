@@ -85,7 +85,9 @@ system_prompt: |
   For privilege-escalation paths, specify each evidenced starting identity,
   permission or misconfiguration, intermediate identity/resource and resulting
   privilege, including prerequisites. Preserve distinct paths within the merged
-  issue. Keep asset lists and source references outside the description when needed
+  issue. Give each distinct escalation path its own Markdown bullet on a separate
+  line, with a blank line before the list. Name the starting identity and resulting
+  privilege in each bullet so the path can be read on its own. Keep asset lists and source references outside the description when needed
   to explain all distinct problems within this limit.
 
   EDIT THE REPORT
