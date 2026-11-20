@@ -468,3 +468,24 @@ def test_fixed_reports_show_counts_and_leak_locations_without_values():
     assert leaks['special_details'][0]['finding_ids'] == ['leak']
     assert leaks['affected_assets'] == ['deployment']
     assert 'PRIVATE-CLEARTEXT' not in json.dumps(results)
+
+def test_snapshot_sharing_guardrail_reaches_report_without_owned_snapshots():
+    from peaso.checks import CHECKS
+    from peaso.engine import evaluate_snapshot
+    from peaso.snapshot import make_snapshot, resources
+
+    check_id = 'aws.ec2.prevent_public_snapshot_sharing'
+    scope = '123456789012/us-east-1'
+    snapshot = make_snapshot('aws', [scope], [{'type': 'ec2_regional_settings', 'scope': scope,
+        'service': 'ec2', 'status': 'collected', 'items': [
+            {'id': 'ec2-regional-settings', 'SnapshotBlockPublicAccessState': 'unblocked'}]},
+        {'type': 'ebs_snapshot', 'scope': scope, 'service': 'ec2', 'status': 'empty', 'items': []}])
+    native = evaluate_snapshot(snapshot, checks=[check_id])
+    [source] = compiler.source_index({'report': native, 'inventory': resources(snapshot)})
+    assert source['confirmed'] and source['required']
+    assert source['assets'] == [scope + '/ec2-regional-settings']
+
+    check = next(row for row in CHECKS if row.id == check_id)
+    assert check.evaluate({'SnapshotBlockPublicAccessState': 'block-new-sharing'}, {})[0] == 'PASS'
+    assert check.evaluate({'SnapshotBlockPublicAccessState': 'block-all-sharing'}, {})[0] == 'PASS'
+    assert check.evaluate({'_coverage': {'SnapshotBlockPublicAccessState': {'status': 'denied'}}}, {})[0] == 'UNKNOWN'

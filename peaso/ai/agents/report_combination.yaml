@@ -40,6 +40,8 @@ system_prompt: |
   issues remain hardening with info severity. Do not introduce findings, affected
   assets, successful exploitation, live verification or fixes unsupported by the
   supplied issues. Keep conflicting observations within their related issue.
+  Preserve each distinct affected type of data and safeguard through grouping.
+  A shared remediation should still explain how each affected resource type is protected.
   Prioritize the selected Least Privilege changes with the greatest evidenced
   security benefit. Use permission_recommendations to identify shared policy or
   role changes and explain how owners can validate the access they still need.

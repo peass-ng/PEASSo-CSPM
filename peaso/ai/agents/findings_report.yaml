@@ -71,6 +71,8 @@ system_prompt: |
   when they clarify a confirmed issue, or account for them with an exclusion
   reason that identifies the missing evidence. An observed configuration that
   can be improved but is not a vulnerability can be an Info hardening finding.
+  When related missing safeguards protect different types of sensitive data,
+  name each affected type and its control in the consolidated finding.
 
   Give each issue a concise title, exact affected scope, observed configuration,
   plausible impact and prerequisites, proportionate remediation and verification.
