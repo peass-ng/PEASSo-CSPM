@@ -200,7 +200,7 @@ input:focus, select:focus, textarea:focus { border-color: rgba(166,227,212,.3); 
 input[type=checkbox] { border-radius: 0; }
 label, legend { color: #a9b8bd; }
 fieldset { border-color: var(--line); }
-code, pre, .evidence-value, .scan-id { font-family: 'JetBrains Mono', monospace; }
+code, pre, .scan-id { font-family: 'JetBrains Mono', monospace; }
 pre { background: #050a0d; color: var(--mint); border-color: var(--line); }
 .filters, .filter-secondary { border-color: var(--line); }
 .findings-table { font-size: 13px; }

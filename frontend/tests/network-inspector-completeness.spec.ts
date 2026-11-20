@@ -94,6 +94,12 @@ test("relationship and attachment inspectors page through the final loaded recor
   await expect(dialog).toContainText("Attachment records 101–125 of 125");
   await expect(dialog.locator('[aria-label="Loaded attachment records"]')).toContainText("eni-124");
   await expect(dialog.locator("pre")).toHaveCount(0);
+  const disclosure = dialog.locator('details').last();
+  const readingFont = (element: Element) => {
+    const style = getComputedStyle(element);
+    return { family: style.fontFamily, size: style.fontSize, lineHeight: style.lineHeight };
+  };
+  expect(await disclosure.locator('summary').evaluate(readingFont)).toEqual(await disclosure.evaluate(readingFont));
 });
 
 test("stored projected group cursor reaches its final native member", async ({ page }) => {
