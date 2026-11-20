@@ -6115,6 +6115,9 @@ class GCPCollector:
         metadata.update(getattr(self, 'appengine_flex_image_metadata', {}))
         metadata.update(getattr(self, 'workerpool_image_metadata', {}))
         metadata.update(getattr(self, 'gke_selected_image_metadata', {}))
+        artifact_image_secret_selections = getattr(self, 'artifact_image_secret_selections', {})
+        if artifact_image_secret_selections:
+            metadata['artifact_image_secret_selections'] = artifact_image_secret_selections
         from .gcp_function_source_secret_indicators import selection_metadata as function_source_selection
         if 'function_source_archive' in self.needed:
             metadata.update(function_source_selection(self))

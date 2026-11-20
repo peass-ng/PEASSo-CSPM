@@ -2,7 +2,6 @@
 from copy import deepcopy
 import hashlib
 import json
-from pathlib import Path
 from weakref import WeakValueDictionary
 from peaso import gcp_image_selection_20261021 as selection_api
 CHECK_ID = 'gcp.review.artifact_image.selected_image_vulnerabilities'
@@ -149,10 +148,8 @@ def enrich(collector):
     def collect_scope(scope, cache):
         references = groups[scope]
         try:
-            cli = next((path for path in (trivy.DEFAULT_CLI, '/opt/homebrew/bin/trivy')
-                        if Path(path).is_file()), trivy.DEFAULT_CLI)
             return collect_selected(collector.transport, scope=scope, targets=references,
-                                    db_cache=cache, cli=cli)
+                                    db_cache=cache, cli=trivy.installed_cli())
         except (DatabaseUnavailable, OSError, subprocess.SubprocessError):
             return unavailable(scope, references, 'database_unavailable')
 

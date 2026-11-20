@@ -124,11 +124,16 @@ def test_detector_failure_closes_downloads_and_removes_scratch(tmp_path, monkeyp
     assert list(tmp_path.iterdir()) == []
 
 
-def test_enricher_keeps_native_selection_and_binding_function(monkeypatch):
+@pytest.mark.parametrize('missing_selected_digest', [False, True])
+def test_enricher_keeps_native_selection_and_binding_function(monkeypatch, missing_selected_digest):
     row, _ = image()
     expected = row['uri']
     options = {'content_secret_scans': True, '_content_secret_scan_kinds': ['artifact_image'],
         'selected_artifact_images': [expected.removeprefix('https://')]}
+    missing = expected.split('@')[0] + '@sha256:' + '0' * 64
+    if missing_selected_digest:
+        options['selected_artifact_images'].append(missing.removeprefix('https://'))
+    unselected, _ = image(size=50)
     before = json.loads(json.dumps(options))
     calls = []
     native_bind = inspection.native.bind_image
@@ -153,7 +158,7 @@ def test_enricher_keeps_native_selection_and_binding_function(monkeypatch):
     monkeypatch.setattr(inspection, 'inspect_image', inspect_selected)
     collector = type('Collector', (), {'options': options, 'scopes': [SCOPE],
         'transport': object(), 'collections': {
-            ('artifact_image', SCOPE): {'status': 'collected', 'items': [row]},
+            ('artifact_image', SCOPE): {'status': 'collected', 'items': [row, unselected]},
             ('artifact_repository', SCOPE): {'status': 'collected', 'items': REPOSITORIES},
             ('project', SCOPE): {'status': 'collected', 'items': PROJECTS}}})()
     inspection.enrich(collector, reader_factory=lambda transport: reader)
@@ -164,6 +169,10 @@ def test_enricher_keeps_native_selection_and_binding_function(monkeypatch):
         'status': 'collected', 'source_requests': ['fixture-native-read']}
     assert row['_provenance']['scope'] == SCOPE
     assert row['_provenance']['source_requests'] == ['fixture-native-read']
+    selection = collector.artifact_image_secret_selections[SCOPE]
+    assert selection['unresolved'] == ([missing] if missing_selected_digest else [])
+    context = {'scope': SCOPE, 'metadata': {'artifact_image_secret_selections': {SCOPE: selection}}}
+    assert reviewed_predicate().evaluate(unselected, {'context': context})[0] == 'NOT_APPLICABLE'
 
 
 def reviewed_predicate():

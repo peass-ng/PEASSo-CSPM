@@ -75,6 +75,31 @@ def test_gcp_network_service_native_lists_are_paginated_and_metadata_only(kind, 
     assert {row["name"] for row in collection(snap, kind)["items"]} == names
 
 
+def test_gcp_spoke_all_locations_preserves_iam_and_unreachable_coverage():
+    root = api_root("networkconnectivity", "v1") + "/projects/p-one/locations/"
+    names = [f"projects/p-one/locations/{location}/spokes/{name}"
+             for location, name in (("global", "vpc"), ("us-central1", "hybrid"))]
+
+    def resolver(request):
+        url = request["url"]
+        if url.endswith(":getIamPolicy"):
+            assert url.split("/v1/", 1)[1].removesuffix(":getIamPolicy") in names
+            return {"bindings": []}
+        assert url == root + "-/spokes"
+        if request["params"].get("pageToken"):
+            return {"spokes": [{"name": names[1]}], "unreachable": ["us-west1"]}
+        return {"spokes": [{"name": names[0]}], "nextPageToken": "next"}
+
+    snap, transport = snapshot(["network_connectivity_spoke"], resolver)
+    result = collection(snap, "network_connectivity_spoke")
+    assert result["status"] == "partial"
+    assert result["error"]["code"] == "unreachable_locations"
+    assert {row["name"]: row["iamPolicy"] for row in result["items"]} == {
+        name: {"bindings": []} for name in names
+    }
+    assert len(transport.requests) == 4
+
+
 def test_gcp_api_gateway_native_list_feeds_public_endpoint_analysis():
     from peaso.analysis import analyze
     def resolver(request):

@@ -21,6 +21,14 @@ def test_disabled_no_files_or_subprocess(tmp_path, monkeypatch):
 
 
 def test_refresh_missing_once_then_reuse_under_lock(tmp_path, monkeypatch):
+    from peaso import trivy_container_runner_20261020 as scanner
+
+    bundled = tmp_path / 'missing' / 'trivy'
+    local = tmp_path / 'bin' / 'trivy'
+    local.parent.mkdir()
+    local.touch(mode=0o700)
+    monkeypatch.setattr(scanner, 'DEFAULT_CLI', str(bundled))
+    monkeypatch.setenv('PATH', str(local.parent))
     root = tmp_path/'cache'
     generation = root/'generations'/'fixture'
     calls = []
@@ -41,7 +49,7 @@ def test_refresh_missing_once_then_reuse_under_lock(tmp_path, monkeypatch):
                 with pytest.raises(BlockingIOError):
                     module.fcntl.flock(fd,module.fcntl.LOCK_EX|module.fcntl.LOCK_NB)
             finally: os.close(fd)
-    assert len(calls) == 1
+    assert calls == [{'trivy': str(local)}]
 
 
 def test_failed_refresh_releases_lock_and_keeps_failure(tmp_path,monkeypatch):

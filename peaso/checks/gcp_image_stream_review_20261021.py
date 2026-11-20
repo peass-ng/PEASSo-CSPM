@@ -134,7 +134,13 @@ _leaf_evaluate.__kwdefaults__ = dict(predecessor.evaluate.__kwdefaults__ or {})
 
 
 def evaluate(item, index):
-    marker = item.get(native.MARKER) if type(item) is dict else None
+    marker = item.get(native.MARKER) if isinstance(item, dict) else None
+    context = index.get('context', {})
+    selected = context.get('metadata', {}).get('artifact_image_secret_selections', {}).get(context.get('scope'), {})
+    uris = selected.get('uris')
+    if (marker is None and isinstance(uris, list) and uris and isinstance(item, dict)
+            and isinstance(item.get('uri'), str) and item['uri'] not in uris):
+        return 'NOT_APPLICABLE', {'observed': 'This immutable image was outside the selected content scope.'}
     if type(marker) is not dict or 'graph' not in marker:
         return _leaf_evaluate(item, index)
     try:

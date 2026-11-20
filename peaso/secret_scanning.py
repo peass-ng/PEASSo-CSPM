@@ -198,19 +198,21 @@ _VERIFIED = {}
 _VERIFY_LOCK = threading.Lock()
 
 
-def _verified_trufflehog(executable, mtime_ns, size):
-    key = (executable, mtime_ns, size)
-    if _VERIFIED.get(key) is not None:
-        return executable
+def _verified_trufflehog(executable, file_identity):
+    key = (executable, file_identity)
+    compatible = _VERIFIED.get(key)
     # One check at a time: concurrent first scans wait for its result instead
     # of each starting the cold binary and competing for the same slots.
-    with _VERIFY_LOCK:
-        if _VERIFIED.get(key) is None:
-            version = _run([executable, '--version'], b'', VERSION_CHECK_TIMEOUT).decode('utf-8').strip()
-            if version != 'trufflehog ' + TRUFFLEHOG_VERSION:
-                raise RuntimeError('unsupported scanner version')
-            _VERIFIED.clear()
-            _VERIFIED[key] = executable
+    if compatible is None:
+        with _VERIFY_LOCK:
+            compatible = _VERIFIED.get(key)
+            if compatible is None:
+                version = _run([executable, '--version'], b'', VERSION_CHECK_TIMEOUT).decode('utf-8').strip()
+                compatible = version == 'trufflehog ' + TRUFFLEHOG_VERSION
+                _VERIFIED.clear()
+                _VERIFIED[key] = compatible
+    if not compatible:
+        raise RuntimeError('unsupported scanner version')
     return executable
 
 
@@ -225,7 +227,8 @@ def _trufflehog():
         status = os.stat(executable)
     except OSError:
         raise RuntimeError('scanner unavailable') from None
-    return _verified_trufflehog(executable, status.st_mtime_ns, status.st_size)
+    identity = (status.st_dev, status.st_ino, status.st_mtime_ns, status.st_ctime_ns, status.st_size)
+    return _verified_trufflehog(executable, identity)
 
 
 _trufflehog.cache_clear = _VERIFIED.clear

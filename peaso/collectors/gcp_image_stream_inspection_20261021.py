@@ -348,6 +348,8 @@ def enrich(collector, *, reader_factory=None):
     from peaso.gcp_image_selection_20261021 import OPTION, grouped_selections
     selected_groups = (grouped_selections({**options, OPTION: options['selected_artifact_images']}, collector.scopes)
                        if 'selected_artifact_images' in options else {})
+    explicit_only = 'selected_cloudrun_services' not in options
+    collector.artifact_image_secret_selections = {}
     for scope in collector.scopes:
         if not selected_groups.get(scope) and 'selected_cloudrun_services' not in options:
             continue
@@ -369,12 +371,29 @@ def enrich(collector, *, reader_factory=None):
                     repos['items'], projects['items'])
                 requested = list(dict.fromkeys(requested + run_plan['selected_artifact_images']))
             selected = native.normalize_selected(requested, scope)
+            matched = {}
             for row in images['items']:
                 if row.get('uri') in selected:
-                    selected_rows.append(row)
-                    native.bind_image(row, scope, repos['items'], projects['items'])
-            if {row['uri'] for row in selected_rows} != set(selected) or len(selected_rows) != len(selected):
+                    matched.setdefault(row['uri'], []).append(row)
+            unresolved = sorted(uri for uri in selected if len(matched.get(uri, ())) != 1)
+            if unresolved and not explicit_only:
                 raise ValueError('selected image missing or duplicated in native inventory')
+            if explicit_only:
+                collector.artifact_image_secret_selections[scope] = {
+                    'uris': sorted(selected), 'unresolved': unresolved}
+            for uri, rows in matched.items():
+                if len(rows) == 1:
+                    row = rows[0]
+                    try:
+                        native.bind_image(row, scope, repos['items'], projects['items'])
+                    except ValueError:
+                        if not explicit_only:
+                            raise
+                        unresolved.append(uri)
+                        continue
+                    selected_rows.append(row)
+            if not selected_rows:
+                continue
             reader = reader_factory(collector.transport)
             for row in selected_rows:
                 before = len(reader.request_ids)

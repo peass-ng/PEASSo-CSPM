@@ -372,7 +372,7 @@ def current_cache(root: Path, now: dt.datetime | None = None) -> Path:
 
 @contextmanager
 def _database_lease(*, enabled=False, cache_root=Path("/tmp/peaso/trivy"),
-                   trivy="/usr/local/bin/trivy", force_refresh=False):
+                   trivy=None, force_refresh=False):
     """Refresh once when selected; hold a shared lease through offline reads.
 
     The path and binary are trusted worker configuration, never connector input.
@@ -429,7 +429,11 @@ def _database_lease(*, enabled=False, cache_root=Path("/tmp/peaso/trivy"),
                             raise DatabaseUnavailable("explicit refresh")
                         current_cache(root)  # another holder may have refreshed
                     except (DatabaseUnavailable, OSError, ValueError):
-                        refresh(root, trivy=trivy)
+                        executable = trivy
+                        if executable is None:
+                            from peaso.trivy_container_runner_20261020 import installed_cli
+                            executable = installed_cli()
+                        refresh(root, trivy=executable)
                         current_cache(root)
                     # Downgrade (not atomic), then admit current under LOCK_SH.
                     release()
@@ -446,7 +450,7 @@ def _database_lease(*, enabled=False, cache_root=Path("/tmp/peaso/trivy"),
 
 @contextmanager
 def database_lease(*, enabled=False, cache_root=Path("/tmp/peaso/trivy"),
-                   trivy="/usr/local/bin/trivy", force_refresh=False, diagnostics=None):
+                   trivy=None, force_refresh=False, diagnostics=None):
     """Original lease semantics, with optional acquisition-only diagnostics."""
     token = _DIAGNOSTICS.set(diagnostics)
     try:
