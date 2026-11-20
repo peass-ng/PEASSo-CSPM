@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import "./ImagesFindingsTable.css";
-import { Inspector } from "./ui";
+import { Inspector, openInspectorFromRow } from "./ui";
 
 export type ImageFinding = {
   id: string;
@@ -182,7 +182,10 @@ export function ImagesFindingsTable({ rows, coverage, coverageWarning, loading =
         <tbody>{groups.map(group => {
           const assets = new Set(group.rows.flatMap(row => row.affected_assets.map(asset => `${row.provider}:${row.scope}:${asset.resource_id}:${asset.kind}:${asset.namespace || ""}`)));
           const incompleteAssets = group.rows.some(row => row.assets_truncated);
-          return <tr key={group.id}>
+          return <tr key={group.id} className="finding-data-row" onClick={event => openInspectorFromRow(event, button => {
+            trigger.current = button;
+            setSelected(group.id);
+          })}>
             <td><span className={`badge ${group.severity.toLowerCase()}`}>{group.severity}</span></td>
             <td><button className="finding-title images-findings-break" aria-haspopup="dialog" onClick={event => { trigger.current = event.currentTarget; setSelected(group.id); }}>{group.title}</button>
               {groupBy === "image" && <span className="images-findings-secondary">{group.rows[0].provider} · {group.rows[0].scope}</span>}</td>
