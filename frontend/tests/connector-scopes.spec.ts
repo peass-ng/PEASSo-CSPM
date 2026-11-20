@@ -33,6 +33,9 @@ test("AWS defaults and expandable JSON guidance explain fields and scope results
   await page.getByText("Advanced configuration", { exact: true }).click();
   await expect(page.getByLabel("AWS account IDs to Audit (comma separated) - All by default")).toBeVisible();
   await expect(page.getByLabel("Regions (comma separated) - All by default")).toBeVisible();
+  const font = (el: Element) => ({ family: getComputedStyle(el).fontFamily, size: getComputedStyle(el).fontSize });
+  expect(await page.getByLabel('Additional collector options JSON (no credentials)', { exact: true }).evaluate(font)).toEqual(
+    await page.getByLabel('Connector name', { exact: true }).evaluate(font));
   await page.getByLabel("Authentication", { exact: true }).selectOption("access_keys");
   await page.getByLabel("Access key ID", { exact: true }).fill("fixture");
   await page.getByLabel("Secret access key", { exact: true }).fill("fixture");

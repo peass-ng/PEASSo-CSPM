@@ -8,6 +8,8 @@ test("completed scan details render bounded labeled facts and paged coverage", a
     timeline: Array.from({ length: 55 }, (_, index) => ({ status: "collecting", at: `2026-01-01T00:${String(index).padStart(2, "0")}:00Z` })),
     policy_document: { Version: "2012-10-17", Statement: [{ Effect: "Deny", Action: ["s3:DeleteObject"], Resource: ["arn:aws:s3:::example/*"], Condition: { StringEquals: { "aws:PrincipalOrgID": "o-example" } } }] },
     socket: "[2001:db8::1]:443",
+    enabled: true,
+    attempts: 3,
     operator_note: "A".repeat(10_010) + "END",
   };
   const shortScan = { id: "scan-short", connector_id: "connector-two", status: "completed", created_at: "2026-01-02T00:00:00Z", categories: ["hardening"],
@@ -35,6 +37,13 @@ test("completed scan details render bounded labeled facts and paged coverage", a
   await expect(inspector.getByText("Policy statements · 1")).toBeVisible();
   await expect(inspector.getByText("s3:DeleteObject")).toBeVisible();
   await expect(inspector.getByText("[2001:db8::1]:443")).toBeVisible();
+  const field = (label: string) => inspector.locator('.evidence-field').filter({ has: page.locator('dt').getByText(label, { exact: true }) }).first();
+  const font = (el: Element) => ({ family: getComputedStyle(el).fontFamily, size: getComputedStyle(el).fontSize });
+  const reference = await field('Enabled').locator('dd').evaluate(font);
+  for (const label of ['Socket', 'Enabled', 'Attempts']) {
+    expect(await field(label).locator('dt').evaluate(font), label).toEqual(reference);
+    expect(await field(label).locator('dd > span').first().evaluate(font), label).toEqual(reference);
+  }
   const note = inspector.getByText("Operator note").locator("..");
   await note.getByRole("button", { name: "Next" }).click();
   await note.getByRole("button", { name: "Next" }).click();

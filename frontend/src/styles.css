@@ -1371,8 +1371,6 @@ textarea::placeholder {
 }
 textarea {
   resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 11px;
 }
 select {
   padding-right: 25px;
@@ -1450,7 +1448,7 @@ legend {
 }
 .evidence-field dt {
   color: #93a9b8;
-  font-size: 11px;
+  font-size: inherit;
 }
 .evidence-field dd {
   margin: 0;
