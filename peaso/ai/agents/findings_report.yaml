@@ -55,7 +55,8 @@ system_prompt: |
   within each issue and justify its overall severity using evidenced impact.
 
   Before returning, make one final coverage check against report-sources.json:
-  account for each required reference in an issue or justified exclusion.
+  include every confirmed finding in an issue. Account for other required
+  references in an issue or justified exclusion.
 
   ASSESSMENT
   Count issues after consolidation. Label underlying check results and evidence
@@ -174,11 +175,14 @@ system_prompt: |
   assessment stays the same. Keep existing issue IDs by updating their draft
   entries. Delete only issues that are superseded or unsupported after review.
 
-  For an observation that is neither security nor privacy relevant, run exclude
-  with {"reference":{"source_id":"HC-001"},"reason":"..."} on stdin. Give a specific 100–300 character reason grounded
-  in the evidence. Use include with {"source_id":"HC-001"} to
-  clear an exclusion. Every required source must belong to an issue or have a
-  justified exclusion. Resolve missing IDs from validation-feedback.json if asked
+  Run exclude with {"reference":{"source_id":"HC-001"},"reason":"..."} on stdin
+  for unresolved or otherwise irrelevant observations. Give a specific 100–300
+  character reason grounded in the evidence. Use a case reference instead of
+  source_id when the same reason applies to every selected member. Use include
+  with {"source_id":"HC-001"} to
+  clear an exclusion. Confirmed findings must belong to an issue. Other
+  required sources must belong to an issue or have a justified exclusion.
+  Resolve missing IDs from validation-feedback.json if asked
   to continue. When the draft is complete, reply with {"done":true}.
 user_prompt: |
   Edit the draft report using the supplied findings. Submit the draft when complete.

@@ -99,6 +99,7 @@ def test_launch_endpoint_owns_scan_and_preserves_report(completed, monkeypatch):
 @pytest.mark.parametrize('remote,report_only', [(False, False), (True, False), (True, True)])
 def test_report_compilation_is_the_last_model_stage(monkeypatch, tmp_path, remote, report_only):
     from peaso.ai import pipeline, findings_report
+    from tests.test_findings_report import issue
     from tests.test_peaso_ai_review import network_fixture
     from types import SimpleNamespace
     report, inventory, architecture = network_fixture()
@@ -118,9 +119,11 @@ def test_report_compilation_is_the_last_model_stage(monkeypatch, tmp_path, remot
         if stage == 'network': return architecture
         if stage == 'priorities': return {'actions': [], 'limitations': []}
         assert platform['network_review']['status'] == 'completed'
-        return {'summary': 'Compiled supplied evidence.', 'issues': [], 'limitations': [],
+        sources = findings_report.agent_sources(findings_report.source_index(platform))
+        confirmed = [(row['domain'], row['id']) for row in sources if findings_report.must_include_in_issue(row)]
+        return {'summary': 'Compiled supplied evidence.', 'issues': [issue(confirmed)], 'limitations': [],
                 'exclusions': [{'reference': {'domain': r['domain'], 'id': r['id']}, 'reason': 'The supplied observation describes a planned documentation change with no effect on access controls, data handling, or service exposure.'}
-                               for r in findings_report.agent_sources(findings_report.source_index(platform)) if r['required']]}
+                               for r in sources if r['required'] and not findings_report.must_include_in_issue(r)]}
     monkeypatch.setattr(pipeline, 'invoke', invoke)
     options = {}
     if report_only:

@@ -503,6 +503,8 @@ def test_review_scan_stops_retained_task_when_priorities_does_not_run(
 
 def test_progressive_handoff_reuses_only_this_scans_descriptor(
         environment, mocked_agent_isolation, configured, monkeypatch):
+    from peaso.ai.findings_report import must_include_in_issue
+    from tests.test_findings_report import issue
     from tests import test_peaso_ai_review as review_tests
     data, inventory, network_output = review_tests.network_fixture()
     monkeypatch.setattr('peaso.snapshot.resources', lambda _: inventory)
@@ -520,9 +522,11 @@ def test_progressive_handoff_reuses_only_this_scans_descriptor(
         if stage == 'findings_report':
             kwargs['prepare']()
             sources = json.loads((root / 'report-sources.json').read_text())
-            return {'summary': 'Evidence reviewed.', 'issues': [], 'limitations': [],
+            confirmed = [(row['domain'], row['id']) for row in sources if must_include_in_issue(row)]
+            return {'summary': 'Evidence reviewed.', 'issues': [issue(confirmed)], 'limitations': [],
                     'exclusions': [{'reference': {'domain': row['domain'], 'id': row['id']},
-                                    'reason': 'Requires owner validation.'} for row in sources if row['required']]}
+                                    'reason': 'The collected evidence leaves application access unverified, so the owner must confirm the effective settings.'}
+                                   for row in sources if row['required'] and not must_include_in_issue(row)]}
         return {'actions': [], 'limitations': []}
 
     monkeypatch.setattr(fargate, 'invoke', invoke)
@@ -536,6 +540,7 @@ def test_progressive_handoff_reuses_only_this_scans_descriptor(
         final = pipeline.review_scan(data, {}, {}, tenant='alice', artifacts=environment[2],
                                      reused_stages={'network': reused}, scan_id=scan)
         assert seen == [('priorities', expected, False), ('findings_report', None, False)]
+        assert final['findings_report']['status'] == 'completed'
         assert 'task_reuse' not in json.dumps(final)
 
 

@@ -60,6 +60,10 @@ def agent_sources(sources):
     return [row for row in sources if row['kind'] not in SPECIAL_KINDS]
 
 
+def must_include_in_issue(source):
+    return source['domain'] == 'findings' and source['confirmed']
+
+
 def pregenerate(platform, sources=None):
     """Create fixed leak/CVE findings before any model call, using no secret values."""
     from peaso.engine import hydrate_finding
@@ -350,7 +354,7 @@ def build(root, platform, findings, reviews, write_json):
     write_json(root / 'analysis-status.json', scoped['analysis_status'])
     write_json(root / 'top-actions.json', scoped['top_actions'])
     from .report_draft import initial_draft
-    write_json(root / 'report-draft.json', initial_draft(platform.get('previous_findings_report') or {}))
+    write_json(root / 'report-draft.json', initial_draft(platform.get('previous_findings_report') or {}, assigned))
 
 
 class MissingReportEvidence(ValueError):
@@ -365,6 +369,7 @@ def validate(data, sources):
     known = {(r['domain'], r['id']): r for r in agent_sources(sources)}
     required = {key for key, row in known.items() if row['required']}
     covered = set()
+    rejected_exclusions = set()
     for issue in value['issues']:
         keys = [(r['domain'], r['id']) for r in issue['references']]
         if len(keys) != len(set(keys)) or any(key not in known for key in keys):
@@ -394,7 +399,10 @@ def validate(data, sources):
         if not 100 <= len(exclusion['reason'].strip()) <= 300:
             raise ValueError('invalid_report_exclusion')
         covered.add(key)
-    if not required <= covered:
-        raise MissingReportEvidence(known[key] for key in sorted(required - covered))
+        if must_include_in_issue(known[key]):
+            rejected_exclusions.add(key)
+    missing = (required - covered) | rejected_exclusions
+    if missing:
+        raise MissingReportEvidence(known[key] for key in sorted(missing))
     value['issues'].sort(key=lambda r: (['critical', 'high', 'medium', 'low', 'info'].index(r['severity']), r['id']))
     return dict(value, status='completed', source_count=len(known), covered_count=len(covered))

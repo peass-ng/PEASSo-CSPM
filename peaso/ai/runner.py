@@ -150,11 +150,13 @@ def main():
             private_file(root/'validation-feedback.json', feedback(error))
             if use_draft:
                 text = ('Read validation-feedback.json. Fix the draft through report_draft commands and account for '
-                        'each missing_references entry in an issue or a justified exclusion. Then return done.')
+                        'each missing_references entry. Include every confirmed finding in an issue. Other sources '
+                        'can be included in an issue or given a justified exclusion. Then return done.')
             elif stage == 'report_combination':
                 text = ('Correct candidate-output.json using validation-feedback.json and combined-reports.json. '
-                        'Resolve report_id and issue_id against the original issues. Preserve every source issue '
-                        'exactly once and return the complete requested JSON with valid grouping, severities and field limits.')
+                        'Add missing_references and remove duplicate or unknown references. Resolve each report_id '
+                        'and issue_id against the original issues. Preserve every source issue exactly once and '
+                        'return complete JSON with valid grouping, severities and field limits.')
             else:
                 text = ('Correct candidate-output.json using validation-feedback.json. Both files and all original '
                         'inputs are in the working directory. Resolve references against original findings/resources '
