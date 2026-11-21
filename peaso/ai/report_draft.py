@@ -113,19 +113,19 @@ def edit(parser, args):
         if args.operation in ('exclude', 'include'):
             from .findings_report import Reference
             if args.operation == 'exclude':
-                document['reference'] = resolve(document['reference'])
-                item = Exclusion.model_validate(document)
+                references = expand(document['reference'])
+                if not references:
+                    parser.error('An exclusion must include at least one source')
+                for reference in references:
+                    item = Exclusion.model_validate(dict(document, reference=reference))
+                    source = known.get((item.reference.domain, item.reference.id))
+                    if source is None or must_include_in_issue(source):
+                        parser.error('Exclusions require an assigned source. Include confirmed findings in an issue.')
+                    key = json.dumps([item.reference.domain, item.reference.id])
+                    draft['exclusions'][key] = item.model_dump()
             else:
-                item = Reference.model_validate(resolve(document))
-            reference = item.reference if args.operation == 'exclude' else item
-            key = json.dumps([reference.domain, reference.id])
-            if args.operation == 'exclude':
-                source = known.get((reference.domain, reference.id))
-                if source is None or must_include_in_issue(source):
-                    parser.error('Exclusions require an assigned source. Include confirmed findings in an issue.')
-                draft['exclusions'][key] = item.model_dump()
-            else:
-                draft['exclusions'].pop(key, None)
+                reference = Reference.model_validate(resolve(document))
+                draft['exclusions'].pop(json.dumps([reference.domain, reference.id]), None)
         else:
             ident = args.id if args.operation == 'update' else uuid.uuid4().hex
             expanded = [ref for entry in document['references'] for ref in expand(entry)]

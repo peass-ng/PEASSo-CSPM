@@ -344,6 +344,7 @@ def test_codex_validation_requires_a_successful_terminal_inference_event(monkeyp
 def test_scan_resolves_once_and_passes_same_selection_to_network_and_priorities(api, monkeypatch, tmp_path, provider, model, backend):
     from types import SimpleNamespace
     from peaso.ai import pipeline
+    from tests.test_findings_report import issue
     _, store, cipher, _ = api
     secret = codex_token() if provider == 'codex' else 'PRIVATE-selected-key'
     if provider == 'codex':
@@ -365,9 +366,8 @@ def test_scan_resolves_once_and_passes_same_selection_to_network_and_priorities(
     def priorities(stage, platform, entries, access, *args):
         captured.append(access)
         if stage == 'findings_report':
-            return {'summary': 'Account configuration review.', 'issues': [],
-                    'exclusions': [{'reference': {'domain': 'findings', 'id': 'f1'},
-                                    'reason': 'The example describes an isolated fixture with no external connectivity, persistent data, or real user access permissions.'}], 'limitations': [secret]}
+            return {'summary': 'Account configuration review.', 'issues': [issue([('findings', 'f1')])],
+                    'exclusions': [], 'limitations': [secret]}
         return {'actions': [], 'limitations': [secret]}
     monkeypatch.setattr(pipeline, 'review_network', network_review)
     monkeypatch.setattr(pipeline, 'invoke_before_deadline', priorities)

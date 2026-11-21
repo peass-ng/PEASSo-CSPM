@@ -441,6 +441,7 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
             ('decision_findings', 'case', 'findings', 'native-hardening'),
             ('decision_findings', 'case', 'findings', 'native-network'),
             ('decision_findings', 'case', 'findings', 'native-exposure'),
+            ('decision_findings', 'case', 'findings', 'native-exposure'),
             ('decision_findings', 'case', 'findings', 'unassigned'),
         ])
     replacement['references'] = [{'case_id': 'case', 'except_source_ids': ['EX-001']}, {'source_id': 'LP-001'}]
@@ -449,7 +450,11 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
     new_id = command('add', document=dict(replacement, references=[{'source_id': 'HC-001'}]))['id']
     command('delete', new_id)
     assert command('exclude', document={'reference': {'source_id': 'EX-001'}, 'reason': 'Too short'}, success=False).returncode
-    command('exclude', document={'reference': {'source_id': 'EX-001'}, 'reason': reason})
+    rejected = command('exclude', document={'reference': {'case_id': 'case'}, 'reason': reason}, success=False)
+    assert 'Include confirmed findings in an issue' in rejected.stderr
+    assert command('exclusions')['total'] == 0
+    command('exclude', document={'reference': {'case_id': 'case', 'except_source_ids': ['HC-001', 'NW-001']},
+                                 'reason': reason})
     draft = json.loads(path.read_text())
     candidate = report_draft.candidate(draft)
     candidate['draft_issue_ids'] = {
