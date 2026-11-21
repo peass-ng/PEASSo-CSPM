@@ -140,6 +140,7 @@ def capture(monkeypatch, *, targets=None, value='service ready', real=False, mis
             assert kwargs['preload_content'] is False and kwargs['decode_content'] is False
             assert 0 < kwargs['timeout'] <= 10 and kwargs.get('body') is None
             is_log = parsed.path.endswith('/log')
+            assert kwargs['headers']['Accept'] == ('*/*' if is_log else 'application/json')
             fields = kwargs.get('fields', {})
             candidates = [t for t in targets if parsed.path in source.request_spec(t, '2026-01-01T00:00:00Z')[:2]]
             t = next(t for t in candidates if not is_log or t['container'] == fields.get('container'))

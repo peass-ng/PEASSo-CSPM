@@ -236,7 +236,9 @@ def _read(reader, api, cluster, path, fields, state, *, log=False):
     if state.get('context') not in (None, binding):
         raise Incomplete('authentication_context_changed')
     state['context'] = binding
-    headers.update({'Accept': 'text/plain' if log else 'application/json', 'Accept-Encoding': 'identity'})
+    # GKE rejects a text-only Accept header for Pod logs, then emits plaintext
+    # after wildcard negotiation. The response media type is checked below.
+    headers.update({'Accept': '*/*' if log else 'application/json', 'Accept-Encoding': 'identity'})
     maximum = MAX_LOG if log else MAX_POD
     response = None
     try:
