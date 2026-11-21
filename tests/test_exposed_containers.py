@@ -76,7 +76,8 @@ def test_aws_routes_require_the_running_container_and_exact_healthy_target(gap):
     else:
         [container] = attributed
         assert container['container'] == 'web'
-        assert container['exposure_routes'][0]['controls'] == ['Client certificate required']
+        assert container['exposure_routes'][0]['controls'] == [
+            'Client certificate required', 'Rule requires a matching hostname']
         assert container['exposure_routes'][0]['port'] == 443
 
 
@@ -111,17 +112,22 @@ def test_k8s_public_service_requires_ready_pod_identity_and_unique_container_por
             assert container['exposure_routes'][0]['container_port'] == 8443
 
 
-@pytest.mark.parametrize('mode', ['allow', 'deny', None])
+@pytest.mark.parametrize('mode', ['allow', 'deny', 'unresolved', None])
 def test_aws_route_preserves_listener_authentication(mode):
     facts = aws_facts()
     rule = facts['load_balancer']['Listeners']['items'][0]['Rules']['items'][0]
-    rule['Actions'].insert(0, {'Type': 'authenticate-oidc',
-                               'AuthenticateOidcConfig': {'OnUnauthenticatedRequest': mode} if mode else {}})
+    action = {'UnauthenticatedRequestMode': mode} if mode else {'AuthenticateOidcConfig': {}}
+    rule['Actions'].insert(0, {'Type': 'authenticate-oidc', **action})
+    rule['Conditions'] = [{'Field': 'host-header'}, {'Field': 'path-pattern'}]
     inventory = inventory_rows('aws', SCOPE, facts)
     evidence = open_finding(inventory, 'load_balancer', 'load_balancer')
     [container] = [row for row in enrich_runtime(running_images(inventory), inventory, [evidence])
                    if row.get('exposure_routes')]
-    assert ('Listener authentication required' in container['exposure_routes'][0]['controls']) == (mode != 'allow')
+    controls = container['exposure_routes'][0]['controls']
+    assert ('Listener authentication required' in controls) == (mode in ('deny', None))
+    assert ('Listener authentication unverified' in controls) == (mode == 'unresolved')
+    assert 'Rule requires a matching hostname' in controls
+    assert 'Rule requires a matching URL path' in controls
 
 
 def test_cross_assessment_route_requires_ownership_of_both_sources(monkeypatch):

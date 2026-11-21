@@ -39,6 +39,24 @@ def _targets(rule):
             yield group
 
 
+def _listener_authentication(actions):
+    config_keys = {'authenticate-oidc': 'AuthenticateOidcConfig',
+                   'authenticate-cognito': 'AuthenticateCognitoConfig'}
+    modes = []
+    for action in _rows(actions):
+        field = config_keys.get(action.get('Type'))
+        if field:
+            mode = action.get('UnauthenticatedRequestMode')
+            if mode is None and isinstance(action.get(field), Mapping):
+                mode = action[field].get('OnUnauthenticatedRequest', 'authenticate')
+            modes.append(mode)
+    if any(mode in ('authenticate', 'deny') for mode in modes):
+        return 'Listener authentication required'
+    if any(mode != 'allow' for mode in modes):
+        return 'Listener authentication unverified'
+    return None
+
+
 def _public_listeners(inventory, findings):
     open_endpoints = {}
     for finding in findings:
@@ -77,14 +95,15 @@ def _public_listeners(inventory, findings):
                     controls.append('Client certificate required')
                 elif protocol == 'HTTPS' and mode != 'off':
                     controls.append('Client-certificate enforcement unverified')
-                auth_configs = {'authenticate-oidc': 'AuthenticateOidcConfig',
-                                'authenticate-cognito': 'AuthenticateCognitoConfig'}
-                if any(_mapping(action.get(auth_configs[action['Type']])).get('OnUnauthenticatedRequest', 'authenticate')
-                       in ('authenticate', 'deny') for action in _rows(rule.get('Actions'))
-                       if action.get('Type') in auth_configs):
-                    controls.append('Listener authentication required')
+                auth = _listener_authentication(rule.get('Actions'))
+                if auth:
+                    controls.append(auth)
                 if any(condition.get('Field') == 'source-ip' for condition in conditions):
                     controls.append('Source IP restrictions')
+                if any(condition.get('Field') == 'host-header' for condition in conditions):
+                    controls.append('Rule requires a matching hostname')
+                if any(condition.get('Field') == 'path-pattern' for condition in conditions):
+                    controls.append('Rule requires a matching URL path')
                 for target in sorted({target for target in _targets(rule) if isinstance(target, str)}):
                     routes[row['scope'], target].append({
                         'endpoint': data.get('DNSName') or row['native_id'], 'port': port, 'protocol': protocol,
