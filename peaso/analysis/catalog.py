@@ -46,6 +46,7 @@ for _provider, _types in CONTROL_TYPES.items():
 # Internet-to-asset exposure and federated-trust review (peaso.analysis.internet_exposure / trust).
 for _provider, _types in EXPOSURE_TYPES.items():
     REQUIRED_TYPES[_provider]["exposure"] = sorted(set(REQUIRED_TYPES[_provider]["exposure"]) | set(_types))
+REQUIRED_TYPES["azure"]["exposure"] = sorted(set(REQUIRED_TYPES["azure"]["exposure"]) | {"container_app_runtime"})
 # Inventories read by the catalog-driven privilege-escalation evaluator (peaso.privesc).
 # These lists are a floor: privesc_required_types() adds every type the privesc models read (parsed from
 # peaso/privesc/effective_permissions/<provider>.py), so the collection plan follows the evaluator.
@@ -70,6 +71,7 @@ ANALYSIS_CHECKS = [
     {"id": "analysis.principal_exposure", "category": "exposure", "title": "Review public or external principal declarations", "severity": "high"},
     {"id": "analysis.coverage", "category": "least_privilege", "title": "Analysis inventory context incomplete", "severity": "info"},
     {"id": "analysis.internet_exposure", "category": "exposure", "title": "Asset reachable from the internet", "severity": "high"},
+    {"id": "analysis.exposed_container_cves", "category": "exposure", "title": "Internet-facing container runs an image with known vulnerabilities", "severity": "medium"},
     {"id": "analysis.exposed_privileged_workload", "category": "exposure", "title": "Public workload uses a privileged identity", "severity": "high"},
     {"id": "analysis.federated_trust", "category": "exposure", "title": "Federated (OIDC) trust is not pinned to a subject", "severity": "high"},
 ]

@@ -11,13 +11,14 @@ def _text(value):
 
 
 _DIGEST = re.compile(r'sha256:[a-f0-9]{64}')
-_MANIFEST_REFERENCE = re.compile(r'(?:[a-z0-9+.-]+://)?[^@\s]+@(sha256:[a-f0-9]{64})')
 
 
 def running_images(inventory):
-    """Collect only immutable manifest digests reported by running workloads."""
+    """Collect immutable manifest digests from running containers and serving revisions."""
+    from peaso.container_exposure import gke_kubernetes_inventory, immutable_digest, managed_workloads
     matches = set()
-    for row in inventory:
+    from itertools import chain
+    for row in chain(inventory, gke_kubernetes_inventory(inventory)):
         kind, provider = row.get('type'), row.get('provider')
         workload, scope = row.get('native_id'), row.get('scope')
         data = row.get('data')
@@ -34,13 +35,18 @@ def running_images(inventory):
             containers = (c for field in ('containerStatuses', 'initContainerStatuses', 'ephemeralContainerStatuses')
                           for c in (status.get(field) or ()) if isinstance(c, Mapping)
                           and isinstance(c.get('state'), Mapping) and isinstance(c['state'].get('running'), Mapping))
-            candidates = ((c.get('name'), match[1]) for c in containers
-                          if isinstance(c.get('imageID'), str) and (match := _MANIFEST_REFERENCE.fullmatch(c['imageID'])))
+            candidates = ((c.get('name'), immutable_digest(c.get('imageID'))) for c in containers)
         else:
             continue
+        if isinstance(scope, tuple):
+            provider, scope = 'gcp', scope[0]
         for container, digest in candidates:
             if isinstance(container, str) and container and isinstance(digest, str) and _DIGEST.fullmatch(digest):
                 matches.add((digest, provider, scope, workload, container))
+    for resource, workload, container, image, *_ in managed_workloads(inventory):
+        digest = immutable_digest(image)
+        if digest and isinstance(container, str) and container:
+            matches.add((digest, resource['provider'], resource['scope'], workload, container))
     return [dict(digest=digest, provider=provider, scope=scope, workload=workload, container=container)
             for digest, provider, scope, workload, container in sorted(matches)]
 

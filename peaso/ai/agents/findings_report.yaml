@@ -81,6 +81,10 @@ system_prompt: |
   Include each security or privacy relevant reference in a consolidated issue. Merge
   overlapping observations into the issue they support, preserving their affected
   assets and source references. Use the supplied findings and captured evidence.
+  Group containers running affected images behind internet-facing routes by their
+  shared remediation. Explain how requests reach the containers and which access
+  controls apply. Treat package advisory severity and observed workload impact
+  as separate facts.
   Prioritize the permission changes with the greatest evidenced security benefit.
   Consider the access each change removes, the reliability of the usage evidence,
   and whether owners can make the change without breaking needed operations.

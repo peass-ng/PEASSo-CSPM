@@ -1853,11 +1853,14 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
         analysis_selected = [] if graph_only_checkpoint else _analysis_selection(provider, selected_categories, checks, frameworks)
         if analysis_selected:
             from .analysis import analyze_findings
+            from .container_exposure import CHECK as CONTAINER_CVES, exposure_findings as container_exposure_findings
             expected_ids = {c["id"] for c in analysis_selected}
             with _runtime_span('engine.analysis'):
-                analyzed = [f for f in analyze_findings(snapshot, inventory, index, include_manual_only=False,
+                projected = analyze_findings(snapshot, inventory, index, include_manual_only=False,
                     categories={c["category"] for c in analysis_selected}, related_snapshots=related)
-                    if f["check_id"] in expected_ids and f["category"] in selected_categories]
+                analyzed = [f for f in projected if f["check_id"] in expected_ids and f["category"] in selected_categories]
+                if CONTAINER_CVES in expected_ids:
+                    analyzed.extend(container_exposure_findings(snapshot, inventory, projected, findings))
             # Group once (order kept) instead of rescanning every analyzed finding per analysis check.
             analyzed_by_check = defaultdict(list)
             for f in analyzed:

@@ -84,7 +84,7 @@ def test_aws_routes_require_the_running_container_and_exact_healthy_target(gap):
 def test_k8s_public_service_requires_ready_pod_identity_and_unique_container_port():
     facts = {
         'service': {'metadata': {'namespace': 'apps', 'name': 'front', 'uid': 'service-uid'},
-                    'spec': {'type': 'LoadBalancer', 'ports': [{'name': 'https', 'port': 443}]},
+                    'spec': {'type': 'LoadBalancer', 'ports': [{'name': 'https', 'port': 443, 'targetPort': 8443}]},
                     'status': {'loadBalancer': {'ingress': [{'hostname': 'edge.example.com'}]}}},
         'endpointslice': {'metadata': {'namespace': 'apps', 'name': 'front-1',
             'labels': {'kubernetes.io/service-name': 'front'},
@@ -191,3 +191,105 @@ def test_cross_assessment_route_requires_ownership_of_both_sources(monkeypatch):
     assert body['total'] == 1
     assert [container['container'] for container in body['items']] == ['web']
     assert body['items'][0]['counts']['high'] == 1
+
+
+@pytest.mark.parametrize('provider,scope,kind,exposure_kind,facts', [
+    ('aws', SCOPE, 'load_balancer', 'load_balancer', aws_facts()),
+    ('gcp', 'projects/lab', 'cloudrun_service', 'serverless', {
+        'cloudrun_service': {'name': 'projects/lab/locations/us-east1/services/web',
+            'latestCreatedRevision': 'web-00001', 'latestReadyRevision': 'web-00001',
+            'generation': '1', 'observedGeneration': '1',
+            'trafficStatuses': [{'percent': 100, 'revision': 'web-00001'}],
+            'template': {'containers': [{'name': 'web', 'image': f'registry.example/web@{DIGEST}',
+                                         'ports': [{'containerPort': 8080}]}]}},
+    }),
+    ('azure', '/subscriptions/abc', 'container_group', 'container', {
+        'container_group': {'id': '/subscriptions/abc/resourceGroups/qa/providers/Microsoft.ContainerInstance/containerGroups/web',
+            'properties': {'containers': [{'name': 'web', 'properties': {
+                'image': f'registry.example/web@{DIGEST}', 'ports': [{'port': 443}],
+                'instanceView': {'currentState': {'state': 'Running'}}}}]}},
+    }),
+])
+def test_native_exposure_is_a_required_report_source(provider, scope, kind, exposure_kind, facts):
+    from peaso.ai.findings_report import source_index
+    from peaso.container_exposure import CHECK, exposure_findings
+    from tests.test_peaso_image_findings_20261021 import BASE
+
+    observed = deepcopy(BASE)
+    observed.update(provider=provider, scope=scope)
+    observed['scan']['image'].update(provider=provider, scope=scope, manifest_digest=DIGEST,
+                                      immutable_reference=f'registry.example/web@{DIGEST}')
+    for advisory in observed['scan']['findings']:
+        advisory['image_digest'] = DIGEST
+    snapshot = make_snapshot(provider, [scope], [
+        {'type': key, 'scope': scope, 'status': 'collected', 'items': [value]} for key, value in facts.items()
+    ], metadata={'image_vulnerability_scan': {'selected': True, 'observations': [observed, observed]}})
+    inventory = resources(snapshot)
+    edge = open_finding(inventory, kind, exposure_kind)
+    [result] = exposure_findings(snapshot, inventory, [edge], [])
+    assert (result['check_id'], result['category'], result['status'], result['severity']) == (CHECK, 'exposure', 'FAIL', 'medium')
+    assert sum(result['evidence']['advisory_totals'].values()) == 1
+    assert result['evidence']['container'] == 'web'
+    assert result['evidence']['exposure_routes'][0]['finding_id'] == edge['id']
+    [assigned] = source_index({'inventory': inventory, 'report': {'findings': [result]}})
+    assert assigned['id'] == result['id'] and assigned['required'] and assigned['kind'] is None
+    assert assigned['assets'] == [result['native_resource_id']]
+    assert exposure_findings(snapshot, inventory, [dict(edge, status='UNKNOWN')], []) == []
+
+
+def test_gke_requires_exact_project_cluster_pod_and_cloud_edge():
+    scope, cluster = 'projects/lab', 'projects/lab/locations/us-east1/clusters/test'
+    meta = dict(cluster=cluster, namespace='apps')
+    facts = {
+        'gke_exposure_service': dict(meta, kubernetesName='web', uid='service-uid',
+            spec={'type': 'LoadBalancer', 'ports': [{'port': 443, 'targetPort': 'http'}]},
+            status={'loadBalancer': {'ingress': [{'ip': '192.0.0.9'}]}}),
+        'gke_exposure_endpointslice': dict(meta, kubernetesName='web-slice', serviceName='web',
+            serviceOwners=[{'kind': 'Service', 'uid': 'service-uid'}], ports=[{'port': 8080}],
+            podTargets=[{'targetRef': {'kind': 'Pod', 'namespace': 'apps', 'uid': 'pod-uid'},
+                         'conditions': {'ready': True}, 'addresses': ['10.0.0.2']}]),
+        'gke_exposure_pod': dict(meta, kubernetesName='web-pod', uid='pod-uid',
+            workloadSpec={'containers': [{'name': 'web', 'ports': [{'name': 'http', 'containerPort': 8080}]}]},
+            workloadStatus={'phase': 'Running', 'conditions': [{'type': 'Ready', 'status': 'True'}],
+                'podIPs': [{'ip': '10.0.0.2'}], 'containerStatuses': [{'name': 'web',
+                    'state': {'running': {}}, 'imageID': f'docker-pullable://registry.example/web@{DIGEST}'}]}),
+    }
+    inventory = inventory_rows('gcp', scope, facts)
+    edge = open_finding(inventory, 'gke_exposure_service', 'gke_workload', address='192.0.0.9')
+    [web] = enrich_runtime(running_images(inventory), inventory, [edge])
+    assert web['provider'] == 'gcp' and web['scope'] == scope and 'exposure_routes' not in web
+    edge['evidence']['path'] = [{'layer': 'gke_cloud_edge', 'decision': 'allow',
+                                'public_ip': '192.0.0.9', 'ports': ['tcp/443']}]
+    [web] = enrich_runtime(running_images(inventory), inventory, [edge])
+    assert web['exposure_routes'][0]['container_port'] == 8080
+    facts['gke_exposure_endpointslice']['cluster'] = cluster + '-other'
+    separate = inventory_rows('gcp', scope, facts)
+    [web] = enrich_runtime(running_images(separate), separate, [edge])
+    assert 'exposure_routes' not in web
+
+
+def test_azure_container_app_requires_a_healthy_replica_receiving_traffic():
+    from peaso.collectors.azure_containerapp_runtime import _project
+
+    scope = '/subscriptions/abc'
+    ident = scope + '/resourceGroups/qa/providers/Microsoft.App/containerApps/web'
+    app = {'id': ident, 'type': 'Microsoft.App/containerApps', 'identity': {'type': 'None'},
+           'properties': {'latestReadyRevisionName': 'web--one', 'configuration': {'ingress': {
+               'external': True, 'targetPort': 8080, 'clientCertificateMode': 'require',
+               'traffic': [{'latestRevision': True, 'weight': 100}],
+           }}}}
+    revision = {'id': ident + '/revisions/web--one', 'properties': {
+        'active': True, 'healthState': 'Healthy', 'replicas': 1,
+        'template': {'containers': [{'name': 'web', 'image': f'registry.example/web@{DIGEST}',
+                                     'env': [{'name': 'TEST', 'value': 'synthetic test data'}]}]},
+    }}
+    inventory = inventory_rows('azure', scope, {'container_app': app,
+                                                 'container_app_runtime': _project(app, [revision], ident)})
+    edge = open_finding(inventory, 'container_app', 'container_app')
+    [web] = enrich_runtime(running_images(inventory), inventory, [edge])
+    assert web['exposure_routes'][0]['controls'] == ['Client certificate required']
+    revision['properties']['replicas'] = 0
+    projection = _project(app, [revision], ident)
+    assert 'synthetic test data' not in str(projection)
+    inventory = inventory_rows('azure', scope, {'container_app': app, 'container_app_runtime': projection})
+    assert not running_images(inventory)

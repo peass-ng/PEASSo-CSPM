@@ -103,6 +103,7 @@
     "analysis.federated_trust": "permissions",
     "analysis.grant_review": "permissions",
     "analysis.inactive_identity": "asset_lifecycle",
+    "analysis.exposed_container_cves": "vulnerabilities",
     "analysis.internet_exposure": "network",
     "analysis.network_review": "network",
     "analysis.principal_exposure": "permissions",

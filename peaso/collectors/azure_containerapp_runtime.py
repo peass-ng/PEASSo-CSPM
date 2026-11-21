@@ -62,10 +62,18 @@ def _project(app, revisions, app_id):
             raise ValueError("foreign or malformed Container App revision")
         seen.add(rid.casefold())
         rev_props = revision["properties"]
-        projected_revisions.append({"id": rid, "properties": {
+        projected = {
             key: rev_props[key] for key in ("active", "provisioningState", "runningState", "replicas",
                                            "healthState", "trafficWeight", "fqdn")
-            if key in rev_props}})
+            if key in rev_props}
+        template = rev_props.get("template")
+        if isinstance(template, dict) and isinstance(template.get("containers"), list) and len(template["containers"]) == 1:
+            from peaso.container_exposure import immutable_digest
+            container = template["containers"][0]
+            if (isinstance(container, dict) and immutable_digest(container.get("image"))
+                    and isinstance(container.get("name"), str) and len(container["name"]) <= 64):
+                projected["template"] = {"containers": [{"name": container["name"], "image": container["image"]}]}
+        projected_revisions.append({"id": rid, "properties": projected})
     return {
         "id": app_id, "type": "Microsoft.App/containerApps", "identity": projected_identity,
         "properties": {
