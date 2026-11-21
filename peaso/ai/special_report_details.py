@@ -1,11 +1,70 @@
 """Safe, structured summaries of captured image and secret findings."""
 from collections import Counter, defaultdict
+from collections.abc import Mapping
+import re
 
 LEVELS = ('critical', 'high', 'medium')
 
 
 def _text(value):
     return ' '.join(value.split()) if isinstance(value, str) else ''
+
+
+_DIGEST = re.compile(r'sha256:[a-f0-9]{64}')
+_MANIFEST_REFERENCE = re.compile(r'(?:[a-z0-9+.-]+://)?[^@\s]+@(sha256:[a-f0-9]{64})')
+
+
+def running_images(inventory):
+    """Collect only immutable manifest digests reported by running workloads."""
+    matches = set()
+    for row in inventory:
+        kind, provider = row.get('type'), row.get('provider')
+        workload, scope = row.get('native_id'), row.get('scope')
+        data = row.get('data')
+        if not workload or not scope or not isinstance(data, Mapping):
+            continue
+        if provider == 'aws' and kind == 'ecs_task' and data.get('lastStatus') == 'RUNNING':
+            containers = (c for c in (data.get('containers') or ()) if isinstance(c, Mapping)
+                          and c.get('lastStatus') == 'RUNNING')
+            candidates = ((c.get('name'), c.get('imageDigest')) for c in containers)
+        elif provider == 'k8s' and kind == 'pod' and isinstance(data.get('status'), Mapping):
+            status = data['status']
+            if status.get('phase') != 'Running':
+                continue
+            containers = (c for field in ('containerStatuses', 'initContainerStatuses', 'ephemeralContainerStatuses')
+                          for c in (status.get(field) or ()) if isinstance(c, Mapping)
+                          and isinstance(c.get('state'), Mapping) and isinstance(c['state'].get('running'), Mapping))
+            candidates = ((c.get('name'), match[1]) for c in containers
+                          if isinstance(c.get('imageID'), str) and (match := _MANIFEST_REFERENCE.fullmatch(c['imageID'])))
+        else:
+            continue
+        for container, digest in candidates:
+            if isinstance(container, str) and container and isinstance(digest, str) and _DIGEST.fullmatch(digest):
+                matches.add((digest, provider, scope, workload, container))
+    return [dict(digest=digest, provider=provider, scope=scope, workload=workload, container=container)
+            for digest, provider, scope, workload, container in sorted(matches)]
+
+
+def bind_running_images(details, runtime):
+    by_digest = defaultdict(list)
+    for item in runtime:
+        if item not in by_digest[item['digest']]:
+            by_digest[item['digest']].append(item)
+    for detail in details:
+        matches = by_digest.get(detail.get('digest'), [])
+        if matches:
+            detail['running_workloads'] = matches
+
+
+def image_report_severity(severity):
+    # A running digest identifies the deployment, not advisory applicability,
+    # effective internet reachability or the consequence for the workload.
+    return 'medium' if severity in ('critical', 'high') else severity
+
+
+IMAGE_IMPACT = ('A matching running image makes the workload a patch priority. The advisory rating describes '
+                'the package. Assess whether the affected code is reachable and what the workload or its data '
+                'would expose before escalating the report severity.')
 
 
 def image_details(findings):
@@ -105,6 +164,11 @@ def prose(kind, details):
             row['counts'].get(level, 0) for row in details for level in ('critical', 'high')) else 'Vulnerable packages in container images'
         intro = ('Some container images include software with known security flaws. '
                  'The breakdown shows how many findings the scan reported for each image.')
+        deployed = {row.get('digest') for row in details if row.get('running_workloads')}
+        if deployed:
+            intro += f' Captured workload inventory matched {len(deployed)} affected image digest(s) to running containers.'
+        else:
+            intro += ' Captured workload inventory established no running digest match.'
         lines = []
         for row in details:
             counts = ', '.join(f"{row['counts'][level]} {level}" for level in LEVELS if row['counts'].get(level, 0) > 0)

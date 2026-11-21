@@ -31,6 +31,8 @@ class CombinedReport(Strict):
 
 def version(report):
     value = {key: report.get(key) for key in ('status', 'issues', 'summary', 'limitations')}
+    if report.get('running_images'):
+        value['running_images'] = report['running_images']
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
@@ -47,6 +49,7 @@ class CombinedReferenceCoverageError(ValueError):
 
 
 def validate(data, reports):
+    from .report_source_facts import consolidate, present
     value = CombinedReport.model_validate(data).model_dump()
     known = {(report['scan_id'], issue['id']): issue for report in reports for issue in report['issues']}
     if len(known) != sum(len(report['issues']) for report in reports):
@@ -62,6 +65,7 @@ def validate(data, reports):
     for issue in value['issues']:
         keys = [(ref['report_id'], ref['issue_id']) for ref in issue['references']]
         source = [known[key] for key in keys]
+        present(issue, consolidate(source))
         issue['affected_assets'] = sorted({asset for row in source for asset in row.get('affected_assets', [])})
         issue['manual_affected_assets'] = sorted({asset for row in source
             for asset in row.get('manual_affected_assets', [])} - set(issue['affected_assets']))
@@ -81,16 +85,22 @@ def validate(data, reports):
                 for row in original.get('special_details', []):
                     details.append(dict(row, report_id=ref['report_id'], issue_id=ref['issue_id']))
             if details:
-                from .special_report_details import prose
+                from .special_report_details import IMAGE_IMPACT, bind_running_images, prose
+                if issue['kind'] == 'image_cves':
+                    bind_running_images(details, (row for report in reports for row in report.get('running_images', ())))
+                    issue['impact'] = IMAGE_IMPACT
                 if issue['kind'] == 'leaks':
                     for index, row in enumerate(details, 1):
                         row['label'] = f'Leak {index}'
                 issue['special_details'] = details
                 issue['title'], issue['description'] = prose(issue['kind'], details)
         highest_source = min(RISK.index(row['severity']) for row in source)
+        if issue['kind'] == 'image_cves':
+            from .special_report_details import image_report_severity
+            issue['severity'] = image_report_severity(RISK[highest_source])
         combined_severity = RISK.index(issue['severity'])
-        if (combined_severity < highest_source
-                or issue['kind'] in SPECIAL_KINDS and combined_severity != highest_source):
+        if (issue['kind'] != 'image_cves' and (combined_severity < highest_source
+                or issue['kind'] in SPECIAL_KINDS and combined_severity != highest_source)):
             raise ValueError('combined_severity_mismatch')
         confirmed_vulnerability = any(row['kind'] == 'vulnerability' and row['status'] == 'confirmed'
                                       for row in source)
@@ -112,6 +122,9 @@ def validate(data, reports):
 def build(root, platform, write_json):
     reports = [{key: report[key] for key in ('scan_id', 'connector_name', 'provider', 'created_at', 'issues', 'limitations')}
                for report in platform['reports']]
+    for report, original in zip(reports, platform['reports']):
+        if original.get('running_images'):
+            report['running_images'] = original['running_images']
     write_json(root / 'combined-reports.json', reports)
     write_json(root / 'platform.json', {'reports': [
         {key: report[key] for key in ('scan_id', 'connector_name', 'provider', 'created_at')} |

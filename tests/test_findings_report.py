@@ -515,3 +515,21 @@ def test_snapshot_sharing_guardrail_reaches_report_without_owned_snapshots():
     assert check.evaluate({'SnapshotBlockPublicAccessState': 'block-new-sharing'}, {})[0] == 'PASS'
     assert check.evaluate({'SnapshotBlockPublicAccessState': 'block-all-sharing'}, {})[0] == 'PASS'
     assert check.evaluate({'_coverage': {'SnapshotBlockPublicAccessState': {'status': 'denied'}}}, {})[0] == 'UNKNOWN'
+
+
+def test_running_image_inventory_requires_native_running_state_and_manifest_identity():
+    from peaso.ai.special_report_details import running_images
+
+    digest = 'sha256:' + 'b' * 64
+    ecs = {'provider': 'aws', 'type': 'ecs_task', 'native_id': 'task-1', 'scope': 'account/east',
+           'data': {'lastStatus': 'RUNNING', 'containers': [
+               {'name': 'active', 'lastStatus': 'RUNNING', 'imageDigest': digest},
+               {'name': 'finished', 'lastStatus': 'STOPPED', 'imageDigest': digest},
+               {'name': 'tag', 'lastStatus': 'RUNNING', 'imageDigest': 'app:latest'}]}}
+    pod = {'provider': 'k8s', 'type': 'pod', 'native_id': 'default/pod-1', 'scope': 'cluster',
+           'data': {'status': {'phase': 'Running', 'containerStatuses': [
+               {'name': 'workload', 'imageID': f'docker-pullable://registry/app@{digest}', 'state': {'running': {}}},
+               {'name': 'local', 'imageID': f'containerd://{digest}', 'state': {'running': {}}},
+               {'name': 'waiting', 'imageID': f'registry/app@{digest}', 'state': {'waiting': {}}}]}}}
+    assert [(row['provider'], row['container']) for row in running_images([ecs, ecs, pod])] == [
+        ('aws', 'active'), ('k8s', 'workload')]

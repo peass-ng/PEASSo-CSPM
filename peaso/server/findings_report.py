@@ -6,6 +6,7 @@ def page(report, *, offset=0, limit=25, search='', severity='', exclusion_offset
             (not term or term in ' '.join(str(row.get(key, '')) for key in
                 ('title', 'description', 'impact', 'recommendation', 'verification', 'kind')).casefold())]
     exclusions = report.get('exclusions', [])
-    return dict(report, issues=rows[offset:offset + limit], total=len(rows),
+    public = {key: value for key, value in report.items() if key != 'running_images'}
+    return dict(public, issues=rows[offset:offset + limit], total=len(rows),
                 exclusions=exclusions[exclusion_offset:exclusion_offset + limit], exclusion_count=len(exclusions),
                 offset=offset, limit=limit)

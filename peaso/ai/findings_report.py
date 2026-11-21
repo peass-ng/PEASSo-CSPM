@@ -68,7 +68,10 @@ def pregenerate(platform, sources=None):
     """Create fixed leak/CVE findings before any model call, using no secret values."""
     from peaso.engine import hydrate_finding
     sources = source_index(platform) if sources is None else sources
+    from .special_report_details import (IMAGE_IMPACT, bind_running_images, image_details, image_report_severity,
+                                         leak_details, prose, running_images)
     native = platform.get('report', {})
+    runtime = running_images(platform.get('inventory', ()))
     findings = {row['id']: row for row in native.get('findings', [])}
     issues, exclusions = [], []
     covered = 0
@@ -90,8 +93,10 @@ def pregenerate(platform, sources=None):
         if severity not in RISK:
             severity = 'high'
         leaks = kind == 'leaks'
-        from .special_report_details import image_details, leak_details, prose
         details = leak_details(rows) if leaks else image_details(rows)
+        if not leaks:
+            severity = image_report_severity(severity)
+            bind_running_images(details, runtime)
         title, description = prose(kind, details)
         detail_assets = {asset for row in details for asset in
                          (row['assets'] if leaks else [row['asset']]) if asset}
@@ -105,7 +110,7 @@ def pregenerate(platform, sources=None):
             'severity': severity, 'status': 'confirmed', 'description': description,
             'special_details': details,
             'impact': ('Detected secrets may enable access within their permissions if still valid. Detection alone does not establish credential validity or misuse.' if leaks else
-                       'Affected package versions match vulnerability advisories. Source severity is retained; runtime reachability, deployment status and exploitability require separate review.'),
+                       IMAGE_IMPACT),
             'recommendation': ('Review each detected location, rotate or revoke affected credentials, remove exposed copies, and restrict access to the affected configuration, artifacts or logs.' if leaks else
                                'Review each affected immutable image and vendor applicability, update affected packages or base images to compatible patched versions, rebuild and redeploy, and document advisories without an available fix.'),
             'verification': ('Rescan the affected sources, confirm exposed credentials are retired, and verify replacement credentials work only for their intended consumers.' if leaks else
@@ -115,7 +120,8 @@ def pregenerate(platform, sources=None):
     return {'summary': 'Pre-generated findings from captured scan evidence.', 'issues': issues,
             'exclusions': exclusions, 'limitations': [],
             'status': 'partial' if agent_sources(sources) else 'completed',
-            'source_count': len(sources), 'covered_count': covered}
+            'source_count': len(sources), 'covered_count': covered,
+            **({'running_images': runtime} if runtime else {})}
 
 
 def complete(data, sources, prebuilt, previous_report=None):
@@ -150,6 +156,8 @@ def complete(data, sources, prebuilt, previous_report=None):
     value['exclusions'] = prebuilt['exclusions'] + value['exclusions']
     value['source_count'] = len(sources)
     value['covered_count'] += prebuilt['covered_count']
+    if prebuilt.get('running_images'):
+        value['running_images'] = prebuilt['running_images']
     if prebuilt['issues']:
         value['summary'] = f"{len(prebuilt['issues'])} pre-generated findings and {len(value['issues']) - len(prebuilt['issues'])} compiled findings. " + value['summary']
     return value
@@ -158,6 +166,7 @@ def complete(data, sources, prebuilt, previous_report=None):
 def source_index(platform):
     """Only this trusted index can authorize references or required coverage."""
     from peaso.finding_types import annotate
+    from .report_source_facts import observation
     report = platform.get('report', {})
     result = []
     network_ids = {row['id'] for row in (platform.get('network_review') or {}).get('findings', [])}
@@ -199,7 +208,9 @@ def source_index(platform):
             for target in evidence.get('targets', []):
                 if isinstance(target, dict):
                     identifiers.extend(graph_assets(target))
+        facts = observation(check, row.get('status'), row.get('scope'), identifiers[0], evidence)
         result.append({'category': category, 'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident}),
+                       **({'source_facts': facts} if facts else {}),
                        'domain': 'findings', 'id': row['id'], 'kind': kind,
                        'actionable': row.get('status') == 'FAIL',
                        'confirmed': row.get('status') == 'FAIL', 'required': row.get('status') == 'FAIL' or category in ('hardening', 'exposure', 'network')})
@@ -367,6 +378,7 @@ class MissingReportEvidence(ValueError):
 def validate(data, sources):
     value = AgentReport.model_validate(data).model_dump()
     known = {(r['domain'], r['id']): r for r in agent_sources(sources)}
+    from .report_source_facts import consolidate, present
     required = {key for key, row in known.items() if row['required']}
     covered = set()
     rejected_exclusions = set()
@@ -390,6 +402,7 @@ def validate(data, sources):
             chosen = issue['permission_review_ids']
             if len(set(chosen)) != len(chosen) or not set(chosen) <= available:
                 raise ValueError('unknown_or_duplicate_permission_review')
+        present(issue, consolidate(known[key] for key in keys))
         issue['id'] = _issue_id(issue['references'])
     for exclusion in value['exclusions']:
         ref = exclusion['reference']
