@@ -154,9 +154,9 @@ def main():
                         'can be included in an issue or given a justified exclusion. Then return done.')
             elif stage == 'report_combination':
                 text = ('Correct candidate-output.json using validation-feedback.json and combined-reports.json. '
-                        'Resolve report_id and issue_id, including any missing_references, against the original issues. '
-                        'Preserve every source issue exactly once and return the complete requested JSON with valid '
-                        'grouping, severities and field limits.')
+                        'Add missing_references and remove duplicate or unknown references. Resolve each report_id '
+                        'and issue_id against the original issues. Preserve every source issue exactly once and '
+                        'return complete JSON with valid grouping, severities and field limits.')
             else:
                 text = ('Correct candidate-output.json using validation-feedback.json. Both files and all original '
                         'inputs are in the working directory. Resolve references against original findings/resources '

@@ -29,15 +29,21 @@ class CombinedReport(Strict):
     limitations: list[Text]
 
 
-class MissingCombinedEvidence(ValueError):
-    def __init__(self, missing):
-        super().__init__('combined_coverage_mismatch')
-        self.missing = [{'report_id': report_id, 'issue_id': issue_id} for report_id, issue_id in sorted(missing)]
-
-
 def version(report):
     value = {key: report.get(key) for key in ('status', 'issues', 'summary', 'limitations')}
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+class CombinedReferenceCoverageError(ValueError):
+    def __init__(self, missing, unknown, duplicates):
+        def references(keys):
+            return [{'report_id': report, 'issue_id': issue} for report, issue in sorted(keys)]
+
+        self.missing = references(missing)
+        self.duplicate_references = references(duplicates)
+        self.unknown_reference_count = len(unknown)
+        super().__init__('unknown_or_duplicate_combined_reference' if unknown or duplicates
+                         else 'combined_coverage_mismatch')
 
 
 def validate(data, reports):
@@ -45,12 +51,16 @@ def validate(data, reports):
     known = {(report['scan_id'], issue['id']): issue for report in reports for issue in report['issues']}
     if len(known) != sum(len(report['issues']) for report in reports):
         raise ValueError('combined_coverage_mismatch')
-    covered = set()
+    covered = Counter((ref['report_id'], ref['issue_id'])
+                      for issue in value['issues'] for ref in issue['references'])
+    missing = known.keys() - covered.keys()
+    unknown = covered.keys() - known.keys()
+    duplicates = {key for key, count in covered.items() if count > 1 and key in known}
+    if missing or unknown or duplicates:
+        raise CombinedReferenceCoverageError(missing, unknown, duplicates)
     special = Counter()
     for issue in value['issues']:
         keys = [(ref['report_id'], ref['issue_id']) for ref in issue['references']]
-        if len(keys) != len(set(keys)) or any(key not in known or key in covered for key in keys):
-            raise ValueError('unknown_or_duplicate_combined_reference')
         source = [known[key] for key in keys]
         issue['affected_assets'] = sorted({asset for row in source for asset in row.get('affected_assets', [])})
         issue['manual_affected_assets'] = sorted({asset for row in source
@@ -90,9 +100,6 @@ def validate(data, reports):
         if ((issue['kind'] == 'vulnerability' and (issue['status'] != 'confirmed' or not confirmed_vulnerability))
                 or (issue['status'] == 'confirmed' and not any(row['status'] == 'confirmed' for row in source))):
             raise ValueError('unconfirmed_report_issue')
-        covered.update(keys)
-    if missing := known.keys() - covered:
-        raise MissingCombinedEvidence(missing)
     expected = {row['kind'] for row in known.values()} & SPECIAL_KINDS
     if set(special) != expected or any(count != 1 for count in special.values()):
         raise ValueError('combined_special_group_mismatch')

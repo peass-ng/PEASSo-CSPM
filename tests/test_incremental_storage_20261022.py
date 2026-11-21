@@ -111,6 +111,39 @@ def test_dynamo_checkpoint_survives_restart_and_final_fences():
         assert DynamoStore(store.table, client).checkpoint_collections(TENANT, SCAN)
 
 
+@pytest.mark.parametrize(
+    'failures,expected,checked_at',
+    [
+        (['TransactionConflict'], True, ['1100', '1101']),
+        (['ConditionalCheckFailed'], False, ['1100']),
+        (['TransactionConflict', 'ConditionalCheckFailed'], False, ['1100', '1101']),
+        (['TransactionConflict'] * 4, False, ['1100', '1101', '1102', '1103']),
+    ],
+)
+def test_dynamo_checkpoint_retries_only_conflicting_transactions(monkeypatch, failures, expected, checked_at):
+    from botocore.exceptions import ClientError
+
+    failures = iter(failures)
+    attempts = []
+
+    def transact_write_items(*, TransactItems):
+        attempts.append(TransactItems[0]['Update']['ExpressionAttributeValues'][':now']['N'])
+        code = next(failures, None)
+        if code:
+            raise ClientError({
+                'Error': {'Code': 'TransactionCanceledException'},
+                'CancellationReasons': [{'Code': code}, {'Code': 'None'}],
+            }, 'TransactWriteItems')
+
+    store = DynamoStore('checkpoint-test', types.SimpleNamespace(transact_write_items=transact_write_items))
+    store.clock = iter(range(1100, 1104)).__next__
+    monkeypatch.setattr('peaso.storage.dynamodb.time.sleep', lambda _: None)
+    ref = reference_for(TENANT, SCAN, 'snapshot')
+    accepted = store.record_checkpoint(TENANT, SCAN, OWNER, 1359, ref, kind='__checkpoint_batch__', scope='1359')
+    assert accepted is expected
+    assert attempts == checked_at
+
+
 def _exercise_stages(store):
     first, replacement = "2" * 32, "3" * 32
     result = reference_for(TENANT, SCAN, "ai-review")

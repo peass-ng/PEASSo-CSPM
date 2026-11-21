@@ -118,18 +118,25 @@ def test_output_requires_complete_unique_provenance_and_special_groups(failure):
     with pytest.raises(ValueError): compiler.validate(data, sources)
 
 
-def test_combination_feedback_identifies_all_missing_source_issues():
+def test_combination_repair_feedback_identifies_omissions_and_duplicates():
     from peaso.ai.output_validation import feedback
 
-    sources = [{'scan_id': provider, 'issues': [issue(), issue('images', 'image_cves', 'high'), issue('leaks', 'leaks', 'high')]}
-               for provider in ('gcp', 'azure')]
+    sources = [{'scan_id': scan, 'issues': [issue(), issue('images', 'image_cves', 'high'),
+                                           issue('leaks', 'leaks', 'high')]} for scan in ('a'*32, 'b'*32)]
     data = compiled(sources)
-    omitted = data['issues'][0]['references'].pop()
-    images = data['issues'].pop(1)['references']
-    with pytest.raises(compiler.MissingCombinedEvidence) as error:
+    refs = data['issues'][0]['references']
+    missing = refs.pop()
+    duplicate = refs[0]
+    refs.extend([duplicate, {'report_id': 'foreign', 'issue_id': 'unexpected'}])
+    with pytest.raises(compiler.CombinedReferenceCoverageError) as error:
         compiler.validate(data, sources)
-    assert feedback(error.value) == {'code': 'combined_coverage_mismatch',
-        'missing_references': [omitted, images[1], images[0]]}
+
+    assert feedback(error.value) == {
+        'code': 'unknown_or_duplicate_combined_reference',
+        'missing_references': [missing],
+        'duplicate_references': [duplicate],
+        'unknown_reference_count': 1,
+    }
 
 
 def test_stale_worker_cannot_publish_deleted_combination(reports, monkeypatch):
