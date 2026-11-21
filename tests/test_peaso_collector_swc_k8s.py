@@ -182,7 +182,7 @@ def test_namespace_scoped_inventory_cannot_attest_cluster_coverage():
 
 @pytest.mark.parametrize('literal', ['true', 'false'])
 def test_apiserver_explicit_token_expiration_literal_and_redaction(literal):
-    p = pod(1, 'kube-apiserver', ['--service-account-extend-token-expiration', literal,
+    p = pod(1, 'kube-apiserver', ['--service-account-extend-token-expiration=' + literal,
                                 '--request-timeout=30s', '--unknown=INERT-CREDENTIAL'])
     p['spec']['containers'][0]['env'] = [{'name': 'TOKEN', 'value': 'INERT-CREDENTIAL'}]
     snap, _ = run(API(pods=[p]), supplied=False)
@@ -194,6 +194,14 @@ def test_apiserver_explicit_token_expiration_literal_and_redaction(literal):
              'collections': {'pod': [collection(snap, 'pod')]}, 'pod': [{'type': 'pod', 'data': observed, 'scope': '*'}]}
     assert evaluate_check('k8s.cis.the_service_account_extend_token_expiration_parameter_is_set_to_false', observed, index)[0] == ('PASS' if literal == 'false' else 'FAIL')
     assert evaluate_check('k8s.cis.the_request_timeout_argument_is_set_as_appropriate', observed, index)[0] == 'PASS'
+
+
+def test_apiserver_rejects_positional_boolean_token_expiration():
+    p = pod(1, 'kube-apiserver', ['--service-account-extend-token-expiration', 'false'])
+    snapshot, _ = run(API(pods=[p]), supplied=False)
+    component = collection(snapshot, 'pod')['items'][0]['spec']['containers'][0]['_component_config']
+    assert component == {'collection_status': 'malformed',
+                         'error': {'code': 'component_boolean_positional_value'}}
 
 
 def test_missing_flags_remain_absent():
