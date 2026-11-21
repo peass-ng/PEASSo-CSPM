@@ -118,6 +118,20 @@ def test_output_requires_complete_unique_provenance_and_special_groups(failure):
     with pytest.raises(ValueError): compiler.validate(data, sources)
 
 
+def test_combination_feedback_identifies_all_missing_source_issues():
+    from peaso.ai.output_validation import feedback
+
+    sources = [{'scan_id': provider, 'issues': [issue(), issue('images', 'image_cves', 'high'), issue('leaks', 'leaks', 'high')]}
+               for provider in ('gcp', 'azure')]
+    data = compiled(sources)
+    omitted = data['issues'][0]['references'].pop()
+    images = data['issues'].pop(1)['references']
+    with pytest.raises(compiler.MissingCombinedEvidence) as error:
+        compiler.validate(data, sources)
+    assert feedback(error.value) == {'code': 'combined_coverage_mismatch',
+        'missing_references': [omitted, images[1], images[0]]}
+
+
 def test_stale_worker_cannot_publish_deleted_combination(reports, monkeypatch):
     _, store, artifacts, _ = reports
     entry = runs.create(store, artifacts, 'alice', 'alice', 'Fenced', selected(store, artifacts))

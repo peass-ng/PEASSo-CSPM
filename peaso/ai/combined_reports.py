@@ -29,6 +29,12 @@ class CombinedReport(Strict):
     limitations: list[Text]
 
 
+class MissingCombinedEvidence(ValueError):
+    def __init__(self, missing):
+        super().__init__('combined_coverage_mismatch')
+        self.missing = [{'report_id': report_id, 'issue_id': issue_id} for report_id, issue_id in sorted(missing)]
+
+
 def version(report):
     value = {key: report.get(key) for key in ('status', 'issues', 'summary', 'limitations')}
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
@@ -85,11 +91,11 @@ def validate(data, reports):
                 or (issue['status'] == 'confirmed' and not any(row['status'] == 'confirmed' for row in source))):
             raise ValueError('unconfirmed_report_issue')
         covered.update(keys)
+    if missing := known.keys() - covered:
+        raise MissingCombinedEvidence(missing)
     expected = {row['kind'] for row in known.values()} & SPECIAL_KINDS
     if set(special) != expected or any(count != 1 for count in special.values()):
         raise ValueError('combined_special_group_mismatch')
-    if covered != set(known):
-        raise ValueError('combined_coverage_mismatch')
     value['issues'].sort(key=lambda issue: RISK.index(issue['severity']))
     inherited = [text for report in reports for text in report.get('limitations', [])]
     value['limitations'] = list(dict.fromkeys(inherited + value['limitations']))
