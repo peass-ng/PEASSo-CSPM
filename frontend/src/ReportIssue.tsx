@@ -5,10 +5,11 @@ import { FindingInspector } from "./Findings";
 import { Badge, Inspector, State } from "./ui";
 import { NetworkArchitecture } from "./NetworkArchitecture";
 import type { Finding } from "./types";
+import type { ContainerExposureRoute } from "./ExposedContainers";
 export type Reference = { domain: "findings" | "least_privilege" | "privesc_edges" | "actions"; id: string };
 type SpecialDetail = {
   asset?: string; scope?: string; digest?: string; counts?: Record<string, number>;
-  running_workloads?: { workload: string; scope: string; container: string }[];
+  running_workloads?: { workload: string; scope: string; container: string; exposure_routes?: ContainerExposureRoute[] }[];
   label?: string; locations?: string[]; detectors?: string[]; finding_ids: string[];
   report_id?: string; issue_id?: string;
 };
@@ -50,7 +51,12 @@ function SpecialDetails({ rows, onInspect }: {
           {!!row.running_workloads?.length && <details>
             <summary>{row.running_workloads.length} running container{row.running_workloads.length === 1 ? "" : "s"}</summary>
             <ul className="report-evidence">{row.running_workloads.map(workload =>
-              <li key={JSON.stringify(workload)}><code>{workload.workload}</code> · <code>{workload.container}</code> · {workload.scope}</li>
+              <li key={JSON.stringify(workload)}><code>{workload.workload}</code> · <code>{workload.container}</code> · {workload.scope}
+                {workload.exposure_routes?.map(route => <div className="small" key={JSON.stringify(route)}>
+                  <code>{route.endpoint}:{route.port}</code> · {route.protocol} → container port {route.container_port}
+                  {!!route.controls.length && <> · {route.controls.join(" · ")}</>}
+                </div>)}
+              </li>
             )}</ul>
           </details>}
         </td>

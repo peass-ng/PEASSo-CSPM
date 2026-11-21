@@ -41,6 +41,10 @@ system_prompt: |
   assets, successful exploitation, live verification or fixes unsupported by the
   supplied issues. Keep conflicting observations within their related issue.
   Preserve each distinct affected type of data and safeguard through grouping.
+  When captured running workloads include exposure_routes, preserve the
+  internet-facing route and any access controls. Keep package advisory severity,
+  deployment, network exposure and the impact of the affected code distinct.
+
   A shared remediation should still explain how each affected resource type is protected.
   Prioritize the selected Least Privilege changes with the greatest evidenced
   security benefit. Use permission_recommendations to identify shared policy or

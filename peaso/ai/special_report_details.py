@@ -169,6 +169,10 @@ def prose(kind, details):
             intro += f' Captured workload inventory matched {len(deployed)} affected image digest(s) to running containers.'
         else:
             intro += ' Captured workload inventory established no running digest match.'
+        routed = {row.get('digest') for row in details
+                  if any(member.get('exposure_routes') for member in row.get('running_workloads', ()))}
+        if routed:
+            intro += f' Captured configuration linked {len(routed)} affected image digest(s) to internet-facing routes.'
         lines = []
         for row in details:
             counts = ', '.join(f"{row['counts'][level]} {level}" for level in LEVELS if row['counts'].get(level, 0) > 0)

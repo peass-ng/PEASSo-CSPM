@@ -71,7 +71,9 @@ def pregenerate(platform, sources=None):
     from .special_report_details import (IMAGE_IMPACT, bind_running_images, image_details, image_report_severity,
                                          leak_details, prose, running_images)
     native = platform.get('report', {})
-    runtime = running_images(platform.get('inventory', ()))
+    from peaso.container_exposure import enrich_runtime
+    inventory = platform.get('inventory', ())
+    runtime = enrich_runtime(running_images(inventory), inventory, native.get('findings', ()))
     findings = {row['id']: row for row in native.get('findings', [])}
     issues, exclusions = [], []
     covered = 0

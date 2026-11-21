@@ -51,10 +51,62 @@ def install_routes(app, *, identity, owned_bundle, artifacts):
             raise HTTPException(409, 'Image evidence is unavailable for this scan')
         return build_report(value['observations'], selected=True)
 
+    @app.get('/api/scans/{ident}/exposed-containers')
+    def exposed_containers(ident: str, image_scan_id: str | None = None,
+                           offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=50),
+                           user=Depends(identity)):
+        from peaso.ai.special_report_details import running_images
+        from peaso.container_exposure import RESOURCE_TYPES, enrich_runtime
+        from peaso.snapshot import resources
+        from peaso.storage.artifacts import check_reference, job_prefix
+        from collections import defaultdict
+
+        tenant = user.tenant_id
+        row, bundle = owned_bundle(tenant, ident)
+        images = report_for(tenant, image_scan_id or ident)
+        snapshot_ref = row.get('snapshot')
+        result = {'items': [], 'total': 0, 'next_offset': None, 'image_coverage': images['coverage'],
+                  'image_findings_present': bool(images['rows']), 'workload_evidence_available': False}
+        if not images['rows'] or row['status'] != 'completed' or not isinstance(snapshot_ref, str):
+            return result
+        if not snapshot_ref.startswith(job_prefix(tenant, ident)):
+            raise HTTPException(409, 'Workload evidence is unavailable for this scan')
+        try:
+            check_reference(tenant, snapshot_ref)
+        except ValueError:
+            raise HTTPException(409, 'Workload evidence is unavailable for this scan') from None
+        snapshot = artifacts.get(tenant, snapshot_ref)
+        inventory = resources(dict(snapshot, collections=[
+            collection for collection in snapshot['collections'] if collection['type'] in RESOURCE_TYPES
+        ]))
+        runtime = running_images(inventory)
+        if not runtime:
+            return result
+        result['workload_evidence_available'] = True
+        report = artifacts.get(tenant, bundle['report_json']) if bundle.get('bundle_version') == 1 else bundle
+        counts = defaultdict(lambda: {'HIGH': set(), 'CRITICAL': set()})
+        for cve in images['rows']:
+            key = (cve['vulnerability_id'], cve['package'], cve['installed_version'])
+            counts[cve['image_digest']][cve['severity']].add(key)
+        matches = []
+        for running in enrich_runtime(runtime, inventory, report.get('findings', ())):
+            digest = running['digest']
+            if not running.get('exposure_routes') or digest not in counts:
+                continue
+            high, critical = counts[digest]['HIGH'], counts[digest]['CRITICAL']
+            matches.append({**running, 'counts': {'critical': len(critical), 'high': len(high - critical)}})
+        end = offset + limit
+        return dict(result, items=matches[offset:end], total=len(matches),
+                    next_offset=end if end < len(matches) else None)
+
     @app.get('/api/scans/{ident}/image-findings')
     def image_findings(ident: str, offset: int = Query(default=0, ge=0),
-                       limit: int = Query(default=100, ge=1, le=100), user=Depends(identity)):
-        return page_report(report_for(user.tenant_id, ident), offset, limit)
+                       limit: int = Query(default=100, ge=1, le=100),
+                       image_digest: str | None = None, user=Depends(identity)):
+        report = report_for(user.tenant_id, ident)
+        if image_digest:
+            report = dict(report, rows=[row for row in report['rows'] if row['image_digest'] == image_digest])
+        return page_report(report, offset, limit)
 
     @app.get('/api/scans/{ident}/image-findings/{finding_id}/assets')
     def image_assets(ident: str, finding_id: str, offset: int = Query(default=0, ge=0),
