@@ -705,7 +705,7 @@ def _process(role, request, connection):
                         "intentional_partial") is True else None
                     prior = _resume_prior(checkpoint_session, prior)
                     from peaso.engine import plan_collection
-                    from peaso.collectors.resume import partition, scoped_gcp_lookup
+                    from peaso.collectors.resume import checkpoint_with_reuse, partition, scoped_gcp_lookup
                     requirements = plan_collection(request)
                     # Cumulative checkpoints are evidence, not authority to
                     # omit dynamically discovered units. Only an explicit AWS
@@ -723,6 +723,8 @@ def _process(role, request, connection):
                         connector.setdefault("options", {}).pop("collect_all", None)
                         connector["options"]["inventories"] = remaining
                 request["_collection_callback"] = checkpoint_session.on_collection
+                if saved_rows and refresh_plan is None:
+                    request["_collection_callback"] = checkpoint_with_reuse(checkpoint_session.on_collection, saved_rows)
                 connector.setdefault("options", {})["_content_tail_callback"] = _checkpoint_content_tail_callback(checkpoint_session)
                 request["_scope_plan_callback"] = checkpoint_session.on_scope_plan
                 try:

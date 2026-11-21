@@ -2,7 +2,7 @@
 import json
 from types import SimpleNamespace
 
-from peaso.collectors.resume import merge, partition
+from peaso.collectors.resume import checkpoint_with_reuse, merge, partition
 from peaso.snapshot import make_snapshot
 from peaso.worker import Worker, _expired_snapshot
 from peaso.server.config import Settings
@@ -88,6 +88,32 @@ def test_real_aws_fetcher_skips_settled_sdk_operation(monkeypatch, sdk):
     assert {row["type"]: row["status"] for row in result["collections"]} == {
         "cost_anomaly_monitor": "empty", "cost_anomaly_subscription": "empty"}
     stub.assert_no_pending_responses()
+
+
+def test_resume_retains_evidence_when_collector_marks_reused_inventory_not_requested():
+    regional_settings = dict(envelope("ec2_regional_settings"),
+        items=[{"SnapshotBlockPublicAccessState": "unblocked"}])
+    prior = make_snapshot("aws", [SCOPE], [regional_settings])
+    remaining, saved = partition({"provider": "aws", "scopes": [SCOPE]},
+                                 ["ec2_regional_settings", "instance"], prior)
+    assert remaining == ["instance"]
+
+    placeholder = envelope("ec2_regional_settings", "not_collected", error={"code": "inventory_not_requested"})
+    observed = envelope("instance", "empty")
+    received = []
+    checkpoint = checkpoint_with_reuse(received.append, saved)
+    checkpoint(placeholder)
+    checkpoint(observed)
+    assert received == [observed]
+
+    resumed = merge(make_snapshot("aws", [SCOPE], [placeholder, observed]), saved, prior)
+    assert next(row for row in resumed["collections"] if row["type"] == "ec2_regional_settings")["items"] == regional_settings["items"]
+
+    denied = envelope("ec2_regional_settings", "denied", error={"code": "AccessDenied"})
+    checkpoint(denied)
+    assert received[-1] == denied
+    retried = merge(make_snapshot("aws", [SCOPE], [denied]), saved, prior)
+    assert retried["collections"][0]["status"] == "denied"
 
 
 def test_analyzer_only_resume_reuses_snapshot_without_child(tmp_path):

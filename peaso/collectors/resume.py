@@ -85,14 +85,31 @@ def scoped_gcp_lookup(connector, requirements, saved):
     return lookup
 
 
+def _not_requested(row):
+    return (row is not None and row["status"] == "not_collected"
+            and (row.get("error") or {}).get("code") == "inventory_not_requested")
+
+
+def checkpoint_with_reuse(callback, saved_rows):
+    """Keep the restored evidence when the retry emits an inventory placeholder."""
+    reused = {(row["type"], row["scope"]) for row in saved_rows}
+
+    def settled(row):
+        if (row["type"], row["scope"]) in reused and _not_requested(row):
+            return
+        return callback(row)
+
+    return settled
+
+
 def merge(snapshot, saved_rows, prior):
     if not saved_rows:
         return snapshot
     current = {(row["type"], row["scope"]): row for row in snapshot["collections"]}
-    # The current attempt owns every result it actually read; saved rows fill
-    # only inventories deliberately omitted from native SDK scheduling.
     for row in saved_rows:
-        current.setdefault((row["type"], row["scope"]), row)
+        key = row["type"], row["scope"]
+        if key not in current or _not_requested(current[key]):
+            current[key] = row
     metadata = copy.deepcopy(prior.get("metadata", {}))
     metadata.update(snapshot.get("metadata", {}))
     metadata["resume"] = {"reused_collections": len(saved_rows)}
