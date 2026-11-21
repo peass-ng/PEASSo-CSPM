@@ -24,7 +24,36 @@ import "./FindingInspector.css";
 import { AccessAnalyzerUnusedEvidence } from "./AccessAnalyzerUnusedEvidence";
 import { FoundSecretValues, PrivateSecretEvidence } from "./PrivateSecretEvidence";
 import findingTypes from "./findingTypes.json";
+import type { ContainerExposureRoute } from "./ExposedContainers";
 const findingTypeLabel = (id?: string) => findingTypes.find(type => type.id === id)?.label || "Unclassified";
+type ContainerExposureEvidence = {
+  container: string;
+  manifest_digest: string;
+  exposure_routes: ContainerExposureRoute[];
+  advisory_totals: Partial<Record<"CRITICAL" | "HIGH", number>>;
+  package_advisories: { vulnerability_id: string; severity: string; package: string; installed_version: string; fixed_versions: string[] }[];
+};
+
+function ContainerExposureEvidence({ evidence }: { evidence: ContainerExposureEvidence }) {
+  return <section className="finding-detail-section">
+    <h3>Container and internet routes</h3>
+    <p><strong>{evidence.container}</strong> · <code>{evidence.manifest_digest}</code></p>
+    <ul className="report-evidence">{evidence.exposure_routes.map(route => <li key={JSON.stringify(route)}>
+      <code>{route.endpoint}:{route.port}</code> · {route.protocol} → container port {route.container_port}
+      {!!route.controls.length && <div className="small">{route.controls.join(" · ")}</div>}
+    </li>)}</ul>
+    <h3>Package advisories</h3>
+    <p>{(["CRITICAL", "HIGH"] as const).filter(level => evidence.advisory_totals[level])
+      .map(level => `${evidence.advisory_totals[level]} ${level.toLowerCase()}`).join(" · ")}</p>
+    <ul className="report-evidence">{evidence.package_advisories.map(advisory =>
+      <li key={JSON.stringify([advisory.vulnerability_id, advisory.package, advisory.installed_version])}>
+        <strong>{advisory.vulnerability_id}</strong> · <code>{advisory.package} {advisory.installed_version}</code>
+        {" · "}{advisory.severity.toLowerCase()}
+      </li>)}</ul>
+    {Object.values(evidence.advisory_totals).reduce((sum, count) => sum + count, 0) > evidence.package_advisories.length &&
+      <p className="muted">Showing the first {evidence.package_advisories.length} advisories. Open the image CVE list for all advisories.</p>}
+  </section>;
+}
 type FindingPage = {
   items: Finding[];
   total?: number;
@@ -875,6 +904,8 @@ export function FindingInspector({
             {!allowCurrentSummary && observed.guidance_refresh?.message && <p className="muted">{observed.guidance_refresh.message}</p>}
             {internetExposure && observed.status === "UNKNOWN" && !!exposure?.reasons.length && <ul>{exposure.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}
           </section>
+          {!observed.grouped && observed.check_id === "analysis.exposed_container_cves" && !!observed.evidence &&
+            <ContainerExposureEvidence evidence={observed.evidence as unknown as ContainerExposureEvidence} />}
           {!observed.grouped && <AccessAnalyzerUnusedEvidence key={observed.id} finding={observed} />}
           {observed.secret_evidence?.status === "available" ? <PrivateSecretEvidence key={observed.id} finding={observed} scanId={scanId} />
             : <>{observed.secret_evidence && <PrivateSecretEvidence key={observed.id} finding={observed} scanId={scanId} />}

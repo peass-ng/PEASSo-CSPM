@@ -49,7 +49,7 @@ function SpecialDetails({ rows, onInspect }: {
           {!!row.scope && <div className="muted small">{row.scope}</div>}
           {!!row.digest && row.digest !== row.asset && <div className="muted small"><code>{row.digest}</code></div>}
           {!!row.running_workloads?.length && <details>
-            <summary>{row.running_workloads.length} running container{row.running_workloads.length === 1 ? "" : "s"}</summary>
+            <summary>{row.running_workloads.length} deployed container{row.running_workloads.length === 1 ? "" : "s"}</summary>
             <ul className="report-evidence">{row.running_workloads.map(workload =>
               <li key={JSON.stringify(workload)}><code>{workload.workload}</code> · <code>{workload.container}</code> · {workload.scope}
                 {workload.exposure_routes?.map(route => <div className="small" key={JSON.stringify(route)}>

@@ -81,6 +81,10 @@
       "decision": "exclude",
       "group": "inventory_coverage"
     },
+    "analysis.exposed_container_cves": {
+      "decision": "include",
+      "group": "security_configuration"
+    },
     "analysis.federated_trust": {
       "decision": "include",
       "group": "security_configuration"

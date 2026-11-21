@@ -494,6 +494,8 @@ class PodReader(ServiceReader):
             if host_ip is not None and (not isinstance(host_ip, str) or len(host_ip) > 253):
                 raise ValueError("GKE Pod hostIP")
             ports = []
+            workload_containers = []
+            name_pattern = r"[a-z0-9][a-z0-9-]{0,62}"
             for field in ("containers", "initContainers"):
                 containers = spec.get(field, [])
                 if not isinstance(containers, list) or len(containers) > 100:
@@ -504,6 +506,15 @@ class PodReader(ServiceReader):
                     declared = container.get("ports", [])
                     if not isinstance(declared, list) or len(declared) > 100:
                         raise ValueError("GKE Pod ports")
+                    container_name = container.get("name")
+                    if isinstance(container_name, str) and re.fullmatch(name_pattern, container_name):
+                        workload_containers.append({"name": container_name, "ports": [
+                            {key: port[key] for key in ("containerPort", "protocol", "name") if key in port}
+                            for port in declared if isinstance(port, dict)
+                            and type(port.get("containerPort")) is int
+                            and port.get("protocol", "TCP") in ("TCP", "UDP", "SCTP")
+                            and isinstance(port.get("name", ""), str) and len(port.get("name", "")) <= 63
+                        ]})
                     for port in declared:
                         if not isinstance(port, dict):
                             raise ValueError("GKE Pod port shape")
@@ -532,10 +543,40 @@ class PodReader(ServiceReader):
                                           "bindIP": bind_ip,
                                           "containerKind": field,
                                           "portSource": "hostPort" if port.get("hostPort") else "hostNetwork"})
+            from peaso.container_exposure import immutable_digest
+            running_containers = []
+            for field in ("containerStatuses", "initContainerStatuses"):
+                observed = status.get(field)
+                for container in observed[:100] if isinstance(observed, list) else ():
+                    if not isinstance(container, dict):
+                        continue
+                    state, image, container_name = container.get("state"), container.get("imageID"), container.get("name")
+                    if (isinstance(state, dict) and isinstance(state.get("running"), dict)
+                            and isinstance(container_name, str) and re.fullmatch(name_pattern, container_name)
+                            and immutable_digest(image)):
+                        running_containers.append({"name": container_name, "imageID": image, "state": {"running": {}}})
+            pod_ips = status.get("podIPs")
+            ips = [row["ip"] for row in pod_ips[:16] if isinstance(row, dict)
+                   and isinstance(row.get("ip"), str) and len(row["ip"]) <= 45] if isinstance(pod_ips, list) else []
+            primary = status.get("podIP")
+            if isinstance(primary, str) and len(primary) <= 45 and primary not in ips:
+                ips.append(primary)
+            conditions = status.get("conditions")
+            ready = isinstance(conditions, list) and any(isinstance(item, dict) and item.get("type") == "Ready"
+                    and item.get("status") == "True" for item in conditions[:100])
+            workload = {}
+            if phase == "Running" and ready and ips and running_containers:
+                workload = {
+                    "workloadSpec": {"containers": workload_containers},
+                    "workloadStatus": {"phase": phase, "podIPs": [{"ip": ip} for ip in ips],
+                                       "conditions": [{"type": "Ready", "status": "True"}],
+                                       "containerStatuses": running_containers},
+                }
             rows.append({"name": f"{self.binding['selection']}/namespaces/{namespace}/pods/{name}",
                 "cluster": self.binding["selection"], "namespace": namespace, "kubernetesName": name,
                 "uid": uid, "hostNetwork": host_network, "hostPorts": ports,
                 "nodeName": node, "phase": phase, "hostIP": host_ip,
+                **workload,
                 "clusterEndpoint": self.binding["endpoint"],
                 "clusterCaSha256": self.binding["ca_sha256"],
                 "endpointTrust": self.binding.get("endpointTrust", "cluster_ca")})
@@ -844,6 +885,12 @@ class EndpointSliceReader(ServiceReader):
                 raise ValueError("GKE EndpointSlice addresses/ports")
             ready_nodes = []
             ready_count = 0
+            pod_targets = []
+            owners = meta.get("ownerReferences")
+            service_owners = [{"kind": "Service", "uid": ref["uid"]} for ref in owners[:32]
+                              if isinstance(ref, dict) and ref.get("kind") == "Service"
+                              and isinstance(ref.get("uid"), str) and 1 <= len(ref["uid"]) <= 128
+                              ] if isinstance(owners, list) else []
             for endpoint in endpoints:
                 if not isinstance(endpoint, dict) or not isinstance(endpoint.get("addresses"), list) or not 1 <= len(endpoint["addresses"]) <= 100:
                     raise ValueError("GKE EndpointSlice endpoint")
@@ -860,6 +907,14 @@ class EndpointSliceReader(ServiceReader):
                         and conditions.get("terminating") is not True):
                     ready_count += 1
                     ready_nodes.append(node)
+                ref = endpoint.get("targetRef")
+                if (service_owners and conditions.get("ready") is True and conditions.get("serving") is not False
+                        and conditions.get("terminating") is not True
+                        and isinstance(ref, dict) and ref.get("kind") == "Pod" and ref.get("namespace") == namespace
+                        and isinstance(ref.get("uid"), str) and 1 <= len(ref["uid"]) <= 128):
+                    pod_targets.append({"addresses": endpoint["addresses"], "conditions": {
+                        key: conditions[key] for key in ("ready", "serving", "terminating") if key in conditions
+                    }, "targetRef": {"kind": "Pod", "namespace": namespace, "uid": ref["uid"]}})
             safe_ports = []
             for port in ports:
                 if not isinstance(port, dict):
@@ -875,6 +930,7 @@ class EndpointSliceReader(ServiceReader):
                 "kubernetesName": name, "uid": uid, "serviceName": service_name,
                 "addressType": address_type, "ports": safe_ports,
                 "readyEndpointCount": ready_count, "readyNodeNames": ready_nodes,
+                "serviceOwners": service_owners, "podTargets": pod_targets,
                 "clusterEndpoint": self.binding["endpoint"],
                 "clusterCaSha256": self.binding["ca_sha256"],
                 "endpointTrust": self.binding.get("endpointTrust", "cluster_ca")})

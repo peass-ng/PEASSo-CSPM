@@ -68,7 +68,7 @@ export function ExposedContainers({ scanId, sources }: { scanId: string; sources
         : !query.data.workload_evidence_available ? "This assessment has no matching running workload evidence."
         : "No scanned image digest was linked to a captured internet-facing container route."}</p>}
       {!!query.data?.items.length && <div className="table-scroll"><table className="findings-table">
-        <thead><tr><th>Running container</th><th>Captured internet route</th><th>Package advisories</th></tr></thead>
+        <thead><tr><th>Container</th><th>Captured internet route</th><th>Package advisories</th></tr></thead>
         <tbody>{query.data.items.map(row => <tr key={JSON.stringify([row.scope, row.workload, row.container, row.digest])}>
           <td><strong>{row.container}</strong><div className="small"><code>{row.workload}</code></div>
             <div className="muted small">{row.scope}</div><div className="small"><code>{row.digest}</code></div></td>
