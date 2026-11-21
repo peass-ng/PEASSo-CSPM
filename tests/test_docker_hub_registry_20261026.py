@@ -11,6 +11,7 @@ DIGEST = 'sha256:' + hashlib.sha256(BLOB).hexdigest()
 CDN = ('https://production.cloudfront.docker.com/registry-v2/docker/registry/v2/blobs/sha256/'
        + DIGEST[7:9] + '/' + DIGEST[7:] + '/data?expires=1&signature=x')
 CDN_PATH = '/registry-v2/docker/registry/v2/blobs/sha256/' + DIGEST[7:9] + '/' + DIGEST[7:] + '/data'
+AWS_BLOB_HOST = 'docker-images-prod.s3.dualstack.us-east-1.amazonaws.com'
 
 
 class Response:
@@ -47,18 +48,20 @@ def read(reader):
     return reader.get('blobs', DIGEST, 1024, size=len(BLOB))
 
 
-def test_docker_hub_uses_registry_1_with_anonymous_pull_token_and_digest_bound_cdn():
+@pytest.mark.parametrize('download_host', ['production.cloudfront.docker.com', AWS_BLOB_HOST])
+def test_docker_hub_uses_scoped_pull_token_and_digest_bound_download(download_host):
     log = []
+    location = CDN.replace('production.cloudfront.docker.com', download_host)
     routes = {('auth.docker.io', '/token'): token(),
-              ('registry-1.docker.io', '/v2/library/nginx/blobs/' + DIGEST): lambda: Response(307, b'', {'Location': CDN}),
-              ('production.cloudfront.docker.com', CDN_PATH): lambda: Response(200, BLOB)}
+              ('registry-1.docker.io', '/v2/library/nginx/blobs/' + DIGEST): lambda: Response(307, b'', {'Location': location}),
+              (download_host, CDN_PATH): lambda: Response(200, BLOB)}
     reader = image.RegistryReader('docker.io', 'library/nginx', lambda: None, open_https=wire(routes, log))
     assert read(reader) == BLOB
     assert read(reader) == BLOB
     assert log[0] == ('auth.docker.io', '/token', None)
     assert [entry[0] for entry in log].count('auth.docker.io') == 1
     assert log[1] == ('registry-1.docker.io', '/v2/library/nginx/blobs/' + DIGEST, 'Bearer tok')
-    assert log[2][0] == 'production.cloudfront.docker.com' and log[2][2] is None
+    assert log[2] == (download_host, CDN_PATH, None)
     assert [r['status'] for r in reader.receipts] == ['collected', 'collected']
 
 
@@ -93,6 +96,8 @@ def test_manifest_redirect_still_refused_on_docker_hub():
 @pytest.mark.parametrize('location', [
     CDN.replace(DIGEST[7:], 'a' * 64),
     CDN.replace('production.cloudfront.docker.com', 'evil.example.com'),
+    CDN.replace('production.cloudfront.docker.com', 'another-bucket.s3.dualstack.us-east-1.amazonaws.com'),
+    CDN.replace('production.cloudfront.docker.com', AWS_BLOB_HOST).replace(DIGEST[7:], 'b' * 64),
     CDN.replace('https://', 'http://'),
     CDN.replace('.com/', '.com:8443/'),
     CDN.replace('/data?', '/data/../x?'),

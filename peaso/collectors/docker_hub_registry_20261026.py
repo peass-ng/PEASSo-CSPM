@@ -6,7 +6,7 @@ normalized to it, and one-part names to ``library/``). Its v2 API is served by
 docker.io's redirect, so the general no-redirect policy for manifests stays.
 Pull tokens come only from the fixed realm ``https://auth.docker.io/token`` for
 service ``registry.docker.io`` and the selected repository's pull scope. A blob
-may be redirected once to Docker's blob CDN, only for that exact blob digest;
+may be redirected once to a Docker blob download host for that exact digest;
 the reader still drops credentials across hosts and verifies size and digest.
 """
 import json
@@ -17,7 +17,11 @@ REGISTRY = 'docker.io'
 API_HOST = 'registry-1.docker.io'
 AUTH_HOST = 'auth.docker.io'
 SERVICE = 'registry.docker.io'
-CDN_HOSTS = frozenset(('production.cloudfront.docker.com', 'production.cloudflare.docker.com'))
+BLOB_DOWNLOAD_HOSTS = frozenset((
+    'production.cloudfront.docker.com',
+    'production.cloudflare.docker.com',
+    'docker-images-prod.s3.dualstack.us-east-1.amazonaws.com',
+))
 MAX_TOKEN_RESPONSE = 64 * 1024
 MAX_TOKEN = 8192
 _REPOSITORY = re.compile(r'[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)+\Z')
@@ -69,7 +73,7 @@ def pull_token(open_https, repository, authorization, timeout, incomplete):
 
 
 def blob_redirect(location, digest, incomplete):
-    """Accept one redirect to Docker's blob CDN object for exactly `digest`."""
+    """Accept one redirect to a Docker blob download host for exactly `digest`."""
     if type(location) is not str or len(location) > 8192 or type(digest) is not str:
         raise incomplete('redirect_unsupported')
     try:
@@ -79,7 +83,7 @@ def blob_redirect(location, digest, incomplete):
         raise incomplete('redirect_unsupported') from None
     hexdigest = digest[7:] if digest.startswith('sha256:') else ''
     expected = '/registry-v2/docker/registry/v2/blobs/sha256/' + hexdigest[:2] + '/' + hexdigest + '/data'
-    if (url.scheme != 'https' or url.hostname not in CDN_HOSTS or url.netloc != url.hostname
+    if (url.scheme != 'https' or url.hostname not in BLOB_DOWNLOAD_HOSTS or url.netloc != url.hostname
             or port not in (None, 443) or url.username is not None or url.password is not None
             or url.fragment or not re.fullmatch(r'[0-9a-f]{64}', hexdigest) or url.path != expected
             or '\\' in location or any(ord(ch) < 33 or ord(ch) > 126 for ch in location)):
