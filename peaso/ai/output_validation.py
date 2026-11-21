@@ -93,6 +93,10 @@ def feedback(error):
     result = {'code': str(error) if str(error) in codes else 'invalid_output'}
     if hasattr(error, 'missing'):
         result['missing_references'] = error.missing
+    if getattr(error, 'duplicate_references', None):
+        result['duplicate_references'] = error.duplicate_references
+    if getattr(error, 'unknown_reference_count', 0):
+        result['unknown_reference_count'] = error.unknown_reference_count
     if hasattr(error, 'errors'):
         errors = error.errors(include_input=False, include_context=False, include_url=False)
         result['fields'] = [{'type': row['type'], 'path': [part if isinstance(part, int) or

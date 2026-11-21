@@ -808,7 +808,8 @@ class DynamoStore:
                           report_ref=None, stage="collector", now=None):
         """Tenant, lease, owner and monotonic sequence fenced checkpoint write."""
         from .artifacts import job_prefix
-        now = self.clock() if now is None else now
+        fixed_time = now
+        now = self.clock() if fixed_time is None else fixed_time
         if (type(sequence) is not int or sequence < 1 or not isinstance(reference, str)
                 or not reference.startswith(job_prefix(tenant, ident))
                 or report_ref is not None and (not isinstance(report_ref, str) or not report_ref.startswith(job_prefix(tenant, ident)))):
@@ -844,13 +845,20 @@ class DynamoStore:
                         "ExpressionAttributeValues": attrs({":snapshot": reference, ":report": report_ref,
                                                             ":phase": phase, ":owner": owner,
                                                             ":now": now, ":seq": sequence})}}]
-        try:
-            self.client.transact_write_items(TransactItems=actions)
-            return True
-        except ClientError as exc:
-            if exc.response["Error"]["Code"] == "TransactionCanceledException":
-                return False
-            raise
+        for attempt in range(4):
+            try:
+                self.client.transact_write_items(TransactItems=actions)
+                return True
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] != "TransactionCanceledException":
+                    raise
+                reasons = {entry.get("Code") for entry in exc.response.get("CancellationReasons", [])}
+                reasons -= {None, "None"}
+                if reasons != {"TransactionConflict"} or attempt == 3:
+                    return False
+                time.sleep(0.05 * 2 ** attempt)
+                if fixed_time is None:
+                    actions[0]["Update"]["ExpressionAttributeValues"][":now"] = attrs({":now": self.clock()})[":now"]
 
     def checkpoint_collections(self, tenant, ident):
         self.job(tenant, ident)
