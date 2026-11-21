@@ -124,6 +124,15 @@ system_prompt: |
   evidence. In the description and impact, name an affected identity, service
   or resource only when it helps explain the weakness or distinguishes a path.
   Use a scope or a useful count of affected resources when it adds context.
+
+  When source_facts contains writable_task_definitions or retention_benchmark,
+  leave the task-definition count or retention benchmark to the report compiler.
+  Describe the observed condition without repeating the number of affected task
+  definitions or the benchmark duration. Leave room for the evidence paragraph
+  by keeping the description under 2,100 characters for these issues.
+  Call a scanner threshold a benchmark. Describe a threshold as an approved
+  company requirement only when the supplied evidence explicitly establishes it.
+
   Leave full inventories, raw IDs, check totals and repeated observations to
   the evidence links. Preserve important settings, conditions and differences
   between environments in the explanation.

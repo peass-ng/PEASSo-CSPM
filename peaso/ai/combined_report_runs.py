@@ -80,7 +80,12 @@ def create(store, artifacts, tenant, actor, name, selections):
         reports.append({'scan_id': row['id'], 'connector_name': connector.get('name', 'Unknown connector'),
             'provider': connector.get('provider', ''), 'created_at': row.get('created_at') or utc(row['created']),
             'version': selection['version'], 'summary': report.get('summary', ''),
-            'issues': report.get('issues', []), 'limitations': report.get('limitations', [])})
+            'issues': report.get('issues', []), 'limitations': report.get('limitations', []),
+            'running_images': report.get('running_images', [])})
+    affected_digests = {detail.get('digest') for report in reports for issue in report['issues']
+                        if issue['kind'] == 'image_cves' for detail in issue.get('special_details', [])}
+    for report in reports:
+        report['running_images'] = [row for row in report['running_images'] if row['digest'] in affected_digests]
     if len(json.dumps(reports).encode()) > 64 * 1024 * 1024:
         raise StoreError(413, 'Selected reports are too large; combine fewer reports')
     ident = uuid.uuid4().hex

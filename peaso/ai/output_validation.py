@@ -89,7 +89,8 @@ def feedback(error):
              'invalid_action', 'action_reference_missing', 'unknown_network_reference', 'duplicate_network_finding', 'unknown_report_reference', 'duplicate_report_reference',
              'report_group_mismatch', 'duplicate_report_group', 'unconfirmed_report_issue',
              'hardening_report_severity', 'invalid_report_exclusion', 'report_coverage_mismatch', 'report_draft_incomplete',
-             'unknown_or_duplicate_permission_review'}
+             'unknown_or_duplicate_permission_review', 'use_source_task_definition_count',
+             'use_source_retention_benchmark', 'leave_room_for_source_facts'}
     result = {'code': str(error) if str(error) in codes else 'invalid_output'}
     if hasattr(error, 'missing'):
         result['missing_references'] = error.missing

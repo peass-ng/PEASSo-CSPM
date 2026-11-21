@@ -259,7 +259,7 @@ def test_combined_fixed_findings_keep_all_assets_and_breakdowns():
     assert 'east/config:12' in next(row for row in result['issues'] if row['kind'] == 'leaks')['description']
 
 
-def test_combiner_can_lower_vulnerability_rating_but_preserves_fixed_finding_rating():
+def test_combiner_caps_image_severity_and_preserves_leak_severity():
     sources = [{'scan_id': 'a', 'issues': [
         issue('encryption', severity='high'),
         issue('images', 'image_cves', 'high'),
@@ -268,7 +268,10 @@ def test_combiner_can_lower_vulnerability_rating_but_preserves_fixed_finding_rat
     data = compiled(sources)
     data['issues'][0]['severity'] = 'medium'
     assert any(row['severity'] == 'medium' for row in compiler.validate(data, sources)['issues'])
-    data['issues'][1]['severity'] = 'medium'
+    data['issues'][1]['severity'] = 'critical'
+    result = compiler.validate(data, sources)
+    assert next(row for row in result['issues'] if row['kind'] == 'image_cves')['severity'] == 'medium'
+    data['issues'][2]['severity'] = 'medium'
     with pytest.raises(ValueError, match='combined_severity_mismatch'):
         compiler.validate(data, sources)
 
@@ -284,3 +287,38 @@ def test_unconfirmed_legacy_issue_does_not_remain_a_vulnerability_in_merge():
         compiler.validate(data, frozen)
     candidate.update(kind='hardening', severity='info')
     assert compiler.validate(data, frozen)['issues'][0]['status'] == 'needs_review'
+
+
+def test_combination_correlates_registry_image_with_other_accounts_running_workload():
+    digest = 'sha256:' + 'a' * 64
+    runtime = {'digest': digest, 'provider': 'aws', 'scope': 'dev/east', 'workload': 'task', 'container': 'app'}
+    image = issue('images', 'image_cves', 'high')
+    image.update(affected_assets=['repository'], special_details=[
+        {'asset': 'repository', 'digest': digest, 'counts': {'critical': 1, 'high': 2}, 'finding_ids': ['native']}])
+    sources = [{'scan_id': 'registry', 'issues': [image]}, {'scan_id': 'workload', 'issues': [], 'running_images': [runtime]}]
+    candidate = {key: value for key, value in image.items() if key in compiler.CombinedIssue.model_fields}
+    candidate['references'] = [{'report_id': 'registry', 'issue_id': 'images'}]
+    [merged] = compiler.validate(dict(summary='Combined captured issues.', issues=[candidate], limitations=[]), sources)['issues']
+    assert merged['severity'] == 'medium'
+    assert merged['special_details'][0]['running_workloads'] == [runtime]
+    assert merged['special_details'][0]['counts'] == {'critical': 1, 'high': 2}
+
+
+def test_combination_preserves_exact_task_scope_and_distinguishes_retention_benchmark():
+    a, b = issue('containers'), issue('backup')
+    a['source_facts'] = {'writable_task_definitions': [['test', f'task-{i}'] for i in range(25)]}
+    b['source_facts'] = {'retention_benchmark': True, 'short_retention_days': [15]}
+    reports = [{'scan_id': 'dev', 'issues': [a, b]}]
+    merged = {key: value for key, value in a.items() if key in compiler.CombinedIssue.model_fields}
+    merged['references'] = [{'report_id': 'dev', 'issue_id': ident} for ident in ('containers', 'backup')]
+    data = dict(summary='Combined captured issues.', issues=[merged], limitations=[])
+    [result] = compiler.validate(data, reports)['issues']
+    assert '**25 affected task definitions.** Each has at least one container' in result['description']
+    assert '**The scan applies a 35-day retention benchmark.** Observed expiry settings are 15 days.' in result['description']
+    merged['description'] = 'At least one of 25 reviewed development ECS task-definition observations is affected.'
+    with pytest.raises(ValueError, match='use_source_task_definition_count'):
+        compiler.validate(data, reports)
+    merged['description'] = 'Some recovery points have short retention.'
+    merged['recommendation'] = 'Meet the approved 35-day target.'
+    with pytest.raises(ValueError, match='use_source_retention_benchmark'):
+        compiler.validate(data, reports)

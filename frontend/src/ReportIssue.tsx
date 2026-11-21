@@ -8,6 +8,7 @@ import type { Finding } from "./types";
 export type Reference = { domain: "findings" | "least_privilege" | "privesc_edges" | "actions"; id: string };
 type SpecialDetail = {
   asset?: string; scope?: string; digest?: string; counts?: Record<string, number>;
+  running_workloads?: { workload: string; scope: string; container: string }[];
   label?: string; locations?: string[]; detectors?: string[]; finding_ids: string[];
   report_id?: string; issue_id?: string;
 };
@@ -46,6 +47,12 @@ function SpecialDetails({ rows, onInspect }: {
         <td><code>{row.asset || row.digest || row.scope}</code>
           {!!row.scope && <div className="muted small">{row.scope}</div>}
           {!!row.digest && row.digest !== row.asset && <div className="muted small"><code>{row.digest}</code></div>}
+          {!!row.running_workloads?.length && <details>
+            <summary>{row.running_workloads.length} running container{row.running_workloads.length === 1 ? "" : "s"}</summary>
+            <ul className="report-evidence">{row.running_workloads.map(workload =>
+              <li key={JSON.stringify(workload)}><code>{workload.workload}</code> · <code>{workload.container}</code> · {workload.scope}</li>
+            )}</ul>
+          </details>}
         </td>
         {["critical", "high", "medium"].map(level => {
           const count = row.counts?.[level];

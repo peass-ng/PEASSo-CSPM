@@ -154,6 +154,7 @@ def _ecs_per_cluster(kind):
                         item["containers"] = [{
                             "name": container.get("name"),
                             "lastStatus": container.get("lastStatus"),
+                            **({"imageDigest": container["imageDigest"]} if isinstance(container.get("imageDigest"), str) else {}),
                             "managedAgents": [{"name": agent.get("name"), "lastStatus": agent.get("lastStatus")}
                                               for agent in container.get("managedAgents", [])
                                               if isinstance(agent, dict)],
