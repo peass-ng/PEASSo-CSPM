@@ -56,7 +56,7 @@ def install_routes(app, *, identity, owned_bundle, artifacts):
                            offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=50),
                            user=Depends(identity)):
         from peaso.ai.special_report_details import running_images
-        from peaso.container_exposure import enrich_runtime
+        from peaso.container_exposure import RESOURCE_TYPES, enrich_runtime
         from peaso.snapshot import resources
         from peaso.storage.artifacts import check_reference, job_prefix
         from collections import defaultdict
@@ -76,10 +76,14 @@ def install_routes(app, *, identity, owned_bundle, artifacts):
         except ValueError:
             raise HTTPException(409, 'Workload evidence is unavailable for this scan') from None
         snapshot = artifacts.get(tenant, snapshot_ref)
-        inventory = resources(snapshot)
+        inventory = resources(dict(snapshot, collections=[
+            collection for collection in snapshot['collections'] if collection['type'] in RESOURCE_TYPES
+        ]))
         runtime = running_images(inventory)
+        if not runtime:
+            return result
+        result['workload_evidence_available'] = True
         report = artifacts.get(tenant, bundle['report_json']) if bundle.get('bundle_version') == 1 else bundle
-        result['workload_evidence_available'] = bool(runtime)
         counts = defaultdict(lambda: {'HIGH': set(), 'CRITICAL': set()})
         for cve in images['rows']:
             key = (cve['vulnerability_id'], cve['package'], cve['installed_version'])

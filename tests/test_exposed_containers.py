@@ -121,6 +121,7 @@ def test_aws_route_preserves_listener_authentication(mode):
     rule['Conditions'] = [{'Field': 'host-header'}, {'Field': 'path-pattern'}]
     inventory = inventory_rows('aws', SCOPE, facts)
     evidence = open_finding(inventory, 'load_balancer', 'load_balancer')
+    evidence['evidence']['exposed_ports'] = ['tcp/440-445']
     [container] = [row for row in enrich_runtime(running_images(inventory), inventory, [evidence])
                    if row.get('exposure_routes')]
     controls = container['exposure_routes'][0]['controls']

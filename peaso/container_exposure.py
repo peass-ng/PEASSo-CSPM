@@ -3,6 +3,11 @@ from collections import defaultdict
 from collections.abc import Mapping
 from ipaddress import ip_network
 
+RESOURCE_TYPES = frozenset({
+    'ecs_task', 'ecs_service', 'elbv2_listener', 'load_balancer_listener', 'load_balancer', 'target_group',
+    'pod', 'service', 'endpointslice',
+})
+
 
 def _mapping(value):
     return value if isinstance(value, Mapping) else {}
@@ -10,6 +15,23 @@ def _mapping(value):
 
 def _rows(value):
     return [row for row in value if isinstance(row, Mapping)] if isinstance(value, (list, tuple)) else []
+
+
+def _admits_port(port, protocol, exposures):
+    if type(port) is not int or not 1 <= port <= 65535 or not isinstance(protocol, str):
+        return False
+    prefix = protocol.lower() + '/'
+    for exposure in exposures:
+        if not isinstance(exposure, str) or not exposure.startswith(prefix):
+            continue
+        value = exposure[len(prefix):]
+        low, separator, high = value.partition('-')
+        if value == 'all' or value == str(port):
+            return True
+        if separator and 1 <= len(low) <= 5 and 1 <= len(high) <= 5 and low.isascii() and low.isdecimal() and high.isascii() and high.isdecimal():
+            if int(low) <= port <= int(high):
+                return True
+    return False
 
 
 def _public_source(condition):
@@ -79,7 +101,7 @@ def _public_listeners(inventory, findings):
             continue
         for listener in _rows(listeners.get('items')):
             port, protocol = listener.get('Port'), listener.get('Protocol')
-            if type(port) is not int or f'tcp/{port}' not in ports or protocol not in ('HTTP', 'HTTPS'):
+            if protocol not in ('HTTP', 'HTTPS') or not _admits_port(port, 'tcp', ports):
                 continue
             rule_set = _mapping(listener.get('Rules'))
             if rule_set.get('collection_status') != 'collected':
@@ -223,7 +245,7 @@ def _k8s_routes(runtime, inventory, findings):
                         protocol = frontend.get('protocol', 'TCP')
                         if (backend.get('protocol', 'TCP') != protocol
                                 or (backend.get('name') or '') != (frontend.get('name') or '')
-                                or f"{protocol.lower()}/{frontend.get('port')}" not in evidence.get('exposed_ports', ())
+                                or not _admits_port(frontend.get('port'), protocol, evidence.get('exposed_ports') or ())
                                 or type(backend.get('port')) is not int):
                             continue
                         for address in sorted(public - {None}):
