@@ -408,6 +408,8 @@ class Session:
                 row.update(status="deleted", verification="owning_cluster_not_found")
             self.save()
             self.kubeconfig.unlink(missing_ok=True)
+            auth_cache = self.directory / "gke_gcloud_auth_plugin_cache"
+            auth_cache.unlink(missing_ok=True)
             (self.directory / "fixture.json").unlink(missing_ok=True)
             self.membership(self.data["resources"][0]["email"], remove=True)
             for row in self.data["resources"]:
@@ -418,8 +420,11 @@ class Session:
                     if actual.get("displayName") != "peaso-owned-" + self.data["owner"] or (row.get("unique_id") and actual.get("uniqueId") != row["unique_id"]):
                         raise SessionError("service_account_ownership_mismatch")
                     self.api("DELETE", "iam.googleapis.com/v1/projects/" + PROJECT + "/serviceAccounts/" + row["email"], mutation=True)
-                if self.service_account(row["email"]) is not None:
-                    raise SessionError("service_account_cleanup_not_verified")
+                deadline = time.monotonic() + 60
+                while self.service_account(row["email"]) is not None:
+                    if time.monotonic() >= deadline:
+                        raise SessionError("service_account_cleanup_not_verified")
+                    time.sleep(2)
                 row.update(status="deleted", verification="not_found")
                 self.save()
             for kind in ["subnetwork", "network"]:
@@ -436,7 +441,8 @@ class Session:
                     raise SessionError("network_prerequisite_cleanup_not_verified")
                 row.update(status="deleted", verification="not_found")
                 self.save()
-            self.data.update(phase="cleaned", cleaned_at=datetime.now(timezone.utc).isoformat(), kubeconfig_removed=not self.kubeconfig.exists())
+            self.data.update(phase="cleaned", cleaned_at=datetime.now(timezone.utc).isoformat(),
+                             kubeconfig_removed=not self.kubeconfig.exists(), credential_cache_removed=not auth_cache.exists())
             self.save()
         finally:
             lock.close()
