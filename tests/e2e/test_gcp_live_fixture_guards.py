@@ -70,8 +70,10 @@ def test_missing_etag_and_preexisting_member_never_mutate(session, monkeypatch):
         session.membership(email)
 
 
-def test_absent_resources_cleanup_is_idempotent_and_removes_private_kubeconfig(session, monkeypatch):
+def test_absent_resources_cleanup_is_idempotent_and_removes_private_credentials(session, monkeypatch):
     session.kubeconfig.write_text("fixture-private-context")
+    cache = session.directory / "gke_gcloud_auth_plugin_cache"
+    cache.write_text("fixture-auth-cache")
     monkeypatch.setattr(session, "cluster", lambda: None)
     monkeypatch.setattr(session, "service_account", lambda email: None)
     monkeypatch.setattr(session, "cli", lambda args, **kw: None if "describe" in args else pytest.fail("absent resource mutated"))
@@ -79,8 +81,31 @@ def test_absent_resources_cleanup_is_idempotent_and_removes_private_kubeconfig(s
     session.cleanup()
     session.cleanup()
     assert not session.kubeconfig.exists()
+    assert not cache.exists() and session.data["credential_cache_removed"]
     assert session.data["phase"] == "cleaned"
     assert all(row["verification"] == "not_found" for row in session.data["resources"])
+
+
+def test_cleanup_waits_for_deleted_service_account_to_disappear_from_list(session, monkeypatch):
+    from scripts.peaso_test_resources import gke_session_guard as guard
+
+    email = session.data["resources"][0]["email"]
+    owned = {"displayName": "peaso-owned-" + session.data["owner"]}
+    node_reads = iter((owned, owned, None))
+    deletes = []
+    sleeps = []
+    monkeypatch.setattr(session, "cluster", lambda: None)
+    monkeypatch.setattr(session, "service_account", lambda name: next(node_reads) if name == email else None)
+    monkeypatch.setattr(session, "cli", lambda *args, **kwargs: None)
+    monkeypatch.setattr(session, "membership", lambda *args, **kwargs: None)
+    monkeypatch.setattr(session, "api", lambda method, path, **kwargs: deletes.append((method, path)))
+    monkeypatch.setattr(guard.time, "sleep", sleeps.append)
+
+    session.cleanup()
+
+    assert deletes == [("DELETE", "iam.googleapis.com/v1/projects/" + PROJECT + "/serviceAccounts/" + email)]
+    assert sleeps == [2]
+    assert session.data["phase"] == "cleaned"
 
 
 def test_declared_joins_use_exact_project_zone_and_identity_references():

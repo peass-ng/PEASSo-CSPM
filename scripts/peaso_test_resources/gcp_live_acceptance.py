@@ -196,7 +196,10 @@ def collect_gke(session):
         raise SessionError("gke_evidence_already_exists_use_offline_verification")
     from peaso.collectors import gcp
     from peaso.engine import evaluate_snapshot, expand_report
+    from peaso.finding_groups import group_report
+    from peaso.least_privilege import project
     from peaso.reports import render_markdown
+    from peaso.secret_evidence import without_private_values
     before = source_hashes()
     start = time.monotonic()
     cloud = gcp.collect({"provider": "gcp", "scopes": [PROJECT], "auth": {"method": "gcloud", "account": session.data["account"], "impersonate_service_account": ""},
@@ -226,7 +229,8 @@ def collect_gke(session):
     cli_seconds = time.monotonic() - start
     kube = validate(json.loads((session.directory / "gke-k8s-snapshot.json").read_text()))
     from peaso.engine import hydrate_frameworks  # per-check fields live in check_meta (schema 1.1)
-    report = hydrate_frameworks(json.loads((session.directory / "gke-report.json").read_text()))
+    cli_report = json.loads((session.directory / "gke-report.json").read_text())
+    report = hydrate_frameworks(cli_report)
     for artifact in ["gke-k8s-snapshot.json", "gke-report.json"]:
         os.chmod(session.directory / artifact, 0o600)
     if any(f["category"] not in CATEGORIES for f in report["findings"]) or report.get("graphs", {}).get("privesc", {}).get("nodes"):
@@ -234,7 +238,11 @@ def collect_gke(session):
     start = time.monotonic()
     offline = evaluate_snapshot(kube, categories=CATEGORIES, include_not_applicable=False)
     expanded = expand_report(offline, kube)
-    if canonical(expanded) != canonical({k: v for k, v in report.items() if k != "snapshot"}):
+    if "least_privilege" in expanded["stats"].get("categories", []):
+        expanded["least_privilege"] = project(kube["provider"], resources(kube), snapshot=kube)
+    expected_cli = group_report(without_private_values(expanded))
+    actual_cli = {key: value for key, value in cli_report.items() if key not in ("snapshot", "timings")}
+    if canonical(expected_cli) != canonical(actual_cli):
         raise SessionError("offline_report_differs_from_live_cli")
     evaluation_seconds = time.monotonic() - start
     markdown = render_markdown(expanded)
