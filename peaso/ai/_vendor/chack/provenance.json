@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/carlospolop/chack-agent",
-  "commit": "1570c8ec7d8da99a851ea56ae6acc71a513a8c62",
+  "commit": "dcb1a9443162fd92d0141cb0e535139a81c2071c",
   "files": {
     "thinking_effort.py": {
       "upstream_path": "chack_agent/thinking_effort.py",
@@ -9,8 +9,8 @@
     },
     "config/thinking_effort.yaml": {
       "upstream_path": "chack_agent/config/thinking_effort.yaml",
-      "sha256": "4f18c3f23753ec8f3fb748cffa02efa91dd4f6c16b2abe1ca8831dd0b81086d7",
-      "bytes": 7431
+      "sha256": "05d2b1b83525b2d16ada48aca8cc52b1265e33f81db01919e7843b3a07a24f4b",
+      "bytes": 7500
     },
     "model_aliases.py": {
       "upstream_path": "chack_agent/model_aliases.py",
@@ -23,7 +23,7 @@
     "upstream_declaration": "pyproject.toml: license = { text = \"MIT\" }; installed METADATA: License: MIT",
     "upstream_standalone_license_present": false,
     "local_notice": "LICENSE",
-    "notice_sha256": "3fa6beef11a686b63783f4fb892c0c9a96c28bd5f5575b43a3f38932cb8f21b0"
+    "notice_sha256": "683e1b21e1576bb4cd8410727795e8da6cb3e632e3cde29da41edae88931f17e"
   },
   "policy": "Helpers/data are byte-for-byte upstream. YAML resolves relative to thinking_effort.__file__. SDK-free alias resolver preserves shipped default YAML aliases and optional central alias service. Both PyYAML and requests already ship in package_api. The worker installs chack-agent from master; re-sync with scripts/sync_chack_vendor.py, never pin."
 }
