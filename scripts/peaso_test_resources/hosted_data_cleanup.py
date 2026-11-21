@@ -7,17 +7,38 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
-from peaso import deployment
 import os
 from pathlib import Path
 import re
 
 import boto3
 
+from peaso import deployment
+from peaso.storage.sqlite import TERMINAL
+
 ACCOUNT = deployment.value("account_id")
 TABLE = "hacktricks-cspm"
 BUCKET = (("hacktricks-cspm-artifacts-DEPLOYMENT_ACCOUNT_ID").replace("DEPLOYMENT_ACCOUNT_ID", deployment.value("account_id")))
-TERMINAL = {"completed", "failed", "cancelled", "timed_out"}
+OWNED_SCAN_ROW = re.compile(r"(?:scan_checkpoint|scan_stage)/([a-f0-9]{32})/[^/]+\Z")
+
+
+def validate_record(record, tenant, known_jobs):
+    key = record["SK"]["S"]
+    owned_scan_row = OWNED_SCAN_ROW.fullmatch(key)
+    if (record["PK"]["S"] != "tenant/" + tenant or
+            ("tenant" in record and record["tenant"].get("S") != tenant)):
+        raise RuntimeError("Row subject mismatch")
+    if owned_scan_row:
+        if owned_scan_row[1] not in known_jobs:
+            raise RuntimeError("Unledgered test scan checkpoint or stage")
+    elif key.startswith("job/"):
+        if record.get("status", {}).get("S") not in TERMINAL:
+            raise RuntimeError("Fixture job still active; cancel before cleanup")
+        ident = key.removeprefix("job/")
+        if ident not in known_jobs or not re.fullmatch(r"[a-f0-9]{32}", ident):
+            raise RuntimeError("Unledgered test job")
+    elif key != "ai/configuration_error" and not key.startswith(("connector/", "idem/", "quota/", "schedule/", "entitlement/")):
+        raise RuntimeError("Unexpected tenant row kind")
 
 
 def main():
@@ -79,18 +100,10 @@ def main():
         tenant = row["tenant"]
         records = rows(tenant)
         known_jobs = {entry["id"] for entry in row["api_objects"] if entry["kind"] == "scans" and entry.get("id")}
+        if any(not re.fullmatch(r"[a-f0-9]{32}", ident) for ident in known_jobs):
+            raise RuntimeError("Invalid job ID in fixture ledger")
         for record in records:
-            key = record["SK"]["S"]
-            if record["PK"]["S"] != "tenant/" + tenant or not key.startswith(("connector/", "job/", "idem/", "quota/", "schedule/", "entitlement/")):
-                raise RuntimeError("Unexpected tenant row kind")
-            if "tenant" in record and record["tenant"].get("S") != tenant:
-                raise RuntimeError("Row subject mismatch")
-            if key.startswith("job/"):
-                if record.get("status", {}).get("S") not in TERMINAL:
-                    raise RuntimeError("Fixture job still active; cancel before cleanup")
-                ident = key.removeprefix("job/")
-                if ident not in known_jobs or not re.fullmatch(r"[a-f0-9]{32}", ident):
-                    raise RuntimeError("Unledgered test job")
+            validate_record(record, tenant, known_jobs)
         row["dynamodb_keys"] = [{"PK": item["PK"]["S"], "SK": item["SK"]["S"]} for item in records]
         row["s3_keys"] = []
         for job in sorted(known_jobs):
