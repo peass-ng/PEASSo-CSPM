@@ -39,6 +39,23 @@ def test_all_source_areas_are_assessed_and_ids_are_stable():
     assert compiler.validate(original, sources[:1] + sources[3:])['issues'][0]['id'] == result1['issues'][0]['id']
 
 
+def test_confirmed_exclusions_and_omissions_are_reported_together():
+    sources = [source('findings', 'first'), source('findings', 'second'),
+               source('findings', 'unresolved', confirmed=False)]
+    reason = ('The captured entry refers to a retired sample workload that receives no traffic '
+              'and processes no user or business data.')
+    exclusion = {'reference': {'domain': 'findings', 'id': 'first'}, 'reason': reason}
+    unresolved = dict(exclusion, reference={'domain': 'findings', 'id': 'unresolved'})
+    with pytest.raises(compiler.MissingReportEvidence) as error:
+        compiler.validate(report(exclusions=[exclusion, unresolved]), sources)
+    assert [item['id'] for item in error.value.missing] == ['first', 'second']
+
+    result = compiler.validate(report([issue([('findings', 'first'), ('findings', 'second')])],
+                                      [unresolved]), sources)
+    assert result['covered_count'] == 3
+    assert result['exclusions'] == [unresolved]
+
+
 def test_permission_recommendations_survive_individual_and_combined_compilation(tmp_path):
     from peaso.ai import combined_reports
     from peaso.least_privilege import project
@@ -393,9 +410,12 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
     assert by_alias['NW-001']['assets'] == ['disk/production', 'workload']
     assert by_alias['LP-001']['assets'] == ['identity/worker', 'workload']
     (tmp_path / 'report-sources.json').write_text(json.dumps(sources))
-    prior = {'issues': [dict(issue([('findings', 'native-hardening')]), id='prior-issue')]}
+    reason = ('The captured entry refers to a retired sample workload that receives no traffic '
+              'and processes no user or business data.')
+    prior = {'issues': [dict(issue([('findings', 'native-hardening')]), id='prior-issue')],
+             'exclusions': [{'reference': {'domain': 'findings', 'id': 'native-network'}, 'reason': reason}]}
     path = tmp_path / 'report-draft.json'
-    path.write_text(json.dumps(report_draft.initial_draft(prior)))
+    path.write_text(json.dumps(report_draft.initial_draft(prior, sources)))
 
     def command(operation, *args, document=None, success=True):
         from pathlib import Path
@@ -409,6 +429,8 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
         compiler.validate(report_draft.candidate(json.loads(path.read_text())), sources)
     feedback = output_validation.feedback(error.value)
     assert {row['source_id'] for row in feedback['missing_references']} == {'EX-001', 'NW-001', 'LP-001'}
+    rejected = command('exclude', document={'reference': {'source_id': 'NW-001'}, 'reason': reason}, success=False)
+    assert 'Include confirmed findings in an issue' in rejected.stderr
 
     replacement = dict(issue([('findings', 'native-hardening')]), manual_affected_assets=['manual/asset', 'workload'])
     replacement['references'] = [{'source_id': alias} for alias in ('HC-001', 'NW-001', 'LP-001')]
@@ -427,8 +449,7 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
     new_id = command('add', document=dict(replacement, references=[{'source_id': 'HC-001'}]))['id']
     command('delete', new_id)
     assert command('exclude', document={'reference': {'source_id': 'EX-001'}, 'reason': 'Too short'}, success=False).returncode
-    command('exclude', document={'reference': {'source_id': 'EX-001'},
-        'reason': 'The captured entry refers to a retired sample workload that receives no traffic and processes no user or business data.'})
+    command('exclude', document={'reference': {'source_id': 'EX-001'}, 'reason': reason})
     draft = json.loads(path.read_text())
     candidate = report_draft.candidate(draft)
     candidate['draft_issue_ids'] = {
