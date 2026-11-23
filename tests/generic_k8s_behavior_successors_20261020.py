@@ -118,7 +118,12 @@ def assert_workload_native_behavior(check, monkeypatch):
         before = deepcopy(snapshot)
         actual = evaluate_snapshot(snapshot, checks=[check.id])['findings']
         assert actual and all(row['status'] == captured['status'] == 'FAIL' for row in actual)
-        assert actual == captured['findings']
+        # The signed witness predates the additive affected-subject fields.
+        # Keep every original field exact and check the projection separately.
+        subject_fields = {'affected_subjects', 'affected_scope_incomplete', 'affected_problem'}
+        assert all('affected_subjects' in row for row in actual)
+        assert [{key: value for key, value in row.items() if key not in subject_fields}
+                for row in actual] == captured['findings']
         assert snapshot == before
 
 
