@@ -1,10 +1,11 @@
+import { TableDownload, requestTableRows } from "./TableDownload";
 import { ReportFilters } from "./ReportFilters";
 import { useEffect, useRef, useState } from "react";
 import { request, useApi } from "./api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Badge, Inspector, Panel, State } from "./ui";
 import { CombineReportsModal, CombinedReports } from "./CombinedReports";
-import { IssueBody, SourceFinding, SupportingEvidence, issueKinds as kinds } from "./ReportIssue";
+import { IssueBody, SourceFinding, SupportingEvidence, issueKinds as kinds, reportIssueExportRow } from "./ReportIssue";
 import type { Issue, Reference } from "./ReportIssue";
 
 type Report = { can_launch?: boolean; generation?: string; run_status?: string; status: string; summary?: string; issues: Issue[]; limitations?: string[]; exclusions?: { reference: Reference; reason: string }[]; total: number; exclusion_count?: number; source_count?: number; covered_count?: number };
@@ -16,7 +17,8 @@ function AssessmentReport({ scanId, demo }: { scanId: string; demo: boolean }) {
   const [selected, setSelected] = useState<Issue>();
   const [source, setSource] = useState<string>();
   const trigger = useRef<HTMLButtonElement | null>(null);
-  const query = useApi<Report>(`/scans/${encodeURIComponent(scanId)}/findings-report?offset=${page * 25}&limit=25&search=${encodeURIComponent(search)}&severity=${severity}`, demo, !!scanId && !demo, true);
+  const reportPath = `/scans/${encodeURIComponent(scanId)}/findings-report?search=${encodeURIComponent(search)}&severity=${severity}`;
+  const query = useApi<Report>(`${reportPath}&offset=${page * 25}&limit=25`, demo, !!scanId && !demo, true);
   useEffect(() => {
     if (!query.data) return;
     setSelected(undefined); setSource(undefined);
@@ -35,6 +37,8 @@ function AssessmentReport({ scanId, demo }: { scanId: string; demo: boolean }) {
       <ReportFilters search={search} severity={severity} total={report.total}
           onSearch={value => { setSearch(value); setPage(0); }}
           onSeverity={value => { setSeverity(value); setPage(0); }} />
+        <TableDownload table="assessment-report-issues" label="assessment report issues table"
+          loadRows={async signal => (await requestTableRows<Issue>(reportPath, "issues", 100, signal, demo)).map(reportIssueExportRow)} />
         <div className="table-scroll"><table className="findings-table"><thead><tr><th>Severity</th><th>Issue</th><th>Type</th><th>Assessment</th><th>Sources</th></tr></thead>
         <tbody>{report.issues.map(issue => <tr key={issue.id}><td><Badge value={issue.severity} /></td><td><button className="finding-title" onClick={event => { trigger.current = event.currentTarget; setSelected(issue); }}>{issue.title}</button></td><td>{kinds[issue.kind] || issue.kind}</td><td>{issue.status === "confirmed" ? "Confirmed configuration" : "Needs review"}</td><td>{issue.references.length}</td></tr>)}
           {!report.issues.length && <tr><td colSpan={5}>{report.status === "completed" ? "No issues match the selected filters." : "No compiled issues are available yet."}</td></tr>}</tbody></table></div>

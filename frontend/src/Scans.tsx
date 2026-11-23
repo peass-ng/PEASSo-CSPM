@@ -1,3 +1,4 @@
+import { TableDownload } from "./TableDownload";
 import { useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -78,6 +79,7 @@ export function Scans({
   const frameworkCatalog = useApi<Catalog>(catalogFrameworksPath, demo, true);
   const client = useQueryClient();
   const names = scanNames(items(scansQuery.data), items(connectorsQuery.data));
+  const connectorNames = new Map(items(connectorsQuery.data).map(connector => [connector.id, connector.name]));
   const [launch, setLaunch] = useState(false);
   const [schedule, setSchedule] = useState<Schedule | null | undefined>();
   const [inspected, setInspect] = useState<Scan>();
@@ -169,6 +171,11 @@ export function Scans({
           }
           title="Your first scan starts here"
         />
+        <TableDownload table="scan-history" label="scan history"
+          disabled={scansQuery.isPending || !!scansQuery.error}
+          rows={items(scansQuery.data).map(scan => ({ ...scan, assessment_name: names.get(scan.id),
+            connector_name: connectorNames.get(scan.connector_id), duration_label: scanDuration(scan),
+            created_label: date(scan.created_at) }))} />
         <div className="card-list">
           {items(scansQuery.data).map((s) => (
             <article className="scan-row" key={s.id}>
@@ -265,6 +272,11 @@ export function Scans({
           onRetry={() => void schedulesQuery.refetch()}
         >
           <>
+            <TableDownload table="scheduled-assessments" label="scheduled assessments"
+              disabled={schedulesQuery.isPending || !!schedulesQuery.error}
+              rows={items(schedulesQuery.data).map(schedule => ({ ...schedule,
+                assessment_name: schedule.name || connectorNames.get(schedule.connector_id) || schedule.id,
+                schedule_label: scheduleDescription(schedule), next_run_label: nextScheduleDate(schedule) }))} />
             {items(schedulesQuery.data).length ? (
               items(schedulesQuery.data).map((s) => (
                 <article className="scan-row" key={s.id}>

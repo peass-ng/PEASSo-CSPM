@@ -1,3 +1,4 @@
+import { TableDownload } from "./TableDownload";
 import { useState } from "react";
 import { Copy, Check, Search } from "lucide-react";
 import { Panel, ProviderIcon } from "./ui";
@@ -129,6 +130,8 @@ curl --fail-with-body -H "Authorization: Bearer $CSPM_API_KEY" "$CSPM_API/scans/
         <Panel title="Endpoints" kicker="READ API REFERENCE">
           <label className="docs-search"><Search size={17} /><input aria-label="Search API endpoints" placeholder="Filter routes, data or parameters…" value={search} onChange={event => setSearch(event.target.value)} /></label>
           <p>All routes below use <strong>GET</strong> and are relative to <code>/api</code>. Replace brace placeholders with real IDs; URL-encode IDs used as path segments.</p>
+          <TableDownload table="api-routes" label="API routes table"
+            rows={filteredEndpoints.map(([route, category, description]) => ({ route, category, description }))} />
           <div className="docs-api-table"><table><thead><tr><th>Route</th><th>Data and parameters</th></tr></thead><tbody>{filteredEndpoints.map(([path, group, description]) => <tr key={path}><td><span>{group}</span><code>{path}</code></td><td>{description}</td></tr>)}</tbody></table>{!filteredEndpoints.length && <p>No endpoints match this search.</p>}</div>
         </Panel>
         <Panel title="Pagination, details and downloads" kicker="WORK WITH COMPLETE RESULTS">

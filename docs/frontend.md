@@ -31,6 +31,14 @@ Before sign-in, the app shows a built-in demo data set so you can look around wi
 Each finding opens a **finding inspector** with the observed evidence, affected resources and,
 for secret findings, the clear-text value (only for authorized users).
 
+## Table downloads
+
+Use the download icon above a table and choose **JSON**. The file contains a
+table-specific versioned schema name, a row count, and the rows matching the
+current filters. Exports follow pagination and use the selected view's grouping.
+Image CVE exports include the advisories and affected assets behind each group.
+Graph canvases keep their existing controls.
+
 ## Authentication in the browser
 
 - **Local mode**: paste the local token. It is kept in `sessionStorage` (cleared when the tab

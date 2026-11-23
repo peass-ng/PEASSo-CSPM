@@ -1,3 +1,4 @@
+import { TableDownload } from "./TableDownload";
 import { useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { request, useApi } from "./api";
@@ -21,6 +22,11 @@ type PermissionRecommendation = {
 };
 export type Issue = { id: string; title: string; kind: string; severity: string; status: string; description: string; impact: string; recommendation: string; verification: string; affected_assets?: string[]; manual_affected_assets?: string[]; special_details?: SpecialDetail[]; permission_recommendations?: PermissionRecommendation[]; references: Reference[] };
 export const issueKinds: Record<string, string> = { vulnerability: "Security issue", hardening: "Hardening suggestion", leaks: "Leaks", image_cves: "Image CVEs" };
+export function reportIssueExportRow<T extends Pick<Issue, "kind" | "status"> & { references: unknown[] }>(issue: T) {
+  return { ...issue, type_label: issueKinds[issue.kind] || issue.kind,
+    assessment_label: issue.status === "confirmed" ? "Confirmed configuration" : "Needs review",
+    source_count: issue.references.length };
+}
 export function SourceFinding({ scanId, id, onClose, onInspect }: { scanId: string; id: string; onClose: () => void; onInspect: (id: string) => void }) {
   const query = useApi<Finding>(`/scans/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(id)}`, false);
   if (!query.data) return <Inspector title="Supporting finding" onClose={onClose}><State loading={query.isPending} error={query.error} /></Inspector>;
@@ -42,7 +48,8 @@ function SpecialDetails({ rows, onInspect }: {
   const images = rows[0].counts !== undefined;
   return <>
     <h4>{images ? "Severity by resource and image" : "Detected leaks and locations"}</h4>
-    {images ? <div className="table-scroll"><table className="findings-table">
+    {images ? <><TableDownload table="report-image-severity" label="report image severity table" rows={rows} />
+      <div className="table-scroll"><table className="findings-table">
       <thead><tr><th>Resource and image</th><th>Critical</th><th>High</th><th>Medium</th></tr></thead>
       <tbody>{visible.map((row, index) => <tr key={index}>
         <td><code>{row.asset || row.digest || row.scope}</code>
@@ -67,7 +74,7 @@ function SpecialDetails({ rows, onInspect }: {
           </td>;
         })}
       </tr>)}</tbody>
-    </table></div> : <ul className="report-evidence">{visible.map((row, index) => <li key={index}>
+    </table></div></> : <ul className="report-evidence">{visible.map((row, index) => <li key={index}>
       <strong>{row.label}</strong>{!!row.detectors?.length && <> · {row.detectors.join(", ")}</>}
       <div>{row.locations?.[0] || "Location unavailable in the captured evidence"}</div>
       {onInspect && !!row.finding_ids.length && <button type="button" className="text-button" onClick={() => onInspect(row)}>View retained value and evidence</button>}
@@ -82,6 +89,7 @@ function PermissionRecommendations({ items }: { items: PermissionRecommendation[
   const [limit, setLimit] = useState(5);
   return <><h4>Access to review for removal</h4>
     <p>Confirm workload and emergency access needs before changing a grant.</p>
+    <TableDownload table="report-permission-recommendations" label="report permission recommendations table" rows={items} />
     <div className="table-scroll"><table className="findings-table">
       <thead><tr><th>Principal and scope</th><th>Access</th><th>Usage evidence</th></tr></thead>
       <tbody>{items.slice(0, limit).map((item, index) => <tr key={index}>

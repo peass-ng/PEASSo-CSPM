@@ -1,3 +1,4 @@
+import { TableDownload, collectCursorTableRows } from "./TableDownload";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Background, BaseEdge, Controls, getSmoothStepPath, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
 import type { Edge, EdgeProps, Node, NodeProps, ReactFlowInstance } from "@xyflow/react";
@@ -10,7 +11,7 @@ import { ConnectionAssessment } from "./ConnectionAssessment";
 import type { ConfigurationDecision } from "./ConnectionAssessment";
 import { sharedElk } from "./elkWorker";
 import type { Graph, GraphEdge, GraphNode } from "./types";
-import { Evidence, EvidenceFields, Inspector, Panel, State } from "./ui";
+import { Evidence, EvidenceFields, Inspector, Panel, State, visibleEvidence } from "./ui";
 import { cidrs, kind, label, nativeDetails, networkModel, networkView, observed, providerNames, ruleRows, serviceTypes } from "./networkPresentation";
 import type { Group, VisibleEdge, VisibleItem } from "./networkPresentation";
 import "@xyflow/react/dist/style.css";
@@ -158,7 +159,17 @@ function ResourceDetail({ n, graph }: { n: GraphNode; graph: Graph }) {
     {!observed(n) && <p className="notice">Referenced resource was not collected in this scope. Its configuration and attachment are unknown.</p>}
     <h3>Loaded attachment records · {refs.length}</h3>
     <p>{represented.toLocaleString()} represented attachment{represented===1?"":"s"} · {loaded.toLocaleString()} loaded individual record{loaded===1?"":"s"} · {unresolved.toLocaleString()} underlying record{unresolved===1?"":"s"} not loaded.</p>
-    {refs.length ? <><div className="network-rule-scroll" role="region" aria-label="Loaded attachment records" tabIndex={0}>
+    {refs.length ? <><TableDownload table="network-attachments" label="loaded attachment records"
+      rows={refs.map(index => {
+        const edge = graph.edges[index];
+        const other = byId.get(edge.source === n.id ? edge.target : edge.source);
+        return { id: edge.id, relationship: relationshipLabel(edge.type || edge.label),
+          other_endpoint: other ? label(other) : "Unresolved endpoint",
+          evidence_type: edge.layer === "modeled_rule" ? "Rule candidate; reachability unknown"
+            : edge.aggregate ? "Projected summary; underlying facts may be unloaded" : "Supplied reference",
+          supplied_fields: visibleEvidence(edge.evidence ?? null) };
+      })} />
+      <div className="network-rule-scroll" role="region" aria-label="Loaded attachment records" tabIndex={0}>
       <table className="network-rules"><thead><tr><th>Relationship</th><th>Other endpoint</th><th>Evidence type</th><th>Supplied fields</th></tr></thead>
         <tbody>{refs.slice(first,last).map((index) => { const e = graph.edges[index]; const other = byId.get(e.source === n.id ? e.target : e.source); return <tr key={e.id || index}><td>{relationshipLabel(e.type || e.label)}</td><td>{other ? label(other) : "Unresolved endpoint"}</td><td>{e.layer === "modeled_rule" ? "Rule candidate; reachability unknown" : e.aggregate ? "Projected summary; underlying facts may be unloaded" : "Supplied reference"}</td><td>{e.evidence ? <details><summary>View supplied fields</summary><EvidenceFields data={e.evidence} /></details> : "No fields supplied"}</td></tr>; })}</tbody>
       </table></div><div className="network-rule-pages"><span>Attachment records {first+1}–{last} of {refs.length}{refs.length>pageSize ? " · additional loaded records on later pages" : ""}</span>{refs.length>pageSize && <div><button type="button" disabled={currentPage===0} onClick={() => setPage(currentPage-1)}>Previous attachment page</button><button type="button" disabled={currentPage===lastPage} onClick={() => setPage(currentPage+1)}>Next attachment page</button></div>}</div></> : <p className="muted">No attachment relationships were supplied in loaded graph evidence.</p>}
@@ -166,27 +177,42 @@ function ResourceDetail({ n, graph }: { n: GraphNode; graph: Graph }) {
     <details><summary>Collected technical fields</summary><Evidence data={n} /></details>
   </>;
 }
-function NativeEdgeRows({ items }: { items: NativeEdgeRecord[] }) {
-  return <div className="network-rule-scroll" role="region" aria-label="Native relationship details" tabIndex={0}><table className="network-rules"><thead><tr><th>Relationship</th><th>Source</th><th>Destination</th><th>Evidence</th></tr></thead><tbody>{items.map(item => <tr key={item.id}>
+const nativeEndpointLabel = (endpoint: NativeEdgeRecord["source"]) =>
+  endpoint?.label || endpoint?.native_id || endpoint?.id || "Unknown endpoint";
+
+function NativeEdgeRows({ items, loadAll }: {
+  items: NativeEdgeRecord[]; loadAll?: (signal: AbortSignal) => Promise<NativeEdgeRecord[]>;
+}) {
+  const exportRows = async (signal: AbortSignal) => (loadAll ? await loadAll(signal) : items).map(item => ({
+    id: item.id, type: item.type, relationship: relationshipLabel(item.type),
+    source_label: nativeEndpointLabel(item.source), evidence_refs: visibleEvidence(item.evidence_refs),
+    destination_label: nativeEndpointLabel(item.target), evidence_label: item.evidence_status ? relationshipLabel(item.evidence_status) : "Status unknown",
+  }));
+  return <><TableDownload table="native-network-relationships" label="native relationship details table" loadRows={exportRows} />
+    <div className="network-rule-scroll" role="region" aria-label="Native relationship details" tabIndex={0}><table className="network-rules"><thead><tr><th>Relationship</th><th>Source</th><th>Destination</th><th>Evidence</th></tr></thead><tbody>{items.map(item => <tr key={item.id}>
     <td>{relationshipLabel(item.type)} · {item.id}</td>
-    <td>{item.source?.label || item.source?.native_id || item.source?.id || "Unknown endpoint"}</td>
-    <td>{item.target?.label || item.target?.native_id || item.target?.id || "Unknown endpoint"}</td>
+    <td>{nativeEndpointLabel(item.source)}</td>
+    <td>{nativeEndpointLabel(item.target)}</td>
     <td>{item.evidence_status ? relationshipLabel(item.evidence_status) : "Status unknown"}{item.evidence_refs != null && <details><summary>Supplied evidence references</summary><EvidenceFields data={item.evidence_refs} /></details>}</td>
-  </tr>)}</tbody></table></div>;
+  </tr>)}</tbody></table></div></>;
 }
 function NativeGroupRecords({ scanId, groupId }: { scanId: string; groupId: string }) {
   const [open, setOpen] = useState(false);
+  const groupPath = `/scans/${encodeURIComponent(scanId)}/graphs/network/edges?group_id=${encodeURIComponent(groupId)}&limit=100`;
+  const loadPage = (cursor: string, signal?: AbortSignal) =>
+    request<NativeEdgePage>(cursor ? `${groupPath}&cursor=${encodeURIComponent(cursor)}` : groupPath, { signal });
   const pages = useInfiniteQuery<NativeEdgePage, Error>({
     queryKey: ["network-native-group", scanId, groupId], initialPageParam: "",
     enabled: open,
-    queryFn: ({ pageParam }) => request<NativeEdgePage>(`/scans/${encodeURIComponent(scanId)}/graphs/network/edges?group_id=${encodeURIComponent(groupId)}&limit=100${pageParam ? `&cursor=${encodeURIComponent(String(pageParam))}` : ""}`),
+    queryFn: ({ pageParam, signal }) => loadPage(String(pageParam), signal),
     getNextPageParam: last => last.next_cursor || undefined, retry: 1,
   });
-  const loaded = pages.data?.pages.reduce((sum, page) => sum + page.items.length, 0) || 0;
+  const records = pages.data?.pages.flatMap(page => page.items) || [];
+  const loaded = records.length;
   const total = pages.data?.pages[0]?.total;
   return <section><button type="button" className="text-button" onClick={() => setOpen(value => !value)} aria-expanded={open}>{open ? "Hide" : "Load"} native records for projected group {groupId}</button>
     {open && <>{pages.isPending && <p role="status">Loading native relationships…</p>}{pages.error && <p role="alert">Native relationship details could not be loaded: {pages.error.message}</p>}
-      {pages.data && <><p>Native records loaded {loaded.toLocaleString()} of {Number(total ?? loaded).toLocaleString()}.</p>{pages.data.pages.map((page, index) => <NativeEdgeRows key={index} items={page.items} />)}{pages.hasNextPage && <button type="button" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>Next native relationship page</button>}</>}</>}
+      {pages.data && <><p>Native records loaded {loaded.toLocaleString()} of {Number(total ?? loaded).toLocaleString()}.</p><NativeEdgeRows items={records} loadAll={signal => collectCursorTableRows(loadPage, signal)} />{pages.hasNextPage && <button type="button" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>Next native relationship page</button>}</>}</>}
   </section>;
 }
 function NativePageRecords({ scanId, ids }: { scanId: string; ids: string[] }) {
@@ -210,6 +236,17 @@ function RelationshipDetail({ edge, graph, scanId, demo }: { edge: VisibleEdge; 
     <p>{edge.count.toLocaleString()} represented supplied relationship{edge.count===1?"":"s"} · {edge.availableCount.toLocaleString()} loaded individual record{edge.availableCount===1?"":"s"} · {edge.unresolvedCount.toLocaleString()} underlying record{edge.unresolvedCount===1?"":"s"} not loaded in the graph.</p>
     <p>{edge.uncertain ? "This group includes a rule candidate; reachability is unknown." : "These are supplied references, not proof of traffic flow."}</p>
     {!!edge.unresolvedCount && <p className="muted">Projected references and bounded server responses may represent facts unavailable in this loaded view. Load relevant inventory pages or the source snapshot to inspect them.</p>}
+    <TableDownload table="loaded-network-relationships" label="loaded relationship records table"
+      rows={edge.recordIndices.flatMap((index, position) => {
+        const record = graph.edges[index];
+        if (!record) return [];
+        return [{ record: stringify(record.id || `Record ${position + 1}`),
+          source_label: label(byId.get(record.source) || { id: record.source }),
+          destination_label: label(byId.get(record.target) || { id: record.target }),
+          supplied_fields: visibleEvidence(record.evidence ?? null),
+          status: record.aggregate ? `Projected summary · ${Number(record.underlying_count || 1)} underlying`
+            : record.layer === "modeled_rule" ? "Rule candidate" : "Loaded supplied reference" }];
+      })} />
     <div className="network-rule-scroll" role="region" aria-label="Loaded relationship records" tabIndex={0}><table className="network-rules"><thead><tr><th>Record</th><th>Source</th><th>Destination</th><th>Status</th></tr></thead><tbody>
       {edge.recordIndices.slice(first,last).map((index,i) => { const record = graph.edges[index]; if (!record) return null; return <tr key={index}><td>{stringify(record.id || `Record ${first+i+1}`)}</td><td>{label(byId.get(record.source) || {id:record.source})}</td><td>{label(byId.get(record.target) || {id:record.target})}</td><td>{record.aggregate ? `Projected summary · ${Number(record.underlying_count || 1)} underlying` : record.layer === "modeled_rule" ? "Rule candidate" : "Loaded supplied reference"}</td></tr>; })}
     </tbody></table></div>
@@ -232,6 +269,7 @@ function RuleTable({ node }: { node: GraphNode }) {
     <h3>Collected rules · {rows.length}</h3>
     {node.type === "network_acl" && <p className="muted">Network ACL rules are ordered by number and stateless. These rows do not establish effective reachability.</p>}
     {rows.length ? <>
+      <TableDownload table="network-rules" label="collected network rules table" rows={rows} />
       <div className="network-rule-scroll" role="region" aria-label="Collected network rules" tabIndex={0}>
         <table className="network-rules"><thead><tr>{["Rule / priority", "Direction", "Protocol", "Port", "Source", "Destination", "Action"].map(x => <th key={x}>{x}</th>)}</tr></thead>
           <tbody>{rows.slice(first, last).map((r, i) => <tr key={first + i}><td>{r.order}</td><td>{r.direction}</td><td>{r.protocol}</td><td>{r.port}</td><td>{r.source}</td><td>{r.destination}</td><td>{r.action}</td></tr>)}</tbody>

@@ -236,13 +236,23 @@ function evidenceInput(data: unknown): unknown {
   }
 }
 
+const withheldEvidence = "Sensitive value withheld from preview";
+
+export function visibleEvidence(data: unknown): unknown {
+  const value = evidenceInput(data);
+  if (Array.isArray(value)) return value.map(visibleEvidence);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, field]) =>
+    [key, sensitiveField(key) ? withheldEvidence : visibleEvidence(field)]));
+}
+
 function EvidenceField({ name, value, depth }: { name: string; value: unknown; depth: number }) {
   const hidden = sensitiveField(name);
   const content = hidden ? undefined : evidenceInput(value);
   const structured = content !== null && typeof content === "object";
   return <div className={`evidence-field${structured ? " evidence-field-structured" : ""}`}>
     <dt>{evidenceLabel(name)}</dt>
-    <dd>{hidden ? "Sensitive value withheld from preview" : <EvidenceValue value={value} depth={depth} />}</dd>
+    <dd>{hidden ? withheldEvidence : <EvidenceValue value={value} depth={depth} />}</dd>
   </div>;
 }
 

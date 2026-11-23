@@ -1,0 +1,6 @@
+.table-download { position: relative; display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin-inline-start: auto; }
+.table-download > button { flex: none; }
+.table-download-options { position: absolute; z-index: 30; inset-inline-end: 0; inset-block-start: 100%; min-width: 96px; padding: 5px; background: #101a1f; border: 1px solid var(--line); box-shadow: 0 8px 24px #0008; }
+.table-download-options > button { width: 100%; padding: 8px 12px; text-align: start; }
+.table-download-options > button:hover { background: #17312e; }
+.table-download + .table-scroll { margin-block-start: 8px; }

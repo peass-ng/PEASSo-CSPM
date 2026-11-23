@@ -1,3 +1,4 @@
+import { TableDownload, requestTableRows, tablePagePath } from "./TableDownload";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -255,6 +256,12 @@ export function Findings({
     const timer = setTimeout(() => setDebouncedSearch(search), 250);
     return () => clearTimeout(timer);
   }, [search]);
+  const findingParams = new URLSearchParams({ group_by: group, aggregation: "check" });
+  for (const [key, value] of Object.entries({
+    categories: category, finding_type: findingType, search: debouncedSearch,
+    severity, status, service, framework, sort_by: sort?.field, sort_order: sort?.order,
+  })) if (value) findingParams.set(key, value);
+  const findingsPath = `/scans/${encodeURIComponent(scanId)}/findings?${findingParams}`;
   const query = useInfiniteQuery({
     queryKey: [
       demo ? "demo" : "live",
@@ -272,34 +279,7 @@ export function Findings({
       sort?.order,
     ],
     initialPageParam: 0,
-    queryFn: ({ pageParam, signal }) => {
-      const params = new URLSearchParams({
-        limit: "200",
-        offset: String(pageParam),
-        group_by: group,
-        aggregation: "check",
-      });
-      for (const [key, value] of Object.entries({
-        categories: category,
-        finding_type: findingType,
-        search: debouncedSearch,
-        severity,
-        status,
-        service,
-        framework,
-      })) {
-        if (value) params.set(key, value);
-      }
-      if (sort) {
-        params.set("sort_by", sort.field);
-        params.set("sort_order", sort.order);
-      }
-      return request<FindingPage>(
-        `/scans/${encodeURIComponent(scanId)}/findings?${params}`,
-        { signal },
-        demo,
-      );
-    },
+    queryFn: ({ pageParam, signal }) => request<FindingPage>(tablePagePath(findingsPath, Number(pageParam), 200), { signal }, demo),
     getNextPageParam: (last) => last.next_offset ?? undefined,
     enabled: !!scanId,
     retry: 1,
@@ -612,6 +592,22 @@ export function Findings({
           >
             Reset filters
           </button>
+          <TableDownload table={findingType === "detected_leaks" ? "leaks" : `${category || "assessment"}-findings`}
+            label="findings table" disabled={!scanId || query.isPending || !!query.error || search !== debouncedSearch}
+            loadRows={async signal => {
+              const matches = demo || !serverFiltered ? filtered :
+                await requestTableRows<Finding>(findingsPath, "items", 200, signal);
+              return matches.map(row => ({
+                id: row.id, severity: row.severity, title: row.title, check_id: row.check_id,
+                service: row.service, provider: row.provider, scope: row.scope, status: row.status,
+                asset: assetLabel(row), account: accountLabel(row), resource_id: row.resource_id,
+                native_resource_id: row.native_resource_id, resource_name: row.resource_name,
+                finding_type: row.finding_type, finding_type_label: findingTypeLabel(row.finding_type),
+                affected_asset_count: row.affected_asset_count, affected_accounts: row.affected_accounts,
+                affected_regions: row.affected_regions, affected_scopes: row.affected_scopes,
+                observation_count: row.member_count, status_counts: row.status_counts,
+              }));
+            }} />
         </div>
         {!scanId ? (
           <State empty title="Select a scan to review evidence" />

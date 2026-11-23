@@ -1,3 +1,4 @@
+import { requestTableRows } from "./TableDownload";
 import { useEffect, useState } from "react";
 import { request, useApi } from "./api";
 import { ImagesFindingsTable } from "./ImagesFindingsTable";
@@ -108,7 +109,8 @@ function ImagesFindingsPage({ scanId, demo }: { scanId: string; demo: boolean })
       if (moreError) void query.refetch();
       else if (nextOffset != null && nextOffset > offset) setOffset(nextOffset);
     }}
-    loadAssets={(row, assetOffset): Promise<ImageAssetPage> =>
-      request<ImageAssetPage>(imageFindingAssetsPath(scanId, row.id, assetOffset), {}, demo)}
+    loadAllRows={signal => requestTableRows<ImageFinding>(imageFindingsPath(scanId), "rows", 100, signal, demo)}
+    loadAssets={(row, assetOffset, signal): Promise<ImageAssetPage> =>
+      request<ImageAssetPage>(imageFindingAssetsPath(scanId, row.id, assetOffset), { signal }, demo)}
   />;
 }

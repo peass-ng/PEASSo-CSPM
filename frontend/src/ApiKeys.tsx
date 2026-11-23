@@ -1,3 +1,4 @@
+import { TableDownload, collectCursorTableRows } from "./TableDownload";
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
@@ -29,10 +30,12 @@ export function ApiKeys() {
   const [error, setError] = useState("");
   const [confirmId, setConfirmId] = useState("");
   const [copied, setCopied] = useState(false);
+  const keyPage = (cursor: string, signal?: AbortSignal) =>
+    request<KeyPage>(`/api-keys?limit=50${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`, { signal });
   const keys = useInfiniteQuery<KeyPage>({
     queryKey: ["live", "api-keys"],
     initialPageParam: "",
-    queryFn: ({ pageParam }) => request<KeyPage>(`/api-keys?limit=50${pageParam ? `&after=${encodeURIComponent(String(pageParam))}` : ""}`),
+    queryFn: ({ pageParam, signal }) => keyPage(String(pageParam), signal),
     getNextPageParam: (page) => page.next_cursor || undefined,
     retry: 1,
   });
@@ -106,6 +109,12 @@ export function ApiKeys() {
         </div>
       )}
       <State loading={keys.isPending} error={keys.error && !keys.data ? keys.error : undefined} onRetry={() => void keys.refetch()}>
+        <TableDownload table="api-key-metadata" label="API key list"
+          disabled={keys.isPending || !!keys.error}
+          loadRows={async signal => (await collectCursorTableRows(keyPage, signal)).map(key => ({
+            id: key.id, name: key.name, prefix: key.prefix, created_at: key.created_at,
+            expires_at: key.expires_at, revoked_at: key.revoked_at, last_used_at: key.last_used_at,
+          }))} />
         <div className="stack">
           {rows.length ? rows.map((key) => (
             <article className="scan-row" key={key.id}>

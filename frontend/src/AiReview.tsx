@@ -1,3 +1,4 @@
+import { TableDownload } from "./TableDownload";
 import "./AiReview.css";
 import { useRef, useState } from "react";
 import { Search } from "lucide-react";
@@ -61,6 +62,9 @@ function NetworkReviewPanel({ data }: { data: NetworkResult }) {
         <select aria-label="Network finding severity" value={severity} onChange={event => { setSeverity(event.target.value); setPage(0); }}><option value="">All severities</option>{networkSeverity.map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select>
         <select aria-label="Network finding status" value={status} onChange={event => { setStatus(event.target.value); setPage(0); }}><option value="">All statuses</option><option value="FAIL">Failed</option><option value="UNKNOWN,MANUAL">Needs review</option></select>
         <button className="text-button" onClick={() => { setSearch(""); setSeverity(""); setStatus(""); setPage(0); }}>Reset filters</button>
+        <TableDownload table="network-findings" label="network findings table"
+          rows={rows.map(row => ({ ...row, asset: networkAsset(row),
+            summary: row.evidence_summary || (row.evidence as { summary?: string } | null)?.summary || row.description }))} />
         <span className="count-pill" aria-live="polite">{rows.length} / {data.findings.length} findings</span>
       </div>
       <div className="table-scroll" role="region" aria-label="Network findings table" tabIndex={0}>
@@ -150,6 +154,7 @@ export function AiReview({ scanId, demo }: { scanId: string; demo: boolean }) {
           <input aria-label="Search actions" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search actions or findings…" />
         </div>
         {search && <button className="text-button" onClick={() => setSearch("")}>Clear search</button>}
+        <TableDownload table="prioritized-actions" label="prioritized actions table" rows={actions} />
         <span className="count-pill" aria-live="polite">{term ? `${actions.length} / ${data.actions.length}` : data.actions.length} actions</span>
       </div>
       <div className="table-scroll" role="region" aria-label="Prioritized actions" tabIndex={0}>

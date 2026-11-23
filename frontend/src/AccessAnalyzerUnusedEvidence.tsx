@@ -1,3 +1,4 @@
+import { TableDownload } from "./TableDownload";
 import { useState } from "react";
 import { BoundedPager } from "./BoundedPager";
 import type { Finding } from "./types";
@@ -46,6 +47,7 @@ export function AccessAnalyzerUnusedEvidence({ finding }: { finding: Finding }) 
     <h3>Unused access</h3>
     <input type="search" aria-label="Filter unused access" placeholder="Filter principals or permissions…" value={query}
       onChange={event => { setQuery(event.target.value); setOffset(0); }} />
+    <TableDownload table="unused-access" label="unused access table" rows={filtered} />
     <div className="table-scroll"><table>
       <thead><tr><th>Principal</th><th>Unused access</th><th>Last used</th><th>Analysis window</th></tr></thead>
       <tbody>{visible.map((row, index) => <tr key={index}>

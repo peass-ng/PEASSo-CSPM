@@ -1,3 +1,4 @@
+import { TableDownload } from "./TableDownload";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -450,7 +451,14 @@ export function Connectors({ demo, canWrite = true }: { demo: boolean; canWrite?
             Add a connector
           </button>
         </State>
-        {items(query.data).length > 0 && (
+        {items(query.data).length > 0 && (<>
+          <TableDownload table="connectors" label="connectors table" rows={connectorsNewestFirst.map(c => ({
+            id: c.id, name: c.name, provider: c.provider, scopes: c.scopes || [],
+            scope_label: c.scopes?.join(" · ") || "Default accessible scope",
+            auth_mode: c.auth_mode || c.auth?.mode || null, input_mode: c.input_mode || null,
+            created_at: c.created_at, created_label: date(c.created_at),
+            actions: { launch: !demo && canWrite, onboarding: !!(c.onboarding || c.gcp_onboarding), edit: !demo && canWrite, delete: !demo && canWrite },
+          }))} />
           <div className="table-scroll" role="region" aria-label="Connectors table" tabIndex={0}>
             <table className="findings-table connectors-table">
               <thead><tr><th scope="col">Connector</th><th scope="col">Created</th><th scope="col">Actions</th></tr></thead>
@@ -472,7 +480,7 @@ export function Connectors({ demo, canWrite = true }: { demo: boolean; canWrite?
               </tr>)}</tbody>
             </table>
           </div>
-        )}
+        </>)}
       </Panel>
       {launchConnector && <LaunchForm demo={demo} connectors={items(query.data)} connectorError={query.error}
         catalog={{ data: catalog.data, isPending: catalog.isPending, error: catalog.error }}

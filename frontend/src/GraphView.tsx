@@ -1,3 +1,4 @@
+import { TableDownload } from "./TableDownload";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
@@ -700,7 +701,11 @@ export function GraphView({
                     </>
                   )}
                 </div>
-              ) : (
+              ) : (<>
+                <TableDownload table="asset-table" label="asset table" rows={matching.map(node => ({
+                  id: node.id, label: node.label || node.name || node.id, provider: node.provider || "generic",
+                  service: node.service || node.type || "Asset", scope: node.scope || "Unscoped",
+                }))} />
                 <div
                   className="graph-table"
                   ref={scroll}
@@ -743,7 +748,7 @@ export function GraphView({
                     <State empty title="No matching assets" />
                   )}
                 </div>
-              )}
+              </>)}
               <div className="graph-footer">
                 <span>
                   {mode === "map"

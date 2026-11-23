@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useApi } from "./api";
+import { TableDownload, collectTableRows } from "./TableDownload";
+import { request, useApi } from "./api";
 import { State } from "./ui";
 import { findingStatusCounts } from "./findingStatus";
 import { BoundedPager } from "./BoundedPager";
@@ -53,6 +54,11 @@ export function GroupedFindingEvidence({ finding, scanId, demo, onInspectMember 
         <span key={label}><span className={`badge ${tone}`}>{label}</span> {count.toLocaleString()}</span>)}
     </div>}
     <h4>Affected assets and regions</h4>
+    <TableDownload table="finding-group-assets" label="affected assets and regions"
+      loadRows={signal => collectTableRows(async (pageOffset, pageSignal) => {
+        const page = await request<FindingGroupDetail>(findingGroupPath(scanId, finding, pageOffset), { signal: pageSignal }, demo);
+        return { rows: page.members, total: page.members_total, next: page.members_next_offset ?? page.next_offset };
+      }, signal)} />
     <ol className="finding-group-members" aria-label="Individual evidence observations">
       {members.map(member => {
         const additionalEvidence = additionalMemberEvidence(member.evidence_summary, groupSummary);

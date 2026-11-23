@@ -1,3 +1,4 @@
+import { TableDownload, collectTableRows } from "./TableDownload";
 import { useMemo, useRef, useState } from "react";
 import "./ImagesFindingsTable.css";
 import { Inspector, openInspectorFromRow } from "./ui";
@@ -42,7 +43,8 @@ export type ImagesFindingsTableProps = {
   loadingMore?: boolean;
   loadMoreError?: boolean;
   onLoadMore?: () => void;
-  loadAssets?: (row: ImageFinding, offset: number) => Promise<ImageAssetPage>;
+  loadAssets?: (row: ImageFinding, offset: number, signal?: AbortSignal) => Promise<ImageAssetPage>;
+  loadAllRows?: (signal: AbortSignal) => Promise<ImageFinding[]>;
 };
 
 function AffectedAssets({ row, loadAssets }: {
@@ -120,7 +122,7 @@ function advisoryLinks(row: ImageFinding): string[] {
 }
 
 export function ImagesFindingsTable({ rows, coverage, coverageWarning, loading = false, error, onRetry,
-  total = rows.length, hasMore = false, loadingMore = false, loadMoreError = false, onLoadMore, loadAssets }: ImagesFindingsTableProps) {
+  total = rows.length, hasMore = false, loadingMore = false, loadMoreError = false, onLoadMore, loadAssets, loadAllRows }: ImagesFindingsTableProps) {
   const [query, setQuery] = useState("");
   const [severity, setSeverity] = useState("");
   const [provider, setProvider] = useState("");
@@ -133,6 +135,41 @@ export function ImagesFindingsTable({ rows, coverage, coverageWarning, loading =
   const selectedGroup = selected ? groupFindings(rows, groupBy).find(group => group.id === selected) : undefined;
   const coverageUnknown = coverage !== "COMPLETE" || rows.some((row) => row.coverage === "UNKNOWN");
   const filtered = !!(query.trim() || severity || provider);
+
+  async function exportGroups(signal: AbortSignal) {
+    const all = loadAllRows ? await loadAllRows(signal) : rows;
+    if (!loadAllRows && (hasMore || all.length < total)) throw new Error("Some image findings could not be retrieved.");
+    const complete: ImageFinding[] = [];
+    for (const row of filterImageFindings(all, "", severity, provider)) {
+      signal.throwIfAborted();
+      if (!row.assets_truncated && (row.affected_asset_count ?? 0) <= row.affected_assets.length) {
+        complete.push(row);
+        continue;
+      }
+      if (!loadAssets) throw new Error("Some affected assets could not be retrieved.");
+      const assets = await collectTableRows(async (offset, pageSignal) => {
+        const page = await loadAssets(row, offset, pageSignal);
+        return { rows: page.items, next: page.next_offset, total: page.total };
+      }, signal);
+      complete.push({ ...row, affected_assets: assets, affected_asset_count: assets.length, assets_truncated: false });
+    }
+    return groupFindings(filterImageFindings(complete, query, severity, provider), groupBy).map(group => {
+      const assets = new Map(group.rows.flatMap(row => row.affected_assets.map(asset => {
+        const scoped = { ...asset, provider: row.provider, scope: row.scope };
+        return [JSON.stringify(scoped), scoped] as const;
+      })));
+      return {
+        id: group.id, title: group.title, grouped_by: groupBy, severity: group.severity,
+        ...(groupBy === "image" ? { provider: group.rows[0].provider, scope: group.rows[0].scope,
+          image_digest: group.rows[0].image_digest } : {}),
+        image_count: new Set(group.rows.map(row => JSON.stringify([row.provider, row.scope, row.image_digest]))).size,
+        cve_count: new Set(group.rows.map(row => row.vulnerability_id)).size,
+        packages: [...new Set(group.rows.map(row => row.package))],
+        affected_asset_count: assets.size, affected_assets: [...assets.values()],
+        advisories: group.rows.map(row => ({ ...row, references: advisoryLinks(row) })),
+      };
+    });
+  }
 
   if (loading) return <div className="images-findings-state" role="status">Loading image findings…</div>;
   if (error) return <div className="images-findings-state" role="alert">
@@ -167,6 +204,7 @@ export function ImagesFindingsTable({ rows, coverage, coverageWarning, loading =
           {providers.map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
       </label>
+      <TableDownload table={`image-findings-by-${groupBy}`} label="image findings table" loadRows={exportGroups} />
       <span className="images-findings-count" aria-live="polite">{groups.length} groups · {visible.length} shown · {rows.length} loaded of {total} findings</span>
     </div>
     {hasMore && <p className="images-findings-loaded-note">Groups and filters currently include loaded findings only. Load remaining findings to include every image and CVE.</p>}

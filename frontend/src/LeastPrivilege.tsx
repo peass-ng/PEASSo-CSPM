@@ -1,3 +1,4 @@
+import { TableDownload, requestTableRows } from "./TableDownload";
 import { useState } from "react";
 import { ChevronRight, Search, ShieldCheck } from "lucide-react";
 import { useApi } from "./api";
@@ -87,7 +88,8 @@ export function LeastPrivilege({ scanId, demo }: { scanId: string; demo: boolean
   const [groupBy, setGroupBy] = useState<"principal" | "grant">("principal");
   const [selected, setSelected] = useState<Principal>();
   const [selectedGrant, setSelectedGrant] = useState<GrantGroup>();
-  const page = useApi<Page>(`/scans/${encodeURIComponent(scanId)}/least-privilege?group_by=${groupBy}&search=${encodeURIComponent(search)}${exposure ? `&exposure=${exposure}` : ""}&sort_by=${sort.split(":")[0]}&sort_order=${sort.split(":")[1]}&offset=${offset}&limit=100`, demo, !!scanId);
+  const accessPath = `/scans/${encodeURIComponent(scanId)}/least-privilege?group_by=${groupBy}&search=${encodeURIComponent(search)}${exposure ? `&exposure=${exposure}` : ""}&sort_by=${sort.split(":")[0]}&sort_order=${sort.split(":")[1]}`;
+  const page = useApi<Page>(`${accessPath}&offset=${offset}&limit=100`, demo, !!scanId);
   const details = useApi<Principal>(`/scans/${encodeURIComponent(scanId)}/least-privilege/principals/${encodeURIComponent(selected?.id || "")}`, demo, !!scanId && !!selected);
   const grantDetails = useApi<GrantGroup>(`/scans/${encodeURIComponent(scanId)}/least-privilege/grants?key=${encodeURIComponent(selectedGrant?.id || "")}`, demo, !!scanId && !!selectedGrant);
   const detail = selected ? (details.data?.id === selected.id ? { ...selected, ...details.data } : selected) : undefined;
@@ -126,6 +128,9 @@ export function LeastPrivilege({ scanId, demo }: { scanId: string; demo: boolean
           <option value="internet">Internet-facing workload</option>
           <option value="unresolved">Unresolved exposure</option>
         </select>
+        <TableDownload table={`least-privilege-${groupBy}`} label="least privilege results"
+          disabled={!scanId || page.isPending || !!page.error}
+          loadRows={signal => requestTableRows<Principal | GrantGroup>(accessPath, "items", 100, signal, demo)} />
       </div>
       {!scanId ? <State empty title="Select a scan to review identities" /> :
         <State loading={page.isPending} error={page.error} onRetry={() => void page.refetch()}>
@@ -170,6 +175,7 @@ export function LeastPrivilege({ scanId, demo }: { scanId: string; demo: boolean
           {details.isPending ? <p role="status">Loading permission details…</p> : details.error ? <State error={details.error} onRetry={() => void details.refetch()} /> : <>
             <div className="least-permission-toolbar"><label className="search-field"><Search size={16} /><input aria-label="Filter high-risk permissions" placeholder="Filter permissions, policies or scopes…" value={permissionSearch} onChange={event => setPermissionSearch(event.target.value)} /></label>
               {permissions.some(hasUnusedEvidence) && <label className="least-unused-filter"><input type="checkbox" checked={unusedOnly} onChange={event => setUnusedOnly(event.target.checked)} /> Permissions without observed use</label>}</div>
+            <TableDownload table="principal-permissions" label="principal permissions table" rows={visiblePermissions} />
             <div className="least-permissions-scroll"><table className="least-permissions-table"><thead><tr><th>Permission & granting policy</th><th>Criticality</th><th>Applies to</th><th>Last use</th></tr></thead><tbody>
               {visiblePermissions.map((item, index) => <tr key={`${item.permission}-${item.scope}-${index}`}>
                 <td><code>{item.permission}</code><small>{item.source}</small>{item.conditions != null && <details><summary>Grant conditions</summary><pre>{JSON.stringify(item.conditions, null, 2)}</pre></details>}
@@ -207,6 +213,7 @@ export function LeastPrivilege({ scanId, demo }: { scanId: string; demo: boolean
           {grantDetails.isPending ? <p role="status">Loading permission details…</p> : grantDetails.error ? <State error={grantDetails.error} onRetry={() => void grantDetails.refetch()} /> : <>
             <div className="least-permission-toolbar"><label className="search-field"><Search size={16} /><input aria-label="Filter grant permissions" placeholder="Filter permission, principal or scope…" value={permissionSearch} onChange={event => setPermissionSearch(event.target.value)} /></label>
               {grant.permissions?.some(hasUnusedEvidence) && <label className="least-unused-filter"><input type="checkbox" checked={unusedOnly} onChange={event => setUnusedOnly(event.target.checked)} /> Permissions without observed use</label>}</div>
+            <TableDownload table="grant-permissions" label="grant permissions table" rows={grantPermissions} />
             <div className="least-permissions-scroll"><table className="least-permissions-table"><thead><tr><th>Permission & principal</th><th>Criticality</th><th>Applies to</th><th>Last use</th></tr></thead><tbody>
               {grantPermissions.map((item, index) => <tr key={`${item.principal_id}-${item.permission}-${item.scope}-${index}`}>
                 <td><code>{item.permission}</code><small>{item.principal}</small>{item.conditions != null && <details><summary>Grant conditions</summary><pre>{JSON.stringify(item.conditions, null, 2)}</pre></details>}</td>
