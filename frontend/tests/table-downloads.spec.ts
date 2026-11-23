@@ -53,8 +53,10 @@ test("image export includes grouped packages and every asset page", async ({ pag
     affected_asset_count: assets.length, assets_truncated: true, coverage: "COMPLETE" };
   const second = { ...first, id: "image-f2", image_digest: "sha256:def", package: "libcrypto",
     affected_assets: [], affected_asset_count: 0, assets_truncated: false };
+  let requestedFullAssets = false;
   await page.route("**/api/scans/scan/image-findings**", route => {
     const url = new URL(route.request().url());
+    requestedFullAssets ||= url.searchParams.get("include_assets") === "true";
     const offset = Number(url.searchParams.get("offset") || 0);
     return route.fulfill({ json: url.pathname.endsWith("/assets") ?
       { items: assets.slice(offset, offset + 2), total: assets.length, offset, next_offset: offset === 0 ? 2 : null } :
@@ -64,6 +66,7 @@ test("image export includes grouped packages and every asset page", async ({ pag
   });
   await page.goto("/#Images%20CVEs");
   const result = await downloadJson(page, "Download image findings table");
+  expect(requestedFullAssets).toBe(true);
   expect(result).toMatchObject({ table: "image-findings-by-cve", row_count: 1 });
   expect(result.rows[0]).toMatchObject({ title: first.vulnerability_id, image_count: 2, cve_count: 1,
     packages: ["openssl", "libcrypto"], affected_asset_count: 3, advisories: [{ affected_assets: assets }, { affected_assets: [] }] });

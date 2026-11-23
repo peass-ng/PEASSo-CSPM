@@ -109,7 +109,7 @@ function ImagesFindingsPage({ scanId, demo }: { scanId: string; demo: boolean })
       if (moreError) void query.refetch();
       else if (nextOffset != null && nextOffset > offset) setOffset(nextOffset);
     }}
-    loadAllRows={signal => requestTableRows<ImageFinding>(imageFindingsPath(scanId), "rows", 100, signal, demo)}
+    loadAllRows={signal => requestTableRows<ImageFinding>(`${imageFindingsPath(scanId)}?include_assets=true`, "rows", 100, signal, demo)}
     loadAssets={(row, assetOffset, signal): Promise<ImageAssetPage> =>
       request<ImageAssetPage>(imageFindingAssetsPath(scanId, row.id, assetOffset), { signal }, demo)}
   />;

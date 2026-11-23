@@ -8,20 +8,28 @@ from peaso.image_findings import build_report, SCHEMA
 MAX_PAGE_BYTES = 1_000_000
 
 
-def page_report(report, offset, limit):
+def page_report(report, offset, limit, *, include_assets=False):
     page = {key: deepcopy(value) for key, value in report.items() if key != 'rows'}
     page.update(rows=[], total=len(report['rows']), offset=offset, next_offset=None,
                 vulnerability_count=len({row['vulnerability_id'] for row in report['rows']}),
                 image_count=len({(row['provider'], row['scope'], row['image_digest']) for row in report['rows']}))
+    def size(value):
+        return len(json.dumps(value, separators=(',', ':'), ensure_ascii=True))
+
+    capacity = MAX_PAGE_BYTES - 64 - size(page)
+    available = capacity
     for row in report['rows'][offset:offset + limit]:
-        item = deepcopy(row)
-        assets = item['affected_assets']
-        item.update(affected_asset_count=len(assets), affected_assets=assets[:10],
-                    assets_truncated=len(assets) > 10)
-        candidate = dict(page, rows=page['rows'] + [item])
-        if len(json.dumps(candidate, separators=(',', ':'), ensure_ascii=True).encode()) > MAX_PAGE_BYTES - 64:
+        assets = row['affected_assets']
+        item = dict(row, affected_asset_count=len(assets), assets_truncated=False)
+        item_size = size(item) if include_assets else None
+        if item_size is None or item_size > capacity:
+            item.update(affected_assets=assets[:10], assets_truncated=len(assets) > 10)
+            item_size = size(item)
+        required = item_size + bool(page['rows'])
+        if required > available:
             break
         page['rows'].append(item)
+        available -= required
     consumed = offset + len(page['rows'])
     if consumed < len(report['rows']):
         page['next_offset'] = consumed
@@ -102,11 +110,11 @@ def install_routes(app, *, identity, owned_bundle, artifacts):
     @app.get('/api/scans/{ident}/image-findings')
     def image_findings(ident: str, offset: int = Query(default=0, ge=0),
                        limit: int = Query(default=100, ge=1, le=100),
-                       image_digest: str | None = None, user=Depends(identity)):
+                       image_digest: str | None = None, include_assets: bool = False, user=Depends(identity)):
         report = report_for(user.tenant_id, ident)
         if image_digest:
             report = dict(report, rows=[row for row in report['rows'] if row['image_digest'] == image_digest])
-        return page_report(report, offset, limit)
+        return page_report(report, offset, limit, include_assets=include_assets)
 
     @app.get('/api/scans/{ident}/image-findings/{finding_id}/assets')
     def image_assets(ident: str, finding_id: str, offset: int = Query(default=0, ge=0),

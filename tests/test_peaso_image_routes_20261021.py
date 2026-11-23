@@ -119,6 +119,10 @@ def test_finding_pagination_and_asset_preview_are_explicit():
     assert row['affected_asset_count'] == 12 and len(row['affected_assets']) == 10 and row['assets_truncated']
     assets = c.get(f'/api/scans/{SCAN}/image-findings/{row["id"]}/assets?limit=5', headers={'Authorization': 'workspace-a'}).json()
     assert assets['total'] == 12 and len(assets['items']) == 5 and assets['next_offset'] == 5
+    export = c.get(f'/api/scans/{SCAN}/image-findings?include_assets=true', headers={'Authorization': 'workspace-a'})
+    [full] = export.json()['rows']
+    assert full['id'] == row['id'] and full['affected_asset_count'] == 12
+    assert len(full['affected_assets']) == 12 and not full['assets_truncated']
 
 
 def test_page_response_bounded_without_silent_missing_rows():
@@ -132,6 +136,22 @@ def test_page_response_bounded_without_silent_missing_rows():
     assert first['next_offset'] == 100 and second['next_offset'] is None
     assert len(first['rows']) + len(second['rows']) == first['total'] == 150
     assert len(json.dumps(first).encode()) < MAX_PAGE_BYTES
+
+
+def test_full_assets_page_respects_byte_limit_and_can_fall_back_to_preview(monkeypatch):
+    import peaso.server.image_findings_routes as routes
+    report = {'rows': [dict(id=str(i), vulnerability_id='CVE-2026-1234', provider='aws',
+                           scope='123/us-east-1', image_digest='image',
+                           affected_assets=[{'resource_id': 'x' * 100} for _ in range(count)])
+                       for i, count in enumerate((18, 18, 72))]}
+    monkeypatch.setattr(routes, 'MAX_PAGE_BYTES', 4000)
+    first = page_report(report, 0, 100, include_assets=True)
+    second = page_report(report, first['next_offset'], 100, include_assets=True)
+    assert first['next_offset'] == 1 and not first['rows'][0]['assets_truncated']
+    assert second['next_offset'] is None
+    assert not second['rows'][0]['assets_truncated']
+    assert second['rows'][1]['assets_truncated'] and second['rows'][1]['affected_asset_count'] == 72
+    assert all(len(json.dumps(page).encode()) < 4000 for page in (first, second))
 
 
 def test_routes_need_no_native_registry_engine_or_analysis_imports():
