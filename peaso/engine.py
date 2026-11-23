@@ -1711,10 +1711,7 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
                     incomplete += [{"type": kind, "status": c["status"]} for kind in check.dependencies for c in scoped["collections"].get(kind, []) if c["status"] not in ("collected", "empty")]
                     policy_blocked = not management_only and bool(incomplete) and len(blocked) == len(incomplete) and all(blocked)
                     password_decision = password_gate(scope) if password_check else None
-                    if password_decision:
-                        status, evidence = password_decision
-                        policy_blocked = False
-                    elif management_only:
+                    if management_only:
                         status, evidence = "NOT_APPLICABLE", management_only
                     elif policy_blocked:
                         # Every missing dependency is denied by an organization guardrail.
@@ -1750,6 +1747,10 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
                                 raise ValueError("invalid scoped check result")
                         except (KeyError, TypeError, ValueError, AttributeError, IndexError) as exc:
                             status, evidence = "UNKNOWN", {"reason": "missing or malformed scoped facts", "error_kind": type(exc).__name__}
+                    if password_decision and (status in ("PASS", "FAIL") or
+                            (password_decision[0] == "NOT_APPLICABLE" and status not in ("DENIED", "MANUAL"))):
+                        status, evidence = password_decision
+                        policy_blocked = False
                     findings.extend(collapse([emit_finding(scope, "scope:" + scope, check.kind, status, evidence)]))
                     coverage.append({"level": "check", "check_id": check.id, "type": check.kind, "scope": scope,
                         "target": "scope", "status": "blocked_by_policy" if policy_blocked else "unknown" if status in ("UNKNOWN", "DENIED") else "manual" if status == "MANUAL" else "evaluated",
@@ -1772,7 +1773,8 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
             for collection in collections:
                 scope, collection_status = collection["scope"], collection["status"]
                 password_decision = password_gate(scope) if password_check else None
-                if password_decision:
+                if password_decision and (collection_status in ("collected", "partial") or
+                        (collection_status == "empty" and password_decision[0] == "NOT_APPLICABLE")):
                     status, evidence = password_decision
                     check_findings.append(emit_finding(scope, "scope:" + scope, check.kind, status, evidence))
                     coverage.append({"level": "check", "check_id": check.id, "type": check.kind,
