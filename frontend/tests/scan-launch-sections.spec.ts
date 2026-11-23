@@ -22,6 +22,20 @@ test("assessment sections control the submitted scan work", async ({ page }) => 
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Hardening & Compliance" })).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "Other analyses" })).toBeVisible();
+  const frameworkSummary = dialog.locator("summary").filter({ hasText: "Frameworks and checklist versions" });
+  await expect(frameworkSummary).toBeVisible();
+  const arrow = () => frameworkSummary.evaluate(summary => {
+    const css = getComputedStyle(summary, "::after");
+    return { inset: css.insetInlineEnd, transform: css.transform };
+  });
+  const closed = await arrow();
+  expect(closed.inset).toBe("13px");
+  await frameworkSummary.press("Enter");
+  await expect(frameworkSummary.locator("..")).toHaveAttribute("open", "");
+  const open = await arrow();
+  expect(open.inset).toBe(closed.inset);
+  expect(open.transform).not.toBe(closed.transform);
+  await frameworkSummary.press("Enter");
   await dialog.getByRole("checkbox", { name: "Exposure", exact: true }).uncheck();
   await dialog.getByRole("checkbox", { name: "Least privilege", exact: true }).uncheck();
   await dialog.getByRole("checkbox", { name: "Network Map", exact: true }).uncheck();

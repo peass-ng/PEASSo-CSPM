@@ -17,7 +17,7 @@
 .images-findings-table td strong { font-weight: 600; }
 .images-findings-secondary { display: block; margin-top: 3px; color: #a9b8bd; font-size: 11px; }
 .images-findings-break { overflow-wrap: anywhere; }
-.images-findings-table details summary { cursor: pointer; white-space: nowrap; color: var(--mint); }
+.images-findings-table details summary { cursor: pointer; color: var(--mint); }
 .images-findings-table details ul { margin: 8px 0 0; padding-left: 16px; }
 .images-findings-table details li + li { margin-top: 8px; }
 .images-findings-state { margin: 0; padding: 24px 16px; color: #a9b8bd; font-size: 13px; }

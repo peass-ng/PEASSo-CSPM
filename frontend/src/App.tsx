@@ -298,11 +298,11 @@ export function App() {
           <div className="workspace-avatar">
             <Layers size={18} />
           </div>
-          <div>
+          <div className="workspace-name">
             <strong>{demo ? "Fixture demo" : activeWorkspace?.name || "Personal Workspace"}</strong>
             <span>{demo ? "Sample assessment" : activeWorkspace?.role ? `${activeWorkspace.role[0].toUpperCase()}${activeWorkspace.role.slice(1)} access` : "Your private workspace"}</span>
           </div>
-          <ChevronDown size={14} />
+          <ChevronDown size={14} aria-hidden="true" />
         </button>
         {signedIn && workspaceMenuOpen && <div className="workspace-menu" role="menu" aria-label="Workspaces">
           {workspaceList.map((workspace) => <button key={workspace.id} type="button" role="menuitemradio" aria-checked={workspace.id === workspaceId} onClick={() => selectWorkspace(workspace.id)}>{workspace.name}<small>{workspace.role}</small></button>)}

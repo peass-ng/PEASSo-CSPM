@@ -7,7 +7,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { Search, SlidersHorizontal, ChevronRight } from "lucide-react";
+import { Search, SlidersHorizontal, ChevronDown, ChevronRight } from "lucide-react";
 import type { Catalog, Finding, Report } from "./types";
 import { Badge, Evidence, Inspector, Panel, State, openInspectorFromRow } from "./ui";
 import { catalogFrameworksPath, items, request, useApi } from "./api";
@@ -209,7 +209,7 @@ function FrameworkPicker({ value, options, onChange }: {
     if (event.key === "Escape" && open) { event.stopPropagation(); setOpen(false); trigger.current?.focus(); }
   }}>
     <button ref={trigger} type="button" className="framework-trigger" aria-label="Compliance framework" aria-haspopup="listbox"
-      aria-expanded={open} onClick={() => { setOpen(!open); setSearch(""); }}>{selected}<ChevronRight size={15} className={open ? "expanded" : ""} /></button>
+      aria-expanded={open} onClick={() => { setOpen(!open); setSearch(""); }}><span className="truncate">{selected}</span><ChevronDown size={15} aria-hidden="true" className={open ? "expanded" : ""} /></button>
     {open && <div className="framework-menu">
       <input ref={input} aria-label="Filter compliance frameworks" placeholder="Filter frameworks…" value={search} onChange={event => setSearch(event.target.value)} />
       <div role="listbox" aria-label="Compliance frameworks">

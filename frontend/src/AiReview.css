@@ -51,8 +51,6 @@
 
 .action-references .action-finding-link { color: var(--mint); text-decoration: underline; text-underline-offset: 3px; }
 
-.network-summary summary { cursor: pointer; list-style: none; }
-.network-summary summary::-webkit-details-marker { display: none; }
 .network-summary summary h2 { margin: 0 0 12px; }
 .network-summary-preview { display: block; color: var(--muted); line-height: 1.7; overflow-wrap: anywhere; }
 .network-summary-expand, .network-summary-collapse { display: block; margin-top: 12px; color: var(--mint); font-size: 12px; }

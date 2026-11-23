@@ -175,7 +175,8 @@
 }
 
 .finding-detail-extras > details > summary {
-  padding: 15px 20px;
+  padding-block: 15px;
+  padding-inline-start: 20px;
   background: #162535;
 }
 
@@ -259,7 +260,7 @@
 }
 
 .finding-inspector .remediation-expand > summary {
-  padding: 14px 0 0;
+  padding-block-start: 14px;
 }
 
 .finding-inspector .remediation-expand > div {
@@ -307,7 +308,9 @@
 
 .framework-picker { position: relative; min-width: 260px; max-width: 100%; }
 .framework-trigger { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); background: var(--panel, #0c1419); color: inherit; text-align: left; cursor: pointer; }
-.framework-trigger .expanded { transform: rotate(90deg); }
+.framework-trigger > .truncate { min-width: 0; }
+.framework-trigger > svg { flex: none; }
+.framework-trigger .expanded { transform: rotate(180deg); }
 .framework-menu { position: absolute; z-index: 20; top: calc(100% + 5px); left: 0; width: max(100%, 340px); max-width: min(500px, 85vw); padding: 8px; border: 1px solid var(--line); background: #0c1419; box-shadow: 0 12px 30px #0008; }
 .framework-menu input { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
 .framework-menu [role="listbox"] { max-height: 300px; overflow-y: auto; }

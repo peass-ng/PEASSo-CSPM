@@ -15,7 +15,6 @@ import { sharedElk } from "./elkWorker";
 import type { ELK as ElkInstance, ElkNode } from "elkjs";
 import {
   ArrowRight,
-  ChevronDown,
   Crown,
   ExternalLink,
   Filter,
@@ -2058,7 +2057,7 @@ function PrincipalCard({
       {!!node.exposed_member_count && <p>{node.exposed_member_count} members have an external or internet workload entry point. Expand members to review evidence.</p>}
       {q.isPending && <p className="muted small-text">Loading the principal card…</p>}
       <details className="pe-identity">
-        <summary>Identity <ChevronDown size={15} aria-hidden="true" /></summary>
+        <summary>Identity</summary>
         <dl className="pe-dl">
           <dt>Provider</dt>
           <dd>{PROVIDER_NAME[String(node.provider)] || String(node.provider || "—")}</dd>

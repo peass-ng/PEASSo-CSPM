@@ -186,6 +186,7 @@ test('report search keeps severity and centered count on its right', async ({ pa
   expect(severityBox!.y).toBeCloseTo(searchBox!.y, 0);
   const filters = page.locator('.report-filters');
   await expect(filters.locator('.count-pill')).toHaveCSS('justify-content', 'center');
-  const chevron = await filters.locator('svg').boundingBox();
-  expect(chevron!.x + chevron!.width).toBeLessThan(severityBox!.x + severityBox!.width);
+  await expect(severity).toHaveCSS('background-position', 'calc(100% - 10px) 50%');
+  await expect(severity).toHaveCSS('background-size', '14px 14px');
+  await expect(filters.locator('svg')).toHaveCount(0);
 });

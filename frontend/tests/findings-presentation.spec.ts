@@ -52,8 +52,22 @@ test("service overview lists every service and pages one expanded service", asyn
   await page.getByRole("button", { name: /iam 20 findings/ }).click();
   await expect(page.locator(".finding-title")).toHaveCount(20);
   expect(requests.at(-1)?.searchParams.get("service")).toBe("iam");
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    const selects = page.locator(".scan-picker select, .filters select, .filter-secondary select");
+    expect(await selects.count()).toBeGreaterThanOrEqual(4);
+    for (const select of await selects.all()) {
+      await expect(select).toHaveCSS("appearance", "none");
+      await expect(select).toHaveCSS("background-position", "calc(100% - 10px) 50%");
+      await expect(select).toHaveCSS("padding-inline-end", "28px");
+    }
+    const workspace = page.getByRole("button", { name: "Select workspace" });
+    const rightInset = await workspace.evaluate(button =>
+      button.getBoundingClientRect().right - button.querySelector("svg.lucide-chevron-down")!.getBoundingClientRect().right,
+    );
+    expect(rightInset).toBeGreaterThanOrEqual(10);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  }
 });
 
 test("Hardening groups findings by service and keeps Check as the flat view", async ({ page }) => {

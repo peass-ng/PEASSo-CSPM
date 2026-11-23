@@ -1,0 +1,56 @@
+/* Reserve room for the indicator independently of the control's label. */
+select:not([multiple]):is(:not([size]), [size="1"]),
+details > summary {
+  --control-chevron-inset: 10px;
+  padding-inline-end: 28px;
+}
+
+select:not([multiple]):is(:not([size]), [size="1"]) {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23d7e4e6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 6 5 5 5-5'/%3E%3C/svg%3E");
+  background-position: right var(--control-chevron-inset) center;
+  background-repeat: no-repeat;
+  background-size: 14px 14px;
+}
+
+select:not([multiple]):is(:not([size]), [size="1"]):dir(rtl) {
+  background-position: left var(--control-chevron-inset) center;
+}
+
+details > summary {
+  position: relative;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+details > summary::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: calc(var(--control-chevron-inset) + 3px);
+  inset-block-start: 50%;
+  width: 8px;
+  height: 8px;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-50%) rotate(-45deg);
+  pointer-events: none;
+}
+
+details[open] > summary::after {
+  transform: translateY(-65%) rotate(45deg);
+}
+
+details:not([open]) > summary:dir(rtl)::after {
+  transform: translateY(-50%) rotate(135deg);
+}
+
+@media (forced-colors: active) {
+  select:not([multiple]):is(:not([size]), [size="1"]) {
+    appearance: auto;
+    background-image: none;
+  }
+}
