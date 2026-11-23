@@ -1,3 +1,4 @@
+import { Search } from "lucide-react";
 import { TableDownload, collectTableRows } from "./TableDownload";
 import { useMemo, useRef, useState } from "react";
 import "./ImagesFindingsTable.css";
@@ -183,29 +184,30 @@ export function ImagesFindingsTable({ rows, coverage, coverageWarning, loading =
         ? "Image scanning was not selected for this assessment."
         : "Image scan coverage is incomplete. Findings shown here may be missing.")}
     </p>}
-    <div className="images-findings-toolbar">
-      <label>Search image findings
-        <input type="search" value={query} onChange={(event) => setQuery(event.target.value)}
+    <div className="table-toolbar images-findings-toolbar">
+      <label className="search-field">
+        <Search size={16} aria-hidden="true" />
+        <input type="search" aria-label="Search image findings" value={query} onChange={(event) => setQuery(event.target.value)}
           placeholder="CVE, package, image, asset…" />
       </label>
-      <label>Group by
+      <label className="toolbar-label">Group by
         <select aria-label="Group image findings by" value={groupBy} onChange={event => { setGroupBy(event.target.value); setSelected(undefined); }}>
           <option value="cve">CVE</option><option value="image">Image</option>
         </select>
       </label>
-      <label>Severity
+      <label className="toolbar-label">Severity
         <select value={severity} onChange={(event) => setSeverity(event.target.value)}>
           <option value="">All</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option>
         </select>
       </label>
-      <label>Provider
+      <label className="toolbar-label">Provider
         <select value={provider} onChange={(event) => setProvider(event.target.value)}>
           <option value="">All</option>
           {providers.map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
       </label>
-      <TableDownload table={`image-findings-by-${groupBy}`} label="image findings table" loadRows={exportGroups} />
       <span className="images-findings-count" aria-live="polite">{groups.length} groups · {visible.length} shown · {rows.length} loaded of {total} findings</span>
+      <TableDownload table={`image-findings-by-${groupBy}`} label="image findings table" loadRows={exportGroups} />
     </div>
     {hasMore && <p className="images-findings-loaded-note">Groups and filters currently include loaded findings only. Load remaining findings to include every image and CVE.</p>}
     {visible.length === 0 ? <p className="images-findings-state" role="status">

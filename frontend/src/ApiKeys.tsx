@@ -89,7 +89,12 @@ export function ApiKeys() {
   }
 
   return (
-    <Panel title="PEASS'o CSPM API Keys" kicker="EXTERNAL READ ACCESS">
+    <Panel title="PEASS'o CSPM API Keys" kicker="EXTERNAL READ ACCESS" action={<TableDownload table="api-key-metadata" label="API key list"
+        disabled={keys.isPending || !!keys.error}
+        loadRows={async signal => (await collectCursorTableRows(keyPage, signal)).map(key => ({
+          id: key.id, name: key.name, prefix: key.prefix, created_at: key.created_at,
+          expires_at: key.expires_at, revoked_at: key.revoked_at, last_used_at: key.last_used_at,
+        }))} />}>
       <p className="muted settings-description">Create a key for external tools to read this account’s scans, findings, reports, maps, coverage, connectors, schedules, catalog and usage. Keys cannot start scans or change account data.</p>
       <form className="form" onSubmit={(event) => void create(event)}>
         <label>Key name<input aria-label="API key name" value={name} maxLength={100} onChange={(event) => setName(event.target.value)} placeholder="Reporting integration" required /></label>
@@ -109,12 +114,6 @@ export function ApiKeys() {
         </div>
       )}
       <State loading={keys.isPending} error={keys.error && !keys.data ? keys.error : undefined} onRetry={() => void keys.refetch()}>
-        <TableDownload table="api-key-metadata" label="API key list"
-          disabled={keys.isPending || !!keys.error}
-          loadRows={async signal => (await collectCursorTableRows(keyPage, signal)).map(key => ({
-            id: key.id, name: key.name, prefix: key.prefix, created_at: key.created_at,
-            expires_at: key.expires_at, revoked_at: key.revoked_at, last_used_at: key.last_used_at,
-          }))} />
         <div className="stack">
           {rows.length ? rows.map((key) => (
             <article className="scan-row" key={key.id}>

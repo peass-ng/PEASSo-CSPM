@@ -54,7 +54,7 @@ test("service overview lists every service and pages one expanded service", asyn
   expect(requests.at(-1)?.searchParams.get("service")).toBe("iam");
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 844 });
-    const selects = page.locator(".scan-picker select, .filters select, .filter-secondary select");
+    const selects = page.locator(".scan-picker select, .findings-toolbar select");
     expect(await selects.count()).toBeGreaterThanOrEqual(4);
     for (const select of await selects.all()) {
       await expect(select).toHaveCSS("appearance", "none");

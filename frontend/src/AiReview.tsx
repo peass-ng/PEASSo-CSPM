@@ -58,15 +58,15 @@ function NetworkReviewPanel({ data }: { data: NetworkResult }) {
     </Panel>}
     <Panel className="findings-panel network-findings-panel">
       {data.status === "unavailable" && <p>The network review could not be completed. Run a scan with AI enabled to retry it.</p>}
-      <div className="filters">
+      <div className="table-toolbar">
         <div className="search-field"><Search size={17} /><input aria-label="Search network findings" placeholder="Search findings, assets or evidence…" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} /></div>
         <select aria-label="Network finding severity" value={severity} onChange={event => { setSeverity(event.target.value); setPage(0); }}><option value="">All severities</option>{networkSeverity.map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select>
         <select aria-label="Network finding status" value={status} onChange={event => { setStatus(event.target.value); setPage(0); }}><option value="">All statuses</option><option value="FAIL">Failed</option><option value="UNKNOWN,MANUAL">Needs review</option></select>
         <button className="text-button" onClick={() => { setSearch(""); setSeverity(""); setStatus(""); setPage(0); }}>Reset filters</button>
+        <span className="count-pill" aria-live="polite">{rows.length} / {data.findings.length} findings</span>
         <TableDownload table="network-findings" label="network findings table"
           rows={rows.map(row => ({ ...row, asset: networkAsset(row),
             summary: row.evidence_summary || (row.evidence as { summary?: string } | null)?.summary || row.description }))} />
-        <span className="count-pill" aria-live="polite">{rows.length} / {data.findings.length} findings</span>
       </div>
       <div className="table-scroll" role="region" aria-label="Network findings table" tabIndex={0}>
         <table className="findings-table network-findings-table"><thead><tr>{columns.map(({ field, label }) => <th key={field} scope="col" aria-sort={sort.field === field ? sort.descending ? "descending" : "ascending" : "none"}><button className="text-button" onClick={() => { setSort({ field, descending: sort.field === field && !sort.descending }); setPage(0); }}>{label}</button></th>)}</tr></thead>
@@ -151,13 +151,13 @@ export function AiReview({ scanId, demo }: { scanId: string; demo: boolean }) {
       ...action.steps, action.verification].join(" ").toLocaleLowerCase().includes(term));
   return <div className="ai-review-view">
     <Panel className="findings-panel actions-panel">
-      <div className="filters">
+      <div className="table-toolbar">
         <div className="search-field"><Search size={17} />
           <input aria-label="Search actions" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search actions or findings…" />
         </div>
         {search && <button className="text-button" onClick={() => setSearch("")}>Clear search</button>}
-        <TableDownload table="prioritized-actions" label="prioritized actions table" rows={actions} />
         <span className="count-pill" aria-live="polite">{term ? `${actions.length} / ${rankedActions.length}` : rankedActions.length} actions</span>
+        <TableDownload table="prioritized-actions" label="prioritized actions table" rows={actions} />
       </div>
       <div className="table-scroll" role="region" aria-label="Prioritized actions" tabIndex={0}>
         <table className="findings-table actions-table"><thead><tr><th scope="col">Action</th><th scope="col">Severity</th><th scope="col">Effort</th><th scope="col">Reason & benefit</th></tr></thead>

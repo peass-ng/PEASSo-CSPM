@@ -517,8 +517,8 @@ export function GraphView({
           )}
         </div>
       )}
-      <Panel className="graph-panel">
-        <div className="graph-toolbar">
+      <Panel className={mode === "table" ? "graph-panel graph-table-panel" : "graph-panel"}>
+        <div className={mode === "table" ? "graph-toolbar table-toolbar" : "graph-toolbar"}>
           {kind === "network" && (
             <button
               className="button"
@@ -572,6 +572,10 @@ export function GraphView({
               Table
             </button>
           </div>
+          {mode === "table" && <TableDownload table="asset-table" label="asset table" rows={matching.map(node => ({
+            id: node.id, label: node.label || node.name || node.id, provider: node.provider || "generic",
+            service: node.service || node.type || "Asset", scope: node.scope || "Unscoped",
+          }))} />}
         </div>
         <div className="graph-breadcrumb">
           <button className="text-button" onClick={reset}>
@@ -702,10 +706,6 @@ export function GraphView({
                   )}
                 </div>
               ) : (<>
-                <TableDownload table="asset-table" label="asset table" rows={matching.map(node => ({
-                  id: node.id, label: node.label || node.name || node.id, provider: node.provider || "generic",
-                  service: node.service || node.type || "Asset", scope: node.scope || "Unscoped",
-                }))} />
                 <div
                   className="graph-table"
                   ref={scroll}

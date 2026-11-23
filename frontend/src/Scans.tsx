@@ -155,9 +155,16 @@ export function Scans({
         title="Scan history"
         kicker="ASSESSMENTS"
         action={
-          <span className="count-pill">
-            {items(scansQuery.data).length} scans
-          </span>
+          <div className="table-section-actions">
+            <span className="count-pill">
+              {items(scansQuery.data).length} scans
+            </span>
+            <TableDownload table="scan-history" label="scan history"
+              disabled={scansQuery.isPending || !!scansQuery.error}
+              rows={items(scansQuery.data).map(scan => ({ ...scan, assessment_name: names.get(scan.id),
+                connector_name: connectorNames.get(scan.connector_id), duration_label: scanDuration(scan),
+                created_label: date(scan.created_at) }))} />
+          </div>
         }
       >
         <State
@@ -171,11 +178,6 @@ export function Scans({
           }
           title="Your first scan starts here"
         />
-        <TableDownload table="scan-history" label="scan history"
-          disabled={scansQuery.isPending || !!scansQuery.error}
-          rows={items(scansQuery.data).map(scan => ({ ...scan, assessment_name: names.get(scan.id),
-            connector_name: connectorNames.get(scan.connector_id), duration_label: scanDuration(scan),
-            created_label: date(scan.created_at) }))} />
         <div className="card-list">
           {items(scansQuery.data).map((s) => (
             <article className="scan-row" key={s.id}>
@@ -256,14 +258,21 @@ export function Scans({
         title="Scheduled assessments"
         kicker="STAY CURRENT"
         action={
-          <button
-            className="button"
-            disabled={demo || !canWrite}
-            onClick={() => setSchedule(null)}
-          >
-            <Plus size={16} />
-            Add schedule
-          </button>
+          <div className="table-section-actions">
+            <button
+              className="button"
+              disabled={demo || !canWrite}
+              onClick={() => setSchedule(null)}
+            >
+              <Plus size={16} />
+              Add schedule
+            </button>
+            <TableDownload table="scheduled-assessments" label="scheduled assessments"
+                disabled={schedulesQuery.isPending || !!schedulesQuery.error}
+                rows={items(schedulesQuery.data).map(schedule => ({ ...schedule,
+                  assessment_name: schedule.name || connectorNames.get(schedule.connector_id) || schedule.id,
+                  schedule_label: scheduleDescription(schedule), next_run_label: nextScheduleDate(schedule) }))} />
+          </div>
         }
       >
         <State
@@ -272,11 +281,6 @@ export function Scans({
           onRetry={() => void schedulesQuery.refetch()}
         >
           <>
-            <TableDownload table="scheduled-assessments" label="scheduled assessments"
-              disabled={schedulesQuery.isPending || !!schedulesQuery.error}
-              rows={items(schedulesQuery.data).map(schedule => ({ ...schedule,
-                assessment_name: schedule.name || connectorNames.get(schedule.connector_id) || schedule.id,
-                schedule_label: scheduleDescription(schedule), next_run_label: nextScheduleDate(schedule) }))} />
             {items(schedulesQuery.data).length ? (
               items(schedulesQuery.data).map((s) => (
                 <article className="scan-row" key={s.id}>

@@ -107,7 +107,7 @@ export function LeastPrivilege({ scanId, demo }: { scanId: string; demo: boolean
       <span className="count-pill">{page.data?.total ?? 0} {groupBy === "principal" ? "principals" : "policies / roles"}</span>
     </div>
     <Panel className="least-panel">
-      <div className="least-toolbar">
+      <div className="table-toolbar">
         <select aria-label="Group least privilege by" value={groupBy} onChange={event => { setGroupBy(event.target.value as "principal" | "grant"); setOffset(0); setSelected(undefined); setSelectedGrant(undefined); }}>
           <option value="principal">Group by principal</option><option value="grant">Group by {rows[0]?.provider === "aws" ? "policy" : rows[0]?.provider ? "role" : "policy / role"}</option>
         </select>
@@ -173,9 +173,10 @@ export function LeastPrivilege({ scanId, demo }: { scanId: string; demo: boolean
           <h3>High & critical permissions</h3>
           <p>Declared permissions, including collected policy attachments and inherited role or group grants.</p>
           {details.isPending ? <p role="status">Loading permission details…</p> : details.error ? <State error={details.error} onRetry={() => void details.refetch()} /> : <>
-            <div className="least-permission-toolbar"><label className="search-field"><Search size={16} /><input aria-label="Filter high-risk permissions" placeholder="Filter permissions, policies or scopes…" value={permissionSearch} onChange={event => setPermissionSearch(event.target.value)} /></label>
-              {permissions.some(hasUnusedEvidence) && <label className="least-unused-filter"><input type="checkbox" checked={unusedOnly} onChange={event => setUnusedOnly(event.target.checked)} /> Permissions without observed use</label>}</div>
-            <TableDownload table="principal-permissions" label="principal permissions table" rows={visiblePermissions} />
+            <div className="table-toolbar"><label className="search-field"><Search size={16} /><input aria-label="Filter high-risk permissions" placeholder="Filter permissions, policies or scopes…" value={permissionSearch} onChange={event => setPermissionSearch(event.target.value)} /></label>
+              {permissions.some(hasUnusedEvidence) && <label className="least-unused-filter"><input type="checkbox" checked={unusedOnly} onChange={event => setUnusedOnly(event.target.checked)} /> Permissions without observed use</label>}
+              <TableDownload table="principal-permissions" label="principal permissions table" rows={visiblePermissions} />
+            </div>
             <div className="least-permissions-scroll"><table className="least-permissions-table"><thead><tr><th>Permission & granting policy</th><th>Criticality</th><th>Applies to</th><th>Last use</th></tr></thead><tbody>
               {visiblePermissions.map((item, index) => <tr key={`${item.permission}-${item.scope}-${index}`}>
                 <td><code>{item.permission}</code><small>{item.source}</small>{item.conditions != null && <details><summary>Grant conditions</summary><pre>{JSON.stringify(item.conditions, null, 2)}</pre></details>}
@@ -211,9 +212,10 @@ export function LeastPrivilege({ scanId, demo }: { scanId: string; demo: boolean
         <section className="least-permissions" aria-label="High and critical permissions">
           <h3>High & critical permissions</h3>
           {grantDetails.isPending ? <p role="status">Loading permission details…</p> : grantDetails.error ? <State error={grantDetails.error} onRetry={() => void grantDetails.refetch()} /> : <>
-            <div className="least-permission-toolbar"><label className="search-field"><Search size={16} /><input aria-label="Filter grant permissions" placeholder="Filter permission, principal or scope…" value={permissionSearch} onChange={event => setPermissionSearch(event.target.value)} /></label>
-              {grant.permissions?.some(hasUnusedEvidence) && <label className="least-unused-filter"><input type="checkbox" checked={unusedOnly} onChange={event => setUnusedOnly(event.target.checked)} /> Permissions without observed use</label>}</div>
-            <TableDownload table="grant-permissions" label="grant permissions table" rows={grantPermissions} />
+            <div className="table-toolbar"><label className="search-field"><Search size={16} /><input aria-label="Filter grant permissions" placeholder="Filter permission, principal or scope…" value={permissionSearch} onChange={event => setPermissionSearch(event.target.value)} /></label>
+              {grant.permissions?.some(hasUnusedEvidence) && <label className="least-unused-filter"><input type="checkbox" checked={unusedOnly} onChange={event => setUnusedOnly(event.target.checked)} /> Permissions without observed use</label>}
+              <TableDownload table="grant-permissions" label="grant permissions table" rows={grantPermissions} />
+            </div>
             <div className="least-permissions-scroll"><table className="least-permissions-table"><thead><tr><th>Permission & principal</th><th>Criticality</th><th>Applies to</th><th>Last use</th></tr></thead><tbody>
               {grantPermissions.map((item, index) => <tr key={`${item.principal_id}-${item.permission}-${item.scope}-${index}`}>
                 <td><code>{item.permission}</code><small>{item.principal}</small>{item.conditions != null && <details><summary>Grant conditions</summary><pre>{JSON.stringify(item.conditions, null, 2)}</pre></details>}</td>

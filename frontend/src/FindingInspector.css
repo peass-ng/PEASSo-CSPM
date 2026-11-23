@@ -317,4 +317,12 @@
 .framework-menu [role="option"] { display: block; width: 100%; padding: 10px; background: transparent; border: 0; color: inherit; text-align: left; cursor: pointer; }
 .framework-menu [role="option"]:hover, .framework-menu [role="option"]:focus-visible, .framework-menu [aria-selected="true"] { background: #17312e; color: var(--mint); }
 
-.findings-panel:has(.framework-menu) { overflow: visible; }
+
+
+@media (min-width: 1440px) {
+  .findings-toolbar .framework-menu { inset-inline: auto 0; }
+}
+@media (max-width: 1439px) {
+  .findings-toolbar .framework-picker { position: static; }
+  .findings-toolbar .framework-menu { inset-inline: auto 12px; }
+}

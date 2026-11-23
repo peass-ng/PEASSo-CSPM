@@ -45,9 +45,11 @@ export function AccessAnalyzerUnusedEvidence({ finding }: { finding: Finding }) 
   const visible = filtered.slice(offset, offset + 50);
   return <section className="finding-detail-section">
     <h3>Unused access</h3>
-    <input type="search" aria-label="Filter unused access" placeholder="Filter principals or permissions…" value={query}
+    <div className="table-toolbar">
+      <input type="search" aria-label="Filter unused access" placeholder="Filter principals or permissions…" value={query}
       onChange={event => { setQuery(event.target.value); setOffset(0); }} />
-    <TableDownload table="unused-access" label="unused access table" rows={filtered} />
+      <TableDownload table="unused-access" label="unused access table" rows={filtered} />
+    </div>
     <div className="table-scroll"><table>
       <thead><tr><th>Principal</th><th>Unused access</th><th>Last used</th><th>Analysis window</th></tr></thead>
       <tbody>{visible.map((row, index) => <tr key={index}>

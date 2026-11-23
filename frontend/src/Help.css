@@ -28,8 +28,6 @@
 .docs-definitions dt { font-size: 13px; line-height: 1.8; color: var(--mint); }
 .docs-definitions dt, .docs-definitions dd { min-width: 0; }
 .docs-definitions dd { margin: 0; overflow-wrap: break-word; }
-.docs-search { display: flex; align-items: center; gap: 10px; }
-.docs-search input { width: 100%; }
 .docs-api-table { overflow-x: auto; }
 .docs-api-table table { min-width: 640px; width: 100%; border-collapse: collapse; table-layout: fixed; }
 .docs-api-table th { text-align: left; padding: 15px 10px; border-bottom: 1px solid var(--line); font-size: 12px; }

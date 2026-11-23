@@ -1,6 +1,4 @@
 .least-panel { padding: 0; overflow: hidden; }
-.least-toolbar { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border, #293c52); }
-.least-toolbar .search-field { max-width: 32rem; }
 .least-list { display: grid; }
 .least-row { width: 100%; display: flex; align-items: center; gap: 1.25rem; padding: 1rem 1.25rem; color: inherit; background: transparent; border: 0; border-bottom: 1px solid var(--border, #293c52); text-align: left; cursor: pointer; font: inherit; }
 .least-row:hover, .least-row:focus-visible { background: rgba(126, 174, 224, .09); }
@@ -35,9 +33,6 @@
 [aria-label="Principal exposure"] { overflow-wrap: anywhere; }
 [aria-label="Principal exposure"] pre { white-space: pre-wrap; max-height: 20rem; overflow: auto; }
 
-.least-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
-.least-toolbar .search-field { flex: 1 1 20rem; max-width: none; }
-.least-toolbar select { flex: 0 1 16rem; width: 16rem; height: 39px; }
 .inspector.least-inspector { width: min(693px, 100vw); padding: 0; }
 .least-inspector .inspector-heading { padding: 34px 24px 16px; position: sticky; top: 0; z-index: 2; background: #142028; border-bottom: 1px solid var(--line); }
 .least-detail-identity { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
@@ -66,8 +61,6 @@
 @media(max-width:600px) { .least-detail { padding: 12px; }.least-detail-stats { gap: 6px; }.least-detail-stats span { padding: 10px; }.least-detail-stats strong { font-size: 20px; } }
 .least-inspector .least-detail { padding: 24px; }
 @media(max-width:600px) { .least-inspector .least-detail { padding: 16px; } }
-.least-permission-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.least-permission-toolbar .search-field { flex: 1 1 240px; }
 .least-unused-filter { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
 .least-group-principals { list-style: none; display: grid; gap: 8px; padding: 0; }
 .least-group-principals li { padding: 9px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; font-size: 12px; }

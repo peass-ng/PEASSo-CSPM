@@ -43,10 +43,12 @@ export function Workspaces({ me, workspaceId, onWorkspaceCreated }: { me?: Me; w
   }
   return <Panel title="Workspaces" kicker="COLLABORATION" className="workspace-settings">
     {workspaces.isPending ? <State loading /> : workspaces.error ? <State error={workspaces.error} onRetry={() => void workspaces.refetch()} /> : <>
-      <p className="muted small">Personal Workspace is private. Create a named workspace to share connectors and assessments.</p>
-      <TableDownload table="workspaces" label="workspace list" rows={(workspaces.data?.items || []).map(item => ({
-        id: item.id, name: item.name, role: item.role, private: !!item.personal, selected: item.id === workspaceId,
-      }))} />
+      <div className="table-toolbar">
+        <p className="muted small">Personal Workspace is private. Create a named workspace to share connectors and assessments.</p>
+        <TableDownload table="workspaces" label="workspace list" rows={(workspaces.data?.items || []).map(item => ({
+          id: item.id, name: item.name, role: item.role, private: !!item.personal, selected: item.id === workspaceId,
+        }))} />
+      </div>
       <div className="workspace-settings-list">
         {workspaces.data?.items.map((item) => <div key={item.id}><strong>{item.name}</strong><span>{item.role === "admin" ? "Admin" : item.role === "write" ? "Write" : "Read"}{item.personal ? " · private" : item.id === workspaceId ? " · selected" : ""}</span></div>)}
       </div>
@@ -60,16 +62,27 @@ export function Workspaces({ me, workspaceId, onWorkspaceCreated }: { me?: Me; w
       {!paid && <p className="muted small">A paid HackTricks Tools membership is required to create shared workspaces.</p>}
       {paid && ownedCount >= 5 && <p className="muted small">You have created the maximum of five shared workspaces.</p>}
     </>}
-    <h3>Invitations</h3>
+    <div className="table-toolbar">
+      <h3>Invitations</h3>
+      {!invitations.error && !!invitations.data?.items.length && <TableDownload table="workspace-invitations" label="workspace invitations"
+        rows={invitations.data.items.map(item => ({ workspace_id: item.workspace_id, name: item.name, role: item.role }))} />}
+    </div>
     {invitations.isPending ? <State loading /> : invitations.error ? <State error={invitations.error} onRetry={() => void invitations.refetch()} /> : invitations.data?.items.length ? <>
-      <TableDownload table="workspace-invitations" label="workspace invitations"
-        rows={invitations.data.items.map(item => ({ workspace_id: item.workspace_id, name: item.name, role: item.role }))} />
       {invitations.data.items.map((item) => <div className="workspace-person" key={item.workspace_id}>
       <div><strong>{item.name}</strong><span>{item.role[0].toUpperCase() + item.role.slice(1)} access</span></div>
       <div className="button-row"><button className="button primary" disabled={busy} onClick={() => void act(() => request(`/workspaces/invitations/${encodeURIComponent(item.workspace_id)}/accept`, { method: "POST" }))}>Accept</button><button className="button" disabled={busy} onClick={() => void act(() => request(`/workspaces/invitations/${encodeURIComponent(item.workspace_id)}/decline`, { method: "POST" }))}>Decline</button></div>
     </div>)}</> : <p className="muted small">No pending invitations.</p>}
     {current && !current.personal && current.role === "admin" && <>
-      <h3>People in {current.name}</h3>
+      <div className="table-toolbar">
+        <h3>People in {current.name}</h3>
+        {!people.error && people.data && <TableDownload table="workspace-people" label="workspace people" rows={[
+          ...(people.data?.members || []).map(item => ({ user_id: item.user_id,
+            email: item.email || "Workspace owner", role: item.role,
+            status: item.user_id === current.owner ? "owner" : "member" })),
+          ...(people.data?.invitations || []).map(item => ({ user_id: item.user_id,
+            email: item.email, role: item.role, status: "invitation_pending" })),
+        ]} />}
+      </div>
       <p className="muted small">Invite up to 100 existing HackTricks Tools accounts. They can access this workspace only after accepting in Settings.</p>
       <form className="workspace-inline-form" onSubmit={(event) => { event.preventDefault(); void act(() => request(`/workspaces/${encodeURIComponent(workspaceId)}/invitations`, json({ email: email.trim(), role })), () => setEmail("")); }}>
         <label>Account email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required placeholder="person@example.com" /></label>
@@ -77,13 +90,6 @@ export function Workspaces({ me, workspaceId, onWorkspaceCreated }: { me?: Me; w
         <button className="button primary" disabled={busy || !email.trim()}>Invite</button>
       </form>
       {people.isPending ? <State loading /> : people.error ? <State error={people.error} onRetry={() => void people.refetch()} /> : <>
-        <TableDownload table="workspace-people" label="workspace people" rows={[
-          ...(people.data?.members || []).map(item => ({ user_id: item.user_id,
-            email: item.email || "Workspace owner", role: item.role,
-            status: item.user_id === current.owner ? "owner" : "member" })),
-          ...(people.data?.invitations || []).map(item => ({ user_id: item.user_id,
-            email: item.email, role: item.role, status: "invitation_pending" })),
-        ]} />
         {people.data?.members.map((member) => <div className="workspace-person" key={member.user_id}>
           <div><strong>{member.email || "Workspace owner"}</strong><span>{member.user_id === current.owner ? "Owner" : "Member"}</span></div>
           {member.user_id === current.owner ? <span>Admin</span> : <div className="button-row"><select aria-label={`Role for ${member.email}`} value={member.role} disabled={busy} onChange={(event) => void act(() => request(`/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(member.user_id)}`, json({ role: event.target.value }, "PATCH")))}>{roles.map((value) => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select><button className="button" disabled={busy} onClick={() => void act(() => request(`/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(member.user_id)}`, { method: "DELETE" }))}>Remove</button></div>}

@@ -1,5 +1,15 @@
 import { readFile } from "node:fs/promises";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+async function expectSameRow(search: Locator, controls: Locator[]) {
+  await expect(search).toBeVisible();
+  const searchBounds = (await search.boundingBox())!;
+  for (const control of controls) {
+    await expect(control).toBeVisible();
+    const bounds = (await control.boundingBox())!;
+    expect(Math.abs((bounds.y + bounds.height / 2) - (searchBounds.y + searchBounds.height / 2))).toBeLessThan(2);
+  }
+}
 
 async function downloadJson(page: Page, label: string) {
   await page.getByRole("button", { name: label, exact: true }).click();
@@ -35,6 +45,16 @@ test("findings export includes filtered rows beyond the loaded page", async ({ p
       next_offset: offset + 1 < rows.length ? offset + 1 : null } });
   });
   await page.goto("/#Exposure");
+  await expectSameRow(page.getByRole("textbox", { name: "Search findings" }), [
+    page.getByRole("combobox", { name: "Severity" }),
+    page.getByRole("combobox", { name: "Status" }),
+    page.getByRole("combobox", { name: "Service", exact: true }),
+    page.getByRole("button", { name: "Compliance framework", exact: true }),
+    page.getByRole("combobox", { name: "Group findings" }),
+    page.getByRole("button", { name: "Show security failed", exact: true }),
+    page.getByRole("button", { name: "Reset filters", exact: true }),
+    page.getByRole("button", { name: "Download findings table", exact: true }),
+  ]);
   await page.getByRole("combobox", { name: "Severity" }).selectOption("medium");
   const result = await downloadJson(page, "Download findings table");
   expect(result).toMatchObject({ schema: "hacktricks-cspm.table.exposure-findings.v1", row_count: 2 });
@@ -136,9 +156,14 @@ test("Findings Report downloads one PDF per report, regardless of table filters"
     return route.fulfill({ contentType: "application/pdf", body: "%PDF-1.4\n" });
   });
 
-  const pdfButton = page.getByRole("button", { name: "Download PDF", exact: true });
-  async function download(id: string) {
-    await expect(pdfButton).toHaveCount(1);
+  const pdfButton = page.getByRole("button", { name: "PDF", exact: true });
+  async function download(id: string, label: string) {
+    const menu = page.getByRole("button", { name: label, exact: true });
+    await expect(menu).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Download PDF", exact: true })).toHaveCount(0);
+    await menu.click();
+    await expect(page.getByRole("button", { name: "JSON", exact: true })).toBeVisible();
+    await expect(pdfButton).toBeVisible();
     const [file] = await Promise.all([page.waitForEvent("download"), pdfButton.click()]);
     expect(file.suggestedFilename()).toBe(`peasso-cspm-${id}.pdf`);
     expect(await readFile(await file.path(), "utf8")).toBe("%PDF-1.4\n");
@@ -146,10 +171,21 @@ test("Findings Report downloads one PDF per report, regardless of table filters"
 
   await page.goto("/#Findings%20Report");
   await page.getByRole("combobox", { name: "Severity" }).selectOption("high");
-  await download("scan");
+  const singleLabel = "Download assessment report issues table";
+  await expectSameRow(page.getByRole("textbox", { name: "Search report issues" }), [
+    page.getByRole("combobox", { name: "Report issue severity" }),
+    page.getByRole("button", { name: singleLabel, exact: true }),
+  ]);
+  await download("scan", singleLabel);
   await page.getByRole("tab", { name: "Combined reports" }).click();
   await expect(pdfButton).toHaveCount(0);
   await page.getByRole("button", { name: combined.name }).click();
-  await download("group");
+  const combinedLabel = "Download combined report issues table";
+  await expectSameRow(page.getByRole("textbox", { name: "Search combined report issues" }), [
+    page.getByRole("combobox", { name: "Combined report issue severity" }),
+    page.getByRole("button", { name: combinedLabel, exact: true }),
+  ]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await download("group", combinedLabel);
   expect(requested).toEqual(["/api/scans/scan/findings-report/pdf", "/api/combined-reports/group/pdf"]);
 });

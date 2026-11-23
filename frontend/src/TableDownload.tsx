@@ -1,4 +1,4 @@
-import { Download } from "lucide-react";
+import { Download, LoaderCircle } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { request, workspaceKey } from "./api";
 import "./TableDownload.css";
@@ -77,12 +77,13 @@ type TableDownloadProps = {
   table: string;
   label: string;
   disabled?: boolean;
+  downloadPdf?: (signal: AbortSignal) => Promise<void>;
 } & ({ rows: readonly unknown[]; loadRows?: never } |
      { rows?: never; loadRows: (signal: AbortSignal) => Promise<readonly unknown[]> });
 
-export function TableDownload({ table, label, disabled, rows, loadRows }: TableDownloadProps) {
+export function TableDownload({ table, label, disabled, rows, loadRows, downloadPdf }: TableDownloadProps) {
   const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState<"JSON" | "PDF">();
   const [error, setError] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -98,16 +99,20 @@ export function TableDownload({ table, label, disabled, rows, loadRows }: TableD
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [open]);
 
-  async function download() {
-    if (job.current) return;
+  async function download(format: "JSON" | "PDF") {
+    if (disabled || job.current) return;
     const controller = new AbortController();
     const workspace = sessionStorage.getItem(workspaceKey);
     job.current = controller;
-    setPending(true);
+    setPending(format);
     setOpen(false);
     setError("");
     button.current?.focus();
     try {
+      if (format === "PDF" && downloadPdf) {
+        await downloadPdf(controller.signal);
+        return;
+      }
       const exported = loadRows ? await loadRows(controller.signal) : rows || [];
       controller.signal.throwIfAborted();
       if (sessionStorage.getItem(workspaceKey) !== workspace) throw new Error("The workspace changed during export.");
@@ -124,7 +129,7 @@ export function TableDownload({ table, label, disabled, rows, loadRows }: TableD
       if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "Download failed.");
     } finally {
       job.current = undefined;
-      if (!controller.signal.aborted) setPending(false);
+      if (!controller.signal.aborted) setPending(undefined);
     }
   }
 
@@ -135,13 +140,14 @@ export function TableDownload({ table, label, disabled, rows, loadRows }: TableD
   }}>
     <button ref={button} type="button" className="icon-button" aria-label={`Download ${label}`}
       title={`Download ${label}`} aria-expanded={open} aria-controls={id}
-      aria-busy={pending} disabled={disabled} onClick={() => { if (!pending) setOpen(!open); }}>
-      <Download size={16} aria-hidden="true" />
+      aria-busy={!!pending} disabled={disabled} onClick={() => { if (!pending) { setError(""); setOpen(!open); } }}>
+      {pending ? <LoaderCircle className="table-download-spinner" size={16} aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
     </button>
     <div className="table-download-options" id={id} hidden={!open}>
-      <button type="button" className="text-button" onClick={() => void download()}>JSON</button>
+      <button type="button" className="text-button" onClick={() => void download("JSON")}>JSON</button>
+      {downloadPdf && <button type="button" className="text-button" onClick={() => void download("PDF")}>PDF</button>}
     </div>
-    {pending && <span role="status" className="small">Preparing JSON…</span>}
-    {error && <span role="alert" className="small form-error">{error}</span>}
+    {pending && <span role="status" className="sr-only">Preparing {pending}…</span>}
+    {error && <span role="alert" className="table-download-error small form-error">{error}</span>}
   </div>;
 }

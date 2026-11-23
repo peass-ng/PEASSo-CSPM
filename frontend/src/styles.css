@@ -1555,16 +1555,79 @@ dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
-.findings-panel {
+.panel.findings-panel, .panel.graph-table-panel {
   padding: 0;
   overflow: hidden;
 }
-.filters {
+/* Keep the search and table actions in one row, wrapping at the panel width. */
+.table-toolbar {
   display: flex;
-  gap: 10px;
-  padding: 20px 20px 15px;
+  align-items: center;
   flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 8px;
+  --table-control-height: 36px;
 }
+.findings-panel > .table-toolbar,
+.least-panel > .table-toolbar {
+  padding: 10px 12px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--line);
+}
+.table-toolbar .search-field {
+  flex: 1 1 175px;
+  min-width: min(160px, 100%);
+}
+.table-toolbar .search-field input,
+.table-toolbar > input,
+.table-toolbar select,
+.table-toolbar .framework-trigger,
+.table-toolbar .table-download > .icon-button {
+  height: var(--table-control-height);
+}
+.table-toolbar > input {
+  flex: 1 1 175px;
+  min-width: min(160px, 100%);
+  width: auto;
+}
+.table-toolbar select {
+  width: auto;
+  max-width: min(100%, 14rem);
+  padding-inline-start: 9px;
+  font-size: 11px;
+  text-overflow: ellipsis;
+}
+.table-toolbar > .table-download { flex: none; }
+.table-toolbar .table-download > .icon-button { width: var(--table-control-height); }
+.table-toolbar .count-pill { white-space: nowrap; }
+.report-filters .count-pill { display: inline-flex; align-items: center; justify-content: center; }
+.table-toolbar > .text-button { font-size: 10px; white-space: nowrap; }
+.table-toolbar .toolbar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.findings-toolbar { position: relative; gap: 6px; }
+.findings-toolbar .search-field { flex-basis: 160px; }
+.findings-toolbar > select { width: 110px; }
+.findings-toolbar .framework-picker {
+  min-width: 0;
+  width: 174px;
+  color: var(--muted);
+}
+.findings-toolbar .framework-trigger {
+  padding: 0 9px;
+  gap: 5px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+.findings-toolbar .toolbar-label select { width: 83px; }
 .search-field {
   display: flex;
   align-items: center;
@@ -1581,46 +1644,6 @@ dd {
   padding-left: 38px;
   height: 39px;
   font-size: 11px;
-}
-.filters select {
-  height: 39px;
-  width: 142px;
-  font-size: 10px;
-}
-.filter-secondary {
-  padding: 0 20px 19px;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-  color: #8094a4;
-  border-bottom: 1px solid var(--line);
-}
-.filter-secondary select,
-.filter-secondary .framework-trigger {
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 400;
-  line-height: 1.4;
-}
-.filter-secondary select {
-  padding: 6px 10px;
-  width: 215px;
-  background: transparent;
-}
-.filter-secondary label {
-  font-size: 10px;
-  color: #9eb1bf;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.filter-secondary label select {
-  width: 100px;
-}
-.filter-secondary .text-button {
-  margin-left: auto;
-  font-size: 10px;
 }
 .table-scroll {
   max-height: 620px;
@@ -2438,36 +2461,6 @@ summary {
   .auth-banner .button {
     margin-left: 30px;
   }
-  .filters {
-    padding: 17px 14px;
-  }
-  .filters .search-field {
-    flex-basis: 100%;
-  }
-  .filters select {
-    width: calc(33.3% - 7px);
-    padding-inline-start: 6px;
-    font-size: 9px;
-  }
-  .filters .compact-label {
-    width: calc(33.3% - 7px);
-  }
-  .filters .compact-label select {
-    width: 100%;
-  }
-  .filter-secondary {
-    padding: 0 14px 16px;
-    gap: 10px;
-  }
-  .filter-secondary > select {
-    width: calc(100% - 30px);
-  }
-  .filter-secondary label {
-    flex: 1;
-  }
-  .filter-secondary .text-button {
-    font-size: 9px;
-  }
   .graph-toolbar {
     padding: 15px;
     flex-wrap: wrap;
@@ -2658,7 +2651,7 @@ textarea:focus-visible,
   min-width: 850px;
 }
 .catalog-totals{display:flex;flex-wrap:wrap;gap:10px;padding:17px 0}.catalog-totals span{border:1px solid var(--line);border-radius:6px;padding:8px 11px;background:#18312855;font-size:10px;color:#b1d1c2}.framework-list{max-height:460px;overflow:auto}.framework-row{display:flex;align-items:center;gap:18px;border-bottom:1px solid var(--line);padding:16px 0}.framework-row strong{font-size:11px}.framework-row p{font-size:9px;color:#9cb1bf;word-break:break-word;margin:7px 0}.framework-row .grow>span{font-size:8px;color:#859caa}.framework-coverage{display:flex;flex-direction:column;align-items:flex-end;gap:7px;font-size:9px;color:#a5bbbc;min-width:125px}.framework-coverage .badge{font-size:9px}@media(max-width:740px){.framework-row{align-items:flex-start;flex-wrap:wrap;gap:10px}.framework-coverage{align-items:flex-start;flex-direction:row;flex-wrap:wrap;min-width:0}.catalog-totals span{font-size:9px}}
-.native-asset-id{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:8px;color:#86a5b4;margin-top:6px}.filter-secondary>select[aria-label="Exact finding checklist version"]{width:240px}
+.native-asset-id{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:8px;color:#86a5b4;margin-top:6px}
 /* Privilege Escalation Map */
 .pe-panel {
   overflow: visible;
@@ -3748,7 +3741,7 @@ main.network-map-page { max-width: none; width: 100%; min-width: 0; }
   color: #e8edf4; background: #14202d; box-shadow: 0 8px 24px #0005;
   font-size: 12px; line-height: 1.5; pointer-events: none;
 }
-.report-tabs { margin-bottom: 16px; }
+.report-tabs { margin-bottom: 8px; }
 .combined-report-picker { display: grid; gap: 10px; margin: 18px 0; }
 .combined-report-option { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
 .combined-report-option small, .combined-source-list { display: block; color: var(--muted); line-height: 1.6; }
@@ -3780,13 +3773,11 @@ main.network-map-page { max-width: none; width: 100%; min-width: 0; }
   gap: .5rem 1rem;
 }
 
-.findings-pdf-download { margin-bottom: .75rem; }
-.combined-report-heading .findings-pdf-download { margin: 0 0 0 auto; }
-.findings-pdf-download .form-error { margin: .4rem 0 0; }
+.panel.report-detail-panel { padding: 12px; }
 .combined-report-heading h2 { font-size: 1.15rem; margin: 0; }
 .combined-report-meta {
   padding: .45rem 0 .75rem;
-  margin-bottom: .75rem;
+  margin-bottom: .5rem;
   border-bottom: 1px solid rgba(166, 227, 212, .16);
   color: var(--muted);
   font-size: .875rem;
@@ -3794,22 +3785,11 @@ main.network-map-page { max-width: none; width: 100%; min-width: 0; }
 .combined-report-meta summary { cursor: pointer; }
 .combined-sources .text-button { text-align: left; white-space: normal; }
 
-.report-filters {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-}
-.report-filters > input { min-width: 0; height: 39px; }
-.report-filter-actions { display: flex; gap: 10px; justify-content: flex-end; }
-.report-filter-actions > select { width: 142px; }
-.report-filter-actions .count-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 74px;
-  min-height: 39px;
-  text-align: center;
-}
-@media (max-width: 600px) {
-  .report-filters { grid-template-columns: minmax(0, 1fr); }
-}
+.table-section-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.table-toolbar > :is(p, h3, h4) { margin-block: 0; }
+.table-section > .panel-heading, .panel-heading:has(.table-download) { margin-bottom: 10px; }
+.findings-panel > [role="alert"] { margin-inline: 12px; }
+
+.graph-toolbar.table-toolbar,
+.network-toolbar.table-toolbar { padding: 10px 12px; gap: 8px; margin: 0; }
+.network-toolbar.table-toolbar .search-field { min-width: min(160px, 100%); }

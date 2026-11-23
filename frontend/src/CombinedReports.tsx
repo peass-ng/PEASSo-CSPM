@@ -1,9 +1,8 @@
-import { FindingsPdfDownload } from "./FindingsPdfDownload";
 import { TableDownload, requestTableRows } from "./TableDownload";
 import { ReportFilters } from "./ReportFilters";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { items, json, request, useApi } from "./api";
+import { downloadFindingsPdf, items, json, request, useApi } from "./api";
 import { Badge, Inspector, openInspectorFromRow, Panel, State } from "./ui";
 import { IssueBody, SourceFinding, SupportingEvidence, issueKinds, reportIssueExportRow } from "./ReportIssue";
 import type { Issue } from "./ReportIssue";
@@ -96,11 +95,13 @@ export function CombinedReports({ scanId, selectedId, onSelect, showAll, onShowA
   const reportPath = `/combined-reports/${selectedId}?search=${encodeURIComponent(search)}&severity=${severity}`;
   const detail = useApi<CombinedReport>(`${reportPath}&offset=${page * 25}&limit=25`, false, !!selectedId, true);
   const report = detail.data;
-  if (!selectedId) return <Panel title="Combined reports">
-    {!!scanId && <label className="checkbox"><input type="checkbox" checked={!showAll} onChange={event => onShowAll(!event.target.checked)} />Only reports including this assessment</label>}
+  if (!selectedId) return <Panel title="Combined reports" className="table-section">
+    <div className="table-toolbar">
+      {!!scanId && <label className="checkbox"><input type="checkbox" checked={!showAll} onChange={event => onShowAll(!event.target.checked)} />Only reports including this assessment</label>}
+      <TableDownload table="combined-reports" label="combined reports table" rows={items(list.data)}
+        disabled={list.isPending || !!list.error} />
+    </div>
     <State loading={list.isPending} error={list.error} onRetry={() => void list.refetch()} />
-    <TableDownload table="combined-reports" label="combined reports table" rows={items(list.data)}
-      disabled={list.isPending || !!list.error} />
     <div className="table-scroll"><table className="findings-table"><thead><tr><th>Report</th><th>Source reports</th><th>Created</th><th>Status</th></tr></thead><tbody>{items(list.data).map(row => <tr key={row.id} className="finding-data-row" onClick={event => openInspectorFromRow(event, () => { setPage(0); setSearch(""); setSeverity(""); onSelect(row.id); })}>
       <td><button className="finding-title" onClick={() => { setPage(0); setSearch(""); setSeverity(""); onSelect(row.id); }}>{row.name}</button></td>
       <td><SourceReportList sources={row.sources} /></td><td>{date(row.created)}</td><td><Badge value={row.status} /></td>
@@ -110,9 +111,8 @@ export function CombinedReports({ scanId, selectedId, onSelect, showAll, onShowA
     <button className="text-button" onClick={() => { onSelect(""); setSelectedIssue(undefined); setSource(undefined); setEvidence(undefined); }}>Back to combined reports</button>
     <State loading={detail.isPending} error={detail.error} onRetry={() => void detail.refetch()} />
     {report && <>
-      <Panel>
+      <Panel className="report-detail-panel">
         <div className="combined-report-heading"><h2>{report.name}</h2><Badge value={report.status} />
-          {report.status === "completed" && <FindingsPdfDownload id={selectedId} path={`/combined-reports/${encodeURIComponent(selectedId)}/pdf`} />}
         </div>
         <div className="combined-report-meta">
           <time>{date(report.created)}</time>
@@ -123,9 +123,12 @@ export function CombinedReports({ scanId, selectedId, onSelect, showAll, onShowA
         {["queued", "running"].includes(report.status) && <p role="status">Combining the selected report issues…</p>}
         <ReportFilters combined search={search} severity={severity} total={report.total}
           onSearch={value => { setSearch(value); setPage(0); }}
-          onSeverity={value => { setSeverity(value); setPage(0); }} />
-        <TableDownload table="combined-report-issues" label="combined report issues table"
-          loadRows={async signal => (await requestTableRows<CombinedIssue>(reportPath, "issues", 100, signal)).map(reportIssueExportRow)} />
+          onSeverity={value => { setSeverity(value); setPage(0); }}>
+          <TableDownload table="combined-report-issues" label="combined report issues table"
+            downloadPdf={report.status === "completed" ?
+              signal => downloadFindingsPdf(`/combined-reports/${encodeURIComponent(selectedId)}/pdf`, selectedId, signal) : undefined}
+            loadRows={async signal => (await requestTableRows<CombinedIssue>(reportPath, "issues", 100, signal)).map(reportIssueExportRow)} />
+        </ReportFilters>
         <div className="table-scroll"><table className="findings-table"><thead><tr><th>Severity</th><th>Issue</th><th>Type</th><th>Assessment</th><th>Source issues</th></tr></thead><tbody>{report.issues.map(issue => <tr key={issue.id} className="finding-data-row" onClick={event => openInspectorFromRow(event, () => setSelectedIssue(issue))}>
           <td><Badge value={issue.severity} /></td><td><button className="finding-title" onClick={() => setSelectedIssue(issue)}>{issue.title}</button></td><td>{issueKinds[issue.kind] || issue.kind}</td><td>{issue.status === "confirmed" ? "Confirmed configuration" : "Needs review"}</td><td>{issue.references.length}</td>
         </tr>)}{!report.issues.length && <tr><td colSpan={5}>{report.status === "completed" ? "No issues match the selected filters." : "No combined issues are available yet."}</td></tr>}</tbody></table></div>

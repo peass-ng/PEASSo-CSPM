@@ -1,8 +1,7 @@
-import { FindingsPdfDownload } from "./FindingsPdfDownload";
 import { TableDownload, requestTableRows } from "./TableDownload";
 import { ReportFilters } from "./ReportFilters";
 import { useEffect, useRef, useState } from "react";
-import { request, useApi } from "./api";
+import { downloadFindingsPdf, request, useApi } from "./api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Badge, Inspector, Panel, State } from "./ui";
 import { CombineReportsModal, CombinedReports } from "./CombinedReports";
@@ -33,15 +32,16 @@ function AssessmentReport({ scanId, demo }: { scanId: string; demo: boolean }) {
   if (!report) return null;
   const close = () => { setSelected(undefined); requestAnimationFrame(() => trigger.current?.focus()); };
   return <div className="ai-review-view">
-    <Panel>
-      {(report.status === "completed" || report.status === "partial") &&
-        <FindingsPdfDownload id={scanId} path={`/scans/${encodeURIComponent(scanId)}/findings-report/pdf`} />}
+    <Panel className="findings-panel">
       {(report.status === "unavailable" || report.run_status === "failed") && <p role="alert">Report generation failed. Generate the report again to retry.</p>}
       <ReportFilters search={search} severity={severity} total={report.total}
           onSearch={value => { setSearch(value); setPage(0); }}
-          onSeverity={value => { setSeverity(value); setPage(0); }} />
+          onSeverity={value => { setSeverity(value); setPage(0); }}>
         <TableDownload table="assessment-report-issues" label="assessment report issues table"
+          downloadPdf={(report.status === "completed" || report.status === "partial") ?
+            signal => downloadFindingsPdf(`/scans/${encodeURIComponent(scanId)}/findings-report/pdf`, scanId, signal) : undefined}
           loadRows={async signal => (await requestTableRows<Issue>(reportPath, "issues", 100, signal, demo)).map(reportIssueExportRow)} />
+      </ReportFilters>
         <div className="table-scroll"><table className="findings-table"><thead><tr><th>Severity</th><th>Issue</th><th>Type</th><th>Assessment</th><th>Sources</th></tr></thead>
         <tbody>{report.issues.map(issue => <tr key={issue.id}><td><Badge value={issue.severity} /></td><td><button className="finding-title" onClick={event => { trigger.current = event.currentTarget; setSelected(issue); }}>{issue.title}</button></td><td>{kinds[issue.kind] || issue.kind}</td><td>{issue.status === "confirmed" ? "Confirmed configuration" : "Needs review"}</td><td>{issue.references.length}</td></tr>)}
           {!report.issues.length && <tr><td colSpan={5}>{report.status === "completed" ? "No issues match the selected filters." : "No compiled issues are available yet."}</td></tr>}</tbody></table></div>

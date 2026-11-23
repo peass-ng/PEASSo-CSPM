@@ -7,7 +7,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { Search, SlidersHorizontal, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, ChevronDown, ChevronRight } from "lucide-react";
 import type { Catalog, ContainerExposureRoute, Finding, Report } from "./types";
 import { Badge, Evidence, Inspector, Panel, State, openInspectorFromRow } from "./ui";
 import { catalogFrameworksPath, items, request, useApi } from "./api";
@@ -520,29 +520,26 @@ export function Findings({
         </div>
       )}
       <Panel className="findings-panel">
-        <div className="filters">
+        <div className="table-toolbar findings-toolbar">
           <div className="search-field">
             <Search size={17} />
             <input
               aria-label="Search findings"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search assets, checks and metadata…"
+              placeholder="Search findings…"
             />
           </div>
-          <label className="compact-label">
-            <span className="sr-only">Severity</span>
-            <select
-              aria-label="Severity"
-              value={severity}
-              onChange={(e) => setSeverity(e.target.value)}
-            >
-              <option value="">All severities</option>
-              {["critical", "high", "medium", "low", "info"].map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-          </label>
+          <select
+            aria-label="Severity"
+            value={severity}
+            onChange={(e) => setSeverity(e.target.value)}
+          >
+            <option value="">All severities</option>
+            {["critical", "high", "medium", "low", "info"].map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
           <select
             aria-label="Status"
             value={status}
@@ -570,14 +567,11 @@ export function Findings({
                 <option key={s}>{s}</option>
               ))}
           </select>
-        </div>
-        <div className="filter-secondary">
-          <SlidersHorizontal size={15} />
           <FrameworkPicker value={framework} options={complianceOptions} onChange={setFramework} />
           <button className="text-button" onClick={() => {
             setFramework("HackTricks Cloud Best Practices"); setStatus("FAIL");
           }}>Show security failed</button>
-          <label>
+          <label className="toolbar-label">
             Group by{" "}
             <select
               aria-label="Group findings"

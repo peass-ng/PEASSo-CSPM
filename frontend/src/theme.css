@@ -202,7 +202,6 @@ label, legend { color: #a9b8bd; }
 fieldset { border-color: var(--line); }
 code, pre, .scan-id { font-family: 'JetBrains Mono', monospace; }
 pre { background: #050a0d; color: var(--mint); border-color: var(--line); }
-.filters, .filter-secondary { border-color: var(--line); }
 .findings-table { font-size: 13px; }
 .findings-table th { background: #101a1f; color: #6b7b83; font: 500 10.5px 'JetBrains Mono', monospace; letter-spacing: .14em; text-transform: uppercase; }
 .findings-table td { border-color: rgba(166,227,212,.07); padding: 16px 20px; }
@@ -225,7 +224,6 @@ pre { background: #050a0d; color: var(--mint); border-color: var(--line); }
 .finding-inspector .finding-detail-section h3, .finding-inspector .finding-detail-hero h3 { font-family: 'Chakra Petch',sans-serif; }
 .finding-inspector .finding-detail-extra-body code { color: #d7f7ee; }
 .least-page .least-panel { padding: 0; }
-.least-page .least-toolbar { border-color: var(--line); padding: 18px 20px; }
 .least-page .least-row { padding: 16px 20px; gap: 14px; border-color: rgba(166,227,212,.08); }
 .least-page .least-row:hover, .least-page .least-row:focus-visible { background: rgba(166,227,212,.05); box-shadow: inset 2px 0 0 var(--mint); }
 .least-provider { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--line); background: rgba(166,227,212,.04); clip-path: polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,0 100%); flex: none; }

@@ -54,12 +54,14 @@ export function GroupedFindingEvidence({ finding, scanId, demo, onInspectMember 
         <span key={label}><span className={`badge ${tone}`}>{label}</span> {count.toLocaleString()}</span>)}
     </div>}
     {detail?.affected_scope_incomplete && <p>The evidence does not identify every affected resource for this check.</p>}
-    <h4>Check observations</h4>
-    <TableDownload table="finding-group-assets" label="check observations"
+    <div className="table-toolbar">
+      <h4>Check observations</h4>
+      <TableDownload table="finding-group-assets" label="check observations"
       loadRows={signal => collectTableRows(async (pageOffset, pageSignal) => {
         const page = await request<FindingGroupDetail>(findingGroupPath(scanId, finding, pageOffset), { signal: pageSignal }, demo);
         return { rows: page.members, total: page.members_total, next: page.members_next_offset ?? page.next_offset };
       }, signal)} />
+    </div>
     <ol className="finding-group-members" aria-label="Individual evidence observations">
       {members.map(member => {
         const additionalEvidence = additionalMemberEvidence(member.evidence_summary, groupSummary);

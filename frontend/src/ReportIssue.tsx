@@ -46,8 +46,11 @@ function SpecialDetails({ rows, onInspect }: {
   const visible = expanded ? rows : rows.slice(0, 5);
   const images = rows[0].counts !== undefined;
   return <>
-    <h4>{images ? "Severity by resource and image" : "Detected leaks and locations"}</h4>
-    {images ? <><TableDownload table="report-image-severity" label="report image severity table" rows={rows} />
+    <div className="table-toolbar">
+      <h4>{images ? "Severity by resource and image" : "Detected leaks and locations"}</h4>
+      {images && <TableDownload table="report-image-severity" label="report image severity table" rows={rows} />}
+    </div>
+    {images ? <>
       <div className="table-scroll"><table className="findings-table">
       <thead><tr><th>Resource and image</th><th>Critical</th><th>High</th><th>Medium</th></tr></thead>
       <tbody>{visible.map((row, index) => <tr key={index}>

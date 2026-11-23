@@ -435,7 +435,13 @@ export function Connectors({ demo, canWrite = true }: { demo: boolean; canWrite?
           </div>
         ))}
       </div>
-      <Panel title="Connected environments" kicker="YOUR CLOUD ESTATE">
+      <Panel title="Connected environments" kicker="YOUR CLOUD ESTATE" action={items(query.data).length > 0 && <TableDownload table="connectors" label="connectors table" rows={connectorsNewestFirst.map(c => ({
+        id: c.id, name: c.name, provider: c.provider, scopes: c.scopes || [],
+        scope_label: c.scopes?.join(" · ") || "Default accessible scope",
+        auth_mode: c.auth_mode || c.auth?.mode || null, input_mode: c.input_mode || null,
+        created_at: c.created_at, created_label: date(c.created_at),
+        actions: { launch: !demo && canWrite, onboarding: !!(c.onboarding || c.gcp_onboarding), edit: !demo && canWrite, delete: !demo && canWrite },
+        }))} />}>
         <State
           loading={query.isPending}
           error={query.error}
@@ -452,13 +458,6 @@ export function Connectors({ demo, canWrite = true }: { demo: boolean; canWrite?
           </button>
         </State>
         {items(query.data).length > 0 && (<>
-          <TableDownload table="connectors" label="connectors table" rows={connectorsNewestFirst.map(c => ({
-            id: c.id, name: c.name, provider: c.provider, scopes: c.scopes || [],
-            scope_label: c.scopes?.join(" · ") || "Default accessible scope",
-            auth_mode: c.auth_mode || c.auth?.mode || null, input_mode: c.input_mode || null,
-            created_at: c.created_at, created_label: date(c.created_at),
-            actions: { launch: !demo && canWrite, onboarding: !!(c.onboarding || c.gcp_onboarding), edit: !demo && canWrite, delete: !demo && canWrite },
-          }))} />
           <div className="table-scroll" role="region" aria-label="Connectors table" tabIndex={0}>
             <table className="findings-table connectors-table">
               <thead><tr><th scope="col">Connector</th><th scope="col">Created</th><th scope="col">Actions</th></tr></thead>
