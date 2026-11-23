@@ -33,6 +33,14 @@ def _collection(account, status="collected"):
     }
 
 
+
+def _console_user(account):
+    return {"type": "iam_user", "scope": account + "/global", "status": "collected", "items": [
+        {"UserName": "console-user", "LoginProfile": {"collection_status": "collected",
+                                                      "LoginProfile": {"UserName": "console-user"}}}
+    ]}
+
+
 def _findings(snapshot):
     return [row for row in evaluate_snapshot(snapshot, checks=[CHECK_ID])["findings"]
             if row["check_id"] == CHECK_ID]
@@ -49,19 +57,19 @@ def test_password_policy_dispatches_once_per_account_global_scope():
 def test_password_policy_requires_own_complete_global_inventory_and_thresholds():
     scopes = [ACCOUNT_A + "/us-east-1", ACCOUNT_A + "/eu-west-1",
               ACCOUNT_B + "/us-west-2"]
-    snapshot = make_snapshot("aws", scopes, [_collection(ACCOUNT_A)],
+    snapshot = make_snapshot("aws", scopes, [_collection(ACCOUNT_A), _console_user(ACCOUNT_A)],
                              metadata={"password_policy_thresholds": dict(THRESHOLDS)})
     rows = _findings(snapshot)
     assert [(row["scope"], row["status"]) for row in rows] == [
         (ACCOUNT_A + "/global", "PASS"), (ACCOUNT_B + "/global", "UNKNOWN")]
     assert all("scope mismatch" not in row["evidence"].get("reason", "") for row in rows)
 
-    without_thresholds = make_snapshot("aws", scopes, [_collection(ACCOUNT_A)])
+    without_thresholds = make_snapshot("aws", scopes, [_collection(ACCOUNT_A), _console_user(ACCOUNT_A)])
     rows = _findings(without_thresholds)
     assert [(row["scope"], row["status"]) for row in rows] == [
         (ACCOUNT_A + "/global", "UNKNOWN"), (ACCOUNT_B + "/global", "UNKNOWN")]
 
-    denied = make_snapshot("aws", scopes, [_collection(ACCOUNT_A, "denied")],
+    denied = make_snapshot("aws", scopes, [_collection(ACCOUNT_A, "denied"), _console_user(ACCOUNT_A)],
                            metadata={"password_policy_thresholds": dict(THRESHOLDS)})
     rows = _findings(denied)
     assert [(row["scope"], row["status"]) for row in rows] == [

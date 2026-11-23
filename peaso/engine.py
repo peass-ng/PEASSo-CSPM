@@ -864,6 +864,10 @@ def plan_collection(request, *, _runtime_connector=None):
     from .checks.native_only import automated_inventory_types
     available = set(automated_inventory_types(provider, supported_types(provider)))
     required = {kind for check in checks for kind in getattr(check, "dependencies", [check.kind])}
+    if provider == "aws":
+        from .checks.aws_iam_password_applicability import applies_to
+        if any(applies_to(check) for check in checks):
+            required.add("iam_user")
     if provider == "k8s" and _runtime_connector is not None:
         from .collectors.k8s_legacy_psp_planner_20261020 import select as select_legacy_psp
         if _runtime_connector.get('provider') != provider:
@@ -1680,12 +1684,24 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
     automatic_batch_adapter = None
     if evaluation_metadata.get('automatic_workload_environment_batches'):
         from .checks import automatic_workload_batch as automatic_batch_adapter
+    from .checks.aws_iam_password_applicability import applies_to, console_user_status
+    password_applicability = {}
+
+    def password_gate(scope):
+        account = scope.split("/", 1)[0]
+        if account not in password_applicability:
+            collections = index["collections"].get("iam_user", ())
+            password_applicability[account] = console_user_status(collections, account)
+        return password_applicability[account]
+
     with _runtime_span('engine.native_checks'):
         for settled_checks, check in enumerate(selected):
             emit_progress(phase="evaluating", provider=provider, completed=settled_checks,
                           total=len(selected), resources=len(inventory), dynamic_total=False)
             check_frameworks = list(check.frameworks)
             emit_finding = _finding_factory(check, provider, check_frameworks)
+            password_check = provider == "aws" and applies_to(check)
+
             if getattr(check, "target", "resource") == "scope":
                 for scope in _scope_check_scopes(snapshot, check):
                     scoped = scoped_index(scope)
@@ -1694,7 +1710,11 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
                     blocked = [org_policy_denial(c) for kind in check.dependencies for c in scoped["collections"].get(kind, []) if c["status"] not in ("collected", "empty")]
                     incomplete += [{"type": kind, "status": c["status"]} for kind in check.dependencies for c in scoped["collections"].get(kind, []) if c["status"] not in ("collected", "empty")]
                     policy_blocked = not management_only and bool(incomplete) and len(blocked) == len(incomplete) and all(blocked)
-                    if management_only:
+                    password_decision = password_gate(scope) if password_check else None
+                    if password_decision:
+                        status, evidence = password_decision
+                        policy_blocked = False
+                    elif management_only:
                         status, evidence = "NOT_APPLICABLE", management_only
                     elif policy_blocked:
                         # Every missing dependency is denied by an organization guardrail.
@@ -1751,6 +1771,14 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
                 collections = [{"type": check.kind, "scope": scope, "service": check.kind, "status": "not_collected", "items": []} for scope in missing_scopes]
             for collection in collections:
                 scope, collection_status = collection["scope"], collection["status"]
+                password_decision = password_gate(scope) if password_check else None
+                if password_decision:
+                    status, evidence = password_decision
+                    check_findings.append(emit_finding(scope, "scope:" + scope, check.kind, status, evidence))
+                    coverage.append({"level": "check", "check_id": check.id, "type": check.kind,
+                        "scope": scope, "status": "evaluated" if status == "NOT_APPLICABLE" else "unknown",
+                        "by_status": {status: 1}, "reason": evidence["reason"]})
+                    continue
                 management_only = _aws_management_account_only_evidence(snapshot, check.id, scope)
                 scope_account = scope.split("/", 1)[0]
                 global_binding_conflict = bool(provider == "aws" and collection.get("global") is True
