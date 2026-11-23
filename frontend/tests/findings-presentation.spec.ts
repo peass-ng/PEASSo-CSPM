@@ -118,7 +118,7 @@ test("finding statuses group equivalent results while preserving access denied",
     if (path.endsWith("/summary")) json = { provider: "aws", resources: [], findings: [], coverage: [], stats: {} };
     if (path.endsWith("/findings")) {
       const selected = url.searchParams.get("status") || "";
-      requestedStatuses.push(selected);
+      if (url.searchParams.get("aggregation") === "check") requestedStatuses.push(selected);
       const matching = selected ? findings.filter(finding => selected.split(",").includes(finding.status)) : findings;
       json = { items: matching, total: matching.length, next_offset: null,
         status_filter_total: findings.length,
@@ -241,6 +241,7 @@ test("Exposure groups findings by expandable service and explains the public pat
     await route.fulfill({ json });
   });
   await page.goto("/#Exposure");
+  await expect(page.getByRole("button", { name: /Exposed containers with CVEs/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Load more findings" }).click();
   await expect(page.locator(".service-group-button")).toHaveCount(2);
   await expect(page.locator(".finding-title")).toHaveCount(0);

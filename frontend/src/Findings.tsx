@@ -8,7 +8,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { Search, SlidersHorizontal, ChevronDown, ChevronRight } from "lucide-react";
-import type { Catalog, Finding, Report } from "./types";
+import type { Catalog, ContainerExposureRoute, Finding, Report } from "./types";
 import { Badge, Evidence, Inspector, Panel, State, openInspectorFromRow } from "./ui";
 import { catalogFrameworksPath, items, request, useApi } from "./api";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
@@ -25,7 +25,6 @@ import "./FindingInspector.css";
 import { AccessAnalyzerUnusedEvidence } from "./AccessAnalyzerUnusedEvidence";
 import { FoundSecretValues, PrivateSecretEvidence } from "./PrivateSecretEvidence";
 import findingTypes from "./findingTypes.json";
-import type { ContainerExposureRoute } from "./ExposedContainers";
 const findingTypeLabel = (id?: string) => findingTypes.find(type => type.id === id)?.label || "Unclassified";
 type ContainerExposureEvidence = {
   container: string;

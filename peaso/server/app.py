@@ -1200,6 +1200,7 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
                    for name, query in (("category", categories), ("severity", severity), ("service", service), ("status", status))}
         search_text = search.casefold() if search else None
         missing = object()
+        from peaso.finding_groups import CONTAINER_CVES_CHECK, container_cve_title, group_key
 
         def field(value, name):
             if name == "service":
@@ -1237,6 +1238,10 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
                         return False
                 elif finding["check_id"] not in label_checks:
                     return False
+            if search_text and finding.get("check_id") == CONTAINER_CVES_CHECK:
+                service_name = field(finding, "service")
+                if search_text in container_cve_title(service_name if isinstance(service_name, str) else "").casefold():
+                    return True
             return not search_text or search_text in json.dumps(with_labels(with_meta(finding, meta, bundle), labels)).casefold()
 
         def sort_card(value):
@@ -1353,7 +1358,8 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
                     status_value = field(value, "status")
                     status_name = str(status_value if status_value is not missing else "UNKNOWN").upper()
                     if status_count_aggregation == "check" and value.get("check_id") != "analysis.internet_exposure":
-                        key = (value.get("provider") or summary.get("provider", ""), value.get("check_id", ""), value.get("secret_fingerprint", ""))
+                        service_name = field(value, "service") if value.get("check_id") == CONTAINER_CVES_CHECK else ""
+                        key = group_key(value, summary.get("provider", ""), service_name if isinstance(service_name, str) else "")
                     else:
                         key = value.get("id")
                     status_counts.add(status_name, key)
@@ -1441,13 +1447,21 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
                       members_offset: int = Query(default=0, ge=0), members_limit: int = Query(default=50, ge=1, le=100),
                       secret_offset: int = Query(default=0, ge=0, le=50000), user=Depends(identity)):
         from .finding_groups_static_20261021 import group_id, group_findings, placement, member_scopes, STATUS_ORDER
+        from peaso.finding_groups import CONTAINER_CVES_CHECK, group_key
         row, bundle, selected, _, _, labels, meta, field, _, _ = finding_selection(
             user.tenant_id, ident, categories, framework, severity, service, status, search, finding_type=finding_type, sort_cards=False)
         provider = bundle.get("summary", bundle).get("provider", "")
-        members = [dict(value, provider=value.get("provider") or provider,
-                   severity=field(value, "severity") if isinstance(field(value, "severity"), str) else "info")
-                   for value, _ in selected if value.get("check_id") != "analysis.internet_exposure"
-                   and group_id(value.get("provider") or provider, value.get("check_id", "")) == group_ident]
+        members = []
+        for value, _ in selected:
+            if value.get("check_id") == "analysis.internet_exposure":
+                continue
+            service_name = field(value, "service") if value.get("check_id") == CONTAINER_CVES_CHECK else ""
+            source_provider, check_id, _, service_key = group_key(
+                value, provider, service_name if isinstance(service_name, str) else "")
+            if group_id(source_provider, check_id, service_key) == group_ident:
+                severity_value = field(value, "severity")
+                members.append(dict(value, provider=source_provider,
+                                    severity=severity_value if isinstance(severity_value, str) else "info"))
         if not members:
             raise HTTPException(404, "Finding group not found")
         grouped = with_labels(with_meta(group_findings(members)[0], meta, bundle), labels)
@@ -1480,14 +1494,15 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         if primary:
             # Shared guidance can be refreshed without treating grouped evidence as native facts.
             for key in ("title", "description", "rationale", "remediation", "remediation_details", "evaluated", "pass_when", "fail_when", "not_applicable_when", "guidance_refresh"):
-                if key in primary:
+                if key in primary and (key != "title" or grouped["check_id"] != CONTAINER_CVES_CHECK):
                     grouped[key] = primary[key]
             if isinstance(grouped.get("remediation_details"), dict):
                 grouped["remediation_details"] = {key: value for key, value in dict(grouped["remediation_details"], cli=[], console=[]).items() if key != "iac"}
         if primary and len(members) == 1:
             grouped["evidence"] = primary.get("evidence", {})
-            grouped["evidence_summary"] = output[0]["evidence_summary"]
-        elif members_offset == 0 and len(output) == len(members):
+            if grouped["check_id"] != CONTAINER_CVES_CHECK:
+                grouped["evidence_summary"] = output[0]["evidence_summary"]
+        elif grouped["check_id"] != CONTAINER_CVES_CHECK and members_offset == 0 and len(output) == len(members):
             sentences = {item["evidence_summary"] for item in output}
             if len(sentences) == 1 and len(grouped["status_counts"]) == 1:
                 grouped["evidence_summary"] = next(iter(sentences))

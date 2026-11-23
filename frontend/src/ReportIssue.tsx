@@ -5,8 +5,7 @@ import { request, useApi } from "./api";
 import { FindingInspector } from "./Findings";
 import { Badge, Inspector, State } from "./ui";
 import { NetworkArchitecture } from "./NetworkArchitecture";
-import type { Finding } from "./types";
-import type { ContainerExposureRoute } from "./ExposedContainers";
+import type { ContainerExposureRoute, Finding } from "./types";
 export type Reference = { domain: "findings" | "least_privilege" | "privesc_edges" | "actions"; id: string };
 type SpecialDetail = {
   asset?: string; scope?: string; digest?: string; counts?: Record<string, number>;

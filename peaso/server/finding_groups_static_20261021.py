@@ -6,16 +6,15 @@ from pathlib import Path
 """One check card with lossless underlying observations and explicit mixed verdicts."""
 from collections import Counter, defaultdict
 from functools import lru_cache
-import hashlib
 import json
 import re
 
+from peaso.finding_groups import (
+    CONTAINER_CVES_CHECK, container_cve_summary, container_cve_title, group_id, group_key,
+)
+
 STATUS_ORDER = {"FAIL": 0, "UNKNOWN": 1, "DENIED": 2, "MANUAL": 3, "PASS": 4, "NOT_APPLICABLE": 5, "EMPTY": 6}
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4, "informational": 4}
-
-
-def group_id(provider, check_id):
-    return "check-" + hashlib.sha256(json.dumps([provider, check_id], separators=(",", ":")).encode()).hexdigest()
 
 
 @lru_cache(maxsize=1)
@@ -105,9 +104,9 @@ def group_findings(findings, *, observations=False):
         service = finding_service(row)
         if service and service != row.get("service"):
             row = dict(row, service=service)
-        grouped[(row.get("provider", ""), row.get("check_id", ""), row.get("secret_fingerprint", ""))].append(row)
+        grouped[group_key(row)].append(row)
     result = []
-    for (provider, cid, secret), rows in sorted(grouped.items()):
+    for (provider, cid, secret, service), rows in sorted(grouped.items()):
         if cid == "analysis.internet_exposure":
             # This analyzer emits one finding per exposed asset/path. Its title,
             # service and evidence describe that asset, so a check-wide card
@@ -132,7 +131,7 @@ def group_findings(findings, *, observations=False):
         accounts = sorted({account for account, _ in places if account})
         regions = sorted({region for _, region in places if region})
         assets = {(row.get("scope"), row.get("native_resource_id") or row.get("resource_id")) for row in affected if is_asset(row)}
-        group = dict(primary, id=group_id(provider, cid), resource_id="check:" + cid,
+        group = dict(primary, id=group_id(provider, cid, service), resource_id="check:" + cid,
             scope=accounts[0] if len(accounts) == 1 else "selected_scopes", status=status,
             severity=min((str(row.get("severity") or "info") for row in affected), key=lambda value: SEVERITY_ORDER.get(value, 4)),
             grouped=True, member_count=len(rows), status_counts=counts,
@@ -144,6 +143,8 @@ def group_findings(findings, *, observations=False):
         group["resource_name"] = f"{len(assets)} {'asset' if len(assets) == 1 else 'assets'}" if assets else f"{len(scopes)} {'scope' if len(scopes) == 1 else 'scopes'}"
         group["evidence"] = {"status_counts": counts, "affected_regions": regions, "affected_scopes": scopes,
             "affected_asset_count": len(assets), "observation_count": len(rows)}
+        if cid == CONTAINER_CVES_CHECK:
+            group["title"] = container_cve_title(service)
         group["evidence_summary"] = summary(group)
         # A command bound to one member must never masquerade as a group-wide operation.
         details = group.get("remediation_details")
@@ -158,6 +159,8 @@ def group_findings(findings, *, observations=False):
 def summary(group):
     counts = group.get("status_counts", {})
     status = group.get("status", "UNKNOWN")
+    if group.get("check_id") == CONTAINER_CVES_CHECK and status == "FAIL":
+        return container_cve_summary(group["affected_asset_count"])
     if group.get("check_id") == "analysis.exposed_privileged_workload" and status == "FAIL":
         number = group.get("affected_asset_count", 0)
         noun = "workload" if number == 1 else "workloads"

@@ -156,6 +156,55 @@ def test_internet_exposure_assets_do_not_become_one_mislabeled_service_card(tmp_
         assert client.get(f"/api/scans/{job['id']}/summary?aggregation=check").json()["finding_count"] == 3
 
 
+
+@pytest.mark.parametrize("chunked", [False, True], ids=["inline-old-report", "chunked-bundle"])
+def test_exposed_container_findings_are_grouped_by_service_with_all_assets(tmp_path, chunked):
+    store, artifacts = SQLiteStore(tmp_path / "state"), FileArtifacts(tmp_path / "artifacts")
+    connector = store.add_connector("alice", {"provider": "aws", "name": "fixture"}, "encrypted")
+    job = store.enqueue("alice", {"connector_id": connector["id"]})
+    report = fixture_report()
+    check = "analysis.exposed_container_cves"
+    report["findings"] = [
+        dict(report["findings"][0], id=f"{service}-{number}", check_id=check, category="exposure",
+             service=service, resource_id=f"{service}-{number}", native_resource_id=f"{service}-{number}",
+             resource_name=f"{service}-{number}", evidence={"container": f"{service}-container-{number}"})
+        for service in ("ec2", "ecs", "lambda") for number in (1, 2)
+    ]
+    report["stats"] = {"finding_count": 6, "by_status": {"FAIL": 6}}
+    reference = publish_report(artifacts, "alice", job["id"], report) if chunked else artifacts.put("alice", job["id"], "report", report)
+    with store.transaction() as db:
+        db.execute("UPDATE jobs SET status='completed',report=? WHERE id=?", (reference, job["id"]))
+    app = create_app(Settings(state_dir=tmp_path / "settings", identity_dir=tmp_path / "identity"),
+                     store=store, artifacts=artifacts, authenticator=TestIdentities())
+    with TestClient(app, base_url="http://127.0.0.1", headers={"Authorization": "Bearer alice"}) as client:
+        base = f"/api/scans/{job['id']}"
+        query = {"aggregation": "check", "categories": "exposure", "status": "FAIL"}
+        result = client.get(base + "/findings", params=query)
+        assert result.status_code == 200, result.text
+        data = result.json()
+        assert data["total"] == data["status_filter_counts"]["FAIL"] == data["status_filter_total"] == 3
+        assert [(entry["service"], entry["count"]) for entry in data["service_groups"]] == [
+            ("ec2", 1), ("ecs", 1), ("lambda", 1)]
+        assert len({item["id"] for item in data["items"]}) == 3
+        for card in data["items"]:
+            service = card["service"]
+            assert card["title"].endswith(f"({service})")
+            assert card["affected_asset_count"] == 2
+            assert "2 affected assets" in card["evidence_summary"]
+            path = base + "/finding-groups/" + card["id"]
+            detail = client.get(path, params={"search": card["title"]})
+            assert detail.status_code == 200, detail.text
+            group = detail.json()
+            assert group["title"] == card["title"]
+            assert {member["native_resource_id"] for member in group["members"]} == {f"{service}-1", f"{service}-2"}
+            for member in group["members"]:
+                observation = client.get("/api" + member["detail_path"]).json()
+                assert observation["evidence"]["container"].startswith(f"{service}-container-")
+        assert client.get(base + "/findings", params={**query, "aggregation": "none"}).json()["total"] == 6
+        summary = client.get(base + "/summary", params={"aggregation": "check"}).json()
+        assert summary["stats"]["failed_by_category"]["exposure"] == 3
+
+
 def test_member_pages_retain_exact_evidence_status_native_asset_and_location(live):
     client, scan, _ = live
     base = f"/api/scans/{scan}/finding-groups/" + group_id("aws", "fixture.retention")

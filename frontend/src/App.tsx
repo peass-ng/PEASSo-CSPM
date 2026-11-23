@@ -1,4 +1,3 @@
-import { ExposedContainers } from "./ExposedContainers";
 import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import {
@@ -496,9 +495,6 @@ export function App() {
                 loading={scans.isPending}
                 onRetry={() => void scans.refetch()}
               >
-                {page === "Exposure" && !demo && current?.status === "completed" &&
-                  <ExposedContainers key={scanId} scanId={scanId} sources={available.filter(scan => scan.status === "completed")
-                    .map(scan => ({ id: scan.id, name: names.get(scan.id) || scan.id }))} />}
                 <Findings
                   key={page}
                   scanId={scanId}

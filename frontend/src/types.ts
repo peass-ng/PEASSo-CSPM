@@ -1,3 +1,15 @@
+export type ContainerExposureRoute = {
+  endpoint: string;
+  port: number;
+  protocol: string;
+  container_port: number;
+  controls: string[];
+  kind: string;
+  service?: string;
+  rule?: string;
+  finding_id: string;
+};
+
 export type Provider = "aws" | "gcp" | "azure" | "k8s";
 export type Category =
   | "hardening"
