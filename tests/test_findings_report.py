@@ -533,3 +533,25 @@ def test_running_image_inventory_requires_native_running_state_and_manifest_iden
                {'name': 'waiting', 'imageID': f'registry/app@{digest}', 'state': {'waiting': {}}}]}}}
     assert [(row['provider'], row['container']) for row in running_images([ecs, ecs, pod])] == [
         ('aws', 'active'), ('k8s', 'workload')]
+
+
+def test_guardduty_assets_use_scoped_arns_in_new_and_saved_reports():
+    from peaso.server.findings_report import detector_asset_ids, resolve_detector_assets
+
+    detector = '1' * 32
+    unrelated = '2' * 32
+    finding = dict(id='detector-check', provider='aws', status='FAIL', category='hardening',
+                   check_id='aws.guardduty.runtime_monitoring', resource_id='sha256:inventory',
+                   native_resource_id=detector, scope='123456789012/us-east-1')
+    arn = f'arn:aws:guardduty:us-east-1:123456789012:detector/{detector}'
+    [source] = compiler.source_index({'report': {'findings': [finding]}})
+    assert source['assets'] == [arn]
+
+    archived = [{'affected_assets': [detector, unrelated, arn]}]
+    wanted = detector_asset_ids(archived)
+    unrelated_finding = dict(finding, native_resource_id=unrelated, check_id='aws.ec2.example')
+    [presented] = resolve_detector_assets(archived, [finding, unrelated_finding], wanted)
+    assert presented['affected_assets'] == [unrelated, arn]
+    assert archived[0]['affected_assets'] == [detector, unrelated, arn]
+    [ambiguous] = resolve_detector_assets(archived, [finding, dict(finding, scope='123456789012/us-west-2')], wanted)
+    assert ambiguous == archived[0]

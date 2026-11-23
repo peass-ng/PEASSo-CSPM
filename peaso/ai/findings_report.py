@@ -168,6 +168,7 @@ def complete(data, sources, prebuilt, previous_report=None):
 def source_index(platform):
     """Only this trusted index can authorize references or required coverage."""
     from peaso.finding_types import annotate
+    from peaso.report_asset_ids import guardduty_detector_arn
     from .report_source_facts import observation
     report = platform.get('report', {})
     result = []
@@ -197,6 +198,8 @@ def source_index(platform):
                     or evidence.get('image_digest') and isinstance(evidence.get('severity_counts'), dict))
                 else None)
         identifiers = [row.get('native_resource_id') or asset(row.get('resource_id'))]
+        resource_type = inventory.get(row.get('resource_id'), {}).get('type')
+        identifiers[0] = guardduty_detector_arn(identifiers[0], row, resource_type=resource_type) or identifiers[0]
         if identifiers[0] == 'ec2-regional-settings' and report.get('provider') == 'aws' and row.get('scope'):
             identifiers[0] = f"{row['scope']}/ec2-regional-settings"
         linked = evidence.get('resource_ids', [])
