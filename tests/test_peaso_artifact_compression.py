@@ -109,3 +109,22 @@ def test_missing_compressed_size_metadata_cannot_bypass_inline_limit():
     client.objects["artifacts/" + reference].pop("Metadata")
     assert artifacts.size("owner", reference) > 4 * 1024 * 1024
     assert artifacts.get("owner", reference)["data"].startswith("repeated metadata")
+
+
+def test_hosted_large_pdf_download_is_private_and_keeps_its_content_type():
+    client = MemoryS3()
+    artifacts = S3Artifacts("private", client=client, kms_key="fixture-key")
+    scan_id = "a" * 32
+    body = b"%PDF-1.4\n" + b"example report object\n" * 200000
+    reference = artifacts.put_pdf("owner", scan_id, body)
+    obj = client.objects["artifacts/" + reference]
+    assert obj["ContentType"] == "application/pdf"
+    assert obj["SSEKMSKeyId"] == "fixture-key"
+    assert gzip.decompress(obj["Body"]) == body
+    filename = f"peasso-cspm-{scan_id}.pdf"
+    assert "expiry=300" in artifacts.presign("owner", reference, filename)
+    params = client.last_presign[1]
+    assert params["ResponseContentDisposition"] == f'attachment; filename="{filename}"'
+    assert params["ResponseCacheControl"] == "private, no-store"
+    with pytest.raises(ValueError, match="Invalid artifact reference"):
+        artifacts.presign("other", reference, filename)

@@ -338,7 +338,7 @@ class S3Artifacts:
             raise ValueError('Private secret evidence cannot be downloaded directly')
         arguments = {"Bucket": self.bucket, "Key": "artifacts/" + reference}
         if filename:
-            if not re.fullmatch(r"(?:peaso|hacktricks-cspm)-[a-f0-9]{32}\.(json|md|pdf)", filename):
+            if not re.fullmatch(r"(?:(?:peaso|hacktricks-cspm)-[a-f0-9]{32}\.(?:json|md)|peasso-cspm-[a-f0-9]{32}\.pdf)", filename):
                 raise ValueError("Invalid download filename")
             arguments["ResponseContentDisposition"] = f'attachment; filename="{filename}"'
             if filename.endswith(".pdf"):
