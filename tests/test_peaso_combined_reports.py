@@ -17,7 +17,13 @@ def issue(ident='encryption', kind='vulnerability', severity='medium'):
     return dict(id=ident, title='Insufficient encryption protections', kind=kind, severity=severity,
                 status='confirmed', description='Captured disk configuration.', impact='Data confidentiality risk.',
                 recommendation='Enable encryption for the affected disks.', verification='Check encrypted disk settings.',
-                references=[{'domain': 'findings', 'id': 'native-check'}])
+                references=[{'domain': 'findings', 'id': 'native-check'}], affected_assets=['prod/disk'])
+
+
+def severity_evidence(reference, *, asset='prod/disk', impact='material'):
+    return dict(reference=reference, asset=asset, impact_level=impact, internet_reachable=False,
+                prerequisites_supported=True, consequence='Loss of a protection for stored application data.',
+                prerequisites='The affected disk stores current application data.')
 
 
 def compiled(reports):
@@ -27,6 +33,8 @@ def compiled(reports):
         rows.append({k: v for k, v in source.items() if k not in ('id', 'affected_assets', 'special_details')} |
                     {'references': [{'report_id': r['scan_id'], 'issue_id': i['id']}
                                     for r in reports for i in r['issues'] if i['id'] == ident]})
+        if source['kind'] == 'vulnerability':
+            rows[-1]['severity_evidence'] = severity_evidence(rows[-1]['references'][0])
     return dict(summary='Combined captured issues.', issues=rows, limitations=[])
 
 
@@ -280,13 +288,37 @@ def test_unconfirmed_legacy_issue_does_not_remain_a_vulnerability_in_merge():
     original = issue()
     original['status'] = 'needs_review'
     frozen = [{'scan_id': 'a', 'issues': [original]}]
-    candidate = {key: original[key] for key in compiler.CombinedIssue.model_fields if key != 'references'}
+    candidate = {key: original[key] for key in compiler.CombinedIssue.model_fields if key in original}
     candidate['references'] = [{'report_id': 'a', 'issue_id': original['id']}]
     data = {'summary': 'Combined report', 'limitations': [], 'issues': [candidate]}
     with pytest.raises(ValueError, match='unconfirmed_report_issue'):
         compiler.validate(data, frozen)
     candidate.update(kind='hardening', severity='info')
     assert compiler.validate(data, frozen)['issues'][0]['status'] == 'needs_review'
+
+
+def test_combined_medium_requires_one_source_with_matching_severity_evidence():
+    medium = issue('production-recovery')
+    medium['severity_evidence'] = severity_evidence(medium['references'][0], asset='prod/state')
+    medium['affected_assets'] = ['prod/state']
+    low = issue('limited-recovery', severity='low')
+    legacy = issue('disabled-preventive-guardrail')
+    legacy['description'] = 'The account guardrail permits future public sharing. Captured buckets are private.'
+    reports = [{'scan_id': 'prod', 'issues': [medium]}, {'scan_id': 'dev', 'issues': [low, legacy]}]
+    merged = {key: value for key, value in medium.items() if key in compiler.CombinedIssue.model_fields}
+    merged['references'] = [{'report_id': 'prod', 'issue_id': medium['id']},
+                            {'report_id': 'dev', 'issue_id': low['id']}]
+    merged['severity_evidence'] = dict(medium['severity_evidence'], reference=merged['references'][0])
+    preventive = {key: value for key, value in legacy.items() if key in compiler.CombinedIssue.model_fields}
+    preventive.update(kind='hardening', severity='info', references=[{'report_id': 'dev', 'issue_id': legacy['id']}])
+    data = dict(summary='Combined findings.', issues=[merged, preventive], limitations=[])
+    assert [item['severity'] for item in compiler.validate(data, reports)['issues']] == ['medium', 'info']
+    for changes in ({'reference': merged['references'][1], 'asset': 'prod/disk'},
+                    {'consequence': 'An unsupported consequence across all accounts.'}):
+        modified = copy.deepcopy(data)
+        modified['issues'][0]['severity_evidence'].update(changes)
+        with pytest.raises(ValueError, match='unsupported_report_severity_source'):
+            compiler.validate(modified, reports)
 
 
 def test_combination_correlates_registry_image_with_other_accounts_running_workload():
@@ -311,6 +343,7 @@ def test_combination_preserves_exact_task_scope_and_distinguishes_retention_benc
     reports = [{'scan_id': 'dev', 'issues': [a, b]}]
     merged = {key: value for key, value in a.items() if key in compiler.CombinedIssue.model_fields}
     merged['references'] = [{'report_id': 'dev', 'issue_id': ident} for ident in ('containers', 'backup')]
+    merged['severity_evidence'] = severity_evidence(merged['references'][0])
     data = dict(summary='Combined captured issues.', issues=[merged], limitations=[])
     [result] = compiler.validate(data, reports)['issues']
     assert '**25 affected task definitions.** Each has at least one container' in result['description']

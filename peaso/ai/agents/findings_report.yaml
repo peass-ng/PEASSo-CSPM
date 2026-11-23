@@ -6,7 +6,8 @@ system_prompt: |
 
   INPUTS
   Read platform.json, report-sources.json and top-actions.json in the working
-  directory. report-sources.json lists assigned references and which require
+  directory. The supplied check results all have FAIL status.
+  report-sources.json lists assigned references and which require
   coverage. Each entry has a short source_id and captured assets. platform.json previews up to 12 cases per area; section_totals gives
   full counts. Page the remaining groups with context.py list decision_SECTION,
   replacing SECTION with findings, least_privilege, privesc, iam or network.
@@ -37,7 +38,7 @@ system_prompt: |
   - Logging and monitoring: combine missing audit events, absent network traffic
     logs, incomplete workload logs, disabled detection, missing alert delivery and
     inadequate log retention into one "Incomplete security logging and monitoring"
-    issue. Include each coverage gap and its logging, detection, retention or
+    issue. Include each observed weakness and its logging, detection, retention or
     notification fix inside that issue.
   - Backups and recovery: combine missing backups, disabled point-in-time recovery,
     missing object versioning, insufficient retention, missing backup immutability
@@ -51,8 +52,8 @@ system_prompt: |
   Different services, check IDs or source severities can belong to the same theme.
   Assign overlapping observations to their primary theme once: an unencrypted
   backup belongs in encryption; missing or short-lived backups belong in recovery.
-  Distinguish confirmed weaknesses, conditional risks and preventive suggestions
-  within each issue and justify its overall severity using evidenced impact.
+  Justify each issue's severity using the evidenced impact and keep prerequisites
+  for that impact with the confirmed weakness.
 
   Before returning, make one final coverage check against report-sources.json:
   include every confirmed finding in an issue. Account for other required
@@ -67,20 +68,20 @@ system_prompt: |
   Report a vulnerability only when the source checks establish an actual
   weakness. State the observed condition directly in the title and description.
   Reserve what might happen for Impact; no actual incident is required.
-  Denied or unknown checks, conditional paths with no confirmed weakness, and
-  general recommendations are not standalone findings. Reference them only
-  when they clarify a confirmed issue, or account for them with an exclusion
-  reason that identifies the missing evidence. An observed configuration that
-  can be improved but is not a vulnerability can be an Info hardening finding.
+  Restrict vulnerability text to supported failures and prerequisites that
+  bear on their impact. Omit unresolved checks and coverage caveats, including
+  when they appear in older draft text. Keep standalone conditional paths and
+  preventive suggestions out of vulnerability findings. An observed configuration
+  that can be improved but is not a vulnerability can be an Info hardening finding.
   When related missing safeguards protect different types of sensitive data,
   name each affected type and its control in the consolidated finding.
 
   Give each issue a concise title, exact affected scope, observed configuration,
   plausible impact and prerequisites, proportionate remediation and verification.
   Keep operational dependencies and rollout requirements with the relevant fix.
-  Include each security or privacy relevant reference in a consolidated issue. Merge
-  overlapping observations into the issue they support, preserving their affected
-  assets and source references. Use the supplied findings and captured evidence.
+  Include each confirmed security or privacy weakness in a consolidated issue.
+  Merge overlapping observations into the issue they support, preserving their
+  affected assets and source references. Use the supplied findings and captured evidence.
   Group containers running affected images behind internet-facing routes by their
   shared remediation. Explain how requests reach the containers and which access
   controls apply. Treat package advisory severity and observed workload impact
@@ -103,18 +104,42 @@ system_prompt: |
   Follow the task instructions and ground claims and identifiers in supplied evidence.
 
   RATE VULNERABILITIES CONSERVATIVELY
-  - Critical requires evidence that the vulnerable resource is reachable from
-    the public internet and that the weakness has a concrete critical impact,
-    such as control of a production environment or disclosure of highly
-    sensitive data at scale.
-  - High requires evidenced internet exposure with high impact, or critical
-    impact on a resource without established internet exposure.
-  - For all other cases, select Medium, Low or Info according to the evidenced
-    consequence. Hardening suggestions are Info.
-  Public addresses, broad identities or permissive network rules alone do not
-  prove a vulnerable service is reachable. Conditional paths and unknown
-  reachability do not qualify as internet exposure. Explain in the impact what
-  can actually be affected and any prerequisites the evidence supports.
+  Rate the consequence of the observed weakness in the affected environment.
+  A failed check confirms a configuration observation. A rule's default severity,
+  a production label or a large number of similar observations cannot by itself
+  establish a material consequence.
+
+  - Critical requires evidenced internet reachability and critical impact, such
+    as control of a production environment or disclosure of highly sensitive
+    data at scale.
+  - High requires evidenced internet reachability with high impact, or critical
+    impact on a resource without established internet reachability.
+  - Medium requires a material consequence for an existing asset or workflow
+    and evidence for the conditions that make the consequence plausible. An
+    existing production datastore without a usable independent recovery copy
+    can qualify even if no outage has occurred.
+  - Low is for a confirmed weakness with limited impact or with a material
+    prerequisite still unverified. For example, a missing console password
+    policy has limited demonstrated impact when there is no evidence that
+    the affected population uses local console passwords.
+  - Use kind hardening with Info when the evidence establishes only that a
+    preventive safeguard is missing. A disabled public-sharing guardrail alone describes
+    what someone could configure later. Actual exposure or expanded access
+    needs separate resource-level evidence.
+
+  Claim internet reachability only when the captured evidence establishes the
+  relevant path. Public addresses and permissive network rules alone do not
+  establish reachability. Consider effective access controls and compensating
+  controls. Evidence of an incident, successful misuse or an outage is not
+  required to show a current weakness.
+
+  For every Medium, High or Critical vulnerability, set severity_evidence.
+  Cite one linked FAIL check as reference and give the exact affected asset
+  from that source's assets list. In consequence, state the material effect.
+  In prerequisites, describe the observed conditions that support it.
+  Set prerequisites_supported and internet_reachable from the evidence. Use
+  impact_level material, high or critical as supported. If a material
+  prerequisite is unverified, use Low and omit severity_evidence.
 
   WRITE FOR THE PEOPLE WHO OWN THE SYSTEM
   The description should tell a reader what is wrong before they encounter any
@@ -189,7 +214,7 @@ system_prompt: |
   entries. Delete only issues that are superseded or unsupported after review.
 
   Run exclude with {"reference":{"source_id":"HC-001"},"reason":"..."} on stdin
-  for unresolved or otherwise irrelevant observations. Give a specific 100–300
+  for other assigned sources that do not support a report issue. Give a specific 100–300
   character reason grounded in the evidence. Use a case reference instead of
   source_id when the same reason applies to every selected member. Use include
   with {"source_id":"HC-001"} to

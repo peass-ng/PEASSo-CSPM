@@ -4,6 +4,7 @@ import json
 from typing import Annotated, Literal
 from pydantic import Field
 from .contracts import Strict
+from .report_severity import RISK, SeverityEvidence, validate_rating
 
 Text = Annotated[str, Field(min_length=1, max_length=12000, pattern=r'\S')]
 
@@ -39,6 +40,7 @@ class FindingsReport(Strict):
 
 class AgentIssue(Issue):
     kind: Literal['vulnerability', 'hardening']
+    severity_evidence: SeverityEvidence[Reference] | None = None
     manual_affected_assets: list[Annotated[str, Field(min_length=1, max_length=500, pattern=r'\S')]] = Field(default_factory=list, max_length=200)
     permission_review_ids: list[Annotated[str, Field(pattern=r'^PR-[0-9a-f]{12}$')]] = Field(default_factory=list)
 
@@ -48,7 +50,6 @@ class AgentReport(FindingsReport):
 
 
 SPECIAL_KINDS = {'leaks', 'image_cves'}
-RISK = ['critical', 'high', 'medium', 'low', 'info']
 
 
 def _issue_id(references):
@@ -75,15 +76,11 @@ def pregenerate(platform, sources=None):
     inventory = platform.get('inventory', ())
     runtime = enrich_runtime(running_images(inventory), inventory, native.get('findings', ()))
     findings = {row['id']: row for row in native.get('findings', [])}
-    issues, exclusions = [], []
+    issues = []
     covered = 0
     for kind in ('leaks', 'image_cves'):
         members = [row for row in sources if row['kind'] == kind]
         positive = [row for row in members if row['domain'] == 'findings' and row['confirmed']]
-        unresolved = [row for row in members if row['domain'] == 'findings' and not row['confirmed']]
-        for row in unresolved:
-            exclusions.append({'reference': {'domain': row['domain'], 'id': row['id']},
-                'reason': 'No confirmed positive observation; retain the native coverage or review state.'})
         covered += len(members)
         if not positive:
             continue
@@ -120,7 +117,7 @@ def pregenerate(platform, sources=None):
             'references': refs,
             'affected_assets': sorted(detail_assets | source_assets)})
     return {'summary': 'Pre-generated findings from captured scan evidence.', 'issues': issues,
-            'exclusions': exclusions, 'limitations': [],
+            'exclusions': [], 'limitations': [],
             'status': 'partial' if agent_sources(sources) else 'completed',
             'source_count': len(sources), 'covered_count': covered,
             **({'running_images': runtime} if runtime else {})}
@@ -188,7 +185,7 @@ def source_index(platform):
 
     meta = report.get('check_meta') or {}
     for row in report.get('findings', []):
-        if row.get('status') not in ('FAIL', 'MANUAL', 'UNKNOWN', 'DENIED'):
+        if row.get('status') != 'FAIL':
             continue
         evidence = row.get('evidence') or {}
         check = row.get('check_id', '')
@@ -217,8 +214,7 @@ def source_index(platform):
         result.append({'category': category, 'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident}),
                        **({'source_facts': facts} if facts else {}),
                        'domain': 'findings', 'id': row['id'], 'kind': kind,
-                       'actionable': row.get('status') == 'FAIL',
-                       'confirmed': row.get('status') == 'FAIL', 'required': row.get('status') == 'FAIL' or category in ('hardening', 'exposure', 'network')})
+                       'actionable': True, 'confirmed': True, 'required': True})
     for index, row in enumerate(platform.get('least_privilege', {}).get('items', [])):
         if row.get('suggestions') or row.get('exposures'):
             reviews = [dict(item, principal=row['principal'], provider=row.get('provider', report.get('provider')))
@@ -244,13 +240,15 @@ def source_index(platform):
                        'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident})})
     finding_sources = {row['id']: row for row in result if row['domain'] == 'findings'}
     for action in platform.get('top_actions', []):
-        supporting = [finding_sources.get(ident) for ident in action.get('finding_ids', [])]
-        kinds = {row['kind'] for row in supporting if row}
-        kind = (next(iter(kinds)) if len(kinds) == 1 and kinds <= SPECIAL_KINDS and
-                supporting and all(row and row['confirmed'] for row in supporting) else None)
+        finding_ids = action.get('finding_ids', [])
+        if not finding_ids or any(ident not in finding_sources for ident in finding_ids):
+            continue
+        supporting = [finding_sources[ident] for ident in finding_ids]
+        kinds = {row['kind'] for row in supporting}
+        kind = next(iter(kinds)) if len(kinds) == 1 and kinds <= SPECIAL_KINDS else None
         result.append({'domain': 'actions', 'id': str(action['rank']), 'kind': kind,
                        'confirmed': False, 'required': True, 'actionable': False,
-                       'assets': sorted({asset_id for row in supporting if row for asset_id in row.get('assets', [])})})
+                       'assets': sorted({asset_id for row in supporting for asset_id in row['assets']})})
     # The lossless reader can distinguish historic duplicate graph IDs by their
     # records, but report references deliberately identify the original edge.
     from collections import Counter
@@ -272,7 +270,6 @@ def _scoped_context(platform, sources):
     from .pipeline import referenced_strings
     from peaso.engine import hydrate_finding
     assigned = agent_sources(sources)
-    required = {r['id'] for r in assigned if r['domain'] == 'findings' and r['required']}
     allowed = {r['id'] for r in assigned if r['domain'] == 'findings'}
     report = platform.get('report', {})
     actions = {r['id'] for r in assigned if r['domain'] == 'actions'}
@@ -281,11 +278,9 @@ def _scoped_context(platform, sources):
              for i, row in enumerate(platform.get('least_privilege', {}).get('items', []))
              if str(row.get('id', i)) in least_reviews]
     top = [row for row in platform.get('top_actions', []) if str(row['rank']) in actions]
-    network_review = platform.get('network_review') or {}
-    network_ids = {r['id'] for r in network_review.get('findings', [])}
     selected = [hydrate_finding(row, report.get('check_frameworks'), report.get('check_meta'),
                 report.get('check_meta_encoding'), report.get('remediation_templates'))
-                for row in report.get('findings', []) if row['id'] in required | network_ids]
+                for row in report.get('findings', []) if row.get('status') == 'FAIL' and row['id'] in allowed]
     paths = (report.get('graphs', {}).get('privesc') or {})
     inventory = platform.get('inventory', [])
     universe = {row.get(key) for row in inventory for key in ('id', 'native_id') if isinstance(row.get(key), str)}
@@ -295,12 +290,6 @@ def _scoped_context(platform, sources):
     def references(value):
         return set(referenced_strings(value)) & universe
     roots = references([selected, least, top, paths])
-    # Conditional findings on the same affected assets can explain a limitation.
-    for row in report.get('findings', []):
-        if row['id'] in allowed and row['id'] not in required | network_ids and row.get('resource_id') in roots:
-            selected.append(hydrate_finding(row, report.get('check_frameworks'), report.get('check_meta'),
-                            report.get('check_meta_encoding'), report.get('remediation_templates')))
-    roots.update(references(selected))
     related = []
     graphs = {'privesc': paths}
     # Two explicit relationship/dependency hops; unrelated inventory stays out.
@@ -323,16 +312,10 @@ def _scoped_context(platform, sources):
         graphs[name].update(context_restricted=True, total_nodes=len(graphs[name]['nodes']), total_edges=len(edges))
     roots.update(references(graphs))
     related = [row for row in inventory if row.get('id') in roots or row.get('native_id') in roots]
-    selected_ids = {row['id'] for row in selected}
     selected_checks = {row.get('check_id') for row in selected}
-    scopes = {row.get('scope') for row in selected + related} | {'*'}
-    kinds = {row.get('type') for row in related}
-    gaps = [row for row in report.get('coverage', []) if str(row.get('status', '')).upper() in
-            {'DENIED', 'UNKNOWN', 'PARTIAL', 'ERROR', 'TIMEOUT', 'NOT_COLLECTED', 'MALFORMED'} and
-            (row.get('check_id') in selected_checks or row.get('scope') in scopes and row.get('type') in kinds)]
     context_report = {key: report[key] for key in ('provider', 'snapshot_id', 'created_at', 'schema_version',
                       'scopes', 'check_meta_encoding', 'remediation_templates') if key in report}
-    context_report.update(findings=selected, graphs=graphs, coverage=gaps)
+    context_report.update(findings=selected, graphs=graphs)
     for key in ('check_meta', 'check_frameworks', 'remediation_templates'):
         if isinstance(report.get(key), dict):
             context_report[key] = {k: v for k, v in report[key].items() if k in selected_checks}
@@ -341,9 +324,8 @@ def _scoped_context(platform, sources):
     snapshot_context['metadata'] = {key: value for key, value in (snapshot.get('metadata') or {}).items()
                                     if key in ('input_mode', 'requested_scopes')}
     scoped = {'report': context_report, 'inventory': related, 'snapshot_context': snapshot_context,
-              'least_privilege': {'items': least, 'total': len(least)}, 'top_actions': top,
-              'network_review': network_review, 'analysis_status': platform.get('analysis_status', {})}
-    return scoped, [r for r in assigned if r['domain'] != 'findings' or r['id'] in selected_ids]
+              'least_privilege': {'items': least, 'total': len(least)}, 'top_actions': top}
+    return scoped, assigned
 
 
 def build(root, platform, findings, reviews, write_json):
@@ -361,13 +343,12 @@ def build(root, platform, findings, reviews, write_json):
             value['data_index'] = dict(value.get('data_index', {}),
                 semantics='Evidence is scoped to assigned findings and their related dependencies.')
         write_json(path, value)
-    build_context(root, scoped, [row for row in findings if row['id'] in identifiers],
+    build_context(root, scoped, [row for row in findings if row.get('status') == 'FAIL' and row['id'] in identifiers],
                   [row for row in reviews if row['finding_id'] in identifiers], write_context)
     write_json(root / 'report-sources.json', [dict(
         {key: val for key, val in row.items() if key != 'permission_recommendations'},
         **({'permission_review_ids': [item['review_id'] for item in row['permission_recommendations']]}
            if row.get('permission_recommendations') else {})) for row in assigned])
-    write_json(root / 'analysis-status.json', scoped['analysis_status'])
     write_json(root / 'top-actions.json', scoped['top_actions'])
     from .report_draft import initial_draft
     write_json(root / 'report-draft.json', initial_draft(platform.get('previous_findings_report') or {}, assigned))
@@ -401,6 +382,13 @@ def validate(data, sources):
             raise ValueError('unconfirmed_report_issue')
         if issue['kind'] == 'hardening' and issue['severity'] != 'info':
             raise ValueError('hardening_report_severity')
+        evidence = validate_rating(issue)
+        if evidence:
+            ref = evidence['reference']
+            key = (ref['domain'], ref['id'])
+            if (key not in keys or key[0] != 'findings' or not known[key]['confirmed']
+                    or evidence['asset'] not in known[key].get('assets', [])):
+                raise ValueError('unsupported_report_severity_source')
         if issue['permission_review_ids']:
             available = {ident for key in keys for ident in (known[key].get('permission_review_ids') or
                          [item['review_id'] for item in known[key].get('permission_recommendations', [])])}

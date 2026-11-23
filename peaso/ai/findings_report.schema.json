@@ -73,6 +73,17 @@
           "title": "References",
           "type": "array"
         },
+        "severity_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SeverityEvidence_Reference_"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "manual_affected_assets": {
           "items": {
             "maxLength": 500,
@@ -82,6 +93,14 @@
           },
           "maxItems": 200,
           "title": "Manual Affected Assets",
+          "type": "array"
+        },
+        "permission_review_ids": {
+          "items": {
+            "pattern": "^PR-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "title": "Permission Review Ids",
           "type": "array"
         }
       },
@@ -144,6 +163,63 @@
         "id"
       ],
       "title": "Reference",
+      "type": "object"
+    },
+    "SeverityEvidence_Reference_": {
+      "additionalProperties": false,
+      "properties": {
+        "reference": {
+          "$ref": "#/$defs/Reference"
+        },
+        "asset": {
+          "maxLength": 600,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Asset",
+          "type": "string"
+        },
+        "consequence": {
+          "maxLength": 600,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Consequence",
+          "type": "string"
+        },
+        "prerequisites": {
+          "maxLength": 600,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Prerequisites",
+          "type": "string"
+        },
+        "prerequisites_supported": {
+          "title": "Prerequisites Supported",
+          "type": "boolean"
+        },
+        "impact_level": {
+          "enum": [
+            "material",
+            "high",
+            "critical"
+          ],
+          "title": "Impact Level",
+          "type": "string"
+        },
+        "internet_reachable": {
+          "title": "Internet Reachable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "reference",
+        "asset",
+        "consequence",
+        "prerequisites",
+        "prerequisites_supported",
+        "impact_level",
+        "internet_reachable"
+      ],
+      "title": "SeverityEvidence[Reference]",
       "type": "object"
     }
   },

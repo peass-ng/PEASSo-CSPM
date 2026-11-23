@@ -13,13 +13,14 @@ from .output_validation import MAX_OUTPUT, private_file
 
 
 def initial_draft(report, sources=None):
+    known = {(row['domain'], row['id']): row for row in sources} if sources is not None else None
     issues = {
         issue['id']: {key: issue[key] for key in AgentIssue.model_fields if key in issue}
         for issue in report.get('issues', [])
         if issue['kind'] not in SPECIAL_KINDS
+        and (known is None or all((ref['domain'], ref['id']) in known for ref in issue['references']))
     }
     exclusions = {}
-    known = {(row['domain'], row['id']): row for row in sources} if sources is not None else None
     for row in report.get('exclusions', []):
         if not 100 <= len(row['reason'].strip()) <= 300:
             continue
@@ -130,6 +131,9 @@ def edit(parser, args):
             ident = args.id if args.operation == 'update' else uuid.uuid4().hex
             expanded = [ref for entry in document['references'] for ref in expand(entry)]
             document['references'] = list({(ref['domain'], ref['id']): ref for ref in expanded}.values())
+            severity_evidence = document.get('severity_evidence')
+            if isinstance(severity_evidence, dict) and 'reference' in severity_evidence:
+                severity_evidence['reference'] = resolve(severity_evidence['reference'])
             issues[ident] = AgentIssue.model_validate(document).model_dump()
             if len(issues) > 500:
                 parser.error('Too many draft issues')

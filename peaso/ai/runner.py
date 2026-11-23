@@ -151,12 +151,14 @@ def main():
             if use_draft:
                 text = ('Read validation-feedback.json. Fix the draft through report_draft commands and account for '
                         'each missing_references entry. Include every confirmed finding in an issue. Other sources '
-                        'can be included in an issue or given a justified exclusion. Then return done.')
+                        'can be included in an issue or given a justified exclusion. For severity errors, use '
+                        'evidence from a linked failed check on the affected asset or lower the rating. Then return done.')
             elif stage == 'report_combination':
                 text = ('Correct candidate-output.json using validation-feedback.json and combined-reports.json. '
                         'Add missing_references and remove duplicate or unknown references. Resolve each report_id '
                         'and issue_id against the original issues. Preserve every source issue exactly once and '
-                        'return complete JSON with valid grouping, severities and field limits.')
+                        'return complete JSON with valid grouping, severities and field limits. For severity '
+                        'errors, carry forward sufficient evidence from a linked source issue or lower the rating.')
             else:
                 text = ('Correct candidate-output.json using validation-feedback.json. Both files and all original '
                         'inputs are in the working directory. Resolve references against original findings/resources '

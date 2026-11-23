@@ -14,7 +14,7 @@ def source(domain, ident, kind=None, confirmed=True):
 
 def issue(refs, kind='vulnerability', status='confirmed'):
     return dict(title='Restrict the affected boundary', kind=kind, status=status,
-                severity='info' if kind == 'hardening' else 'medium',
+                severity='info' if kind == 'hardening' else 'low',
                 description='Observed configuration in the scanned account.', impact='Conditional data access.',
                 recommendation='Apply the scoped policy after checking dependencies.',
                 verification='Read back the policy and confirm the intended restriction.',
@@ -23,6 +23,48 @@ def issue(refs, kind='vulnerability', status='confirmed'):
 
 def report(issues=(), exclusions=()):
     return dict(summary='Completed scan report.', issues=list(issues), exclusions=list(exclusions), limitations=[])
+
+
+def test_severity_requires_supported_consequence_on_an_affected_asset():
+    rows = [
+        dict(id='backup', resource_id='prod/state', status='FAIL'),
+        dict(id='password-policy', resource_id='account', status='FAIL'),
+        dict(id='preventive-guardrail', resource_id='account', status='FAIL'),
+    ]
+    sources = compiler.source_index({'report': {'findings': rows}})
+    recovery = issue([('findings', 'backup')])
+    recovery.update(severity='medium', severity_evidence={
+        'reference': recovery['references'][0],
+        'asset': 'prod/state',
+        'consequence': 'Loss of the state store would leave production without an independent recovery copy.',
+        'prerequisites': 'The production state store exists and has neither backup selection nor replication.',
+        'prerequisites_supported': True,
+        'impact_level': 'material',
+        'internet_reachable': False,
+    })
+    login = issue([('findings', 'password-policy')])
+    sharing = issue([('findings', 'preventive-guardrail')], kind='hardening')
+    data = report([recovery, login, sharing])
+    assert [item['severity'] for item in compiler.validate(data, sources)['issues']] == ['medium', 'low', 'info']
+    with pytest.raises(ValueError, match='missing_report_severity_evidence'):
+        compiler.validate(report([recovery, dict(login, severity='medium'), sharing]), sources)
+    login_evidence = dict(recovery['severity_evidence'], reference=login['references'][0], asset='account',
+                          prerequisites='An affected population uses console passwords.',
+                          prerequisites_supported=False)
+    with pytest.raises(ValueError, match='unsupported_report_severity'):
+        compiler.validate(report([recovery, dict(login, severity='medium', severity_evidence=login_evidence), sharing]),
+                          sources)
+    with pytest.raises(ValueError, match='unsupported_report_severity'):
+        compiler.validate(report([dict(recovery, severity='high'), login, sharing]), sources)
+    critical_impact = dict(recovery['severity_evidence'], impact_level='critical')
+    with pytest.raises(ValueError, match='unsupported_report_severity'):
+        compiler.validate(report([dict(recovery, severity='critical', severity_evidence=critical_impact), login, sharing]),
+                          sources)
+    with pytest.raises(ValueError, match='info_vulnerability_requires_hardening'):
+        compiler.validate(report([recovery, login, dict(sharing, kind='vulnerability')]), sources)
+    bad_source = dict(recovery['severity_evidence'], asset='unrelated/state')
+    with pytest.raises(ValueError, match='unsupported_report_severity_source'):
+        compiler.validate(report([dict(recovery, severity_evidence=bad_source), login, sharing]), sources)
 
 
 def test_all_source_areas_are_assessed_and_ids_are_stable():
@@ -54,6 +96,37 @@ def test_confirmed_exclusions_and_omissions_are_reported_together():
                                       [unresolved]), sources)
     assert result['covered_count'] == 3
     assert result['exclusions'] == [unresolved]
+
+
+def test_assessment_report_workspace_excludes_nonfail_checks_and_inherited_text(tmp_path):
+    import sqlite3
+
+    statuses = ('FAIL', 'MANUAL', 'UNKNOWN', 'DENIED', 'PASS')
+    rows = [dict(id=status.lower(), category='hardening', status=status, resource_id='bucket',
+                 check_id=f'example-{status.lower()}') for status in statuses]
+    prior = dict(issue([('findings', 'fail'), ('findings', 'manual')]), id='old',
+                 description='Unverified cross-account retention.')
+    platform = {
+        'report': {'findings': rows, 'coverage': [{'check_id': rows[0]['check_id'], 'status': 'DENIED'}]},
+        'inventory': [{'id': 'bucket', 'type': 's3_bucket'}],
+        'network_review': {'findings': [rows[1]], 'explanation': 'Unverified cross-account retention.'},
+        'previous_findings_report': {'issues': [prior]},
+        'top_actions': [
+            {'rank': 1, 'finding_ids': ['fail']},
+            {'rank': 2, 'finding_ids': ['fail', 'unknown']},
+        ],
+    }
+    compiler.build(tmp_path, platform, rows, [], output_validation.private_file)
+    with sqlite3.connect(tmp_path / 'context.sqlite') as db:
+        assert db.execute("SELECT id FROM records WHERE domain = 'findings'").fetchall() == [('fail',)]
+        assert db.execute("SELECT detail FROM records WHERE id = 'coverage_gaps'").fetchone() == ('[]',)
+        assert db.execute("SELECT id FROM records WHERE id = 'network_review'").fetchall() == []
+    assert {row['id'] for row in json.loads((tmp_path / 'report-sources.json').read_text())} == {'1', 'fail'}
+    assert [row['rank'] for row in json.loads((tmp_path / 'top-actions.json').read_text())] == [1]
+    assert json.loads((tmp_path / 'report-draft.json').read_text())['issues'] == {}
+    with pytest.raises(ValueError, match='unknown_report_reference'):
+        compiler.validate(report([issue([('findings', 'fail'), ('findings', 'manual')])]),
+                          compiler.source_index(platform))
 
 
 def test_permission_recommendations_survive_individual_and_combined_compilation(tmp_path):
@@ -138,7 +211,7 @@ def test_bad_coverage_references_and_confidence_fail_closed(case):
     with pytest.raises(ValueError): compiler.validate(data, sources)
 
 
-def test_index_keeps_uncertainty_and_recognizes_actual_native_image_and_secret_evidence():
+def test_index_recognizes_failed_native_image_and_secret_evidence():
     platform = {'report': {'findings': [
         dict(id='leak', status='FAIL', check_id='custom', evidence={'secret_leaks': [{}]}),
         dict(id='image', status='FAIL', check_id='aws.review.ecr.selected_image_vulnerabilities'),
@@ -146,9 +219,8 @@ def test_index_keeps_uncertainty_and_recognizes_actual_native_image_and_secret_e
         'graphs': {'privesc': {'edges': [dict(id='edge')]}}},
         'least_privilege': {'items': [dict(id='lp', suggestions=[{}])]}, 'top_actions': [dict(rank=1)]}
     index = compiler.source_index(platform)
-    assert {r['id'] for r in index} == {'leak', 'image', 'gap', 'edge', 'lp', '1'}
+    assert {r['id'] for r in index} == {'leak', 'image', 'edge', 'lp'}
     assert {r['kind'] for r in index} == {'leaks', 'image_cves', None}
-    assert not next(r for r in index if r['id'] == 'gap')['required']
 
 
 def test_runner_and_backend_validate_the_same_report(tmp_path):
@@ -325,8 +397,8 @@ def test_context_excludes_passes_unrelated_resources_and_bulk_snapshot_metadata(
         'snapshot_context': {'provider': 'cloud', 'metadata': {'input_mode': 'live', 'bulk': 'UNRELATED-CONTEXT'},
                              'collections': [{'irrelevant': 'UNRELATED-CONTEXT'}]}}
     scoped, sources = compiler._scoped_context(platform, compiler.source_index(platform))
-    assert {r['id'] for r in scoped['report']['findings']} == {'fail', 'gap'}
-    assert {r['id'] for r in sources} == {'fail', 'gap'}
+    assert {r['id'] for r in scoped['report']['findings']} == {'fail'}
+    assert {r['id'] for r in sources} == {'fail'}
     assert {r['id'] for r in scoped['inventory']} == {'used', 'dependency'}
     assert {r['id'] for r in scoped['report']['graphs']['network']['nodes']} == {'n1', 'n2'}
     assert 'UNRELATED-CONTEXT' not in json.dumps(scoped)
@@ -396,17 +468,17 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
     platform = {
         'report': {'findings': [
             {'id': 'native-hardening', 'check_id': 'hardening-check', 'status': 'FAIL', 'resource_id': 'disk'},
-            {'id': 'native-exposure', 'category': 'exposure', 'status': 'UNKNOWN', 'resource_id': 'workload'},
             {'id': 'native-network', 'category': 'network', 'status': 'FAIL', 'resource_id': 'workload',
              'evidence': {'source': 'ai_network_review', 'resource_ids': ['disk', 'workload']}},
-        ], 'check_meta': {'hardening-check': {'category': 'hardening'}}},
+        ], 'check_meta': {'hardening-check': {'category': 'hardening'}},
+            'graphs': {'privesc': {'edges': [{'id': 'conditional-edge'}]}}},
         'inventory': [{'id': 'disk', 'native_id': 'disk/production'}],
         'least_privilege': {'items': [{'id': 'principal', 'principal': 'identity/worker',
                                       'exposures': [{'resource_id': 'workload'}]}]},
     }
     sources = compiler.source_index(platform)
     by_alias = {row['source_id']: row for row in sources}
-    assert set(by_alias) == {'HC-001', 'EX-001', 'NW-001', 'LP-001'}
+    assert set(by_alias) == {'HC-001', 'PE-001', 'NW-001', 'LP-001'}
     assert by_alias['NW-001']['assets'] == ['disk/production', 'workload']
     assert by_alias['LP-001']['assets'] == ['identity/worker', 'workload']
     (tmp_path / 'report-sources.json').write_text(json.dumps(sources))
@@ -428,7 +500,7 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
     with pytest.raises(compiler.MissingReportEvidence) as error:
         compiler.validate(report_draft.candidate(json.loads(path.read_text())), sources)
     feedback = output_validation.feedback(error.value)
-    assert {row['source_id'] for row in feedback['missing_references']} == {'EX-001', 'NW-001', 'LP-001'}
+    assert {row['source_id'] for row in feedback['missing_references']} == {'PE-001', 'NW-001', 'LP-001'}
     rejected = command('exclude', document={'reference': {'source_id': 'NW-001'}, 'reason': reason}, success=False)
     assert 'Include confirmed findings in an issue' in rejected.stderr
 
@@ -440,21 +512,20 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
         db.executemany('INSERT INTO case_members VALUES(?, ?, ?, ?)', [
             ('decision_findings', 'case', 'findings', 'native-hardening'),
             ('decision_findings', 'case', 'findings', 'native-network'),
-            ('decision_findings', 'case', 'findings', 'native-exposure'),
-            ('decision_findings', 'case', 'findings', 'native-exposure'),
+            ('decision_findings', 'case', 'findings', 'native-network'),
             ('decision_findings', 'case', 'findings', 'unassigned'),
         ])
-    replacement['references'] = [{'case_id': 'case', 'except_source_ids': ['EX-001']}, {'source_id': 'LP-001'}]
+    replacement['references'] = [{'case_id': 'case', 'except_source_ids': ['NW-001']},
+                                 {'source_id': 'NW-001'}, {'source_id': 'LP-001'}]
     command('update', 'prior-issue', document=replacement)
-    assert [row['source_id'] for row in command('coverage')['items']] == ['EX-001']
+    assert [row['source_id'] for row in command('coverage')['items']] == ['PE-001']
     new_id = command('add', document=dict(replacement, references=[{'source_id': 'HC-001'}]))['id']
     command('delete', new_id)
-    assert command('exclude', document={'reference': {'source_id': 'EX-001'}, 'reason': 'Too short'}, success=False).returncode
+    assert command('exclude', document={'reference': {'source_id': 'PE-001'}, 'reason': 'Too short'}, success=False).returncode
     rejected = command('exclude', document={'reference': {'case_id': 'case'}, 'reason': reason}, success=False)
     assert 'Include confirmed findings in an issue' in rejected.stderr
     assert command('exclusions')['total'] == 0
-    command('exclude', document={'reference': {'case_id': 'case', 'except_source_ids': ['HC-001', 'NW-001']},
-                                 'reason': reason})
+    command('exclude', document={'reference': {'source_id': 'PE-001'}, 'reason': reason})
     draft = json.loads(path.read_text())
     candidate = report_draft.candidate(draft)
     candidate['draft_issue_ids'] = {

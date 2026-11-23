@@ -12,12 +12,12 @@ It uses the existing best-quality model alias and high thinking effort. It runs
 in the existing isolated agent runtime, with captured evidence and no live cloud
 credentials. The shared deadline reserves time for compilation and publication.
 
-The local context contains failed observations, actionable least-privilege
-recommendations, privilege-escalation paths, accepted network findings and relevant
-prioritized actions. Passed checks, unrelated inventory and bulk snapshot metadata
-are omitted. Resource configuration and IAM/network relationships are limited to
-explicit references and two dependency hops around assigned evidence. Relevant
-uncertain observations and coverage gaps remain available through local lookups.
+The local context contains only FAIL check results. It also supplies actionable
+least-privilege recommendations, privilege-escalation paths and prioritized
+actions supported exclusively by FAIL results. Resource configuration and
+IAM/network relationships are limited to explicit references and two dependency
+hops around assigned evidence. Regeneration rebuilds draft issues whose
+references include checks outside the current input.
 The opening overview previews at most 12 cases per area; full case membership and
 evidence are indexed for targeted, paginated access. Findings are grouped by root cause and remediation, without a 15-issue
 limit. Check-result totals, FAIL totals and evidence-source totals are not vulnerability
@@ -36,8 +36,15 @@ appended to those findings by the platform.
 
 The prompt explicitly groups encryption observations into one finding, logging
 and monitoring gaps into one, and backup and recovery gaps into one, with exact
-resource-specific observations and fixes inside each theme. Suggestions and conditional graph paths cannot alone
-support a confirmed issue. General preventive hardening is informational.
+resource-specific observations and fixes inside each theme. Suggestions and
+conditional graph paths cannot alone support a confirmed issue. General
+preventive hardening is informational.
+
+Medium and higher vulnerability ratings require a structured consequence,
+supported prerequisites and an affected asset from a cited failed check.
+High and Critical also apply the rubric's reachability and impact thresholds.
+Low covers limited impact and unresolved material prerequisites. Info is used
+for preventive hardening.
 
 The historical report review informed these writing rules: distinguish settings
 from demonstrated exploitation; inspect actual scope and compensating controls;
@@ -78,7 +85,13 @@ The isolated `report_combination` agent receives compiled issues and report meta
 only, with small previews and paginated local lookups. Its provider-neutral prompt
 is in `peaso/ai/agents/report_combination.yaml`. It consolidates matching security
 themes across scopes, preserving asset identities, individual fixes, dates and
-conditional assessments. Every source issue must be referenced exactly once;
+impact prerequisites for confirmed weaknesses. The prompt keeps unresolved
+controls out of vulnerability prose, including caveats in older source reports.
+Medium and higher ratings cite one confirmed source issue with a sufficient
+rating and the affected asset. Where the source has structured severity evidence,
+the combination carries it forward exactly. Older issues can support a rating
+with adequately documented impact in their description and impact fields.
+Every source issue must be referenced exactly once;
 leaks and image CVEs each remain one combined finding when present. Validation
 preserves the highest supporting severity and repeats at the worker boundary.
 Source-issue drawers read frozen originals, so identical issue IDs in different

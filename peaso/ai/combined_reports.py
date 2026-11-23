@@ -5,7 +5,8 @@ from collections import Counter
 from typing import Annotated
 from pydantic import Field
 from .contracts import Strict
-from .findings_report import Issue, Text, RISK, SPECIAL_KINDS
+from .findings_report import Issue, Text, SPECIAL_KINDS
+from .report_severity import RISK, SeverityEvidence, validate_rating
 
 CombinedText = Annotated[str, Field(min_length=1, max_length=120000, pattern=r'\S')]
 
@@ -21,6 +22,7 @@ class CombinedIssue(Issue):
     recommendation: CombinedText
     verification: CombinedText
     references: list[Reference] = Field(min_length=1)
+    severity_evidence: SeverityEvidence[Reference] | None = None
 
 
 class CombinedReport(Strict):
@@ -104,12 +106,27 @@ def validate(data, reports):
             raise ValueError('combined_severity_mismatch')
         confirmed_vulnerability = any(row['kind'] == 'vulnerability' and row['status'] == 'confirmed'
                                       for row in source)
-        if (issue['kind'] == 'hardening' and (confirmed_vulnerability or issue['severity'] != 'info')
+        if (issue['kind'] == 'hardening' and (issue['severity'] != 'info'
+                or any(row['kind'] == 'vulnerability' and row.get('severity_evidence') for row in source))
                 or kinds == {'hardening'} and issue['kind'] != 'hardening'):
             raise ValueError('hardening_report_severity')
         if ((issue['kind'] == 'vulnerability' and (issue['status'] != 'confirmed' or not confirmed_vulnerability))
                 or (issue['status'] == 'confirmed' and not any(row['status'] == 'confirmed' for row in source))):
             raise ValueError('unconfirmed_report_issue')
+        evidence = validate_rating(issue)
+        if evidence:
+            ref = evidence['reference']
+            key = (ref['report_id'], ref['issue_id'])
+            original = known.get(key)
+            if (key not in keys or original['kind'] != 'vulnerability' or original['status'] != 'confirmed'
+                    or combined_severity < RISK.index(original['severity'])
+                    or evidence['asset'] not in original.get('affected_assets', [])):
+                raise ValueError('unsupported_report_severity_source')
+            prior_evidence = original.get('severity_evidence')
+            if prior_evidence and any(evidence[field] != prior_evidence[field] for field in (
+                    'asset', 'consequence', 'prerequisites', 'impact_level',
+                    'internet_reachable', 'prerequisites_supported')):
+                raise ValueError('unsupported_report_severity_source')
     expected = {row['kind'] for row in known.values()} & SPECIAL_KINDS
     if set(special) != expected or any(count != 1 for count in special.values()):
         raise ValueError('combined_special_group_mismatch')
@@ -143,7 +160,8 @@ def main():
     parser.add_argument('--offset', type=int, default=0)
     parser.add_argument('--limit', type=int, default=20)
     parser.add_argument('--chars', type=int, default=4000)
-    parser.add_argument('--field', choices=('description', 'impact', 'recommendation', 'verification', 'references', 'limitations'))
+    parser.add_argument('--field', choices=('description', 'impact', 'recommendation', 'verification',
+                                           'references', 'severity_evidence', 'limitations'))
     args = parser.parse_args()
     if args.offset < 0 or not 1 <= args.limit <= 50 or not 1 <= args.chars <= 16000:
         parser.error('Invalid pagination')
