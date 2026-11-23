@@ -1609,13 +1609,43 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
                         severity: str = Query(default="", max_length=20), user=Depends(identity)):
         from peaso.ai.combined_report_runs import detail
         from .findings_report import page
-        return page(detail(store, artifacts, user.tenant_id, ident), offset=offset, limit=limit,
-                    search=search, severity=severity)
+        report = page(detail(store, artifacts, user.tenant_id, ident), offset=offset, limit=limit,
+                      search=search, severity=severity)
+        scans = {ref['report_id'] for issue in report['issues'] if detector_asset_ids([issue])
+                 for ref in issue.get('references', ())}
+        report['issues'] = present_report_assets(user.tenant_id, report['issues'], scans)
+        return report
 
     @app.get("/api/combined-reports/{ident}/source-issue")
     def combined_source_issue(ident: str, report_id: str, issue_id: str, user=Depends(identity)):
         from peaso.ai.combined_report_runs import source_issue
-        return source_issue(store, artifacts, user.tenant_id, ident, report_id, issue_id)
+        result = source_issue(store, artifacts, user.tenant_id, ident, report_id, issue_id)
+        if result['assessment_available']:
+            result['issue'], = present_report_assets(user.tenant_id, [result['issue']], (report_id,))
+        return result
+
+    from .findings_report import detector_asset_ids, resolve_detector_assets
+
+    def present_report_assets(tenant, issues, scans, *, current=None):
+        wanted = detector_asset_ids(issues)
+        if not wanted:
+            return issues
+
+        def native_findings():
+            for scan in sorted(scans):
+                try:
+                    row, bundle = current or owned_bundle(tenant, scan)
+                except (StoreError, HTTPException) as exc:
+                    status = exc.status if isinstance(exc, StoreError) else exc.status_code
+                    if status not in (404, 409):
+                        raise
+                    continue
+                if bundle.get('bundle_version') == 1:
+                    yield from finding_index(tenant, row['report'], finding_index_references(bundle))
+                else:
+                    yield from bundle.get('findings', ())
+
+        return resolve_detector_assets(issues, native_findings(), wanted)
 
     @app.get("/api/scans/{ident}/findings-report")
     def scan_findings_report(ident: str, offset: int = Query(default=0, ge=0),
@@ -1633,7 +1663,10 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         from peaso.ai.report_runs import current_report
         report = current_report(store, artifacts, user.tenant_id, ident, row, report)
         from .findings_report import page as report_page
-        return report_page(report, offset=offset, limit=limit, search=search, severity=severity, exclusion_offset=exclusion_offset)
+        result = report_page(report, offset=offset, limit=limit, search=search, severity=severity,
+                             exclusion_offset=exclusion_offset)
+        result['issues'] = present_report_assets(user.tenant_id, result['issues'], (ident,), current=(row, bundle))
+        return result
 
     @app.get("/api/scans/{ident}/findings-report/evidence")
     def report_evidence_labels(ident: str, finding_id: list[str] = Query(), user=Depends(identity)):
