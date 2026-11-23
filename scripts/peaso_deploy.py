@@ -1631,7 +1631,7 @@ def package_api():
          "--python-version", "3.12", "--abi", "cp312", "--only-binary=:all:",
          "fastapi>=0.115", "uvicorn>=0.30", "cryptography>=43", "PyYAML>=6",
          "PyJWT[crypto]>=2.10", "mangum>=0.19", "boto3==1.43.38", "requests>=2", "tzdata>=2024.1",
-         "google-auth==2.62.0", "azure-identity==1.26.0", "reportlab==5.1.0", "markdown-it-py==4.3.0"])
+         "google-auth==2.62.0", "azure-identity==1.26.0", "reportlab==5.1.0", "markdown-it-py==4.3.0", "pillow==12.2.0"])
     # Reject installer-created links before copying any source into its tree.
     omitted = omit_empty_api_installation_markers(target)
     if omitted:
