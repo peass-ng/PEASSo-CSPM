@@ -1677,9 +1677,17 @@ def build_worker(tag):
     release = json.loads((BUILD / "release.json").read_text())
     run(["docker", "build", "--platform", "linux/amd64", "-f", context / "infra/aws/Dockerfile.worker",
          "--label", f"org.opencontainers.image.revision={release['source_version']}",
+         "--build-arg", f"PEASO_CLOUD_CLI_WEEK={time.strftime('%G-%V', time.gmtime())}",
+         "--build-arg", f"PEASO_CHACK_REFRESH={time.time_ns()}",
          "-t", f"peaso-worker:{tag}", context])
+    verify_worker(tag)
+
+
+def verify_worker(tag):
+    context = source_root()
     code = """
 import hashlib,json,os
+from importlib.metadata import distribution
 from pathlib import Path
 from peaso.engine import get_catalog
 import peaso.privesc
@@ -1693,6 +1701,9 @@ for name,digest in release['files'].items():
         count+=1
 constraints=Path('/app/infra/aws/sdk-constraints.txt')
 assert constraints.is_file() and hashlib.sha256(constraints.read_bytes()).hexdigest()==release['files']['infra/aws/sdk-constraints.txt']
+chack=json.loads(distribution('chack-agent').read_text('direct_url.json'))
+assert chack['vcs_info']['requested_revision']=='master'
+print('Worker chack-agent master commit:',chack['vcs_info']['commit_id'])
 print('Worker frozen runtime files:',count)
 print('Worker native catalog checks:',len(get_catalog()['checks']))
 """
@@ -2835,6 +2846,8 @@ def main():
                         help="Optional current repository path; alternate exports are refused")
     build = sub.add_parser("build-worker")
     build.add_argument("--tag", default=f"release-{int(time.time())}")
+    verify = sub.add_parser("verify-worker")
+    verify.add_argument("--tag", required=True)
     push = sub.add_parser("push-worker")
     push.add_argument("--tag", required=True)
     plan = sub.add_parser("plan")
@@ -2948,6 +2961,9 @@ for path, expected in [('/api/health',200),('/api/me',401),('/api/connectors',40
         return
     if args.command == "build-worker":
         build_worker(args.tag)
+        return
+    if args.command == "verify-worker":
+        verify_worker(args.tag)
         return
     if args.command == "verify-host":
         import urllib.request
