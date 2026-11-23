@@ -423,14 +423,14 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         if not meta or finding.get("check_id") not in meta:
             result = annotate(finding)
             from .materialized_catalog import finding_service
-            service = finding_service(result)
+            service = finding.get("service") if finding.get("grouped_by_title") else finding_service(result)
             return dict(result, service=service) if service else result
         from .report_projection_static_20261020 import hydrate_finding
         bundle = bundle or {}
         result = annotate(hydrate_finding(finding, None, meta, bundle.get("check_meta_encoding"),
                                bundle.get("remediation_templates")))
         from .materialized_catalog import finding_service
-        service = finding_service(result)
+        service = finding.get("service") if finding.get("grouped_by_title") else finding_service(result)
         return dict(result, service=service) if service else result
 
     def with_remediation(finding, bundle):
@@ -1201,6 +1201,8 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         search_text = search.casefold() if search else None
         missing = object()
         from peaso.finding_groups import CONTAINER_CVES_CHECK, container_cve_title, group_key
+        from .finding_groups_static_20261021 import type_group_key
+        by_type = group_by == "finding_type" and (status_count_aggregation == "check" or not sort_cards)
 
         def field(value, name):
             if name == "service":
@@ -1344,6 +1346,13 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
             for value in group:
                 value = apply_review(secret_candidate(value), bundle["_finding_reviews"], meta)
                 category = field(value, "category")
+                if by_type:
+                    title = field(value, "title")
+                    service_name = field(value, "service")
+                    value = dict(value, provider=value.get("provider") or summary.get("provider", ""),
+                                 title=title if isinstance(title, str) else "",
+                                 service=service_name if isinstance(service_name, str) else "",
+                                 finding_type=field(value, "finding_type"))
                 if filters["category"] is None or str(category if category is not missing else "").lower() in filters["category"]:
                     service_value = field(value, "service")
                     facets["services"].add(service_value if service_value is not missing else "")
@@ -1357,11 +1366,13 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
                         continue
                     status_value = field(value, "status")
                     status_name = str(status_value if status_value is not missing else "UNKNOWN").upper()
-                    if status_count_aggregation == "check" and value.get("check_id") != "analysis.internet_exposure":
-                        service_name = field(value, "service") if value.get("check_id") == CONTAINER_CVES_CHECK else ""
-                        key = group_key(value, summary.get("provider", ""), service_name if isinstance(service_name, str) else "")
-                    else:
-                        key = value.get("id")
+                    key = type_group_key(value) if by_type else None
+                    if key is None:
+                        if status_count_aggregation == "check" and value.get("check_id") != "analysis.internet_exposure":
+                            service_name = field(value, "service") if value.get("check_id") == CONTAINER_CVES_CHECK else ""
+                            key = group_key(value, summary.get("provider", ""), service_name if isinstance(service_name, str) else "")
+                        else:
+                            key = value.get("id")
                     status_counts.add(status_name, key)
                     if filters["status"] is not None and status_name.lower() not in filters["status"]:
                         continue
@@ -1390,14 +1401,15 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
                 for value, _ in selected_rows:
                     yield dict(value, provider=value.get("provider") or provider,
                         severity=field(value, "severity") if isinstance(field(value, "severity"), str) else "info")
-            grouped = group_findings(indexed_observations())
+            grouped = group_findings(indexed_observations(), by_type=group_by == "finding_type")
             member_filters = {key: value for key, value in {
                 "categories": categories, "framework": framework, "severity": severity,
                 "service": service, "status": status, "search": search, "finding_type": finding_type}.items() if value}
             selected_rows = []
             for item in grouped:
                 item = with_labels(with_meta(item, meta, bundle), labels)
-                item["member_filters"] = member_filters
+                item["member_filters"] = (dict(member_filters, group_by="finding_type")
+                                          if item.get("grouped_by_title") else member_filters)
                 item["account"] = ", ".join(item["affected_accounts"]) if item.get("grouped") else account_label(item)
                 selected_rows.append((item, item))
             if group_by == "service":
@@ -1444,27 +1456,39 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
                       framework: str | None = None, severity: str | None = None,
                       service: str | None = None, status: str | None = None, search: str | None = None,
                       finding_type: str | None = None,
+                      group_by: Literal["service", "finding_type"] = "service",
                       members_offset: int = Query(default=0, ge=0), members_limit: int = Query(default=50, ge=1, le=100),
                       secret_offset: int = Query(default=0, ge=0, le=50000), user=Depends(identity)):
-        from .finding_groups_static_20261021 import group_id, group_findings, placement, member_scopes, STATUS_ORDER
+        from .finding_groups_static_20261021 import (
+            group_id, group_findings, placement, member_scopes, type_group_id, type_group_key, STATUS_ORDER,
+        )
         from peaso.finding_groups import CONTAINER_CVES_CHECK, group_key
         row, bundle, selected, _, _, labels, meta, field, _, _ = finding_selection(
-            user.tenant_id, ident, categories, framework, severity, service, status, search, finding_type=finding_type, sort_cards=False)
+            user.tenant_id, ident, categories, framework, severity, service, status, search, group_by,
+            finding_type=finding_type, sort_cards=False)
+        by_type = group_by == "finding_type"
         provider = bundle.get("summary", bundle).get("provider", "")
         members = []
         for value, _ in selected:
-            if value.get("check_id") == "analysis.internet_exposure":
+            type_key = type_group_key(value) if by_type else None
+            if type_key:
+                identifier = type_group_id(type_key)
+            elif value.get("check_id") == "analysis.internet_exposure":
                 continue
-            service_name = field(value, "service") if value.get("check_id") == CONTAINER_CVES_CHECK else ""
-            source_provider, check_id, _, service_key = group_key(
-                value, provider, service_name if isinstance(service_name, str) else "")
-            if group_id(source_provider, check_id, service_key) == group_ident:
+            else:
+                service_name = field(value, "service") if value.get("check_id") == CONTAINER_CVES_CHECK else ""
+                source_provider, check_id, _, service_key = group_key(
+                    value, provider, service_name if isinstance(service_name, str) else "")
+                identifier = group_id(source_provider, check_id, service_key)
+            if identifier == group_ident:
                 severity_value = field(value, "severity")
-                members.append(dict(value, provider=source_provider,
+                members.append(dict(value, provider=value.get("provider") or provider,
                                     severity=severity_value if isinstance(severity_value, str) else "info"))
         if not members:
             raise HTTPException(404, "Finding group not found")
-        grouped = with_labels(with_meta(group_findings(members)[0], meta, bundle), labels)
+        grouped = with_labels(with_meta(group_findings(members, by_type=by_type)[0], meta, bundle), labels)
+        title_group = grouped.get("grouped_by_title")
+        combined_title = title_group and len(members) > 1
         members.sort(key=lambda value: (STATUS_ORDER.get(value.get("status"), 1), value.get("scope", ""), value.get("native_resource_id") or value.get("resource_id", ""), value["id"]))
         wanted = {value["id"] for value in members[members_offset:members_offset + members_limit]}
         raw = {}
@@ -1485,16 +1509,17 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
                 primary = observed
             account, region = placement(observed)
             locations = member_scopes(observed)
-            output.append({"id": observed["id"], "scope": locations[0] if len(locations) == 1 else observed.get("scope"), "observed_scopes": locations, "account": account, "region": region,
+            output.append({"id": observed["id"], "check_id": observed.get("check_id"),
+                "title": observed.get("title"), "service": observed.get("service"), "scope": locations[0] if len(locations) == 1 else observed.get("scope"), "observed_scopes": locations, "account": account, "region": region,
                 "asset": observed.get("resource_name") or observed.get("native_resource_id") or observed.get("resource_id"),
                 "native_resource_id": observed.get("native_resource_id"), "resource_id": observed.get("resource_id"),
                 "status": observed.get("status"), "severity": observed.get("severity"),
                 "evidence_summary": observed.get("evidence_summary") or f"Recorded result: {observed.get('status', 'UNKNOWN')}.",
                 "detail_path": f"/scans/{ident}/findings/{quote(observed['id'], safe='')}"})
-        if primary:
+        if primary and not combined_title:
             # Shared guidance can be refreshed without treating grouped evidence as native facts.
             for key in ("title", "description", "rationale", "remediation", "remediation_details", "evaluated", "pass_when", "fail_when", "not_applicable_when", "guidance_refresh"):
-                if key in primary and (key != "title" or grouped["check_id"] != CONTAINER_CVES_CHECK):
+                if key in primary and (key != "title" or not title_group and grouped["check_id"] != CONTAINER_CVES_CHECK):
                     grouped[key] = primary[key]
             if isinstance(grouped.get("remediation_details"), dict):
                 grouped["remediation_details"] = {key: value for key, value in dict(grouped["remediation_details"], cli=[], console=[]).items() if key != "iac"}
@@ -1511,6 +1536,8 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         grouped["member_filters"] = {key: value for key, value in {
             "categories": categories, "framework": framework, "severity": severity,
             "service": service, "status": status, "search": search, "finding_type": finding_type}.items() if value}
+        if title_group:
+            grouped["member_filters"]["group_by"] = "finding_type"
         grouped.update(members=output, members_total=len(members), members_offset=members_offset,
             next_offset=members_offset + len(output) if members_offset + len(output) < len(members) else None)
         from peaso.secret_evidence import load_group_details

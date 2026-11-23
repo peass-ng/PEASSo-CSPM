@@ -83,7 +83,7 @@ def test_type_groups_count_all_checks_before_paging_and_filter_member_evidence(l
     ]
     filtered = client.get(path, params={"aggregation": "check", "group_by": "finding_type", "finding_type": "logging", "status": "PASS"}).json()
     assert filtered["total"] == 1 and filtered["items"][0]["finding_type"] == "logging"
-    assert filtered["items"][0]["member_filters"] == {"status": "PASS", "finding_type": "logging"}
+    assert filtered["items"][0]["member_filters"] == {"status": "PASS", "finding_type": "logging", "group_by": "finding_type"}
     item = filtered["items"][0]
     members = client.get(f"/api/scans/{scan}/finding-groups/{item['id']}", params=item["member_filters"]).json()
     assert members["members_total"] == 5
@@ -203,6 +203,61 @@ def test_exposed_container_findings_are_grouped_by_service_with_all_assets(tmp_p
         assert client.get(base + "/findings", params={**query, "aggregation": "none"}).json()["total"] == 6
         summary = client.get(base + "/summary", params={"aggregation": "check"}).json()
         assert summary["stats"]["failed_by_category"]["exposure"] == 3
+
+
+@pytest.mark.parametrize("chunked", [False, True], ids=["inline-old-report", "chunked-bundle"])
+def test_type_view_combines_only_matching_titles_and_types(tmp_path, chunked):
+    store, artifacts = SQLiteStore(tmp_path / "state"), FileArtifacts(tmp_path / "artifacts")
+    connector = store.add_connector("alice", {"provider": "aws", "name": "fixture"}, "encrypted")
+    job = store.enqueue("alice", {"connector_id": connector["id"]})
+    report = fixture_report()
+    base = report["findings"][0]
+    exposure = "analysis.internet_exposure"
+    report["findings"] = [
+        dict(base, id=asset, resource_id=asset, native_resource_id=asset, resource_name=asset,
+             category=category, check_id=check, finding_type=kind, title=title, service=service)
+        for asset, category, check, kind, title, service in [
+            ("api-a", "exposure", exposure, "network", "Public API endpoint", "apigateway"),
+            ("api-b", "exposure", exposure, "network", "Public API endpoint", "lambda"),
+            ("bucket", "exposure", exposure, "network", "Public storage access", "s3"),
+            ("log-a", "hardening", "fixture.retention", "logging", "Retention too short", "logs"),
+            ("log-b", "hardening", "fixture.retention-alt", "logging", "Retention too short", "logs"),
+            ("trail-a", "hardening", "fixture.trail", "threat_detection", "Retention too short", "cloudtrail"),
+            ("log-c", "hardening", "fixture.retention", "logging", "Lifecycle expires early", "logs"),
+        ]
+    ]
+    reference = publish_report(artifacts, "alice", job["id"], report) if chunked else artifacts.put("alice", job["id"], "report", report)
+    with store.transaction() as db:
+        db.execute("UPDATE jobs SET status='completed',report=? WHERE id=?", (reference, job["id"]))
+    app = create_app(Settings(state_dir=tmp_path / "settings", identity_dir=tmp_path / "identity"),
+                     store=store, artifacts=artifacts, authenticator=TestIdentities())
+    with TestClient(app, base_url="http://127.0.0.1", headers={"Authorization": "Bearer alice"}) as client:
+        base_url = f"/api/scans/{job['id']}"
+        for category, expected_total, title, assets in [
+            ("exposure", 2, "Public API endpoint", {"api-a": exposure, "api-b": exposure}),
+            ("hardening", 3, "Retention too short", {"log-a": "fixture.retention", "log-b": "fixture.retention-alt"}),
+        ]:
+            query = {"aggregation": "check", "categories": category, "group_by": "finding_type", "status": "FAIL"}
+            result = client.get(base_url + "/findings", params=query).json()
+            assert result["total"] == result["status_filter_counts"]["FAIL"] == expected_total
+            [combined] = [item for item in result["items"] if item["title"] == title and item.get("member_count") == 2]
+            assert combined["affected_asset_count"] == 2
+            assert combined["member_filters"]["group_by"] == "finding_type"
+            path = base_url + "/finding-groups/" + combined["id"]
+            members = []
+            for offset in range(2):
+                response = client.get(path, params=dict(combined["member_filters"], members_offset=offset, members_limit=1))
+                assert response.status_code == 200, response.text
+                detail = response.json()
+                assert detail["members_total"] == 2
+                assert detail["next_offset"] == (1 if offset == 0 else None)
+                members += detail["members"]
+            assert {member["native_resource_id"]: member["check_id"] for member in members} == assets
+            filtered = client.get(base_url + "/findings",
+                                  params=dict(query, finding_type=combined["finding_type"], search=title)).json()
+            assert [item["id"] for item in filtered["items"]] == [combined["id"]]
+        service_view = client.get(base_url + "/findings", params={"aggregation": "check", "categories": "exposure"}).json()
+        assert service_view["total"] == 3 and not any(item.get("grouped") for item in service_view["items"])
 
 
 def test_member_pages_retain_exact_evidence_status_native_asset_and_location(live):

@@ -161,7 +161,7 @@ function ServiceSection({ summary, groupBy, scanId, category, findingType, demo,
     {expanded && findings.map(finding => <tr key={finding.id} className="finding-data-row"
       onClick={event => openInspectorFromRow(event, () => onInspect(finding))}>
       <td><Badge value={finding.severity} /></td>
-      <td><button className="finding-title" onClick={() => onInspect(finding)}>{finding.title}<span>{finding.check_id}</span></button></td>
+      <td><button className="finding-title" onClick={() => onInspect(finding)}>{finding.title}{!finding.grouped_by_title && <span>{finding.check_id}</span>}</button></td>
       <td><span className="service-cell" title={finding.service}>{finding.service}</span></td>
       <td><div className="asset-cell">
         <span title={assetLabel(finding)} className="truncate">{assetLabel(finding)}</span>
@@ -836,6 +836,7 @@ export function FindingInspector({
     lazy && !demo,
   );
   const observed = detail.data || finding;
+  const combinedTitle = observed.grouped_by_title && (observed.member_count || 0) > 1;
   const internetExposure = observed.check_id === "analysis.internet_exposure";
   const allowCurrentSummary = observed.guidance_refresh?.allow_summary !== false;
   const exposure = internetExposure && allowCurrentSummary ? explainInternetExposure(observed.evidence, observed.status) : undefined;
@@ -893,7 +894,9 @@ export function FindingInspector({
             <h3>Observed evidence</h3>
             {observed.grouped ? <GroupedFindingEvidence key={observed.id + JSON.stringify(observed.member_filters)}
               finding={observed} scanId={scanId} demo={demo} onInspectMember={member =>
-                onInspectMember({ ...observed, ...member, grouped: false, resource_id: member.resource_id || member.asset,
+                onInspectMember({ ...observed, ...member, grouped: false, grouped_by_title: false,
+                  check_id: member.check_id || observed.check_id, title: member.title || observed.title,
+                  service: member.service || observed.service, resource_id: member.resource_id || member.asset,
                   resource_name: member.resource_name, native_resource_id: member.native_resource_id,
                   evidence: undefined, evidence_summary: member.evidence_summary })} /> : <p>{evidenceSummary}</p>}
             {!allowCurrentSummary && observed.guidance_refresh?.message && <p className="muted">{observed.guidance_refresh.message}</p>}
@@ -907,10 +910,11 @@ export function FindingInspector({
               <FoundSecretValues evidence={observed.evidence} /></>}
           <section className="finding-detail-section">
             <h3>What to do</h3>
-            <Remediation legacy={exposureAction || observed.remediation} details={remediationDetails} compact />
+            {combinedTitle ? <p>Open an affected asset above to review its evidence and remediation.</p> :
+              <Remediation legacy={exposureAction || observed.remediation} details={remediationDetails} compact />}
           </section>
           <div className="finding-detail-extras">
-            {(internetExposure || observed.description || observed.evaluated?.length || observed.pass_when || observed.fail_when || observed.not_applicable_when || observed.remediation_details?.caveats?.length) ? <details>
+            {!combinedTitle && (internetExposure || observed.description || observed.evaluated?.length || observed.pass_when || observed.fail_when || observed.not_applicable_when || observed.remediation_details?.caveats?.length) ? <details>
               <summary>How this check works</summary>
               <div className="finding-detail-extra-body">{definition}</div>
             </details> : null}
@@ -918,7 +922,7 @@ export function FindingInspector({
               <summary>Technical evidence details</summary>
               <div className="finding-detail-extra-body"><Evidence data={observed.evidence} previewData={technicalEvidence} /></div>
             </details>}
-            <details>
+            {!combinedTitle && <details>
               <summary>Identifiers &amp; frameworks</summary>
               <dl className="finding-detail-metadata">
                 <dt>Check ID</dt><dd>{observed.check_id}</dd>
@@ -927,7 +931,7 @@ export function FindingInspector({
                 <dt>Scope</dt><dd>{observed.scope}</dd>
                 <dt>Frameworks</dt><dd>{observed.frameworks?.join(" · ") || "No framework mapping"}</dd>
               </dl>
-            </details>
+            </details>}
           </div>
         </State>
       </div>

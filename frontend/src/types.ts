@@ -104,6 +104,7 @@ export type Finding = {
   not_applicable_when?: string;
   rationale?: string;
   grouped?: boolean;
+  grouped_by_title?: boolean;
   member_count?: number;
   status_counts?: Record<string, number>;
   affected_asset_count?: number;
@@ -114,6 +115,9 @@ export type Finding = {
 };
 export type FindingGroupMember = {
   id: string;
+  check_id?: string;
+  title?: string;
+  service?: string;
   scope: string;
   account?: string;
   region?: string;

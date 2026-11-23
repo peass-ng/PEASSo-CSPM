@@ -97,17 +97,37 @@ def is_asset(finding):
     return bool(finding.get("resource_id")) and not str(finding["resource_id"]).startswith(("scope:", "inventory:", "aggregate:", "check:"))
 
 
-def group_findings(findings, *, observations=False):
+def type_group_key(row):
+    title = row.get("title")
+    finding_type = row.get("finding_type")
+    if row.get("secret_fingerprint") or finding_type == "detected_leaks":
+        return None
+    if row.get("check_id") == CONTAINER_CVES_CHECK:
+        title = container_cve_title(row.get("service") or "")
+    if isinstance(title, str) and title.strip() and isinstance(finding_type, str) and finding_type:
+        return ("type", row.get("provider") or "", finding_type, title.strip())
+    return None
+
+
+def type_group_id(key):
+    _, provider, finding_type, title = key
+    return group_id(provider, "finding-type:" + finding_type, title)
+
+
+def group_findings(findings, *, observations=False, by_type=False):
     from .service_labels_static_20261020 import finding_service
     grouped = defaultdict(list)
     for row in findings:
         service = finding_service(row)
         if service and service != row.get("service"):
             row = dict(row, service=service)
-        grouped[group_key(row)].append(row)
+        identity = type_group_key(row) if by_type else None
+        grouped[identity or ("check", *group_key(row))].append(row)
     result = []
-    for (provider, cid, secret, service), rows in sorted(grouped.items()):
-        if cid == "analysis.internet_exposure":
+    for identity, rows in sorted(grouped.items()):
+        title_group = identity[0] == "type"
+        provider, cid, secret, service = group_key(rows[0])
+        if cid == "analysis.internet_exposure" and (not title_group or len(rows) == 1):
             # This analyzer emits one finding per exposed asset/path. Its title,
             # service and evidence describe that asset, so a check-wide card
             # would mislabel unrelated API, Lambda and storage exposures.
@@ -131,7 +151,8 @@ def group_findings(findings, *, observations=False):
         accounts = sorted({account for account, _ in places if account})
         regions = sorted({region for _, region in places if region})
         assets = {(row.get("scope"), row.get("native_resource_id") or row.get("resource_id")) for row in affected if is_asset(row)}
-        group = dict(primary, id=group_id(provider, cid, service), resource_id="check:" + cid,
+        identifier = type_group_id(identity) if title_group else group_id(provider, cid, service)
+        group = dict(primary, id=identifier, resource_id="check:" + primary.get("check_id", ""),
             scope=accounts[0] if len(accounts) == 1 else "selected_scopes", status=status,
             severity=min((str(row.get("severity") or "info") for row in affected), key=lambda value: SEVERITY_ORDER.get(value, 4)),
             grouped=True, member_count=len(rows), status_counts=counts,
@@ -143,7 +164,12 @@ def group_findings(findings, *, observations=False):
         group["resource_name"] = f"{len(assets)} {'asset' if len(assets) == 1 else 'assets'}" if assets else f"{len(scopes)} {'scope' if len(scopes) == 1 else 'scopes'}"
         group["evidence"] = {"status_counts": counts, "affected_regions": regions, "affected_scopes": scopes,
             "affected_asset_count": len(assets), "observation_count": len(rows)}
-        if cid == CONTAINER_CVES_CHECK:
+        if title_group:
+            group["title"] = identity[3]
+            group["grouped_by_title"] = True
+            services = sorted({row["service"] for row in rows if row.get("service")})
+            group["service"] = ", ".join(services)
+        elif cid == CONTAINER_CVES_CHECK:
             group["title"] = container_cve_title(service)
         group["evidence_summary"] = summary(group)
         # A command bound to one member must never masquerade as a group-wide operation.
@@ -159,7 +185,7 @@ def group_findings(findings, *, observations=False):
 def summary(group):
     counts = group.get("status_counts", {})
     status = group.get("status", "UNKNOWN")
-    if group.get("check_id") == CONTAINER_CVES_CHECK and status == "FAIL":
+    if not group.get("grouped_by_title") and group.get("check_id") == CONTAINER_CVES_CHECK and status == "FAIL":
         return container_cve_summary(group["affected_asset_count"])
     if group.get("check_id") == "analysis.exposed_privileged_workload" and status == "FAIL":
         number = group.get("affected_asset_count", 0)
