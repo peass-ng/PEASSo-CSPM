@@ -573,6 +573,12 @@ test("framework picker defaults to all, sorts and searches versions, and selects
   await expect(page.getByRole('heading', { name: 'Hardening & Compliance', exact: true })).toBeVisible();
   const picker = page.getByLabel('Compliance framework', { exact: true });
   await expect(picker).toHaveText('All compliance frameworks');
+  const groupSelect = page.getByRole('combobox', { name: 'Group findings' });
+  const typography = (control: typeof picker) => control.evaluate(element => {
+    const { fontFamily, fontSize, fontWeight, lineHeight } = getComputedStyle(element);
+    return { fontFamily, fontSize, fontWeight, lineHeight };
+  });
+  expect(await typography(picker)).toEqual(await typography(groupSelect));
   await picker.click();
   await expect(page.getByRole('listbox', { name: 'Compliance frameworks' }).getByRole('option')).toHaveText(['All compliance frameworks', 'alpha framework', 'CIS AWS v2', 'HackTricks Cloud Best Practices', 'Zebra framework']);
   await page.getByLabel('Filter compliance frameworks').fill('cis');

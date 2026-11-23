@@ -1596,8 +1596,14 @@ dd {
   color: #8094a4;
   border-bottom: 1px solid var(--line);
 }
-.filter-secondary select {
+.filter-secondary select,
+.filter-secondary .framework-trigger {
+  font-family: inherit;
   font-size: 10px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+.filter-secondary select {
   padding: 6px 10px;
   width: 215px;
   background: transparent;
