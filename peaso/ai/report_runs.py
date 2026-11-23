@@ -103,6 +103,9 @@ def execute(store, artifacts, tenant, scan, generation):
             for key in ('check_meta', 'check_meta_encoding', 'check_frameworks', 'remediation_templates'):
                 if key in bundle:
                     report[key] = bundle[key]
+        from .finding_reviews import apply_report_reviews
+        report = apply_report_reviews(dict(report, ai=ai))
+        report.pop('ai', None)
         least = artifacts.get(tenant, bundle['least_privilege']) if isinstance(bundle.get('least_privilege'), str) else None
         snapshot = artifacts.get(tenant, row['snapshot'])
         selectors = json.loads(row['data']) if isinstance(row['data'], str) else dict(row['data'])

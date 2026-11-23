@@ -175,6 +175,11 @@ def source_index(platform):
         if isinstance(ident, str):
             return inventory.get(ident, {}).get('native_id') or ident
 
+    public_resources = {(row.get('scope'), row.get('resource_id')) for row in report.get('findings', [])
+                        if row.get('status') == 'FAIL' and row.get('check_id') == 'analysis.internet_exposure'
+                        and row.get('resource_id') and (row.get('evidence') or {}).get('public_addresses')
+                        and (row.get('evidence') or {}).get('exposed_ports')}
+
     def graph_assets(node):
         attrs = node.get('attrs') or {}
         members = node.get('members')
@@ -211,8 +216,11 @@ def source_index(platform):
                 if isinstance(target, dict):
                     identifiers.extend(graph_assets(target))
         facts = observation(check, row.get('status'), row.get('scope'), identifiers[0], evidence)
+        routed = bool(identifiers[0]) and ((row.get('scope'), row.get('resource_id')) in public_resources or
+                 check == 'analysis.exposed_container_cves' and bool(evidence.get('exposure_routes')))
         result.append({'category': category, 'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident}),
                        **({'source_facts': facts} if facts else {}),
+                       **({'internet_reachable_assets': [identifiers[0]]} if routed else {}),
                        'domain': 'findings', 'id': row['id'], 'kind': kind,
                        'actionable': True, 'confirmed': True, 'required': True})
     for index, row in enumerate(platform.get('least_privilege', {}).get('items', [])):
@@ -388,6 +396,9 @@ def validate(data, sources):
             key = (ref['domain'], ref['id'])
             if (key not in keys or key[0] != 'findings' or not known[key]['confirmed']
                     or evidence['asset'] not in known[key].get('assets', [])):
+                raise ValueError('unsupported_report_severity_source')
+            if evidence['internet_reachable'] and not any(
+                    evidence['asset'] in known[linked].get('internet_reachable_assets', ()) for linked in keys):
                 raise ValueError('unsupported_report_severity_source')
         if issue['permission_review_ids']:
             available = {ident for key in keys for ident in (known[key].get('permission_review_ids') or

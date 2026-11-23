@@ -765,13 +765,16 @@ def review_scan(report, snapshot, selectors, *, tenant, artifacts, deadline=None
             try:
                 from peaso.least_privilege import project
                 from .findings_report import source_index, pregenerate, agent_sources, complete
+                from .finding_reviews import apply_report_reviews
                 report_least = report_context.get('least_privilege') if isinstance(report_context, dict) else None
                 if not isinstance(report_least, dict):
                     report_least = project(report['provider'], inventory, snapshot=snapshot)
                 elif report['provider'] == 'aws':
                     from peaso.least_privilege_permissions import with_aws_tracked_reviews
                     report_least = with_aws_tracked_reviews(report_least, inventory, snapshot.get('created_at'))
-                platform = {'report': priorities_report, 'inventory': inventory,
+                effective = apply_report_reviews(dict(priorities_report, ai={'reviews': result['reviews']}))
+                effective.pop('ai', None)
+                platform = {'report': effective, 'inventory': inventory,
                             'snapshot_context': snapshot_context(snapshot),
                             'least_privilege': report_least,
                             'network_review': result['network'], 'top_actions': result['actions'],

@@ -83,9 +83,8 @@ system_prompt: |
     existing production datastore without a usable independent recovery copy
     can qualify even if no outage has occurred.
   - Low is for a confirmed weakness with limited impact or with a material
-    prerequisite still unverified. For example, a missing console password
-    policy has limited demonstrated impact when there is no evidence that
-    the affected population uses local console passwords.
+    prerequisite still unverified. For example, a missing access audit trail
+    raises investigation effort when another captured trail covers the sensitive operations.
   - Use kind hardening with Info when the evidence establishes only that a
     preventive safeguard is missing. A disabled public-sharing guardrail alone describes
     what someone could configure later. Actual exposure or expanded access

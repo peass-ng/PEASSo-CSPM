@@ -626,3 +626,19 @@ def test_guardduty_assets_use_scoped_arns_in_new_and_saved_reports():
     assert archived[0]['affected_assets'] == [detector, unrelated, arn]
     [ambiguous] = resolve_detector_assets(archived, [finding, dict(finding, scope='123456789012/us-west-2')], wanted)
     assert ambiguous == archived[0]
+
+
+def test_critical_rating_requires_a_linked_internet_route_to_the_same_asset():
+    asset = 'arn:aws:example:region:account:resource/example'
+    detail = dict(domain='findings', id='configuration')
+    candidate = issue([('findings', 'configuration'), ('findings', 'route')])
+    candidate.update(severity='critical', severity_evidence=dict(
+        reference=detail, asset=asset, consequence='Account-wide loss of administrative control.',
+        prerequisites='The affected operation is served at the captured public endpoint.',
+        prerequisites_supported=True, impact_level='critical', internet_reachable=True))
+    sources = [dict(source('findings', 'configuration'), assets=[asset]),
+               dict(source('findings', 'route'), assets=[asset], internet_reachable_assets=['unrelated'])]
+    with pytest.raises(ValueError, match='unsupported_report_severity_source'):
+        compiler.validate(report([candidate]), sources)
+    sources[1]['internet_reachable_assets'] = [asset]
+    assert compiler.validate(report([candidate]), sources)['issues'][0]['severity'] == 'critical'

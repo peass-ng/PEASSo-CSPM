@@ -119,9 +119,8 @@ system_prompt: |
     existing production datastore without a usable independent recovery copy
     can qualify even if no outage has occurred.
   - Low is for a confirmed weakness with limited impact or with a material
-    prerequisite still unverified. For example, a missing console password
-    policy has limited demonstrated impact when there is no evidence that
-    the affected population uses local console passwords.
+    prerequisite still unverified. For example, a missing access audit trail
+    raises investigation effort when another captured trail covers the sensitive operations.
   - Use kind hardening with Info when the evidence establishes only that a
     preventive safeguard is missing. A disabled public-sharing guardrail alone describes
     what someone could configure later. Actual exposure or expanded access
@@ -140,6 +139,9 @@ system_prompt: |
   Set prerequisites_supported and internet_reachable from the evidence. Use
   impact_level material, high or critical as supported. If a material
   prerequisite is unverified, use Low and omit severity_evidence.
+  Set internet_reachable to true only when a linked source lists the same
+  affected asset in internet_reachable_assets and the route reaches the
+  affected operation.
 
   WRITE FOR THE PEOPLE WHO OWN THE SYSTEM
   The description should tell a reader what is wrong before they encounter any
