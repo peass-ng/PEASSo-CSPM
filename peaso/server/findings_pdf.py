@@ -350,7 +350,7 @@ def render_findings_pdf(*, name, generated_at, summary, issues, scopes):
         if perms:
             items=[]
             for p in perms:
-                meta=' · '.join(f"{k.replace('_',' ').title()} {p[k]}" for k in ('principal','provider','scope','kind','policy','source','confidence','usage_window_end','last_accessed','last_refreshed','replacement') if p.get(k))
+                meta=' · '.join(f"{k.replace('_',' ').title()} {p[k]}" for k in ('principal','provider','scope','kind','policy','source','confidence','usage_window_end','usage_window_days','last_accessed','last_refreshed','replacement') if p.get(k))
                 items.append((p.get('value','Permission change'),meta,None))
             sections.append(('Permission recommendations',items))
         special=row.get('special_details') or []
@@ -360,8 +360,21 @@ def render_findings_pdf(*, name, generated_at, summary, issues, scopes):
                 label=s.get('asset') or s.get('label') or 'Captured evidence'
                 if isinstance(label,list):label=', '.join(map(str,label))
                 pieces=[s[k] for k in ('scope','digest') if s.get(k) and (k!='digest' or s[k] not in str(label))]
-                if s.get('counts'):pieces.append(', '.join(f'{key.title()} {n}' for key,n in s['counts'].items()))
+                if s.get('counts'):
+                    pieces.append(', '.join(f'{key.title()} {n}' for key,n in s['counts'].items()))
+                if s.get('detectors'):
+                    pieces.append('Detectors: ' + ', '.join(s['detectors']))
                 items.append((label,' · '.join(map(str,pieces)),None))
+                for location in s.get('locations', ()):
+                    items.append(('Detected location', location, None))
+                for workload in s.get('running_workloads', ()):
+                    deployment = ' · '.join(workload[k] for k in ('workload','container','scope') if workload.get(k))
+                    items.append(('Running container', deployment, None))
+                    for route in workload.get('exposure_routes', ()):
+                        endpoint = f"{route['endpoint']}:{route['port']}" if route.get('port') else route['endpoint']
+                        path = [endpoint, route.get('protocol'), f"Container port {route['container_port']}"
+                                if route.get('container_port') else None, *route.get('controls', ())]
+                        items.append(('Exposure route', ' · '.join(filter(None, path)), None))
             sections.append(('Image advisory evidence' if row['kind']=='image_cves' else 'Captured evidence',items))
         return sections
 

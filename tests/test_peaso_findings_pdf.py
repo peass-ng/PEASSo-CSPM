@@ -63,3 +63,25 @@ def test_pdf_links_the_product_but_ignores_user_supplied_links_and_images():
     issue_page = next(page for page in report.pages if "OBSERVED ISSUE" in page.extract_text())
     assert urls(issue_page) == [PROJECT_URL, PROJECT_URL]
     assert "No directly affected assets" in issue_page.extract_text()
+
+
+
+def test_pdf_keeps_detection_details_at_the_finding():
+    image_issue = finding("Vulnerable images", "medium", 0, kind="image_cves", special_details=[{
+        "asset": "Synthetic repository", "digest": "sha256:example", "counts": {"medium": 7},
+        "running_workloads": [{"workload": "fixture-service", "container": "app", "scope": "global",
+            "exposure_routes": [{"endpoint": "fixture.invalid", "port": 443, "protocol": "HTTPS",
+                "container_port": 8443, "controls": ["Synthetic allowlist"]}]}],
+    }])
+    leak_issue = finding("Detected credential", "low", 0, kind="leaks", special_details=[{
+        "label": "Leak 1", "locations": ["app/config.txt:21"], "detectors": ["Example detector"],
+    }])
+    report = PdfReader(BytesIO(render_findings_pdf(
+        name="Tenant A", generated_at=None, summary="", scopes=[], issues=[image_issue, leak_issue],
+    )))
+    image_page = next(page.extract_text() for page in report.pages if "IMAGE ADVISORY EVIDENCE" in page.extract_text())
+    leak_page = next(page.extract_text() for page in report.pages if "CAPTURED EVIDENCE" in page.extract_text())
+    assert "fixture-service" in image_page
+    assert "fixture.invalid:443" in image_page and "Container port 8443" in image_page
+    assert "Synthetic allowlist" in image_page
+    assert "Example detector" in leak_page and "app/config.txt:21" in leak_page
