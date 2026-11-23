@@ -107,6 +107,18 @@ function accountLabel(finding: Finding): string {
 }
 
 const SERVICE_PAGE_SIZE = 50;
+function FindingGroupCounts({ count, statuses, loaded = false }: {
+  count: number;
+  statuses: Record<string, number>;
+  loaded?: boolean;
+}) {
+  return <>
+    <span>{count.toLocaleString()} {count === 1 ? "finding" : "findings"}{loaded ? " loaded" : ""}</span>
+    {findingStatusCounts(statuses).filter(status => status.tone !== "fail" || status.count !== count)
+      .map(status => <span key={status.label}>{status.count.toLocaleString()} {status.label.toLowerCase()}</span>)}
+  </>;
+}
+
 function ServiceSection({ summary, groupBy, scanId, category, findingType, demo, search, severity, status, framework, sort,
   expanded, onToggle, onInspect }: {
   summary: ServiceSummary;
@@ -150,9 +162,7 @@ function ServiceSection({ summary, groupBy, scanId, category, findingType, demo,
       <button type="button" className="service-group-button" aria-expanded={expanded} onClick={onToggle}>
         <ChevronRight size={16} className={expanded ? "expanded" : ""} />
         <strong>{summary.label || summary.service || "Unknown service"}</strong>
-        <span>{summary.count.toLocaleString()} findings</span>
-        {findingStatusCounts(summary.status_counts).map(({ label, count }) =>
-          <span key={label}>{count.toLocaleString()} {label.toLowerCase()}</span>)}
+        <FindingGroupCounts count={summary.count} statuses={summary.status_counts} />
       </button>
     </td></tr>
     {expanded && (query.isPending || query.error) && <tr><td colSpan={6} className="service-group-message">
@@ -680,8 +690,7 @@ export function Findings({
                           })}>
                           <ChevronRight size={16} className={expandedServices.has(item.name) ? "expanded" : ""} />
                           <strong>{item.name}</strong>
-                          <span>{item.findings.length} findings{query.hasNextPage ? " loaded" : ""}</span>
-                          {findingStatusCounts(counts).map(({ label, count }) => <span key={label}>{count} {label.toLowerCase()}</span>)}
+                          <FindingGroupCounts count={item.findings.length} statuses={counts} loaded={!!query.hasNextPage} />
                         </button>
                       </td></tr>;
                     }

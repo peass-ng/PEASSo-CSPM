@@ -26,7 +26,7 @@ test("hardening presents unused roles, credentials and permissions outside Least
     await route.fulfill({ json });
   });
   await page.goto("/#Hardening%20Findings");
-  await page.getByRole("button", { name: /accessanalyzer 1 findings/ }).click();
+  await page.getByRole("button", { name: /accessanalyzer 1 finding/ }).click();
   await page.getByRole("button", { name: /IAM Access Analyzer findings/ }).click();
   const table = page.getByRole("dialog").getByRole("table");
   await expect(table.getByRole("row")).toHaveCount(6);

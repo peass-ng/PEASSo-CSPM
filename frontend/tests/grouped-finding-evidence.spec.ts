@@ -51,7 +51,7 @@ test("one check opens paginated evidence across accounts and regions, with origi
     await route.fulfill({ json });
   });
   await page.goto("/#Hardening%20Findings");
-  await page.getByRole("button", { name: /lambda 1 findings/ }).click();
+  await page.getByRole("button", { name: /lambda 1 finding/ }).click();
   await page.getByRole("button", { name: `${group.title} ${group.check_id}`, exact: true }).click();
   expect(groupedListRequested).toBeTruthy();
   const dialog = page.getByRole("dialog");

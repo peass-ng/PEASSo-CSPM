@@ -93,7 +93,7 @@ test("Hardening groups findings by service and keeps Check as the flat view", as
   await expect(page.locator(".finding-title")).toHaveCount(0);
   await page.getByRole("button", { name: /iam 2 findings/ }).click();
   await expect(page.locator(".finding-title")).toHaveText([/IAM check one/, /IAM check two/]);
-  await expect(page.getByRole("button", { name: /s3 1 findings/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /s3 1 finding/ })).toBeVisible();
   await group.selectOption("check_id");
   await expect(page.locator(".service-group-button")).toHaveCount(0);
   await expect(page.locator(".finding-title")).toHaveCount(3);
@@ -187,7 +187,7 @@ test("nested federated trust evidence keeps full-width values", async ({ page })
     await route.fulfill({ json });
   });
   await page.goto("/#Hardening%20Findings");
-  await page.getByRole("button", { name: /iam 1 findings/ }).click();
+  await page.getByRole("button", { name: /iam 1 finding/ }).click();
   await page.getByRole("button", { name: /Federated trust review/ }).click();
   const dialog = page.getByRole("dialog");
   const evidence = dialog.locator('details:has(> summary:text-is("Technical evidence details"))');

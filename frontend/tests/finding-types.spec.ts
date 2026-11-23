@@ -34,10 +34,10 @@ test("Type groups checks across services and lazily pages a type with its filter
   });
   await page.goto("/#Hardening%20Findings");
   await page.getByLabel("Group findings").selectOption("finding_type");
-  await expect(page.getByRole("button", { name: /Encryption 51 findings/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Backups & recovery 1 findings/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Encryption 51 findings", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Backups & recovery 1 finding 1 passed", exact: true })).toBeVisible();
   await expect(page.getByText("52 findings across 2 types")).toBeVisible();
-  await page.getByRole("button", { name: /Encryption 51 findings/ }).click();
+  await page.getByRole("button", { name: "Encryption 51 findings", exact: true }).click();
   await expect(page.getByText("1–50 of 51 findings")).toBeVisible();
   await expect(page.getByRole("button", { name: /s3 encryption enabled/ }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: /rds encryption enabled/ }).first()).toBeVisible();
