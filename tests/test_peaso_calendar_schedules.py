@@ -114,6 +114,7 @@ def test_both_storage_adapters_dispatch_and_advance_to_next_calendar_rule(store)
 def test_both_storage_adapters_coalesce_missed_runs_and_preserve_calendar_on_quota_failure(store):
     item, data = new_schedule(store)
     now = stamp('2026-10-23T12:00:00Z')
+    pin_clock(store, now)
     due = store.due_schedules(now)[0]
     # Fill the current weekly quota before the delayed schedule is dispatched.
     store.enqueue('alice', {'connector_id': data['connector_id']}, limit=1, now=now)
