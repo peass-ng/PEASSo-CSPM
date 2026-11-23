@@ -5,7 +5,8 @@ from functools import lru_cache
 
 from .report_asset_ids import guardduty_detector_arn
 
-_OPAQUE = re.compile(r'(?:sha256:)?[a-f0-9]{64}')
+_OPAQUE = re.compile(r'(?:[a-f0-9]{32}|(?:sha256:)?[a-f0-9]{64})', re.IGNORECASE)
+_OPAQUE_LEAK_SOURCE = re.compile(r'[a-z0-9_-]+:leak:[a-f0-9]{64}', re.IGNORECASE)
 _NON_RESOURCE = ('scope:', 'inventory:', 'selection:', 'secret:', 'analysis:')
 DEPLOYMENT_ADMIN = 'deployment_role_administrator_access'
 WRITABLE_TASK_ROOT = 'aws.b.ecs.all_readonly_roots'
@@ -56,10 +57,15 @@ def special_kind(finding):
     return None
 
 
+def opaque_asset_id(native_id):
+    return bool(isinstance(native_id, str) and
+                (_OPAQUE.fullmatch(native_id) or _OPAQUE_LEAK_SOURCE.fullmatch(native_id)))
+
+
 def subject(provider, scope, resource_type, native_id, kind='resource'):
     if not all(isinstance(value, str) and value.strip() for value in (provider, scope, resource_type, native_id)):
         return None
-    if kind == 'resource' and (native_id.startswith(_NON_RESOURCE) or _OPAQUE.fullmatch(native_id)):
+    if kind == 'resource' and (native_id.startswith(_NON_RESOURCE) or opaque_asset_id(native_id)):
         return None
     if scope in ('unknown', 'selected_scopes', 'requested_scopes'):
         return None
@@ -267,6 +273,10 @@ class SubjectIndex:
         evidence = finding.get('evidence') or {}
         if evidence.get('complete') is False:
             return True
+        if evidence.get('secret_leaks'):
+            return any(not loc.get('resource_id') or opaque_asset_id(loc['resource_id'])
+                       for leak in evidence.get('secret_leaks', []) if isinstance(leak, dict)
+                       for loc in leak.get('locations', []) if isinstance(loc, dict))
         check = finding.get('check_id')
         field = ('unencrypted_volumes' if check in _VOLUME_ENCRYPTION_CHECKS or
                  check == 'aws_g6_ecs_fargate_storage_encryption' else _TRAIL_BUCKET_LISTS.get(check))
