@@ -80,7 +80,8 @@ with tempfile.TemporaryDirectory(prefix='peaso-detail-proof-') as temporary:
         root_group = next(item for item in grouped['items'] if item['check_id'] == 'aws.iam.root_mfa')
         assert root_group['service'] == 'iam'
         assert root_group['affected_regions'] == []
-        assert root_group['affected_scopes'] == ['123456789012/global']
+        assert root_group['affected_scopes'] == []
+        assert root_group['observed_scopes'] == ['123456789012/global']
         response = client.get(prefix+'/finding-groups/'+root_group['id'])
         assert response.status_code == 200, response.text
         assert response.json()['evidence'] == findings[0]['evidence']

@@ -45,10 +45,13 @@ def present(issue, facts):
         if _RETENTION_BENCHMARK.search(prose):
             raise ValueError('use_source_retention_benchmark')
         days = facts['short_retention_days']
-        observed = (f' Observed expiry settings are {days[0]} days.'
-                    if len(days) == 1 else f' Observed expiry settings range from {days[0]} to {days[-1]} days.' if days else '')
-        statements.append('**The scan applies a 35-day retention benchmark.**' + observed
-                          + ' Confirm the owner’s required recovery window before changing retention.')
+        if len(days) == 1:
+            unit = 'day' if days[0] == 1 else 'days'
+            statements.append(f'Some backups expire after {days[0]} {unit}. '
+                              'A problem discovered later may be too old to recover from those backups.')
+        elif days:
+            statements.append(f'Some backups expire after {days[0]} to {days[-1]} days. '
+                              'This limits how far back the team can restore from those backups.')
     description = '\n\n'.join([*statements, issue['description']])
     if len(description) > 2500:
         raise ValueError('leave_room_for_source_facts')

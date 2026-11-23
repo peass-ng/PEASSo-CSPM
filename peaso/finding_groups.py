@@ -113,10 +113,6 @@ def verdict(counts):
     return next((status for status in ("MANUAL", "PASS", "NOT_APPLICABLE", "EMPTY") if counts.get(status)), "UNKNOWN")
 
 
-def is_asset(finding):
-    return bool(finding.get("resource_id")) and not str(finding["resource_id"]).startswith(("scope:", "inventory:", "aggregate:", "check:"))
-
-
 def group_findings(findings, *, observations=False):
     from peaso.check_services import finding_service
     grouped = defaultdict(list)
@@ -150,19 +146,24 @@ def group_findings(findings, *, observations=False):
         places = [placement(dict(row, scope=scope)) for row in affected for scope in member_scopes(row)]
         accounts = sorted({account for account, _ in places if account})
         regions = sorted({region for _, region in places if region})
-        assets = {(row.get("scope"), row.get("native_resource_id") or row.get("resource_id")) for row in affected if is_asset(row)}
+        from peaso.finding_subjects import grouped_subjects
+        asset_count, affected_settings, scope_incomplete = grouped_subjects(affected)
         group = dict(primary, id=group_id(provider, cid, service), resource_id="check:" + cid,
             scope=accounts[0] if len(accounts) == 1 else "selected_scopes", status=status,
             severity=min((str(row.get("severity") or "info") for row in affected), key=lambda value: SEVERITY_ORDER.get(value, 4)),
             grouped=True, member_count=len(rows), status_counts=counts,
-            affected_asset_count=len(assets), affected_scopes=scopes, affected_regions=regions, affected_accounts=accounts,
+            affected_asset_count=asset_count, affected_scopes=affected_settings, observed_scopes=scopes,
+            affected_scope_incomplete=scope_incomplete, affected_regions=regions, affected_accounts=accounts,
             assessment_complete=not any(counts.get(key) for key in ("UNKNOWN", "DENIED", "MANUAL")))
         group.pop("native_resource_id", None)
         group.pop("region", None)
+        group.pop("affected_subjects", None)
         group.pop("evidence_summary", None)
-        group["resource_name"] = f"{len(assets)} {'asset' if len(assets) == 1 else 'assets'}" if assets else f"{len(scopes)} {'scope' if len(scopes) == 1 else 'scopes'}"
-        group["evidence"] = {"status_counts": counts, "affected_regions": regions, "affected_scopes": scopes,
-            "affected_asset_count": len(assets), "observation_count": len(rows)}
+        group["resource_name"] = f"{asset_count} {'asset' if asset_count == 1 else 'assets'}" if asset_count else (
+            f"{len(affected_settings)} {'scope' if len(affected_settings) == 1 else 'scopes'}" if affected_settings else
+            f"{len(affected)} {'observation' if len(affected) == 1 else 'observations'}")
+        group["evidence"] = {"status_counts": counts, "affected_regions": regions, "affected_scopes": affected_settings, "observed_scopes": scopes,
+            "affected_asset_count": asset_count, "observation_count": len(rows)}
         if cid == CONTAINER_CVES_CHECK:
             group["title"] = container_cve_title(service)
         group["evidence_summary"] = summary(group)
@@ -179,16 +180,17 @@ def group_findings(findings, *, observations=False):
 def summary(group):
     counts = group.get("status_counts", {})
     status = group.get("status", "UNKNOWN")
-    if group.get("check_id") == CONTAINER_CVES_CHECK and status == "FAIL":
+    if group.get("check_id") == CONTAINER_CVES_CHECK and status == "FAIL" and group.get("affected_asset_count"):
         return container_cve_summary(group["affected_asset_count"])
-    if group.get("check_id") == "analysis.exposed_privileged_workload" and status == "FAIL":
+    if (group.get("check_id") == "analysis.exposed_privileged_workload" and status == "FAIL"
+            and group.get("affected_asset_count")):
         number = group.get("affected_asset_count", 0)
         noun = "workload" if number == 1 else "workloads"
         return (f"{number} {noun} are linked to configured public entry points and use identities with recorded high-impact grants.\n"
             "If one of these workloads is compromised, its identity could be used against resources covered by those grants.\n"
             "That may affect the people or data those resources serve.")
     affected = counts.get(status, 0) + (counts.get("DENIED", 0) if status == "UNKNOWN" else 0)
-    noun = "assets" if group.get("affected_asset_count") else "scopes"
+    noun = "assets" if group.get("affected_asset_count") else "scopes" if group.get("affected_scopes") else "observations"
     number = group.get("affected_asset_count") or len(group.get("affected_scopes", [])) or affected
     phrase = {"FAIL": "fail this check", "PASS": "pass this check", "UNKNOWN": "could not be assessed", "DENIED": "could not be assessed because read access was denied", "MANUAL": "require further assessment", "EMPTY": "contain no applicable resources", "NOT_APPLICABLE": "are not applicable to this check"}.get(status, "could not be assessed")
     if number == 1:

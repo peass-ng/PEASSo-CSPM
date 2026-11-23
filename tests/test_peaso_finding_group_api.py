@@ -159,6 +159,8 @@ def test_internet_exposure_assets_do_not_become_one_mislabeled_service_card(tmp_
 
 @pytest.mark.parametrize("chunked", [False, True], ids=["inline-old-report", "chunked-bundle"])
 def test_exposed_container_findings_are_grouped_by_service_with_all_assets(tmp_path, chunked):
+    from peaso.finding_subjects import subject
+
     store, artifacts = SQLiteStore(tmp_path / "state"), FileArtifacts(tmp_path / "artifacts")
     connector = store.add_connector("alice", {"provider": "aws", "name": "fixture"}, "encrypted")
     job = store.enqueue("alice", {"connector_id": connector["id"]})
@@ -167,7 +169,8 @@ def test_exposed_container_findings_are_grouped_by_service_with_all_assets(tmp_p
     report["findings"] = [
         dict(report["findings"][0], id=f"{service}-{number}", check_id=check, category="exposure",
              service=service, resource_id=f"{service}-{number}", native_resource_id=f"{service}-{number}",
-             resource_name=f"{service}-{number}", evidence={"container": f"{service}-container-{number}"})
+             resource_name=f"{service}-{number}", evidence={"container": f"{service}-container-{number}"},
+             affected_subjects=[subject('aws', report['findings'][0]['scope'], 'container_workload', f'{service}-{number}')])
         for service in ("ec2", "ecs", "lambda") for number in (1, 2)
     ]
     report["stats"] = {"finding_count": 6, "by_status": {"FAIL": 6}}
@@ -207,6 +210,8 @@ def test_exposed_container_findings_are_grouped_by_service_with_all_assets(tmp_p
 
 @pytest.mark.parametrize("chunked", [False, True], ids=["inline-old-report", "chunked-bundle"])
 def test_type_view_combines_only_matching_titles_and_types(tmp_path, chunked):
+    from peaso.finding_subjects import subject
+
     store, artifacts = SQLiteStore(tmp_path / "state"), FileArtifacts(tmp_path / "artifacts")
     connector = store.add_connector("alice", {"provider": "aws", "name": "fixture"}, "encrypted")
     job = store.enqueue("alice", {"connector_id": connector["id"]})
@@ -215,7 +220,8 @@ def test_type_view_combines_only_matching_titles_and_types(tmp_path, chunked):
     exposure = "analysis.internet_exposure"
     report["findings"] = [
         dict(base, id=asset, resource_id=asset, native_resource_id=asset, resource_name=asset,
-             category=category, check_id=check, finding_type=kind, title=title, service=service)
+             category=category, check_id=check, finding_type=kind, title=title, service=service,
+             affected_subjects=[subject('aws', base['scope'], service, asset)])
         for asset, category, check, kind, title, service in [
             ("api-a", "exposure", exposure, "network", "Public API endpoint", "apigateway"),
             ("api-b", "exposure", exposure, "network", "Public API endpoint", "lambda"),

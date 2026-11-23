@@ -4,6 +4,7 @@ import json
 from collections import Counter
 from typing import Annotated
 from pydantic import Field
+from peaso.finding_subjects import ISOLATED_PROBLEMS, present_verified_scope, set_issue_subjects
 from .contracts import Strict
 from .findings_report import Issue, Text, SPECIAL_KINDS
 from .report_severity import RISK, SeverityEvidence, validate_rating
@@ -58,7 +59,7 @@ def validate(data, reports):
     from .report_source_facts import consolidate, present
     value = CombinedReport.model_validate(data).model_dump()
     sources = [(report['scan_id'], issue['id'], issue) for report in reports for issue in confirmed_issues(report)]
-    known = {(scan_id, issue_id): issue for scan_id, issue_id, issue in sources}
+    known = {(scan_id, issue_id): present_verified_scope(issue) for scan_id, issue_id, issue in sources}
     if len(known) != len(sources):
         raise ValueError('combined_coverage_mismatch')
     covered = Counter((ref['report_id'], ref['issue_id'])
@@ -73,9 +74,14 @@ def validate(data, reports):
         keys = [(ref['report_id'], ref['issue_id']) for ref in issue['references']]
         source = [known[key] for key in keys]
         present(issue, consolidate(source))
-        issue['affected_assets'] = sorted({asset for row in source for asset in row.get('affected_assets', [])})
-        issue['manual_affected_assets'] = sorted({asset for row in source
-            for asset in row.get('manual_affected_assets', [])} - set(issue['affected_assets']))
+        problems = {problem for row in source for problem in row.get('affected_problems', [])}
+        isolated = ISOLATED_PROBLEMS.intersection(problems)
+        if isolated and (len(problems) > 1 or any(not isolated.intersection(row.get('affected_problems', [])) for row in source)):
+            raise ValueError('mixed_direct_subjects')
+        set_issue_subjects(issue, (asset for row in source for asset in row.get('affected_subjects', [])),
+                           incomplete=any('affected_subjects' not in row or row.get('affected_scope_incomplete')
+                                          for row in source))
+        issue['affected_problems'] = sorted(problems)
         recommendations = [dict(item, report_id=ref['report_id'], issue_id=ref['issue_id'])
                            for ref, row in zip(issue['references'], source)
                            for item in row.get('permission_recommendations', [])]
@@ -122,11 +128,17 @@ def validate(data, reports):
             ref = evidence['reference']
             key = (ref['report_id'], ref['issue_id'])
             original = known.get(key)
+            prior_evidence = original.get('severity_evidence') if original else None
+            assets = set(original.get('affected_assets', ())) if original else set()
+            if prior_evidence:
+                # The original reference bound the exact scope before labels
+                # were disambiguated across all of that report's subjects.
+                assets.update(item['native_id'] for item in original.get('affected_subjects', ())
+                              if item['kind'] == 'resource' and item['native_id'] == prior_evidence['asset'])
             if (key not in keys or original['kind'] != 'vulnerability' or original['status'] != 'confirmed'
                     or combined_severity < RISK.index(original['severity'])
-                    or evidence['asset'] not in original.get('affected_assets', [])):
+                    or evidence['asset'] not in assets):
                 raise ValueError('unsupported_report_severity_source')
-            prior_evidence = original.get('severity_evidence')
             if prior_evidence and any(evidence[field] != prior_evidence[field] for field in (
                     'asset', 'consequence', 'prerequisites', 'impact_level',
                     'internet_reachable', 'prerequisites_supported')):
@@ -145,6 +157,7 @@ def build(root, platform, write_json):
     reports = [{key: report[key] for key in fields} | {'issues': confirmed_issues(report)}
                for report in platform['reports']]
     for report, original in zip(reports, platform['reports']):
+        report['issues'] = [present_verified_scope(issue) for issue in report['issues']]
         if original.get('running_images'):
             report['running_images'] = original['running_images']
     write_json(root / 'combined-reports.json', reports)

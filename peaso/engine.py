@@ -1989,6 +1989,17 @@ def evaluate_snapshot(snapshot, categories=None, checks=None, frameworks=None, t
     findings = retain_function_secret_pairs(function_secret_pre_dedup, findings)
     from .azure_function_package_provenance_20261020 import retain_package_source_assertions
     findings = retain_package_source_assertions(function_secret_pre_dedup, findings)
+    from .finding_subjects import SubjectIndex
+    subject_index = SubjectIndex(inventory, provider)
+    for finding in findings:
+        if finding['status'] == 'FAIL':
+            affected = subject_index.direct(finding)
+            finding['affected_subjects'] = affected
+            if subject_index.incomplete(finding, affected):
+                finding['affected_scope_incomplete'] = True
+            problem = subject_index.problem(finding)
+            if problem != finding['check_id']:
+                finding['affected_problem'] = problem
     selected_framework_versions = automated_frameworks(selected_framework_versions)
     counts = Counter(f["status"] for f in findings)
     aggregates = collapse.result()

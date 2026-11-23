@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from moto import mock_aws
 
 from peaso.ai import combined_report_runs as runs, combined_reports as compiler, report_runs
+from peaso.finding_subjects import subject
 from peaso.server import create_app
 from peaso.server.config import Settings
 from peaso.storage import FileArtifacts, SQLiteStore, StoreError
@@ -17,7 +18,8 @@ def issue(ident='encryption', kind='vulnerability', severity='medium'):
     return dict(id=ident, title='Insufficient encryption protections', kind=kind, severity=severity,
                 status='confirmed', description='Captured disk configuration.', impact='Data confidentiality risk.',
                 recommendation='Enable encryption for the affected disks.', verification='Check encrypted disk settings.',
-                references=[{'domain': 'findings', 'id': 'native-check'}], affected_assets=['prod/disk'])
+                references=[{'domain': 'findings', 'id': 'native-check'}], affected_assets=['prod/disk'],
+                affected_subjects=[subject('aws', 'prod/east', 'disk', 'prod/disk')])
 
 
 def severity_evidence(reference, *, asset='prod/disk', impact='material'):
@@ -30,7 +32,7 @@ def compiled(reports):
     rows = []
     for ident in ('encryption', 'images', 'leaks'):
         source = next(i for r in reports for i in r['issues'] if i['id'] == ident)
-        rows.append({k: v for k, v in source.items() if k not in ('id', 'affected_assets', 'special_details')} |
+        rows.append({k: v for k, v in source.items() if k in compiler.CombinedIssue.model_fields} |
                     {'references': [{'report_id': r['scan_id'], 'issue_id': i['id']}
                                     for r in reports for i in r['issues'] if i['id'] == ident]})
         if source['kind'] == 'vulnerability':
@@ -249,13 +251,14 @@ def test_connector_names_decode_storage_data_and_survive_connector_deletion(repo
 
 
 def test_combined_fixed_findings_keep_all_assets_and_breakdowns():
+    from peaso.finding_subjects import subject
     sources = []
     for scan, scope in [('a', 'west'), ('b', 'east')]:
         images = issue('images', 'image_cves', 'high')
-        images.update(affected_assets=[f'{scope}/image'], special_details=[
+        images.update(affected_assets=[f'{scope}/image'], affected_subjects=[subject('aws', scope, 'container_image', f'{scope}/image')], special_details=[
             {'asset': f'{scope}/image', 'counts': {'critical': 0, 'high': 2}, 'finding_ids': [f'native-{scan}']}])
         leak = issue('leaks', 'leaks', 'high')
-        leak.update(affected_assets=[f'{scope}/workload'], special_details=[
+        leak.update(affected_assets=[f'{scope}/workload'], affected_subjects=[subject('aws', scope, 'content_source', f'{scope}/workload')], special_details=[
             {'label': 'Leak 1', 'locations': [f'{scope}/config:12'], 'finding_ids': [f'leak-{scan}']}])
         sources.append({'scan_id': scan, 'issues': [issue(), images, leak]})
     result = compiler.validate(compiled(sources), sources)
@@ -300,10 +303,28 @@ def test_unconfirmed_legacy_issue_never_reaches_combination(tmp_path):
         compiler.validate(dict(data, issues=[candidate]), frozen)
 
 
+def test_legacy_linked_assets_do_not_enter_combined_verified_scope():
+    from peaso.finding_subjects import present_verified_scope
+
+    original = issue(severity='low')
+    original.pop('affected_subjects')
+    original['manual_affected_assets'] = ['made-up']
+    reports = [{'scan_id': 'a', 'issues': [original]}]
+    candidate = {key: value for key, value in original.items() if key in compiler.CombinedIssue.model_fields}
+    candidate['references'] = [{'report_id': 'a', 'issue_id': original['id']}]
+    result = compiler.validate(dict(summary='Combined findings.', issues=[candidate], limitations=[]), reports)['issues'][0]
+    assert result['affected_assets'] == []
+    assert result['affected_scope_incomplete']
+    public = present_verified_scope(original)
+    assert not public['affected_assets'] and 'manual_affected_assets' not in public
+    assert original['affected_assets'] == ['prod/disk']
+
+
 def test_combined_medium_requires_one_source_with_matching_severity_evidence():
     medium = issue('production-recovery')
     medium['severity_evidence'] = severity_evidence(medium['references'][0], asset='prod/state')
-    medium['affected_assets'] = ['prod/state']
+    medium['affected_subjects'] = [subject('aws', scope, 'disk', 'prod/state') for scope in ('prod/east', 'prod/west')]
+    medium['affected_assets'] = ['prod/state (prod/east, disk)', 'prod/state (prod/west, disk)']
     low = issue('limited-recovery', severity='low')
     legacy = issue('disabled-preventive-guardrail')
     legacy['description'] = 'The account guardrail permits future public sharing. Captured buckets are private.'
@@ -350,7 +371,8 @@ def test_combination_preserves_exact_task_scope_and_distinguishes_retention_benc
     data = dict(summary='Combined captured issues.', issues=[merged], limitations=[])
     [result] = compiler.validate(data, reports)['issues']
     assert '**25 affected task definitions.** Each has at least one container' in result['description']
-    assert '**The scan applies a 35-day retention benchmark.** Observed expiry settings are 15 days.' in result['description']
+    assert 'Some backups expire after 15 days. A problem discovered later may be too old to recover' in result['description']
+    assert '35' not in result['description']
     merged['description'] = 'At least one of 25 reviewed development ECS task-definition observations is affected.'
     with pytest.raises(ValueError, match='use_source_task_definition_count'):
         compiler.validate(data, reports)

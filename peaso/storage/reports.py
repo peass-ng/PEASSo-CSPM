@@ -11,7 +11,8 @@ from peaso.snapshot import FrozenDict, FrozenList
 CHUNK_BYTES = 2 * 1024 * 1024
 _SUMMARY_FIELDS = frozenset({"id", "category", "check_id", "title", "provider", "service", "resource_id",
     "native_resource_id", "resource_name", "scope", "region", "severity", "status", "frameworks", "remediation",
-    "automated", "secret_fingerprint", "linked_check_ids", "scanner_status", "ai_review"})
+    "automated", "secret_fingerprint", "linked_check_ids", "scanner_status", "ai_review",
+    "affected_subjects", "affected_problem", "affected_scope_incomplete"})
 _SUMMARY_LIMITS = {"title": 400, "resource_id": 1000, "scope": 500, "remediation": 1000,
     "service": 100, "check_id": 200, "category": 100, "provider": 30}
 

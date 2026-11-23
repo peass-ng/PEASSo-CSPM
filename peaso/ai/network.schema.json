@@ -11,7 +11,7 @@
           "type": "string"
         },
         "resource_ids": {
-          "description": "Existing original platform IDs for every affected control or workload, including the primary resource_id.",
+          "description": "Original platform resource IDs that support the observation, including the primary resource_id.",
           "items": {
             "type": "string"
           },
@@ -76,7 +76,7 @@
           "type": "string"
         },
         "resource_id": {
-          "description": "Primary affected control\u2019s original platform resource ID, not its graph ID or native ID. The platform derives its display identity and scope.",
+          "description": "Original platform resource ID of the primary control used as evidence. The platform derives its display identity and scope.",
           "minLength": 1,
           "title": "Resource Id",
           "type": "string"

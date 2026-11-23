@@ -84,17 +84,6 @@
           ],
           "default": null
         },
-        "manual_affected_assets": {
-          "items": {
-            "maxLength": 500,
-            "minLength": 1,
-            "pattern": "\\S",
-            "type": "string"
-          },
-          "maxItems": 200,
-          "title": "Manual Affected Assets",
-          "type": "array"
-        },
         "permission_review_ids": {
           "items": {
             "pattern": "^PR-[0-9a-f]{12}$",

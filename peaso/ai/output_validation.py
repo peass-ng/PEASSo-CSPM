@@ -92,7 +92,7 @@ def feedback(error):
              'unknown_or_duplicate_permission_review', 'use_source_task_definition_count',
              'missing_report_severity_evidence', 'unsupported_report_severity', 'unsupported_report_severity_source',
              'info_vulnerability_requires_hardening',
-             'use_source_retention_benchmark', 'leave_room_for_source_facts'}
+             'use_source_retention_benchmark', 'leave_room_for_source_facts', 'mixed_direct_subjects'}
     result = {'code': str(error) if str(error) in codes else 'invalid_output'}
     if hasattr(error, 'missing'):
         result['missing_references'] = error.missing

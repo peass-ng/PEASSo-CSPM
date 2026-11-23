@@ -53,8 +53,9 @@ export function GroupedFindingEvidence({ finding, scanId, demo, onInspectMember 
       {findingStatusCounts(counts).map(({ label, count, tone }) =>
         <span key={label}><span className={`badge ${tone}`}>{label}</span> {count.toLocaleString()}</span>)}
     </div>}
-    <h4>Affected assets and regions</h4>
-    <TableDownload table="finding-group-assets" label="affected assets and regions"
+    {detail?.affected_scope_incomplete && <p>The evidence does not identify every affected resource for this check.</p>}
+    <h4>Check observations</h4>
+    <TableDownload table="finding-group-assets" label="check observations"
       loadRows={signal => collectTableRows(async (pageOffset, pageSignal) => {
         const page = await request<FindingGroupDetail>(findingGroupPath(scanId, finding, pageOffset), { signal: pageSignal }, demo);
         return { rows: page.members, total: page.members_total, next: page.members_next_offset ?? page.next_offset };
@@ -67,6 +68,11 @@ export function GroupedFindingEvidence({ finding, scanId, demo, onInspectMember 
             <button type="button" className="text-button" onClick={() => onInspectMember(member)}>{member.resource_name || member.native_resource_id || member.asset || member.resource_id || member.id}</button>
           </div>
           <p className="finding-group-member-scope">{member.account && member.region ? `${member.account} · ${member.region}` : member.scope}</p>
+          {!!member.affected_subjects?.length && <ul aria-label="Directly affected subjects">
+            {member.affected_subjects.map(subject => <li key={[subject.provider, subject.scope, subject.type, subject.native_id].join("|")}>
+              {subject.kind === "scope" ? `Configuration scope ${subject.scope}` : subject.native_id}
+            </li>)}
+          </ul>}
           {additionalEvidence && <p>{additionalEvidence}</p>}
         </li>;
       })}

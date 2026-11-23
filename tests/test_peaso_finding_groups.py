@@ -4,12 +4,14 @@ from copy import deepcopy
 import pytest
 
 from peaso.finding_groups import group_findings, group_report, placement
+from peaso.finding_subjects import subject
 
 
 def row(number, provider="aws", status="FAIL", cid="retention", region="us-east-1", account="123456789012"):
     scope = account + "/" + region if provider == "aws" else f"projects/{account}" if provider == "gcp" else f"/subscriptions/{account}"
     return dict(id=str(number), check_id=cid, provider=provider, category="hardening", severity="medium", scope=scope,
         resource_id=f"stable-{number}", native_resource_id=f"log-{number}", resource_name=f"Log {number}",
+        affected_subjects=[subject(provider, scope, 'log', f'log-{number}')] if status == 'FAIL' else [],
         title="Retention", status=status, evidence={"retention_days": 7}, region=region, frameworks=["Reviewed"])
 
 
@@ -133,9 +135,12 @@ def test_historical_global_root_findings_do_not_claim_regional_placement():
     cid = "aws.a.iam.root_hardware_mfa"
     a, b = row(1, cid=cid), row(2, cid=cid, region="eu-north-1")
     a["resource_id"], b["resource_id"] = "scope:" + a["scope"], "scope:" + b["scope"]
+    a.pop('affected_subjects')
+    b.pop('affected_subjects')
     group = group_findings([a, b])[0]
     assert group["affected_regions"] == []
-    assert group["affected_scopes"] == ["123456789012/global"]
+    assert group["affected_scopes"] == []
+    assert group["observed_scopes"] == ["123456789012/global"]
     assert group["affected_accounts"] == ["123456789012"]
     assert "Regions:" not in group["evidence_summary"]
 
@@ -143,6 +148,8 @@ def test_historical_global_root_findings_do_not_claim_regional_placement():
 def test_coalesced_inventory_rows_keep_every_account_in_grouped_evidence():
     item = row(1)
     item.update(resource_id="inventory:iam_account_summary", scope="selected_scopes", evidence={"scopes": ["123456789012/global", "210987654321/global"]})
+    item.pop('affected_subjects')
     grouped = group_findings([item])[0]
     assert grouped["affected_accounts"] == ["123456789012", "210987654321"]
-    assert grouped["affected_scopes"] == ["123456789012/global", "210987654321/global"]
+    assert grouped["affected_scopes"] == []
+    assert grouped["observed_scopes"] == ["123456789012/global", "210987654321/global"]

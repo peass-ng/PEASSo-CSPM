@@ -129,6 +129,12 @@ def finding(snapshot, resource, category, check, title, severity, evidence, *, s
             "resource_id": resource.get("id", native_id(resource)), "scope": resource["scope"], "severity": severity,
             "status": status, "frameworks": frameworks_for(check), "evidence": _share(evidence),
             "remediation": ACTION.get(check, "Review the recorded access declaration before changing it.")}
+    if status == 'FAIL':
+        from peaso.finding_subjects import direct_exposure_subject
+
+        affected = direct_exposure_subject(check, resource)
+        if affected:
+            result['affected_subjects'] = [affected]
     if check in HOW:
         result["description"] = HOW[check]
     summary = evidence_summary(result)

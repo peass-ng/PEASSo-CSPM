@@ -3,6 +3,7 @@ import hashlib
 import json
 from typing import Annotated, Literal
 from pydantic import Field
+from peaso.finding_subjects import ISOLATED_PROBLEMS, SubjectIndex, labels, set_issue_subjects, special_kind
 from .contracts import Strict
 from .report_severity import RISK, SeverityEvidence, validate_rating
 
@@ -41,7 +42,6 @@ class FindingsReport(Strict):
 class AgentIssue(Issue):
     kind: Literal['vulnerability', 'hardening']
     severity_evidence: SeverityEvidence[Reference] | None = None
-    manual_affected_assets: list[Annotated[str, Field(min_length=1, max_length=500, pattern=r'\S')]] = Field(default_factory=list, max_length=200)
     permission_review_ids: list[Annotated[str, Field(pattern=r'^PR-[0-9a-f]{12}$')]] = Field(default_factory=list)
 
 
@@ -98,15 +98,7 @@ def pregenerate(platform, sources=None):
             severity = image_report_severity(severity)
             bind_running_images(details, runtime)
         title, description = prose(kind, details)
-        detail_assets = {asset for row in details for asset in
-                         (row['assets'] if leaks else [row['asset']]) if asset}
-        # Detailed image rows and leak locations carry the real assets, while
-        # some native finding records have a synthetic finding-level resource.
-        detail_source_ids = {ident for row in details for ident in row['finding_ids']
-                             if (row['assets'] if leaks else row['asset'])}
-        source_assets = {asset for source in positive for asset in source.get('assets', [])
-                         if source['id'] not in detail_source_ids or asset in detail_assets}
-        issues.append({'id': _issue_id(refs), 'title': title, 'kind': kind,
+        item = {'id': _issue_id(refs), 'title': title, 'kind': kind,
             'severity': severity, 'status': 'confirmed', 'description': description,
             'special_details': details,
             'impact': ('Detected secrets may enable access within their permissions if still valid. Detection alone does not establish credential validity or misuse.' if leaks else
@@ -115,8 +107,11 @@ def pregenerate(platform, sources=None):
                                'Review each affected immutable image and vendor applicability, update affected packages or base images to compatible patched versions, rebuild and redeploy, and document advisories without an available fix.'),
             'verification': ('Rescan the affected sources, confirm exposed credentials are retired, and verify replacement credentials work only for their intended consumers.' if leaks else
                              'Rescan rebuilt immutable digests, confirm affected package versions are addressed or documented as not affected, and verify intended workloads use the rebuilt images.'),
-            'references': refs,
-            'affected_assets': sorted(detail_assets | source_assets)})
+            'references': refs}
+        set_issue_subjects(item, (asset for row in positive for asset in row.get('affected_subjects', ())),
+                           incomplete=any(row.get('affected_scope_incomplete') or not row.get('affected_subjects')
+                                          for row in positive))
+        issues.append(item)
     assigned = agent_sources(sources)
     return {'summary': 'Pre-generated findings from captured scan evidence.', 'issues': issues,
             'exclusions': [], 'limitations': [],
@@ -137,21 +132,22 @@ def complete(data, sources, prebuilt, previous_report=None):
         if previous_id and previous_id not in used_ids:
             issue['id'] = previous_id
             used_ids.add(previous_id)
-    assets = {(row['domain'], row['id']): row.get('assets', []) for row in sources}
+    indexed = {(row['domain'], row['id']): row for row in sources}
     recommendations = {row['id']: row.get('permission_recommendations', []) for row in sources
                        if row['domain'] == 'least_privilege'}
     for issue in value['issues']:
-        issue['affected_assets'] = sorted({asset for ref in issue['references']
-            for asset in assets.get((ref['domain'], ref['id']), [])})
+        linked = [indexed[ref['domain'], ref['id']] for ref in issue['references']]
+        direct = [row for row in linked if row['domain'] == 'findings' and row['confirmed']]
+        set_issue_subjects(issue, (asset for row in direct for asset in row.get('affected_subjects', [])),
+                           incomplete=not direct or any(row.get('affected_scope_incomplete') or not row.get('affected_subjects')
+                                                        for row in direct))
+        issue['affected_problems'] = sorted({row['problem'] for row in direct if row.get('problem')})
         if issue['permission_review_ids']:
             linked_reviews = {item['review_id']: item for ref in issue['references'] if ref['domain'] == 'least_privilege'
                               for item in recommendations.get(ref['id'], [])}
             issue['permission_recommendations'] = [linked_reviews[ident] for ident in issue['permission_review_ids']]
         else:
             del issue['permission_review_ids']
-        if 'manual_affected_assets' in issue:
-            issue['manual_affected_assets'] = sorted({asset.strip() for asset in issue['manual_affected_assets']}
-                                                     - set(issue['affected_assets']))
     value['issues'] = sorted(prebuilt['issues'] + value['issues'], key=lambda r: (RISK.index(r['severity']), r['id']))
     value['exclusions'] = prebuilt['exclusions'] + value['exclusions']
     value['source_count'] = len(sources)
@@ -165,13 +161,13 @@ def complete(data, sources, prebuilt, previous_report=None):
 
 def source_index(platform):
     """Only this trusted index can authorize references or required coverage."""
-    from peaso.finding_types import annotate
     from peaso.report_asset_ids import guardduty_detector_arn
     from .report_source_facts import observation
     report = platform.get('report', {})
     result = []
     network_ids = {row['id'] for row in (platform.get('network_review') or {}).get('findings', [])}
     inventory = {row['id']: row for row in platform.get('inventory', []) if row.get('id')}
+    subjects = SubjectIndex(inventory.values(), report.get('provider'))
     def asset(ident):
         if isinstance(ident, str):
             return inventory.get(ident, {}).get('native_id') or ident
@@ -195,11 +191,7 @@ def source_index(platform):
             continue
         evidence = row.get('evidence') or {}
         check = row.get('check_id', '')
-        kind = ('leaks' if evidence.get('secret_leaks') or annotate(row)['finding_type'] == 'detected_leaks'
-                else 'image_cves' if ('selected_' in check and 'image' in check and 'vulnerabilit' in check
-                    or evidence.get('Image') and isinstance(evidence.get('Vulnerabilities'), list)
-                    or evidence.get('image_digest') and isinstance(evidence.get('severity_counts'), dict))
-                else None)
+        kind = special_kind(row)
         identifiers = [row.get('native_resource_id') or asset(row.get('resource_id'))]
         resource_type = inventory.get(row.get('resource_id'), {}).get('type')
         identifiers[0] = guardduty_detector_arn(identifiers[0], row, resource_type=resource_type) or identifiers[0]
@@ -216,14 +208,23 @@ def source_index(platform):
             for target in evidence.get('targets', []):
                 if isinstance(target, dict):
                     identifiers.extend(graph_assets(target))
-        facts = observation(check, row.get('status'), row.get('scope'), identifiers[0], evidence)
-        routed = bool(identifiers[0]) and ((row.get('scope'), row.get('resource_id')) in public_resources or
-                 check == 'analysis.exposed_container_cves' and bool(evidence.get('exposure_routes')))
-        result.append({'category': category, 'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident}),
+        affected = subjects.direct(row)
+        proof_assets = labels([item for item in affected if item['kind'] == 'resource'])
+        facts = observation(check, row.get('status'), row.get('scope'),
+                            proof_assets[0] if len(proof_assets) == 1 else None, evidence)
+        routed = identifiers[0] in proof_assets and (row.get('scope'), row.get('resource_id')) in public_resources
+        routed = routed or check == 'analysis.exposed_container_cves' and bool(evidence.get('exposure_routes'))
+        problem = subjects.problem(row)
+        result.append({'category': category, 'assets': proof_assets,
+                       'related_assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident} - set(proof_assets)),
+                       'affected_subjects': affected, 'problem': problem,
+                       **({'affected_scope_incomplete': True} if subjects.incomplete(row, affected) else {}),
+                       **({'isolated_problem': True} if problem in ISOLATED_PROBLEMS else {}),
                        **({'source_facts': facts} if facts else {}),
-                       **({'internet_reachable_assets': [identifiers[0]]} if routed else {}),
+                       **({'internet_reachable_assets': proof_assets} if routed and len(proof_assets) == 1 else {}),
                        'domain': 'findings', 'id': row['id'], 'kind': kind,
-                       'actionable': True, 'confirmed': True, 'required': True})
+                       'actionable': True, 'confirmed': not check.startswith('ai.') and evidence.get('source') != 'ai_network_review',
+                       'required': True})
     for index, row in enumerate(platform.get('least_privilege', {}).get('items', [])):
         if row.get('suggestions') or row.get('exposures'):
             reviews = [dict(item, principal=row['principal'], provider=row.get('provider', report.get('provider')))
@@ -235,7 +236,7 @@ def source_index(platform):
             result.append({'domain': 'least_privilege', 'id': str(row.get('id', index)),
                            'kind': None, 'confirmed': False, 'required': True, 'actionable': True,
                            **({'permission_recommendations': reviews} if reviews else {}),
-                           'assets': sorted({item for item in [row.get('principal'), *(
+                           'related_assets': sorted({item for item in [row.get('principal'), *(
                                asset(exposure.get('resource_id')) for exposure in row.get('exposures', []))]
                                if isinstance(item, str) and item})})
     graph = report.get('graphs', {}).get('privesc') or {}
@@ -246,7 +247,7 @@ def source_index(platform):
                        for ident in graph_assets(nodes.get(endpoint, {'id': endpoint}))]
         result.append({'domain': 'privesc_edges', 'id': str(row.get('id', index)),
                        'kind': None, 'confirmed': False, 'required': True, 'actionable': False,
-                       'assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident})})
+                       'related_assets': sorted({ident for ident in identifiers if isinstance(ident, str) and ident})})
     finding_sources = {row['id']: row for row in result if row['domain'] == 'findings'}
     for action in platform.get('top_actions', []):
         finding_ids = action.get('finding_ids', [])
@@ -257,7 +258,7 @@ def source_index(platform):
         kind = next(iter(kinds)) if len(kinds) == 1 and kinds <= SPECIAL_KINDS else None
         result.append({'domain': 'actions', 'id': str(action['rank']), 'kind': kind,
                        'confirmed': False, 'required': True, 'actionable': False,
-                       'assets': sorted({asset_id for row in supporting for asset_id in row['assets']})})
+                       'related_assets': sorted({asset_id for row in supporting for asset_id in row['assets'] + row['related_assets']})})
     # The lossless reader can distinguish historic duplicate graph IDs by their
     # records, but report references deliberately identify the original edge.
     from collections import Counter
@@ -384,6 +385,9 @@ def validate(data, sources):
         if covered.intersection(keys):
             raise ValueError('duplicate_report_reference')
         covered.update(keys)
+        problems = {known[key].get('problem') for key in keys if known[key].get('affected_subjects')}
+        if ISOLATED_PROBLEMS.intersection(problems) and len(problems) > 1:
+            raise ValueError('mixed_direct_subjects')
         confirmed = any(key[0] == 'findings' and known[key]['confirmed'] for key in keys)
         if issue['status'] != 'confirmed' or not confirmed:
             raise ValueError('unconfirmed_report_issue')

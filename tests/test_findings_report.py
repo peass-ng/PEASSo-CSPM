@@ -26,8 +26,10 @@ def report(issues=(), exclusions=()):
 
 
 def test_severity_requires_supported_consequence_on_an_affected_asset():
+    from peaso.finding_subjects import subject
     rows = [
-        dict(id='backup', resource_id='prod/state', status='FAIL'),
+        dict(id='backup', resource_id='prod/state', status='FAIL',
+             affected_subjects=[subject('aws', 'prod/east', 'bucket', 'prod/state')]),
         dict(id='password-policy', resource_id='account', status='FAIL'),
         dict(id='preventive-guardrail', resource_id='account', status='FAIL'),
     ]
@@ -475,10 +477,12 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
     import subprocess
     import sys
     from peaso.ai import output_validation, report_draft
+    from peaso.finding_subjects import subject
 
     platform = {
         'report': {'findings': [
-            {'id': 'native-hardening', 'check_id': 'hardening-check', 'status': 'FAIL', 'resource_id': 'disk'},
+            {'id': 'native-hardening', 'check_id': 'hardening-check', 'status': 'FAIL', 'resource_id': 'disk',
+             'affected_subjects': [subject('aws', 'prod/east', 'ebs_volume', 'disk/production')]},
             {'id': 'native-network', 'category': 'network', 'status': 'FAIL', 'resource_id': 'workload',
              'evidence': {'source': 'ai_network_review', 'resource_ids': ['disk', 'workload']}},
         ], 'check_meta': {'hardening-check': {'category': 'hardening'}},
@@ -490,13 +494,14 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
     sources = compiler.source_index(platform)
     by_alias = {row['source_id']: row for row in sources}
     assert set(by_alias) == {'HC-001', 'PE-001', 'NW-001', 'LP-001'}
-    assert by_alias['NW-001']['assets'] == ['disk/production', 'workload']
-    assert by_alias['LP-001']['assets'] == ['identity/worker', 'workload']
+    assert by_alias['NW-001']['assets'] == by_alias['LP-001']['assets'] == []
+    assert by_alias['NW-001']['related_assets'] == ['disk/production', 'workload']
+    assert by_alias['LP-001']['related_assets'] == ['identity/worker', 'workload']
     (tmp_path / 'report-sources.json').write_text(json.dumps(sources))
     reason = ('The captured entry refers to a retired sample workload that receives no traffic '
               'and processes no user or business data.')
     prior = {'issues': [dict(issue([('findings', 'native-hardening')]), id='prior-issue')],
-             'exclusions': [{'reference': {'domain': 'findings', 'id': 'native-network'}, 'reason': reason}]}
+             'exclusions': [{'reference': {'domain': 'findings', 'id': 'native-hardening'}, 'reason': reason}]}
     path = tmp_path / 'report-draft.json'
     path.write_text(json.dumps(report_draft.initial_draft(prior, sources)))
 
@@ -512,10 +517,10 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
         compiler.validate(report_draft.candidate(json.loads(path.read_text())), sources)
     feedback = output_validation.feedback(error.value)
     assert {row['source_id'] for row in feedback['missing_references']} == {'PE-001', 'NW-001', 'LP-001'}
-    rejected = command('exclude', document={'reference': {'source_id': 'NW-001'}, 'reason': reason}, success=False)
+    rejected = command('exclude', document={'reference': {'source_id': 'HC-001'}, 'reason': reason}, success=False)
     assert 'Include confirmed findings in an issue' in rejected.stderr
 
-    replacement = dict(issue([('findings', 'native-hardening')]), manual_affected_assets=['manual/asset', 'workload'])
+    replacement = issue([('findings', 'native-hardening')])
     replacement['references'] = [{'source_id': alias} for alias in ('HC-001', 'NW-001', 'LP-001')]
     import sqlite3
     with sqlite3.connect(tmp_path / 'context.sqlite') as db:
@@ -528,6 +533,8 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
         ])
     replacement['references'] = [{'case_id': 'case', 'except_source_ids': ['NW-001']},
                                  {'source_id': 'NW-001'}, {'source_id': 'LP-001'}]
+    rejected = command('update', 'prior-issue', document=dict(replacement, manual_affected_assets=['manual/asset']), success=False)
+    assert rejected.returncode
     command('update', 'prior-issue', document=replacement)
     assert [row['source_id'] for row in command('coverage')['items']] == ['PE-001']
     new_id = command('add', document=dict(replacement, references=[{'source_id': 'HC-001'}]))['id']
@@ -545,8 +552,23 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
     assert result['covered_count'] == 4
     [compiled] = result['issues']
     assert compiled['id'] == compiler._issue_id(compiled['references'])
-    assert compiled['affected_assets'] == ['disk/production', 'identity/worker', 'workload']
-    assert compiled['manual_affected_assets'] == ['manual/asset']
+    assert compiled['affected_assets'] == ['disk/production']
+    assert not compiled['affected_scope_incomplete']
+
+
+def test_deployment_admin_issue_cannot_absorb_an_unrelated_failed_subject():
+    from peaso.finding_subjects import DEPLOYMENT_ADMIN, subject
+
+    role = subject('aws', '123456789012/global', 'iam_role', 'arn:aws:iam::123456789012:role/deploy')
+    resource = subject('aws', '123456789012/global', 'iam_role', 'arn:aws:iam::123456789012:role/other')
+    sources = [dict(source('findings', 'deployment'), problem=DEPLOYMENT_ADMIN, affected_subjects=[role]),
+               dict(source('findings', 'other'), problem='inline-policy', affected_subjects=[resource])]
+    with pytest.raises(ValueError, match='mixed_direct_subjects'):
+        compiler.validate(report([issue([('findings', 'deployment'), ('findings', 'other')])]), sources)
+    result = compiler.complete(report([issue([('findings', 'deployment')]), issue([('findings', 'other')])]),
+                               sources, {'issues': [], 'exclusions': [], 'covered_count': 0})
+    deployment = next(row for row in result['issues'] if DEPLOYMENT_ADMIN in row['affected_problems'])
+    assert deployment['affected_assets'] == [role['native_id']]
 
 
 def test_fixed_reports_show_counts_and_leak_locations_without_values():
@@ -555,10 +577,10 @@ def test_fixed_reports_show_counts_and_leak_locations_without_values():
                'package': 'example-lib', 'installed_version': '1.0', 'severity': 'HIGH'}
     image = {'status': 'FAIL', 'scope': 'production', 'resource_id': 'registry/image',
              'check_id': 'cloud.selected_image_vulnerabilities'}
-    leak = {'id': 'leak', 'status': 'FAIL', 'evidence': {'secret_leaks': [{
+    leak = {'id': 'leak', 'status': 'FAIL', 'scope': 'production', 'evidence': {'secret_leaks': [{
         'fingerprint': 'fingerprint', 'value': 'PRIVATE-CLEARTEXT', 'detectors': [{'rule': 'api-token'}],
         'locations': [{'resource_id': 'deployment', 'path': 'settings.yaml', 'line': 12}]}]}}
-    platform = {'report': {'findings': [
+    platform = {'report': {'provider': 'aws', 'findings': [
         dict(image, id='detail', evidence={'image_digest': digest, 'vulnerabilities': [package, package]}),
         dict(image, id='summary', evidence={'image_digest': digest, 'severity_counts': {'HIGH': 1, 'MEDIUM': 3}}),
         leak,
@@ -569,9 +591,11 @@ def test_fixed_reports_show_counts_and_leak_locations_without_values():
     assert '1 high, 3 medium' in cves['description']
     assert '0 critical' not in cves['description']
     assert 'Some container images include software with known security flaws.' in cves['description']
-    assert cves['affected_assets'] == ['registry/image']
+    assert 'scan' not in cves['description'].lower()
+    assert cves['affected_assets'] == ['registry/image@' + digest]
     leaks = results['leaks']
-    assert 'plaintext values that matched credential or secret patterns' in leaks['description']
+    assert 'plaintext values match known patterns for credentials or other secrets' in leaks['description']
+    assert 'scan' not in leaks['description'].lower()
     assert 'settings.yaml:12' in leaks['description']
     assert leaks['special_details'][0]['finding_ids'] == ['leak']
     assert leaks['affected_assets'] == ['deployment']
@@ -591,7 +615,9 @@ def test_snapshot_sharing_guardrail_reaches_report_without_owned_snapshots():
     native = evaluate_snapshot(snapshot, checks=[check_id])
     [source] = compiler.source_index({'report': native, 'inventory': resources(snapshot)})
     assert source['confirmed'] and source['required']
-    assert source['assets'] == [scope + '/ec2-regional-settings']
+    assert source['assets'] == []
+    assert source['affected_subjects'][0]['kind'] == 'scope'
+    assert source['affected_subjects'][0]['scope'] == scope
 
     check = next(row for row in CHECKS if row.id == check_id)
     assert check.evaluate({'SnapshotBlockPublicAccessState': 'block-new-sharing'}, {})[0] == 'PASS'
@@ -626,7 +652,8 @@ def test_guardduty_assets_use_scoped_arns_in_new_and_saved_reports():
                    check_id='aws.guardduty.runtime_monitoring', resource_id='sha256:inventory',
                    native_resource_id=detector, scope='123456789012/us-east-1')
     arn = f'arn:aws:guardduty:us-east-1:123456789012:detector/{detector}'
-    [source] = compiler.source_index({'report': {'findings': [finding]}})
+    [source] = compiler.source_index({'report': {'findings': [finding]}, 'inventory': [
+        dict(id=finding['resource_id'], scope=finding['scope'], native_id=detector, type='guardduty_detector')]})
     assert source['assets'] == [arn]
 
     archived = [{'affected_assets': [detector, unrelated, arn]}]

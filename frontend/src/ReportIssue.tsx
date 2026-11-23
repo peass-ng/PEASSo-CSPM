@@ -19,7 +19,7 @@ type PermissionRecommendation = {
   last_accessed?: string; last_refreshed?: string; usage_window_end?: string; usage_window_days?: number;
   confidence: "provider_recommendation" | "tracked_without_observed_use";
 };
-export type Issue = { id: string; title: string; kind: string; severity: string; status: string; description: string; impact: string; recommendation: string; verification: string; affected_assets?: string[]; manual_affected_assets?: string[]; special_details?: SpecialDetail[]; permission_recommendations?: PermissionRecommendation[]; references: Reference[] };
+export type Issue = { id: string; title: string; kind: string; severity: string; status: string; description: string; impact: string; recommendation: string; verification: string; affected_assets?: string[]; affected_scopes?: string[]; affected_scope_incomplete?: boolean; special_details?: SpecialDetail[]; permission_recommendations?: PermissionRecommendation[]; references: Reference[] };
 export const issueKinds: Record<string, string> = { vulnerability: "Security issue", hardening: "Hardening suggestion", leaks: "Leaks", image_cves: "Image CVEs" };
 export function reportIssueExportRow<T extends Pick<Issue, "kind" | "status"> & { references: unknown[] }>(issue: T) {
   return { ...issue, type_label: issueKinds[issue.kind] || issue.kind,
@@ -113,8 +113,9 @@ export function IssueBody({ issue, onInspectDetails }: { issue: Omit<Issue, "ref
   return <><Badge value={issue.severity} /><p>{issue.status === "confirmed" ? "Confirmed configuration" : "Needs review"} · {issueKinds[issue.kind] || issue.kind}</p>
     <h3>Description and affected scope</h3><NetworkArchitecture label="Issue description" markdown text={issue.description} />
     {!!issue.special_details?.length && <SpecialDetails rows={issue.special_details} onInspect={onInspectDetails} />}
-    {!!issue.affected_assets?.length && <AffectedAssets title="Affected assets" assets={issue.affected_assets} />}
-    {!!issue.manual_affected_assets?.length && <AffectedAssets title="Agent-added affected assets" assets={issue.manual_affected_assets} />}
+    {!!issue.affected_assets?.length && <AffectedAssets title={issue.affected_scope_incomplete === undefined ? "Previously linked resources" : "Affected assets"} assets={issue.affected_assets} />}
+    {!!issue.affected_scopes?.length && <AffectedAssets title="Affected configuration scopes" assets={issue.affected_scopes} />}
+    {issue.affected_scope_incomplete && <p>The evidence does not identify every affected resource.</p>}
     <h3>Impact</h3><NetworkArchitecture label="Issue impact" markdown text={issue.impact} />
     <h3>Recommendation</h3><NetworkArchitecture label="Issue recommendation" markdown text={issue.recommendation} />
     {!!issue.permission_recommendations?.length && <PermissionRecommendations items={issue.permission_recommendations} />}

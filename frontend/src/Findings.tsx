@@ -837,6 +837,7 @@ export function FindingInspector({
   );
   const observed = detail.data || finding;
   const combinedTitle = observed.grouped_by_title && (observed.member_count || 0) > 1;
+  const observedScopes = observed.observed_scopes ?? observed.affected_scopes ?? [];
   const internetExposure = observed.check_id === "analysis.internet_exposure";
   const allowCurrentSummary = observed.guidance_refresh?.allow_summary !== false;
   const exposure = internetExposure && allowCurrentSummary ? explainInternetExposure(observed.evidence, observed.status) : undefined;
@@ -885,8 +886,13 @@ export function FindingInspector({
           <h3>{observed.title}</h3>
           <p className="finding-detail-location">{observed.service} · {observed.grouped ? [observed.affected_accounts?.join(", "), observed.affected_regions?.length
             ? `${observed.affected_regions.length} ${observed.affected_regions.length === 1 ? "Region" : "Regions"}`
-            : observed.affected_scopes?.every(scope => scope.endsWith("/global")) ? "Global" : ""].filter(Boolean).join(" · ") || "Selected scopes" : observed.scope}</p>
-          {!observed.grouped && !scopeAsset && <p className="finding-detail-asset"><span>Asset</span> <strong>{asset}</strong></p>}
+            : observedScopes.length && observedScopes.every(scope => scope.endsWith("/global")) ? "Global" : ""].filter(Boolean).join(" · ") || "Selected scopes" : observed.scope}</p>
+          {!observed.grouped && !scopeAsset && !observed.affected_subjects?.length && <p className="finding-detail-asset"><span>Evidence resource</span> <strong>{asset}</strong></p>}
+          {!observed.grouped && !!observed.affected_subjects?.length && <ul className="finding-detail-asset" aria-label="Directly affected subjects">
+            {observed.affected_subjects.map(subject => <li key={[subject.provider, subject.scope, subject.type, subject.native_id].join("|")}>
+              {subject.kind === "scope" ? `Configuration scope ${subject.scope}` : subject.native_id}
+            </li>)}
+          </ul>}
         </header>
         <State loading={lazy && !demo && detail.isPending}
           error={lazy && !demo ? detail.error : undefined} onRetry={() => void detail.refetch()}>

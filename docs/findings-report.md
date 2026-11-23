@@ -27,6 +27,16 @@ edge and top action) must appear once in an issue or a documented exclusion.
 Unavailable upstream stages are retained as limitations. The compiled report does
 not replace native verdicts.
 
+Affected resources come from the directly bound subjects of failed evaluations.
+Least-privilege suggestions, graph endpoints, action groups and related inventory
+remain evidence. They do not supply affected resources. Configuration scopes
+are shown separately from individual resources. The platform deduplicates resources
+by their scoped provider identity, and agents cannot edit the resulting list.
+When a check only verifies a relationship or a joined evaluator lacks a direct
+subject binding, the report identifies its asset scope as incomplete. Regenerate
+individual reports from their saved evidence before using their asset counts in
+a new combined report.
+
 The platform deterministically pre-generates one finding containing all positive
 leak observations and another containing all positive image CVE observations before
 any agent invocation. Their complete native evidence remains linked; leak values

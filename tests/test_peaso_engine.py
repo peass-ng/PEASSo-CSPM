@@ -30,6 +30,12 @@ def test_native_crossprovider_facts(provider, check, kind, item, expected):
     assert report["findings"][0]["status"] == expected
     assert "HackTricks Cloud Best Practices" in hydrate_frameworks(report)["findings"][0]["frameworks"]
     assert report["findings"][0]["resource_id"] == report["resources"][0]["id"]
+    if expected == 'FAIL':
+        [affected] = report['findings'][0]['affected_subjects']
+        assert (affected['provider'], affected['scope'], affected['type'], affected['native_id']) == (
+            provider, 'scope', kind, report['resources'][0]['native_id'])
+    else:
+        assert 'affected_subjects' not in report['findings'][0]
 
 
 @pytest.mark.parametrize("provider,check,kind", [("aws", "aws.ec2.imdsv2", "instance"), ("gcp", "gcp.storage.uniform_access", "bucket"), ("azure", "azure.storage.https_only", "storage_account"), ("k8s", "k8s.pod.no_privileged_containers", "pod")])

@@ -1512,6 +1512,7 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
             output.append({"id": observed["id"], "check_id": observed.get("check_id"),
                 "title": observed.get("title"), "service": observed.get("service"), "scope": locations[0] if len(locations) == 1 else observed.get("scope"), "observed_scopes": locations, "account": account, "region": region,
                 "asset": observed.get("resource_name") or observed.get("native_resource_id") or observed.get("resource_id"),
+                "affected_subjects": observed.get("affected_subjects", []) if observed.get("status") == "FAIL" else [],
                 "native_resource_id": observed.get("native_resource_id"), "resource_id": observed.get("resource_id"),
                 "status": observed.get("status"), "severity": observed.get("severity"),
                 "evidence_summary": observed.get("evidence_summary") or f"Recorded result: {observed.get('status', 'UNKNOWN')}.",
@@ -1664,11 +1665,15 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
         result = source_issue(store, artifacts, user.tenant_id, ident, report_id, issue_id)
         if result['assessment_available']:
             result['issue'], = present_report_assets(user.tenant_id, [result['issue']], (report_id,))
+        else:
+            result['issue'] = present_verified_scope(result['issue'])
         return result
 
     from .findings_report import detector_asset_ids, resolve_detector_assets
+    from peaso.finding_subjects import present_verified_scope
 
     def present_report_assets(tenant, issues, scans, *, current=None):
+        issues = [present_verified_scope(issue) for issue in issues]
         wanted = detector_asset_ids(issues)
         if not wanted:
             return issues

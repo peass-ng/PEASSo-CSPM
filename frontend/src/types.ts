@@ -110,9 +110,13 @@ export type Finding = {
   affected_asset_count?: number;
   affected_regions?: string[];
   affected_scopes?: string[];
+  affected_scope_incomplete?: boolean;
+  affected_subjects?: FindingSubject[];
+  observed_scopes?: string[];
   affected_accounts?: string[];
   member_filters?: Record<string, string | string[]>;
 };
+export type FindingSubject = { provider: string; scope: string; type: string; native_id: string; kind: "resource" | "scope" };
 export type FindingGroupMember = {
   id: string;
   check_id?: string;
@@ -128,6 +132,7 @@ export type FindingGroupMember = {
   status: string;
   severity: string;
   evidence_summary?: string;
+  affected_subjects?: FindingSubject[];
 };
 export type FindingGroupDetail = Finding & {
   members: FindingGroupMember[];

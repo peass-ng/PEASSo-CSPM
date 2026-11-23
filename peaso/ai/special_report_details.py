@@ -68,9 +68,9 @@ def image_report_severity(severity):
     return 'medium' if severity in ('critical', 'high') else severity
 
 
-IMAGE_IMPACT = ('A matching running image makes the workload a patch priority. The advisory rating describes '
-                'the package. Assess whether the affected code is reachable and what the workload or its data '
-                'would expose before escalating the report severity.')
+IMAGE_IMPACT = ('If a workload runs an affected image and uses the vulnerable code, the flaw could affect '
+                'the service or its data. Prioritize images that are running and check how each workload '
+                'uses the affected package.')
 
 
 def image_details(findings):
@@ -165,30 +165,33 @@ def prose(kind, details):
     if kind == 'image_cves':
         if not details:
             return ('Vulnerable packages in container images',
-                    'The captured image scans reported vulnerable packages. Open the source findings for the affected image and advisory details.')
+                    'Some container images include software with known security flaws. The evidence lists the affected images and advisories.')
         title = 'Critical or high package vulnerabilities in container images' if any(
             row['counts'].get(level, 0) for row in details for level in ('critical', 'high')) else 'Vulnerable packages in container images'
         intro = ('Some container images include software with known security flaws. '
-                 'The breakdown shows how many findings the scan reported for each image.')
+                 'The list below shows how many package vulnerabilities are recorded for each image.')
         deployed = {row.get('digest') for row in details if row.get('running_workloads')}
         if deployed:
-            intro += f' Captured workload inventory matched {len(deployed)} affected image digest(s) to running containers.'
+            intro += (' One affected image is running in a container.' if len(deployed) == 1 else
+                      f' Running containers use {len(deployed)} of the affected images.')
         else:
-            intro += ' Captured workload inventory established no running digest match.'
+            intro += ' Whether these exact image versions are running remains unconfirmed.'
         routed = {row.get('digest') for row in details
                   if any(member.get('exposure_routes') for member in row.get('running_workloads', ()))}
         if routed:
-            intro += f' Captured configuration linked {len(routed)} affected image digest(s) to internet-facing routes.'
+            intro += (' A workload running one of these images has an internet-facing route.' if len(routed) == 1 else
+                      f' Workloads running {len(routed)} of these images have internet-facing routes.')
         lines = []
         for row in details:
             counts = ', '.join(f"{row['counts'][level]} {level}" for level in LEVELS if row['counts'].get(level, 0) > 0)
             if counts:
-                lines.append(f"- `{(row['asset'] or row['digest'] or row['scope'])[:180]}` · {counts}")
+                lines.append(f"- `{(row['asset'] or row['digest'] or row['scope'])[:180]}` ({counts})")
     else:
-        title = 'Credentials and secrets found in scanned content'
-        intro = ('The scan found plaintext values that matched credential or secret patterns. '
-                 'Open the evidence for each match to see the value and where it appeared.')
-        lines = [f"- **{row['label']}** · {(row['locations'][0] if row['locations'] else 'Location unavailable')[:220]}"
+        title = 'Credentials and secrets stored in plaintext'
+        intro = ('Some plaintext values match known patterns for credentials or other secrets. '
+                 'The evidence shows where each value appeared.')
+        lines = [f"- **{row['label']}** at {row['locations'][0][:220]}" if row['locations'] else
+                 f"- **{row['label']}** (location unavailable)"
                  for row in details]
     preview = lines[:5]
     description = intro + ('\n\n' + '\n'.join(preview) if preview else '')
