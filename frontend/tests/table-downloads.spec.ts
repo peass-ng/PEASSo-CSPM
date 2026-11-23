@@ -118,3 +118,38 @@ test("API key list exports all cursor pages of public metadata", async ({ page }
   expect(data.rows.map((row: { id: string }) => row.id)).toEqual(["one", "two"]);
   expect(data.rows[0]).not.toHaveProperty("key");
 });
+
+test("Findings Report downloads one PDF per report, regardless of table filters", async ({ page }) => {
+  await baseRoutes(page);
+  const issue = { id: "first", title: "Saved issue", status: "confirmed",
+    kind: "vulnerability", severity: "medium", references: [] };
+  const report = { status: "completed", total: 1, issues: [issue] };
+  const combined = { ...report, id: "group", name: "Cloud estate", created: 1785258645, sources: [] };
+  const requested: string[] = [];
+  await page.route("**/api/ai/codex", route => route.fulfill({ json: { available: true } }));
+  await page.route("**/api/scans/scan/findings-report?*", route => route.fulfill({ json: report }));
+  await page.route("**/api/combined-reports?*", route => route.fulfill({ json: { items: [combined] } }));
+  await page.route("**/api/combined-reports/group?*", route => route.fulfill({ json: combined }));
+  await page.route("**/api/**/pdf", route => {
+    requested.push(new URL(route.request().url()).pathname);
+    expect(new URL(route.request().url()).search).toBe("");
+    return route.fulfill({ contentType: "application/pdf", body: "%PDF-1.4\n" });
+  });
+
+  const pdfButton = page.getByRole("button", { name: "Download PDF", exact: true });
+  async function download(id: string) {
+    await expect(pdfButton).toHaveCount(1);
+    const [file] = await Promise.all([page.waitForEvent("download"), pdfButton.click()]);
+    expect(file.suggestedFilename()).toBe(`peasso-cspm-${id}.pdf`);
+    expect(await readFile(await file.path(), "utf8")).toBe("%PDF-1.4\n");
+  }
+
+  await page.goto("/#Findings%20Report");
+  await page.getByRole("combobox", { name: "Severity" }).selectOption("high");
+  await download("scan");
+  await page.getByRole("tab", { name: "Combined reports" }).click();
+  await expect(pdfButton).toHaveCount(0);
+  await page.getByRole("button", { name: combined.name }).click();
+  await download("group");
+  expect(requested).toEqual(["/api/scans/scan/findings-report/pdf", "/api/combined-reports/group/pdf"]);
+});

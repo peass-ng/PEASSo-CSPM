@@ -1489,6 +1489,21 @@ def api_runtime_files(files):
             and not (present and name.startswith(API_ENGINE_CATALOG_PREFIXES))}
 
 
+API_COMPRESSED_MANIFEST = "peaso/rulepacks/upstream_manifest.json"
+
+
+def api_source_digest(name, read):
+    """Verify the canonical bytes even when the API stores the manifest as gzip."""
+    import gzip
+    try:
+        content = read(name)
+    except (FileNotFoundError, KeyError):
+        if name != API_COMPRESSED_MANIFEST:
+            raise
+        content = gzip.decompress(read(name + ".gz"))
+    return hashlib.sha256(content).hexdigest()
+
+
 def verify_api_source():
     """Verify portable ZIP/staging permissions and complete frozen runtime source."""
     source_root()
@@ -1500,10 +1515,10 @@ def verify_api_source():
     with zipfile.ZipFile(generated_path("api.zip")) as package:
         for name, expected in runtime_files.items():
             try:
-                content = package.read(name)
+                digest = api_source_digest(name, package.read)
             except KeyError:
                 raise RuntimeError(f"API ZIP omits supplied source: {name}") from None
-            if hashlib.sha256(content).hexdigest() != expected:
+            if digest != expected:
                 raise RuntimeError(f"API ZIP source differs from frozen release: {name}")
         members = package.infolist()
         if (API_DISPLAY_INPUTS <= release["files"].keys()
@@ -1523,8 +1538,11 @@ def verify_api_source():
         if set(staged) != {info.filename for info in members}:
             raise RuntimeError("API ZIP members differ from verification directory")
     for name, expected in runtime_files.items():
-        path = BUILD / "api-package" / name
-        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+        try:
+            digest = api_source_digest(name, lambda member: checked_member(target, member).read_bytes())
+        except FileNotFoundError:
+            raise RuntimeError(f"API verification directory omits supplied source: {name}") from None
+        if digest != expected:
             raise RuntimeError(f"API verification directory differs from ZIP: {name}")
     print(f"Verified {len(runtime_files)} frozen runtime source files in API ZIP and directory")
 
@@ -1584,6 +1602,8 @@ API_PACKAGE_SMOKE = (
     "import peaso.server.lambda_handler, peaso.server.scheduler_handler, peaso.checks, peaso.engine\n"
     "from peaso.server.materialized_catalog import summary as materialized_summary\n"
     "assert materialized_summary()['checks'], 'API catalog unavailable'\n"
+    "from peaso.server.findings_pdf import render_findings_pdf\n"
+    "assert render_findings_pdf(name='PDF smoke', generated_at=None, summary='', issues=[], scopes=[]).startswith(b'%PDF-')\n"
     "print('API package import smoke check passed')\n")
 
 
@@ -1611,7 +1631,7 @@ def package_api():
          "--python-version", "3.12", "--abi", "cp312", "--only-binary=:all:",
          "fastapi>=0.115", "uvicorn>=0.30", "cryptography>=43", "PyYAML>=6",
          "PyJWT[crypto]>=2.10", "mangum>=0.19", "boto3==1.43.38", "requests>=2", "tzdata>=2024.1",
-         "google-auth==2.62.0", "azure-identity==1.26.0"])
+         "google-auth==2.62.0", "azure-identity==1.26.0", "reportlab==5.1.0", "markdown-it-py==4.3.0"])
     # Reject installer-created links before copying any source into its tree.
     omitted = omit_empty_api_installation_markers(target)
     if omitted:
@@ -1631,6 +1651,13 @@ def package_api():
                 if directory.exists():
                     shutil.rmtree(directory)
         shutil.copyfile(BUILD / "release.json", target / "peaso_release.json")
+    # The runtime catalog has a lossless gzip reader. Store the exact authored
+    # manifest in that form so the PDF dependencies fit Lambda's expanded budget.
+    manifest = target / API_COMPRESSED_MANIFEST
+    if manifest.is_file():
+        import gzip
+        manifest.with_suffix(".json.gz").write_bytes(gzip.compress(manifest.read_bytes(), mtime=0))
+        manifest.unlink()
     normalize_public_tree(target)
     try:
         from scripts.peaso_api_service_model_gate import prune_api_service_models

@@ -127,11 +127,15 @@ def detail(store, artifacts, tenant, ident):
     return dict(value, **public(state))
 
 
-def source_issue(store, artifacts, tenant, ident, scan, issue_id):
+def frozen_reports(store, artifacts, tenant, ident):
     _, state = read(store, tenant, ident)
     if not state['input_ref'].startswith(job_prefix(tenant, ident)):
         raise StoreError(409, 'Invalid combined report binding')
-    for report in artifacts.get(tenant, state['input_ref'])['reports']:
+    return artifacts.get(tenant, state['input_ref'])['reports']
+
+
+def source_issue(store, artifacts, tenant, ident, scan, issue_id):
+    for report in frozen_reports(store, artifacts, tenant, ident):
         if report['scan_id'] == scan:
             for issue in report['issues']:
                 if issue['id'] == issue_id:

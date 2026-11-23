@@ -69,12 +69,13 @@ def prefix(tenant):
 
 
 def check_reference(tenant, reference):
-    if not re.fullmatch(r"[a-f0-9]{64}/[a-f0-9]{32}/(snapshot|network-snapshot|report|manifest|findings|finding-index|coverage|graph-network|graph-iam|graph-privesc|markdown|detail|resources|least-privilege|ai-access|ai-review|secret-evidence)-[a-f0-9]{32}\.(json|md)", reference) or not reference.startswith(prefix(tenant) + "/"):
+    if not re.fullmatch(r"[a-f0-9]{64}/[a-f0-9]{32}/(?:(snapshot|network-snapshot|report|manifest|findings|finding-index|coverage|graph-network|graph-iam|graph-privesc|markdown|detail|resources|least-privilege|ai-access|ai-review|secret-evidence)-[a-f0-9]{32}\.(json|md)|findings-pdf-[a-f0-9]{32}\.pdf)", reference) or not reference.startswith(prefix(tenant) + "/"):
         raise ValueError("Invalid artifact reference")
 
 
 def reference_for(tenant, job_id, kind):
-    reference = f"{prefix(tenant)}/{job_id}/{kind}-{uuid.uuid4().hex}.{'md' if kind == 'markdown' else 'json'}"
+    extension = {"markdown": "md", "findings-pdf": "pdf"}.get(kind, "json")
+    reference = f"{prefix(tenant)}/{job_id}/{kind}-{uuid.uuid4().hex}.{extension}"
     check_reference(tenant, reference)
     return reference
 
@@ -328,15 +329,20 @@ class S3Artifacts:
             return int(size) if size.isdigit() else 2**63 - 1
         return header["ContentLength"]
 
+    def put_pdf(self, tenant, job_id, body):
+        return self._put(tenant, job_id, "findings-pdf", body, "application/pdf")
+
     def presign(self, tenant, reference, filename=None):
         check_reference(tenant, reference)
         if '/secret-evidence-' in reference:
             raise ValueError('Private secret evidence cannot be downloaded directly')
         arguments = {"Bucket": self.bucket, "Key": "artifacts/" + reference}
         if filename:
-            if not re.fullmatch(r"(?:peaso|hacktricks-cspm)-[a-f0-9]{32}\.(json|md)", filename):
+            if not re.fullmatch(r"(?:peaso|hacktricks-cspm)-[a-f0-9]{32}\.(json|md|pdf)", filename):
                 raise ValueError("Invalid download filename")
             arguments["ResponseContentDisposition"] = f'attachment; filename="{filename}"'
+            if filename.endswith(".pdf"):
+                arguments["ResponseCacheControl"] = "private, no-store"
         return self.client.generate_presigned_url("get_object", Params=arguments, ExpiresIn=300)
 
 

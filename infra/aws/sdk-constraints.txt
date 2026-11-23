@@ -36,3 +36,7 @@ typing-inspection==0.4.4
 tzdata==2026.5
 urllib3==2.8.0
 uvicorn==0.54.0
+markdown-it-py==4.3.0
+mdurl==0.1.2
+pillow==12.2.0
+reportlab==5.1.0

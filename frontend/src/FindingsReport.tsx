@@ -1,3 +1,4 @@
+import { FindingsPdfDownload } from "./FindingsPdfDownload";
 import { TableDownload, requestTableRows } from "./TableDownload";
 import { ReportFilters } from "./ReportFilters";
 import { useEffect, useRef, useState } from "react";
@@ -33,6 +34,8 @@ function AssessmentReport({ scanId, demo }: { scanId: string; demo: boolean }) {
   const close = () => { setSelected(undefined); requestAnimationFrame(() => trigger.current?.focus()); };
   return <div className="ai-review-view">
     <Panel>
+      {(report.status === "completed" || report.status === "partial") &&
+        <FindingsPdfDownload id={scanId} path={`/scans/${encodeURIComponent(scanId)}/findings-report/pdf`} />}
       {(report.status === "unavailable" || report.run_status === "failed") && <p role="alert">Report generation failed. Generate the report again to retry.</p>}
       <ReportFilters search={search} severity={severity} total={report.total}
           onSearch={value => { setSearch(value); setPage(0); }}

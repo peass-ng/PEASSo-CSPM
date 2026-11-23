@@ -113,3 +113,13 @@ Hosted combinations use the existing role-free agent runtime through a report-on
 workflow branch. Generation is tenant-scoped and fenced; read-only workspace access
 cannot create combinations. Workspace cleanup waits for active combinations and
 removes completed combination metadata and artifacts with the other workspace data.
+
+## PDF downloads
+
+Use **Download PDF** in a completed Findings Report to export a single document
+covering all its issues. The same export is available inside a completed combined
+report. Page and severity filters in the issue table do not limit the PDF. The
+document includes the assessment scope and schedule, a linked contents page, a
+severity and service overview, and evidence in each finding. Each finding starts
+on a new page. The PDF lists up to 25 directly affected assets per issue. For
+larger sets it lists 10 assets and gives the remaining count.

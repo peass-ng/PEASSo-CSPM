@@ -1,3 +1,4 @@
+import { FindingsPdfDownload } from "./FindingsPdfDownload";
 import { TableDownload, requestTableRows } from "./TableDownload";
 import { ReportFilters } from "./ReportFilters";
 import { useState } from "react";
@@ -110,7 +111,9 @@ export function CombinedReports({ scanId, selectedId, onSelect, showAll, onShowA
     <State loading={detail.isPending} error={detail.error} onRetry={() => void detail.refetch()} />
     {report && <>
       <Panel>
-        <div className="combined-report-heading"><h2>{report.name}</h2><Badge value={report.status} /></div>
+        <div className="combined-report-heading"><h2>{report.name}</h2><Badge value={report.status} />
+          {report.status === "completed" && <FindingsPdfDownload id={selectedId} path={`/combined-reports/${encodeURIComponent(selectedId)}/pdf`} />}
+        </div>
         <div className="combined-report-meta">
           <time>{date(report.created)}</time>
           <details><summary>{report.sources.length} source reports</summary>

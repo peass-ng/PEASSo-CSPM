@@ -380,3 +380,33 @@ def test_combination_preserves_exact_task_scope_and_distinguishes_retention_benc
     merged['recommendation'] = 'Meet the approved 35-day target.'
     with pytest.raises(ValueError, match='use_source_retention_benchmark'):
         compiler.validate(data, reports)
+
+
+def test_pdf_routes_use_complete_reports_and_enforce_ownership(reports, monkeypatch):
+    from io import BytesIO
+    from pypdf import PdfReader
+
+    settings, store, artifacts, scans = reports
+    entry = runs.create(store, artifacts, 'alice', 'alice', 'Cloud and workloads', selected(store, artifacts))
+    ident = entry['id']
+    combined_path = f'/api/combined-reports/{ident}/pdf'
+    single_path = f'/api/scans/{scans[0]}/findings-report/pdf'
+    monkeypatch.setattr('peaso.ai.pipeline.invoke_before_deadline',
+                        lambda stage, platform, *args: compiled(platform['reports']))
+    app = create_app(settings, store=store, artifacts=artifacts, authenticator=TestIdentities())
+    alice = {'Authorization': 'Bearer alice'}
+    bob = {'Authorization': 'Bearer bob'}
+    with TestClient(app, base_url='http://127.0.0.1') as client:
+        assert client.get(combined_path, headers=alice).status_code == 409
+        assert runs.execute(store, artifacts, 'alice', ident)
+        for path, name in [(single_path, 'Production'), (combined_path, 'Cloud and workloads')]:
+            assert client.get(path).status_code == 401
+            assert client.get(path, headers=bob).status_code == 404
+            result = client.get(path, headers=alice, params={'search': 'unmatched', 'limit': 1})
+            assert result.status_code == 200, result.text
+            assert result.headers['Content-Type'] == 'application/pdf'
+            assert result.headers['Cache-Control'] == 'private, no-store'
+            document = PdfReader(BytesIO(result.content))
+            assert name in document.pages[0].extract_text()
+            assert sum("OBSERVED ISSUE" in page.extract_text() for page in document.pages) == 3
+            assert all("Source report issues" not in page.extract_text() for page in document.pages)

@@ -174,6 +174,31 @@ export async function downloadReport(
   URL.revokeObjectURL(url);
 }
 
+export async function downloadFindingsPdf(path: string, id: string, signal: AbortSignal) {
+  const workspace = sessionStorage.getItem(workspaceKey);
+  let response = await authenticatedFetch(`/api${path}`, {
+    headers: { Accept: "application/pdf, application/json" }, signal,
+  });
+  if (!response.ok) throw new ApiError(response.status, "Report PDF could not be downloaded. Try again.");
+  if (response.headers.get("content-type")?.includes("application/json")) {
+    const envelope: unknown = await response.json();
+    if (!isDownloadEnvelope(envelope) || envelope.format !== "pdf")
+      throw new Error("The server did not return a report PDF.");
+    response = await fetchArtifact(envelope.download_url, signal);
+  }
+  if (!response.headers.get("content-type")?.includes("application/pdf"))
+    throw new Error("The server did not return a report PDF.");
+  const blob = await response.blob();
+  signal.throwIfAborted();
+  if (sessionStorage.getItem(workspaceKey) !== workspace) throw new Error("The workspace changed during download.");
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `peasso-cspm-${id}.pdf`;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 type DownloadEnvelope = {
   secret_evidence?: unknown;
   download_url: string;
@@ -190,7 +215,7 @@ function isDownloadEnvelope(value: unknown): value is DownloadEnvelope {
     typeof value.download_url === "string"
   );
 }
-async function fetchArtifact(value: string) {
+async function fetchArtifact(value: string, signal?: AbortSignal) {
   const url = new URL(value, location.origin);
   if (
     !["http:", "https:"].includes(url.protocol) ||
@@ -199,11 +224,12 @@ async function fetchArtifact(value: string) {
   )
     throw new Error("Invalid artifact download URL");
   const response = await fetch(url.href, {
+    signal,
     credentials: "omit",
     cache: "no-store",
     referrerPolicy: "no-referrer",
     headers: {
-      Accept: "application/json, text/markdown, application/octet-stream",
+      Accept: "application/json, text/markdown, application/pdf, application/octet-stream",
     },
   });
   if (!response.ok)

@@ -3779,6 +3779,10 @@ main.network-map-page { max-width: none; width: 100%; min-width: 0; }
   align-items: baseline;
   gap: .5rem 1rem;
 }
+
+.findings-pdf-download { margin-bottom: .75rem; }
+.combined-report-heading .findings-pdf-download { margin: 0 0 0 auto; }
+.findings-pdf-download .form-error { margin: .4rem 0 0; }
 .combined-report-heading h2 { font-size: 1.15rem; margin: 0; }
 .combined-report-meta {
   padding: .45rem 0 .75rem;

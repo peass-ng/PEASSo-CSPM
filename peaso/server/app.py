@@ -1694,26 +1694,99 @@ def create_app(settings=None, *, store=None, authenticator=None, artifacts=None)
 
         return resolve_detector_assets(issues, native_findings(), wanted)
 
-    @app.get("/api/scans/{ident}/findings-report")
-    def scan_findings_report(ident: str, offset: int = Query(default=0, ge=0),
-                             limit: int = Query(default=25, ge=1, le=100),
-                             exclusion_offset: int = Query(default=0, ge=0),
-                             search: str = Query(default="", max_length=300),
-                             severity: str = Query(default="", max_length=20), user=Depends(identity)):
-        row, bundle = owned_bundle(user.tenant_id, ident)
-        ai = (artifacts.get(user.tenant_id, bundle["ai_review"]) if bundle.get("ai_review") else
+    def assessment_findings_report(tenant, ident):
+        row, bundle = owned_bundle(tenant, ident)
+        ai = (artifacts.get(tenant, bundle["ai_review"]) if bundle.get("ai_review") else
               bundle.get("summary", bundle).get("ai", {}))
         from peaso.storage.sqlite import TERMINAL
         absent_status = ("in_progress" if row.get("status") not in TERMINAL else
                          "unavailable" if ai.get("status") == "unavailable" else "not_available")
         report = ai.get("findings_report") or {"status": absent_status, "issues": []}
         from peaso.ai.report_runs import current_report
-        report = current_report(store, artifacts, user.tenant_id, ident, row, report)
+        report = current_report(store, artifacts, tenant, ident, row, report)
+        return row, bundle, report
+
+    @app.get("/api/scans/{ident}/findings-report")
+    def scan_findings_report(ident: str, offset: int = Query(default=0, ge=0),
+                             limit: int = Query(default=25, ge=1, le=100),
+                             exclusion_offset: int = Query(default=0, ge=0),
+                             search: str = Query(default="", max_length=300),
+                             severity: str = Query(default="", max_length=20), user=Depends(identity)):
+        row, bundle, report = assessment_findings_report(user.tenant_id, ident)
         from .findings_report import page as report_page
         result = report_page(report, offset=offset, limit=limit, search=search, severity=severity,
                              exclusion_offset=exclusion_offset)
         result['issues'] = present_report_assets(user.tenant_id, result['issues'], (ident,), current=(row, bundle))
         return result
+
+    def findings_pdf_response(tenant, ident, name, report, issues, scopes):
+        from .findings_pdf import render_findings_pdf
+        filename = f"peasso-cspm-{ident}.pdf"
+        content = render_findings_pdf(name=name, generated_at=time.time(), summary=report.get("summary"),
+                                      issues=issues, scopes=scopes)
+        if len(content) > 3_500_000 and hasattr(artifacts, "put_pdf"):
+            reference = artifacts.put_pdf(tenant, ident, content)
+            return JSONResponse(signed_download(tenant, reference, "pdf", filename),
+                                headers={"Cache-Control": "private, no-store"})
+        return Response(content, media_type="application/pdf", headers={
+            "Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "private, no-store",
+        })
+
+    def pdf_services(tenant, row, bundle, ids):
+        from .findings_pdf_data import native_services
+        if not ids:
+            return {}
+        findings = bundle.get("findings", ())
+        if "finding_index_chunks" in bundle or "finding_chunks" in bundle:
+            findings = finding_index(tenant, row["report"], finding_index_references(bundle))
+        return native_services(findings, ids, check_fields(bundle))
+
+    @app.get("/api/scans/{ident}/findings-report/pdf")
+    def assessment_findings_pdf(ident: str, user=Depends(identity)):
+        from .findings_pdf_data import check_ids, issue_services, scope_entry
+        tenant = user.tenant_id
+        row, bundle, report = assessment_findings_report(tenant, ident)
+        if report.get("status") not in ("completed", "partial"):
+            raise HTTPException(409, "A Findings Report is not available yet")
+        issues = present_report_assets(tenant, report.get("issues", []), (ident,), current=(row, bundle))
+        services = pdf_services(tenant, row, bundle, set().union(*(check_ids(issue) for issue in issues)))
+        scope = scope_entry({}, row, bundle)
+        return findings_pdf_response(tenant, ident, scope["name"], report, issue_services(issues, services), [scope])
+
+    @app.get("/api/combined-reports/{ident}/pdf")
+    def combined_findings_pdf(ident: str, user=Depends(identity)):
+        from concurrent.futures import ThreadPoolExecutor
+        from peaso.ai.combined_report_runs import detail, frozen_reports
+        from .findings_pdf_data import captured_services, check_ids, issue_services, scope_entry
+        tenant = user.tenant_id
+        report = detail(store, artifacts, tenant, ident)
+        if report.get("status") != "completed":
+            raise HTTPException(409, "A Findings Report is not available yet")
+        raw_issues = report.get("issues", [])
+        sources = report.get("sources", [])
+        frozen = frozen_reports(store, artifacts, tenant, ident) if raw_issues else []
+        selected = {(reference["report_id"], reference["issue_id"])
+                    for issue in raw_issues for reference in issue.get("references", ())}
+        ids = {scan["scan_id"]: set().union(*(check_ids(issue) for issue in scan.get("issues", ())
+                if (scan["scan_id"], issue["id"]) in selected)) for scan in frozen}
+
+        def load(source):
+            scan = source["scan_id"]
+            try:
+                row, bundle = owned_bundle(tenant, scan)
+            except (StoreError, HTTPException) as exc:
+                status = exc.status if isinstance(exc, StoreError) else exc.status_code
+                if status not in (404, 409):
+                    raise
+                return scan, scope_entry(source), {}
+            return scan, scope_entry(source, row, bundle), pdf_services(tenant, row, bundle, ids.get(scan))
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            records = list(pool.map(load, sources))
+        issues = present_report_assets(tenant, raw_issues, (source["scan_id"] for source in sources))
+        services = captured_services(frozen, {scan: record for scan, _, record in records})
+        return findings_pdf_response(tenant, ident, report["name"], report,
+                                     issue_services(issues, {}, services), [scope for _, scope, _ in records])
 
     @app.get("/api/scans/{ident}/findings-report/evidence")
     def report_evidence_labels(ident: str, finding_id: list[str] = Query(), user=Depends(identity)):
