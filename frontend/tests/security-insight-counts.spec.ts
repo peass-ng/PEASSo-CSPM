@@ -19,14 +19,14 @@ async function setup(page: Page) {
     if (p.endsWith('/least-privilege')) json = { items: [], total: 7, recommendation_total: 19 };
     if (p.endsWith('/graphs/privesc')) json = { nodes: [], edges: [{}], truncated: true, total_edges: 82 };
     if (p.endsWith('/graphs/network')) json = { nodes: [], total_nodes: 25 };
-    if (p.endsWith('/ai')) json = { actions: [{ title: 'Action' }], network: { total: 6, findings: [] } };
+    if (p.endsWith('/ai')) json = { actions: Array.from({ length: 15 }, (_, index) => ({ rank: index + 1 })), network: { total: 6, findings: [] } };
     await route.fulfill({ json });
   });
 }
 test('sidebar shows complete totals, keeps tags beside names and orders leaks last', async ({ page }) => {
   await setup(page); await page.goto('/#Images%20CVEs');
   for (const [name, count] of Object.entries({ 'Hardening & Compliance': 12, Exposure: 3, Leaks: 4, 'Images CVEs': 40,
-    'Least Privilege': 19, 'Privilege Escalation Map': 82, 'Network Map': 25, 'Network Architecture': 6, 'Top 15 Actions': 1 })) {
+    'Least Privilege': 19, 'Privilege Escalation Map': 82, 'Network Map': 25, 'Network Architecture': 6, 'Top 10 Actions': 10 })) {
     await expect(page.getByLabel(`${name} total`, { exact: true })).toHaveText(String(count));
   }
   const nav = page.getByRole('navigation', { name: 'Primary navigation' });
@@ -35,7 +35,7 @@ test('sidebar shows complete totals, keeps tags beside names and orders leaks la
   expect(names.findIndex(n => n.includes('Leaks'))).toBe(network + 1);
   expect(names.findIndex(n => n.includes('Images CVEs'))).toBe(network + 2);
   await expect(nav.getByRole('button', { name: 'Attack Detection', exact: true }).locator('.nav-label')).toContainText('Beta');
-  await expect(nav.getByRole('button', { name: 'Top 15 Actions', exact: true }).locator('.nav-label')).toContainText('AI');
+  await expect(nav.getByRole('button', { name: 'Top 10 Actions', exact: true }).locator('.nav-label')).toContainText('AI');
 });
 test('CVE and image groups open the shared inspector and table scrolls internally', async ({ page }) => {
   await setup(page); await page.goto('/#Images%20CVEs');

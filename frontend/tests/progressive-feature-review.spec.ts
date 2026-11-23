@@ -99,10 +99,10 @@ test('every native tab renders saved results while AI analysis is still running'
   await expect(page.locator('.pe-canvas .react-flow__node').first()).toBeVisible({ timeout: 30000 });
 
   // AI pages state that the model is still working instead of "not requested".
-  await open(page, 'Top 15 Actions');
+  await open(page, 'Top 10 Actions');
   await expect(page.getByRole('status').getByRole('heading', { name: 'AI analysis in progress' })).toBeVisible();
   await expect(page.getByText('No recommended actions are available for this scan.')).toHaveCount(0);
-  await expect(page.getByLabel('Top 15 Actions total', { exact: true })).toHaveText('—');
+  await expect(page.getByLabel('Top 10 Actions total', { exact: true })).toHaveText('—');
   await open(page, 'Network Architecture');
   await expect(page.getByRole('status').getByRole('heading', { name: 'AI analysis in progress' })).toBeVisible();
   await expect(page.getByText(/Run a scan with AI enabled/)).toHaveCount(0);
@@ -132,7 +132,7 @@ test('completion refreshes the final report and removes the running indicator', 
     rationale: 'Reduces exposure.', steps: ['Apply the change.'], verification: 'Check the setting.' }] };
   await expect(page.getByRole('button', { name: 'Final prioritized action' })).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.scan-running-banner')).toHaveCount(0);
-  await expect(page.getByLabel('Top 15 Actions total', { exact: true })).toHaveText('1');
+  await expect(page.getByLabel('Top 10 Actions total', { exact: true })).toHaveText('1');
   // A stable final publication causes no refetch loop.
   const stable = counts['/scans/demo-scan/summary'] || 0;
   await page.waitForTimeout(1000);

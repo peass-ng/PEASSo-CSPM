@@ -2,7 +2,8 @@
 .actions-panel .filters { align-items: center; }
 .ai-review-view .actions-table { min-width: 700px; }
 .ai-review-view .actions-table th:first-child { width: 34%; }
-.ai-review-view .actions-table th:nth-child(2) { width: auto; }
+.ai-review-view .actions-table th:nth-child(2),
+.ai-review-view .actions-table th:nth-child(3) { width: 110px; }
 .ai-review-view .actions-table th:last-child { width: auto; }
 .actions-table td { vertical-align: middle; }
 .actions-table .action-title,
@@ -59,7 +60,6 @@
 .network-summary[open] .network-summary-collapse { display: block; margin-bottom: 20px; }
 .network-summary summary:focus-visible { outline: 2px solid var(--mint); outline-offset: 6px; }
 
-.actions-table th:nth-child(2), .actions-table th:nth-child(3) { width: 110px; }
 .action-assessment { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; font-size: 12px; }
 .action-assessment > span { display: flex; align-items: center; gap: 8px; }
 .action-effort { display: inline-block; font-size: 11px; padding: 4px 9px; border-radius: 4px; text-transform: capitalize; background: #10272c; color: var(--mint); }

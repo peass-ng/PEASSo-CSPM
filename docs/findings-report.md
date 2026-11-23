@@ -1,7 +1,7 @@
 # Findings Report
 
 AI-enabled scans compile a Findings Report after the selected Network Architecture
-and Top 15 Actions analyses finish. The report is enabled by default and can be
+and Top 10 Actions analyses finish. The report is enabled by default and can be
 turned off independently in scan and schedule settings with
 `ai_findings_report_enabled: false`. `ai_enabled: false` disables all model work.
 Progressive Network-only invocations do not start the compiler.
@@ -19,8 +19,9 @@ IAM/network relationships are limited to explicit references and two dependency
 hops around assigned evidence. Regeneration rebuilds draft issues whose
 references include checks outside the current input.
 The opening overview previews at most 12 cases per area; full case membership and
-evidence are indexed for targeted, paginated access. Findings are grouped by root cause and remediation, without a 15-issue
-limit. Check-result totals, FAIL totals and evidence-source totals are not vulnerability
+evidence are indexed for targeted, paginated access. Findings are grouped by
+root cause and remediation, independently of the prioritized actions limit.
+Check-result totals, FAIL totals and evidence-source totals are not vulnerability
 counts; only the consolidated issues are counted as report issues. Every required source (native FAIL, least-privilege candidate, escalation
 edge and top action) must appear once in an issue or a documented exclusion.
 Unavailable upstream stages are retained as limitations. The compiled report does

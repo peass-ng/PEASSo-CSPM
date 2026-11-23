@@ -85,7 +85,7 @@ const pages = [
     description: "Launch assessments, follow their progress and revisit saved results.",
   },
   { label: "Findings Report", icon: FileText, ai: true, group: "SECURITY INSIGHTS", description: "Review and combine security reports from completed assessments." },
-  { label: "Top 15 Actions", icon: ListChecks, ai: true, description: "Review the security changes to prioritize." },
+  { label: "Top 10 Actions", icon: ListChecks, ai: true, description: "Review the security changes to prioritize." },
   {
     label: "Hardening & Compliance",
     icon: ShieldCheck,
@@ -147,7 +147,7 @@ const pages = [
   },
 ];
 const pageAliases: Record<string, string> = {
-  "AI Review": "Top 15 Actions", "Top 15 Recommended Actions": "Top 15 Actions",
+  "AI Review": "Top 10 Actions", "Top 15 Actions": "Top 10 Actions", "Top 15 Recommended Actions": "Top 10 Actions",
   "Hardening Findings": "Hardening & Compliance", "Network Findings": "Network Architecture",
   "Images Findings": "Images CVEs", "Attack Analysis": "Attack Detection",
 };
@@ -270,7 +270,7 @@ export function App() {
     "Exposure",
     "Leaks",
     "Images CVEs",
-    "Top 15 Actions",
+    "Top 10 Actions",
     "Findings Report",
     "Network Architecture",
     "Least Privilege",
@@ -512,7 +512,7 @@ export function App() {
           {pageInfo.ai && codex.isPending && signedIn && <State loading />}
           {page === "Images CVEs" && <ImagesFindings key={`${scanId}:${demo}`} scanId={scanId} demo={demo} />}
           {aiAvailable && page === "Findings Report" && <FindingsReport key={scanId} scanId={scanId} demo={demo} canLaunch={canWriteWorkspace && current?.status === "completed"} canCombine={canWriteWorkspace} onSelectAssessment={setSelected} />}
-          {aiAvailable && page === "Top 15 Actions" && <AiReview key={scanId} scanId={scanId} demo={demo} />}
+          {aiAvailable && page === "Top 10 Actions" && <AiReview key={scanId} scanId={scanId} demo={demo} />}
           {aiAvailable && page === "Network Architecture" && <NetworkAiReview key={scanId} scanId={scanId} demo={demo} />}
           {page === "Least Privilege" && <LeastPrivilege scanId={scanId} demo={demo} />}
           {page === "Privilege Escalation Map" && (

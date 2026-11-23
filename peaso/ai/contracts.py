@@ -35,6 +35,7 @@ class LegacyAction(Strict):
 
 
 class Action(LegacyAction):
+    rank: int = Field(ge=1, le=10)
     severity: Literal['critical', 'high', 'medium', 'low', 'info']
     effort: Literal['high', 'medium', 'low']
 
@@ -50,7 +51,7 @@ class ArchivedRecommendations(Strict):
 
 
 class Recommendations(Strict):
-    actions: list[Action] = Field(max_length=15)
+    actions: list[Action] = Field(max_length=10)
     limitations: list[str]
 
 

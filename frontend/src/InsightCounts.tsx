@@ -1,8 +1,9 @@
 import { useApi } from "./api";
+import { isTopPriorityAction } from "./priorityActions";
 import type { Report } from "./types";
 
 type GraphCounts = { nodes?: unknown[]; edges?: unknown[]; total_nodes?: number; total_edges?: number; truncated?: boolean };
-type AiCounts = { findings_report?: { status?: string; total?: number }; actions?: unknown[]; network?: { total?: number; findings?: unknown[] }; pending_stages?: string[] };
+type AiCounts = { findings_report?: { status?: string; total?: number }; actions?: { rank: number }[]; network?: { total?: number; findings?: unknown[] }; pending_stages?: string[] };
 
 /** Selected-assessment totals, independent of each page's filters and pagination. */
 export function useInsightCounts(scanId: string, demo: boolean, enabled: boolean, aiAvailable: boolean, report?: Report) {
@@ -19,10 +20,11 @@ export function useInsightCounts(scanId: string, demo: boolean, enabled: boolean
   const graphCount = (data: GraphCounts | undefined, kind: "nodes" | "edges") =>
     data?.[kind === "nodes" ? "total_nodes" : "total_edges"] ??
     (data?.truncated ? undefined : data?.[kind]?.length);
+  const actionCount = ai.data?.actions?.filter(isTopPriorityAction).length;
   return {
     // A running AI stage has no count yet; show the pending dash, not zero.
     "Findings Report": ["completed", "partial"].includes(ai.data?.findings_report?.status || "") ? ai.data?.findings_report?.total : undefined,
-    "Top 15 Actions": ai.data?.pending_stages?.includes("priorities") && !ai.data.actions?.length ? undefined : ai.data?.actions?.length,
+    "Top 10 Actions": ai.data?.pending_stages?.includes("priorities") && !actionCount ? undefined : actionCount,
     "Hardening & Compliance": categoryCount("hardening"),
     "Exposure": categoryCount("exposure"),
     "Least Privilege": principals.data?.recommendation_total ?? principals.data?.total,

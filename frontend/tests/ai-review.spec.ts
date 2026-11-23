@@ -46,7 +46,7 @@ test('Settings distinguishes missing isolation from a disconnected Codex account
   await expect(page.getByText('AI review is unavailable until isolated agent execution is configured.', { exact: true })).toBeVisible();
   await expect(page.getByText('Your Codex connection is unavailable. Reconnect to enable AI review.', { exact: true })).toHaveCount(0);
 });
-test('Top 15 Actions shows prioritized plans without duplicate verification tables', async ({ page }) => {
+test('Top 10 Actions shows prioritized plans without duplicate verification tables', async ({ page }) => {
   await setup(page);
   await page.route('**/api/scans', route => route.fulfill({ json: { items: [{ id: 'scan', connector_id: 'account', status: 'completed' }] } }));
   await page.route('**/api/scans/scan/ai?*', route => route.fulfill({ json: {
@@ -99,8 +99,8 @@ test('network findings have a separate page below Network Map', async ({ page })
   const nav = page.getByRole('navigation', { name: 'Primary navigation' });
   const labels = await nav.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')));
   expect(labels[labels.findIndex(label => label === 'Scans') + 1]).toBe('Findings Report');
-  expect(labels[labels.findIndex(label => label === 'Findings Report') + 1]).toBe('Top 15 Actions');
-  expect(labels[labels.findIndex(label => label === 'Top 15 Actions') + 1]).toBe('Hardening & Compliance');
+  expect(labels[labels.findIndex(label => label === 'Findings Report') + 1]).toBe('Top 10 Actions');
+  expect(labels[labels.findIndex(label => label === 'Top 10 Actions') + 1]).toBe('Hardening & Compliance');
   expect(labels[labels.findIndex(label => label === 'Network Map') + 1]).toBe('Network Architecture');
   await expect(nav.getByRole('button', { name: 'Network Architecture', exact: true }).locator('.feature-ai')).toHaveText('✦ AI');
   await nav.getByRole('button', { name: 'Network Architecture', exact: true }).click();
@@ -128,12 +128,12 @@ test('network findings have a separate page below Network Map', async ({ page })
   await expect(page.getByText('Legacy evidence disclaimer.', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Close inspector' }).click();
   await expect(networkTable.getByRole('button', { name: network.findings[0].title, exact: true })).toBeFocused();
-  await nav.getByRole('button', { name: 'Top 15 Actions', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Top 15 Actions', exact: true }).first()).toBeVisible();
+  await nav.getByRole('button', { name: 'Top 10 Actions', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Top 10 Actions', exact: true }).first()).toBeVisible();
   await expect(page.getByText(explanation, { exact: true })).toHaveCount(0);
 });
 
-for (const target of ['Network Architecture', 'Top 15 Actions', 'Top 15 Recommended Actions', 'AI Review']) {
+for (const target of ['Network Architecture', 'Top 10 Actions', 'Top 15 Recommended Actions', 'AI Review']) {
   test(`AI sections are hidden and direct links fall back without Codex: ${target}`, async ({ page }) => {
     await setup(page);
     let resultReads = 0;
@@ -144,7 +144,7 @@ for (const target of ['Network Architecture', 'Top 15 Actions', 'Top 15 Recommen
     await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
     const nav = page.getByRole('navigation', { name: 'Primary navigation' });
     await expect(nav.getByRole('button', { name: 'Network Architecture', exact: true })).toHaveCount(0);
-    await expect(nav.getByRole('button', { name: 'Top 15 Actions', exact: true })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Top 10 Actions', exact: true })).toHaveCount(0);
     expect(resultReads).toBe(0);
   });
 }
@@ -160,10 +160,10 @@ test('disconnecting personal Codex hides AI navigation without a reload', async 
   await page.goto('/#Settings');
   const nav = page.getByRole('navigation', { name: 'Primary navigation' });
   await expect(nav.getByRole('button', { name: 'Network Architecture', exact: true })).toBeVisible();
-  await expect(nav.getByRole('button', { name: 'Top 15 Actions', exact: true })).toBeVisible();
+  await expect(nav.getByRole('button', { name: 'Top 10 Actions', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Disconnect Codex', exact: true }).click();
   await expect(nav.getByRole('button', { name: 'Network Architecture', exact: true })).toHaveCount(0);
-  await expect(nav.getByRole('button', { name: 'Top 15 Actions', exact: true })).toHaveCount(0);
+  await expect(nav.getByRole('button', { name: 'Top 10 Actions', exact: true })).toHaveCount(0);
 });
 
 test('platform Codex configuration shows AI pages without personal sign-in', async ({ page }) => {
@@ -172,7 +172,7 @@ test('platform Codex configuration shows AI pages without personal sign-in', asy
   await page.goto('/#Network%20Findings');
   await expect(page.getByRole('heading', { name: 'Network Architecture', exact: true })).toBeVisible();
   await expect(page.getByText('Select a completed scan.', { exact: true })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Top 15 Actions', exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Top 10 Actions', exact: true })).toBeVisible();
 });
 
 
@@ -191,16 +191,20 @@ for (const width of [1280, 390]) {
     }));
     await page.route('**/api/scans/scan/ai?*', route => route.fulfill({ json: { actions: [...actions].reverse() } }));
     await page.route('**/api/scans/scan/findings/finding-1', route => route.fulfill({ json: { id: 'finding-1', title: 'Related identity finding' } }));
-    await page.goto('/#Top%2015%20Recommended%20Actions');
+    await page.goto(width === 1280 ? '/#Top%2015%20Actions' : '/#Top%2015%20Recommended%20Actions');
     const table = page.getByRole('region', { name: 'Prioritized actions' });
-    await expect(table.locator('tbody tr')).toHaveCount(15);
+    await expect(table.locator('tbody tr')).toHaveCount(10);
     await expect(table.locator('tbody tr').first().getByRole('button', { name: actions[0].title, exact: true })).toBeVisible();
     const geometry = await table.evaluate(element => {
-      const first = element.querySelector('th')!.getBoundingClientRect();
+      const [actionWidth, severityWidth, effortWidth, benefitWidth] = Array.from(
+        element.querySelectorAll('th'), header => header.getBoundingClientRect().width,
+      );
       const row = element.querySelector('tbody tr')!.getBoundingClientRect();
-      return { actionWidth: first.width, rowHeight: row.height, pageWidth: document.documentElement.scrollWidth, viewport: innerWidth };
+      return { actionWidth, severityWidth, effortWidth, benefitWidth, rowHeight: row.height, pageWidth: document.documentElement.scrollWidth, viewport: innerWidth };
     });
     expect(geometry.actionWidth).toBeGreaterThanOrEqual(200);
+    expect(geometry.severityWidth).toBe(geometry.effortWidth);
+    expect(geometry.benefitWidth).toBeGreaterThan(geometry.severityWidth);
     expect(geometry.rowHeight).toBeLessThanOrEqual(110);
     expect(geometry.pageWidth).toBeLessThanOrEqual(geometry.viewport + 1);
     if (width === 1280) await page.screenshot({ path: '/tmp/cspm-top-actions-table-desktop.png', fullPage: true });
@@ -218,16 +222,16 @@ for (const width of [1280, 390]) {
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
     await expect(title).toBeFocused();
-    await page.getByRole('textbox', { name: 'Search actions' }).fill('finding-15');
+    await page.getByRole('textbox', { name: 'Search actions' }).fill('finding-10');
     await expect(table.locator('tbody tr')).toHaveCount(1);
-    await expect(page.getByText('1 / 15 actions', { exact: true })).toBeVisible();
-    await table.getByRole('button', { name: actions[14].title, exact: true }).click();
-    await expect(page.getByRole('dialog').getByRole('heading', { name: actions[14].title, exact: true })).toBeVisible();
+    await expect(page.getByText('1 / 10 actions', { exact: true })).toBeVisible();
+    await table.getByRole('button', { name: actions[9].title, exact: true }).click();
+    await expect(page.getByRole('dialog').getByRole('heading', { name: actions[9].title, exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Close inspector' }).click();
-    await page.getByRole('textbox', { name: 'Search actions' }).fill('unmatched-search');
+    await page.getByRole('textbox', { name: 'Search actions' }).fill('finding-15');
     await expect(table.getByText('No actions match your search.')).toBeVisible();
     await page.getByRole('button', { name: 'Clear search', exact: true }).click();
-    await expect(table.locator('tbody tr')).toHaveCount(15);
+    await expect(table.locator('tbody tr')).toHaveCount(10);
     await expect(table.getByRole('columnheader', { name: 'Order' })).toHaveCount(0);
   });
 }
@@ -354,7 +358,7 @@ for (const closeWith of ['button', 'Escape']) {
     await expect(detail).toHaveCount(0);
     await expect(plan).toBeVisible();
     await expect(plan.getByText('Require tokens after compatibility checks.', { exact: true })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Top 15 Actions', exact: true }).locator('.feature-ai')).toHaveText('✦ AI');
+    await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Top 10 Actions', exact: true }).locator('.feature-ai')).toHaveText('✦ AI');
     await expect(related).toBeFocused();
     await expect(plan.locator('details.action-references')).toHaveAttribute('open', '');
   });

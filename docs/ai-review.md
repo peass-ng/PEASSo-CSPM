@@ -4,7 +4,7 @@ AI review is an **optional** layer on top of the deterministic results. It reads
 native evidence and adds two things:
 
 - **Network Architecture**: a model-written review of the network layout and its risks.
-- **Top 15 Actions**: a prioritized list of the most useful changes, ordered by what to do first.
+- **Top 10 Actions**: a prioritized list of the most useful changes, ordered by what to do first.
 
 Native results never wait for AI and are never changed by it. The code lives in `peaso/ai/`.
 

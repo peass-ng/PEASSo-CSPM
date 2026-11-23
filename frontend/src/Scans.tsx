@@ -640,7 +640,7 @@ export function LaunchForm({
             <label className="checkbox"><input type="checkbox" checked={aiAvailable && aiEnabled && aiReportEnabled}
               disabled={!aiAvailable || !aiEnabled} onChange={event => setAiReportEnabled(event.target.checked)} />Findings Report <small>Uses AI after all analyses finish</small></label>
             <label className="checkbox"><input type="checkbox" checked={aiAvailable && aiEnabled && aiPrioritiesEnabled}
-              disabled={!aiAvailable || !aiEnabled} onChange={(event) => setAiPrioritiesEnabled(event.target.checked)} />Top 15 Actions <small>Uses AI</small></label>
+              disabled={!aiAvailable || !aiEnabled} onChange={(event) => setAiPrioritiesEnabled(event.target.checked)} />Top 10 Actions <small>Uses AI</small></label>
             {analysisCategories.map((category) => <label key={category.id} className="checkbox">
               <input type="checkbox" checked={selected.includes(category.id)} onChange={(event) =>
                 setSelected(event.target.checked ? [...selected, category.id] : selected.filter((id) => id !== category.id))} />

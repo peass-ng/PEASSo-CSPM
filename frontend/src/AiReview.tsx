@@ -3,6 +3,7 @@ import "./AiReview.css";
 import { useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { useApi } from "./api";
+import { isTopPriorityAction } from "./priorityActions";
 import { FindingStatusBadge, matchesFindingStatus } from "./findingStatus";
 import { Badge, Evidence, Inspector, Panel, State } from "./ui";
 import { NetworkArchitecture } from "./NetworkArchitecture";
@@ -141,10 +142,11 @@ export function AiReview({ scanId, demo }: { scanId: string; demo: boolean }) {
   if (query.isPending || query.error) return <State loading={query.isPending} error={query.error} onRetry={() => void query.refetch()} />;
   const data = query.data;
   if (!data) return null;
-  if (!data.actions.length && data.pending_stages?.includes("priorities"))
+  const rankedActions = data.actions.filter(isTopPriorityAction).sort((a, b) => a.rank - b.rank);
+  if (!rankedActions.length && data.pending_stages?.includes("priorities"))
     return <AiPending title="Prioritized actions">Prioritized actions appear here when the AI Priorities review finishes. Native findings, maps and least-privilege results are already available.</AiPending>;
   const term = search.trim().toLocaleLowerCase();
-  const actions = [...data.actions].sort((a, b) => a.rank - b.rank).filter(action =>
+  const actions = rankedActions.filter(action =>
     [action.title, action.rationale, ...action.finding_ids,
       ...action.steps, action.verification].join(" ").toLocaleLowerCase().includes(term));
   return <div className="ai-review-view">
@@ -155,7 +157,7 @@ export function AiReview({ scanId, demo }: { scanId: string; demo: boolean }) {
         </div>
         {search && <button className="text-button" onClick={() => setSearch("")}>Clear search</button>}
         <TableDownload table="prioritized-actions" label="prioritized actions table" rows={actions} />
-        <span className="count-pill" aria-live="polite">{term ? `${actions.length} / ${data.actions.length}` : data.actions.length} actions</span>
+        <span className="count-pill" aria-live="polite">{term ? `${actions.length} / ${rankedActions.length}` : rankedActions.length} actions</span>
       </div>
       <div className="table-scroll" role="region" aria-label="Prioritized actions" tabIndex={0}>
         <table className="findings-table actions-table"><thead><tr><th scope="col">Action</th><th scope="col">Severity</th><th scope="col">Effort</th><th scope="col">Reason & benefit</th></tr></thead>

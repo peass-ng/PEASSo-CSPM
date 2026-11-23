@@ -31,3 +31,16 @@ def test_old_report_is_not_assigned_fabricated_assessments():
 def test_producer_schema_requires_assessments():
     schema=Recommendations.model_json_schema()
     assert {'severity','effort'}<=set(schema['$defs']['Action']['required'])
+
+
+def test_new_plans_cap_actions_at_ten_and_archives_still_accept_fifteen():
+    actions = [dict(LEGACY, rank=rank, title=f'Action {rank}', severity='high', effort='low')
+               for rank in range(1, 16)]
+    data = {'actions': actions, 'limitations': []}
+    assert validate_actions(data, REPORT, []) == data
+    assert validate_actions(dict(data, actions=actions[:10]), REPORT, [], require_assessment=True)['actions'] == actions[:10]
+    with pytest.raises(ValueError):
+        validate_actions(dict(data, actions=actions[:11]), REPORT, [], require_assessment=True)
+    schema = Recommendations.model_json_schema()
+    assert schema['properties']['actions']['maxItems'] == 10
+    assert schema['$defs']['Action']['properties']['rank']['maximum'] == 10

@@ -4,7 +4,7 @@
       "additionalProperties": false,
       "properties": {
         "rank": {
-          "maximum": 15,
+          "maximum": 10,
           "minimum": 1,
           "title": "Rank",
           "type": "integer"
@@ -86,7 +86,7 @@
       "items": {
         "$ref": "#/$defs/Action"
       },
-      "maxItems": 15,
+      "maxItems": 10,
       "title": "Actions",
       "type": "array"
     },

@@ -144,7 +144,7 @@ export function SupportingEvidence({ scanId, references, onInspect, available = 
     enabled: available, staleTime: Infinity, retry: false,
   })) });
   const names = Object.assign({}, ...labels.map(query => query.data?.items || {})) as Record<string, string>;
-  const sections = { least_privilege: "Least Privilege", privesc_edges: "Privilege Escalation Map", actions: "Top 15 Actions" };
+  const sections = { least_privilege: "Least Privilege", privesc_edges: "Privilege Escalation Map", actions: "Top 10 Actions" };
   return <><ul className="report-evidence">{visible.map(ref => <li key={ref.domain + ref.id}>
     {ref.domain === "findings" && available ? <button className="text-button" onClick={() => onInspect(ref.id)}>{names[ref.id] || evidenceIdentifier(ref)}</button> :
       ref.domain !== "findings" && available ? <a href={`#${encodeURIComponent(sections[ref.domain])}`}>{evidenceIdentifier(ref)}</a> : evidenceIdentifier(ref)}

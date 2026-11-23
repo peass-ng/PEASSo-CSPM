@@ -25,7 +25,7 @@ test("assessment sections control the submitted scan work", async ({ page }) => 
   await dialog.getByRole("checkbox", { name: "Exposure", exact: true }).uncheck();
   await dialog.getByRole("checkbox", { name: "Least privilege", exact: true }).uncheck();
   await dialog.getByRole("checkbox", { name: "Network Map", exact: true }).uncheck();
-  await dialog.getByRole("checkbox", { name: /Top 15 Actions/ }).uncheck();
+  await dialog.getByRole("checkbox", { name: /Top 10 Actions/ }).uncheck();
   await expect(dialog.getByRole("checkbox", { name: /Network Architecture/ })).toBeDisabled();
   await dialog.getByRole("button", { name: "Start scan" }).click();
   await expect.poll(() => submitted !== undefined).toBe(true);

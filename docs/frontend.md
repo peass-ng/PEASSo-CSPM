@@ -14,7 +14,7 @@ Main libraries: TanStack Query (data fetching), TanStack Table and Virtual (larg
 | Setup | Dashboard | Scan summary, counts by status and category, recent scans |
 | | Connectors | Add and edit provider connectors, auth guides, access check |
 | | Scans | Start, cancel, resume and schedule scans; scan list |
-| Security insights | Top 15 Actions (AI) | Prioritized actions from the AI review |
+| Security insights | Top 10 Actions (AI) | Prioritized actions from the AI review |
 | | Hardening & Compliance | Native hardening findings and framework views |
 | | Exposure | Internet exposure and external principal findings |
 | | Least Privilege | Principals, grants and unused permissions |
