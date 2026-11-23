@@ -595,7 +595,7 @@ export function Findings({
             label="findings table" disabled={!scanId || query.isPending || !!query.error || search !== debouncedSearch}
             loadRows={async signal => {
               const matches = demo || !serverFiltered ? filtered :
-                await requestTableRows<Finding>(findingsPath, "items", 200, signal);
+                await requestTableRows<Finding>(findingsPath, "items", 500, signal);
               return matches.map(row => ({
                 id: row.id, severity: row.severity, title: row.title, check_id: row.check_id,
                 service: row.service, provider: row.provider, scope: row.scope, status: row.status,

@@ -50,11 +50,16 @@ class CombinedReferenceCoverageError(ValueError):
                          else 'combined_coverage_mismatch')
 
 
+def confirmed_issues(report):
+    return [issue for issue in report.get('issues', ()) if issue.get('status') == 'confirmed']
+
+
 def validate(data, reports):
     from .report_source_facts import consolidate, present
     value = CombinedReport.model_validate(data).model_dump()
-    known = {(report['scan_id'], issue['id']): issue for report in reports for issue in report['issues']}
-    if len(known) != sum(len(report['issues']) for report in reports):
+    sources = [(report['scan_id'], issue['id'], issue) for report in reports for issue in confirmed_issues(report)]
+    known = {(scan_id, issue_id): issue for scan_id, issue_id, issue in sources}
+    if len(known) != len(sources):
         raise ValueError('combined_coverage_mismatch')
     covered = Counter((ref['report_id'], ref['issue_id'])
                       for issue in value['issues'] for ref in issue['references'])
@@ -110,8 +115,7 @@ def validate(data, reports):
                 or any(row['kind'] == 'vulnerability' and row.get('severity_evidence') for row in source))
                 or kinds == {'hardening'} and issue['kind'] != 'hardening'):
             raise ValueError('hardening_report_severity')
-        if ((issue['kind'] == 'vulnerability' and (issue['status'] != 'confirmed' or not confirmed_vulnerability))
-                or (issue['status'] == 'confirmed' and not any(row['status'] == 'confirmed' for row in source))):
+        if issue['status'] != 'confirmed' or (issue['kind'] == 'vulnerability' and not confirmed_vulnerability):
             raise ValueError('unconfirmed_report_issue')
         evidence = validate_rating(issue)
         if evidence:
@@ -137,7 +141,8 @@ def validate(data, reports):
 
 
 def build(root, platform, write_json):
-    reports = [{key: report[key] for key in ('scan_id', 'connector_name', 'provider', 'created_at', 'issues', 'limitations')}
+    fields = ('scan_id', 'connector_name', 'provider', 'created_at', 'limitations')
+    reports = [{key: report[key] for key in fields} | {'issues': confirmed_issues(report)}
                for report in platform['reports']]
     for report, original in zip(reports, platform['reports']):
         if original.get('running_images'):

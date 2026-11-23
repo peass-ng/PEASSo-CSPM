@@ -7,7 +7,7 @@ from peaso.storage import StoreError
 from peaso.storage.sqlite import utc
 from peaso.storage.artifacts import job_prefix
 from . import report_runs
-from .combined_reports import version, validate
+from .combined_reports import confirmed_issues, version, validate
 
 PREFIX = 'combined_report/'
 
@@ -60,7 +60,7 @@ def candidates(store, artifacts, tenant):
         result.append({'scan_id': row['id'], 'connector_name': connector.get('name', 'Unknown connector'),
             'provider': connector.get('provider', ''), 'created_at': row.get('created_at') or utc(row['created']),
             'version': version(report), 'status': report.get('status', 'not_available'),
-            'issue_count': len(report.get('issues', []))})
+            'issue_count': len(confirmed_issues(report))})
     return result
 
 
@@ -80,7 +80,7 @@ def create(store, artifacts, tenant, actor, name, selections):
         reports.append({'scan_id': row['id'], 'connector_name': connector.get('name', 'Unknown connector'),
             'provider': connector.get('provider', ''), 'created_at': row.get('created_at') or utc(row['created']),
             'version': selection['version'], 'summary': report.get('summary', ''),
-            'issues': report.get('issues', []), 'limitations': report.get('limitations', []),
+            'issues': confirmed_issues(report), 'limitations': report.get('limitations', []),
             'running_images': report.get('running_images', [])})
     affected_digests = {detail.get('digest') for report in reports for issue in report['issues']
                         if issue['kind'] == 'image_cves' for detail in issue.get('special_details', [])}
@@ -178,7 +178,7 @@ def execute(store, artifacts, tenant, ident):
         if not state['input_ref'].startswith(job_prefix(tenant, ident)):
             raise ValueError('invalid_combined_input_binding')
         inputs = artifacts.get(tenant, state['input_ref'])
-        if any(report['issues'] for report in inputs['reports']):
+        if any(confirmed_issues(report) for report in inputs['reports']):
             data = invoke_before_deadline('report_combination', inputs, [], token, [], [],
                 time.monotonic() + max(0, state['expires'] - time.time() - 120), 1500)
         else:

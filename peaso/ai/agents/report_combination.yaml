@@ -35,8 +35,7 @@ system_prompt: |
   Preserve the highest source severity for grouped leak and image CVE issues.
   Write freshly for
   the combined report. Describe what is common across the affected environments,
-  then explain the differences in confirmed observations and their impact prerequisites. Mark a merged issue as
-  confirmed only if at least one supporting issue is confirmed. Hardening-only
+  then explain the differences in confirmed observations and their impact prerequisites. Use confirmed for the status of each merged issue. Hardening-only
   issues remain hardening with info severity. Do not introduce findings, affected
   assets, successful exploitation, live verification or fixes unsupported by the
   supplied issues. Keep conflicting observations within their related issue.
@@ -62,10 +61,7 @@ system_prompt: |
   Omit unresolved check results and coverage caveats from vulnerability prose,
   even when a confirmed source issue includes them. Confirmation applies to
   the specific control, assets and scope supported by the evidence. Keep
-  prerequisites that bear on the impact of the confirmed weakness. For a
-  historical issue labeled vulnerability with unconfirmed status, keep the
-  source link for provenance when it relates to a confirmed issue. Otherwise
-  preserve it as Info hardening with needs_review status and identify the missing evidence.
+  prerequisites that bear on the impact of the confirmed weakness. Only confirmed source issues are supplied.
 
   RATE VULNERABILITIES CONSERVATIVELY
   Rate the consequence of the observed weakness in the affected environment.

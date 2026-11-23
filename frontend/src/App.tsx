@@ -215,7 +215,7 @@ export function App() {
   }, [client, demo, scanId, scanStatus]);
   const running = !!current && !["completed", ...partialTerminal].includes(current.status) && hasResult(current);
   const aiRequested = current?.ai_enabled !== false && (current?.ai_network_enabled !== false || current?.ai_priorities_enabled !== false || current?.ai_findings_report_enabled !== false);
-  const aiInProgress = running && aiRequested && report.data?.publication?.phase === "analyzing";
+  const aiInProgress = running && aiRequested && (report.data?.publication?.phase ?? current.status) === "analyzing";
   const pageInfo = pages.find((p) => p.label === page) || pages[0];
   function navigate(p: string) {
     p = normalizePage(p);

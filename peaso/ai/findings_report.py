@@ -58,7 +58,8 @@ def _issue_id(references):
 
 
 def agent_sources(sources):
-    return [row for row in sources if row['kind'] not in SPECIAL_KINDS]
+    rows = [row for row in sources if row['kind'] not in SPECIAL_KINDS]
+    return rows if any(must_include_in_issue(row) for row in rows) else []
 
 
 def must_include_in_issue(source):
@@ -116,26 +117,26 @@ def pregenerate(platform, sources=None):
                              'Rescan rebuilt immutable digests, confirm affected package versions are addressed or documented as not affected, and verify intended workloads use the rebuilt images.'),
             'references': refs,
             'affected_assets': sorted(detail_assets | source_assets)})
+    assigned = agent_sources(sources)
     return {'summary': 'Pre-generated findings from captured scan evidence.', 'issues': issues,
             'exclusions': [], 'limitations': [],
-            'status': 'partial' if agent_sources(sources) else 'completed',
-            'source_count': len(sources), 'covered_count': covered,
+            'status': 'partial' if assigned else 'completed',
+            'source_count': covered + len(assigned), 'covered_count': covered,
             **({'running_images': runtime} if runtime else {})}
 
 
 def complete(data, sources, prebuilt, previous_report=None):
     """Append validated model findings without accepting edits to fixed findings."""
     value = validate({key: item for key, item in data.items() if key != 'draft_issue_ids'}, agent_sources(sources))
-    previous_ids = {issue['id'] for issue in (previous_report or {}).get('issues', [])
-                    if issue['kind'] not in SPECIAL_KINDS}
-    edits = data.get('draft_issue_ids', {})
-    claimed = set()
+    previous_by_reference = {_issue_id(issue['references']): issue['id']
+                             for issue in (previous_report or {}).get('issues', [])
+                             if issue['kind'] not in SPECIAL_KINDS and issue['status'] == 'confirmed'}
+    used_ids = {issue['id'] for issue in value['issues']}
     for issue in value['issues']:
-        previous_id = edits.get(issue['id'])
-        if isinstance(previous_id, str) and previous_id in previous_ids and previous_id not in claimed:
-            if previous_id == issue['id'] or all(other['id'] != previous_id for other in value['issues']):
-                issue['id'] = previous_id
-                claimed.add(previous_id)
+        previous_id = previous_by_reference.get(issue['id'])
+        if previous_id and previous_id not in used_ids:
+            issue['id'] = previous_id
+            used_ids.add(previous_id)
     assets = {(row['domain'], row['id']): row.get('assets', []) for row in sources}
     recommendations = {row['id']: row.get('permission_recommendations', []) for row in sources
                        if row['domain'] == 'least_privilege'}
@@ -359,7 +360,7 @@ def build(root, platform, findings, reviews, write_json):
            if row.get('permission_recommendations') else {})) for row in assigned])
     write_json(root / 'top-actions.json', scoped['top_actions'])
     from .report_draft import initial_draft
-    write_json(root / 'report-draft.json', initial_draft(platform.get('previous_findings_report') or {}, assigned))
+    write_json(root / 'report-draft.json', initial_draft({}, assigned))
 
 
 class MissingReportEvidence(ValueError):
@@ -383,10 +384,8 @@ def validate(data, sources):
         if covered.intersection(keys):
             raise ValueError('duplicate_report_reference')
         covered.update(keys)
-        confirmed = any(known[key]['confirmed'] for key in keys)
-        if ((issue['kind'] == 'vulnerability' and issue['status'] != 'confirmed')
-                or (issue['status'] == 'confirmed' and not confirmed)
-                or not any(known[key].get('actionable', True) for key in keys)):
+        confirmed = any(key[0] == 'findings' and known[key]['confirmed'] for key in keys)
+        if issue['status'] != 'confirmed' or not confirmed:
             raise ValueError('unconfirmed_report_issue')
         if issue['kind'] == 'hardening' and issue['severity'] != 'info':
             raise ValueError('hardening_report_severity')

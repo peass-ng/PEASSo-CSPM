@@ -284,17 +284,20 @@ def test_combiner_caps_image_severity_and_preserves_leak_severity():
         compiler.validate(data, sources)
 
 
-def test_unconfirmed_legacy_issue_does_not_remain_a_vulnerability_in_merge():
-    original = issue()
-    original['status'] = 'needs_review'
-    frozen = [{'scan_id': 'a', 'issues': [original]}]
+def test_unconfirmed_legacy_issue_never_reaches_combination(tmp_path):
+    original = dict(issue(), status='needs_review', description='Unverified cross-account retention.')
+    frozen = [{'scan_id': 'a', 'connector_name': 'Audit', 'provider': 'aws', 'created_at': '',
+               'limitations': [], 'issues': [original]}]
+    files = {}
+    compiler.build(tmp_path, {'reports': frozen}, lambda path, value: files.update({path.name: value}))
+    assert files['combined-reports.json'][0]['issues'] == []
+    assert files['platform.json']['reports'][0]['issue_count'] == 0
+    data = {'summary': 'Combined report', 'limitations': [], 'issues': []}
+    assert compiler.validate(data, frozen)['source_count'] == 0
     candidate = {key: original[key] for key in compiler.CombinedIssue.model_fields if key in original}
     candidate['references'] = [{'report_id': 'a', 'issue_id': original['id']}]
-    data = {'summary': 'Combined report', 'limitations': [], 'issues': [candidate]}
-    with pytest.raises(ValueError, match='unconfirmed_report_issue'):
-        compiler.validate(data, frozen)
-    candidate.update(kind='hardening', severity='info')
-    assert compiler.validate(data, frozen)['issues'][0]['status'] == 'needs_review'
+    with pytest.raises(compiler.CombinedReferenceCoverageError):
+        compiler.validate(dict(data, issues=[candidate]), frozen)
 
 
 def test_combined_medium_requires_one_source_with_matching_severity_evidence():

@@ -70,8 +70,7 @@ def test_severity_requires_supported_consequence_on_an_affected_asset():
 def test_all_source_areas_are_assessed_and_ids_are_stable():
     sources = [source('findings', 'f'), source('least_privilege', 'lp', confirmed=False),
                source('privesc_edges', 'e', confirmed=False), source('actions', '1', confirmed=False)]
-    result = compiler.validate(report([issue([('findings', 'f'), ('actions', '1')]),
-        issue([('least_privilege', 'lp')], kind='hardening', status='needs_review')],
+    result = compiler.validate(report([issue([('findings', 'f'), ('actions', '1'), ('least_privilege', 'lp')])],
         [dict(reference=dict(domain='privesc_edges', id='e'), reason='No current grant supports the reported relationship; the required permission is absent in the captured policy and no data access is indicated.')]), sources)
     assert result['covered_count'] == result['source_count'] == 4
     assert result['issues'][0]['id'].startswith('report-')
@@ -104,7 +103,7 @@ def test_assessment_report_workspace_excludes_nonfail_checks_and_inherited_text(
     statuses = ('FAIL', 'MANUAL', 'UNKNOWN', 'DENIED', 'PASS')
     rows = [dict(id=status.lower(), category='hardening', status=status, resource_id='bucket',
                  check_id=f'example-{status.lower()}') for status in statuses]
-    prior = dict(issue([('findings', 'fail'), ('findings', 'manual')]), id='old',
+    prior = dict(issue([('findings', 'fail')]), id='old',
                  description='Unverified cross-account retention.')
     platform = {
         'report': {'findings': rows, 'coverage': [{'check_id': rows[0]['check_id'], 'status': 'DENIED'}]},
@@ -124,6 +123,13 @@ def test_assessment_report_workspace_excludes_nonfail_checks_and_inherited_text(
     assert {row['id'] for row in json.loads((tmp_path / 'report-sources.json').read_text())} == {'1', 'fail'}
     assert [row['rank'] for row in json.loads((tmp_path / 'top-actions.json').read_text())] == [1]
     assert json.loads((tmp_path / 'report-draft.json').read_text())['issues'] == {}
+    sources = compiler.source_index(platform)
+    current = issue([('findings', 'fail'), ('actions', '1')])
+    previous = dict(current, id='old', description=prior['description'])
+    completed = compiler.complete(report([current]), sources, compiler.pregenerate(platform, sources),
+                                  {'issues': [previous]})
+    assert completed['issues'][0]['id'] == 'old'
+    assert completed['issues'][0]['description'] == current['description']
     with pytest.raises(ValueError, match='unknown_report_reference'):
         compiler.validate(report([issue([('findings', 'fail'), ('findings', 'manual')])]),
                           compiler.source_index(platform))
@@ -148,15 +154,20 @@ def test_permission_recommendations_survive_individual_and_combined_compilation(
     }}])
     inputs = []
     for provider, projection, principal in [('aws', aws, arn), ('gcp', gcp, member)]:
-        platform = {'report': {'provider': provider}, 'least_privilege': projection}
+        failed = dict(id='failed', status='FAIL', check_id='test.broad_access', resource_id=principal)
+        platform = {'report': {'provider': provider, 'findings': [failed]}, 'least_privilege': projection}
         sources = compiler.source_index(platform)
         ref = ('least_privilege', principal)
         excluded = report(exclusions=[{'reference': dict(zip(('domain', 'id'), ref)),
             'reason': 'This observation is not security relevant according to the owner because this role has no access to the scoped workload.'}])
-        assert compiler.validate(excluded, sources)['covered_count'] == 1
-        choices = sources[0]['permission_recommendations']
+        excluded['issues'] = [issue([('findings', 'failed')])]
+        assert compiler.validate(excluded, sources)['covered_count'] == 2
+        choices = next(row['permission_recommendations'] for row in sources if row['domain'] == 'least_privilege')
         assert {item['value'] for item in choices} == ({'iam:CreateAccessKey', 'iam:PutRolePolicy'} if provider == 'aws' else {'roles/editor'})
-        draft = issue([ref], kind='hardening', status='needs_review')
+        standalone = issue([ref], kind='hardening', status='needs_review')
+        with pytest.raises(ValueError, match='unconfirmed_report_issue'):
+            compiler.validate(report([standalone]), sources)
+        draft = issue([('findings', 'failed'), ref], kind='hardening')
         draft['permission_review_ids'] = ['PR-111111111111']
         with pytest.raises(ValueError, match='unknown_or_duplicate_permission_review'):
             compiler.validate(report([draft]), sources)
@@ -166,12 +177,12 @@ def test_permission_recommendations_survive_individual_and_combined_compilation(
         workspace.mkdir()
         compiler.build(workspace, platform, [], [], output_validation.private_file)
         worker_sources = output_validation.context('findings_report', workspace)
-        assert 'permission_recommendations' not in worker_sources[0]
+        assert all('permission_recommendations' not in row for row in worker_sources)
         output_validation.validate('findings_report', report([draft]), worker_sources)
         final = compiler.complete(report([draft]), sources, compiler.pregenerate(platform, sources))
         [compiled] = final['issues']
         inputs.append({'scan_id': provider, 'issues': [compiled]})
-    combined_issue = issue([], kind='hardening', status='needs_review')
+    combined_issue = issue([], kind='hardening')
     combined_issue['references'] = [{'report_id': item['scan_id'], 'issue_id': item['issues'][0]['id']} for item in inputs]
     merged = combined_reports.validate({'summary': 'Scoped access review.', 'issues': [combined_issue], 'limitations': []}, inputs)
     aws_hint, gcp_hint = merged['issues'][0]['permission_recommendations']
@@ -533,7 +544,7 @@ def test_draft_source_aliases_coverage_and_assets(tmp_path):
     result = compiler.complete(candidate, sources, compiler.pregenerate(platform, sources), prior)
     assert result['covered_count'] == 4
     [compiled] = result['issues']
-    assert compiled['id'] == 'prior-issue'
+    assert compiled['id'] == compiler._issue_id(compiled['references'])
     assert compiled['affected_assets'] == ['disk/production', 'identity/worker', 'workload']
     assert compiled['manual_affected_assets'] == ['manual/asset']
 

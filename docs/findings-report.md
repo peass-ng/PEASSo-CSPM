@@ -16,8 +16,8 @@ The local context contains only FAIL check results. It also supplies actionable
 least-privilege recommendations, privilege-escalation paths and prioritized
 actions supported exclusively by FAIL results. Resource configuration and
 IAM/network relationships are limited to explicit references and two dependency
-hops around assigned evidence. Regeneration rebuilds draft issues whose
-references include checks outside the current input.
+hops around assigned evidence. Regeneration writes fresh issue text from current evidence and preserves issue
+IDs when the confirmed reference sets match.
 The opening overview previews at most 12 cases per area; full case membership and
 evidence are indexed for targeted, paginated access. Findings are grouped by
 root cause and remediation, independently of the prioritized actions limit.
@@ -38,7 +38,8 @@ appended to those findings by the platform.
 The prompt explicitly groups encryption observations into one finding, logging
 and monitoring gaps into one, and backup and recovery gaps into one, with exact
 resource-specific observations and fixes inside each theme. Suggestions and
-conditional graph paths cannot alone support a confirmed issue. General
+conditional graph paths can support an issue backed by a failed check. Combined
+reports include only confirmed issues from their source reports. General
 preventive hardening is informational.
 
 Medium and higher vulnerability ratings require a structured consequence,

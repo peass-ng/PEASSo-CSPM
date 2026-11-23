@@ -130,7 +130,7 @@ export function LeastPrivilege({ scanId, demo }: { scanId: string; demo: boolean
         </select>
         <TableDownload table={`least-privilege-${groupBy}`} label="least privilege results"
           disabled={!scanId || page.isPending || !!page.error}
-          loadRows={signal => requestTableRows<Principal | GrantGroup>(accessPath, "items", 100, signal, demo)} />
+          loadRows={signal => requestTableRows<Principal | GrantGroup>(accessPath, "items", 500, signal, demo)} />
       </div>
       {!scanId ? <State empty title="Select a scan to review identities" /> :
         <State loading={page.isPending} error={page.error} onRetry={() => void page.refetch()}>
